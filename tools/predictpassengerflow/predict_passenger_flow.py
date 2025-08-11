@@ -214,7 +214,7 @@ def process_schedule_dates(schedule_data):
         ]
 
     schedule_data['single_trip_duration'] = np.clip(schedule_data['single_trip_duration'], 5, 60)
-    schedule_data['single_trip_duration'] = schedule_data['single_trip_duration'].fillna(10)
+    schedule_data['single_trip_duration'] = schedule_data['single_trip_duration'].fillna(10).astype(int)
 
     invalid_count = schedule_data['plan_departure_time'].isna().sum()
     if invalid_count > 0:
@@ -291,34 +291,39 @@ def preprocess_data(trade_data, broadcast_data, schedule_data, weather_data, tim
     broadcast_data.dropna(subset=['channel'], inplace=True)
     logger.info("无效通道 - 交易: %d, 报站: %d", trade_data['channel'].isna().sum(), broadcast_data['channel'].isna().sum())
 
-    # 客流聚合
-    trade_flow = trade_data.groupby(['time_slot', 'channel']).size().reset_index(name='total_flow')
+    # 客流聚合，确保整数
+    trade_flow = trade_data.groupby(['time_slot', 'channel']).size().reset_index(name='total_flow')  # size 返回 int
     broadcast_flow = broadcast_data.groupby(['time_slot', 'channel']).agg({
         'board_amount': 'sum',
         'off_amount': 'sum'
     }).reset_index()
-    broadcast_flow['total_flow'] = broadcast_flow['board_amount'] + broadcast_flow['off_amount']
+    broadcast_flow['total_flow'] = (broadcast_flow['board_amount'] + broadcast_flow['off_amount']).astype(int)
     flow_data = trade_flow.merge(
         broadcast_flow[['time_slot', 'channel', 'total_flow']],
         on=['time_slot', 'channel'],
         how='outer',
         suffixes=('_trade', '_broadcast')
     )
-    flow_data['total_flow'] = flow_data['total_flow_trade'].combine_first(flow_data['total_flow_broadcast'])
+    flow_data['total_flow'] = flow_data['total_flow_trade'].combine_first(flow_data['total_flow_broadcast']).astype(int)
     flow_data.drop(['total_flow_trade', 'total_flow_broadcast'], axis=1, inplace=True)
     logger.info("合并客流数据记录数: %d", len(flow_data))
 
-    # 异常值处理（Winsorizing）
-    Q1 = flow_data['total_flow'].quantile(0.05)
-    Q3 = flow_data['total_flow'].quantile(0.95)
-    flow_data['total_flow'] = np.clip(flow_data['total_flow'], Q1, Q3)
-    logger.info("客流异常值处理完成，Winsorizing范围: [%.2f, %.2f]", Q1, Q3)
+    # 异常值处理（优化 Winsorizing：用 0.01/0.99 quantile，并添加绝对上限）
+    Q1 = flow_data['total_flow'].quantile(0.01)
+    Q3 = flow_data['total_flow'].quantile(0.99)
+    logger.info("客流 Winsorizing 前分布: %s", flow_data['total_flow'].describe())
+    logger.info("Q1: %.2f, Q3: %.2f", Q1, Q3)
+    flow_data['total_flow'] = np.clip(flow_data['total_flow'], Q1, min(Q3, 500))  # 绝对上限 500，基于公交容量
+    flow_data['total_flow'] = np.round(flow_data['total_flow']).astype(int)
+    logger.info("客流异常值处理完成，Winsorizing 范围: [%.2f, %.2f]", Q1, min(Q3, 500))
+    logger.info("客流 Winsorizing 后分布: %s", flow_data['total_flow'].describe())
 
-    # 检查零值比例
+    # 检查零值和高值比例
     for channel in ['C1', 'C2', 'C3', 'C4', 'C5']:
         channel_flow = flow_data[flow_data['channel'] == channel]['total_flow']
         zero_ratio = (channel_flow == 0).mean() if not channel_flow.empty else 1.0
-        logger.info("通道 %s 零值比例: %.2f%%", channel, zero_ratio * 100)
+        high_ratio = (channel_flow > 200).mean() if not channel_flow.empty else 0.0
+        logger.info("通道 %s 零值比例: %.2f%%, 高值 (>200) 比例: %.2f%%", channel, zero_ratio * 100, high_ratio * 100)
 
     # 调度特征
     if schedule_data.empty:
@@ -331,8 +336,8 @@ def preprocess_data(trade_data, broadcast_data, schedule_data, weather_data, tim
     else:
         dispatch_count = schedule_data.groupby(['time_slot', 'channel']).size().reset_index(name='dispatch_count')
         schedule_data = schedule_data.merge(dispatch_count, on=['time_slot', 'channel'], how='left')
-        schedule_data['dispatch_count'] = schedule_data['dispatch_count'].fillna(1)
-        schedule_data['single_trip_duration'] = schedule_data['single_trip_duration'].fillna(10)
+        schedule_data['dispatch_count'] = schedule_data['dispatch_count'].fillna(1).astype(int)
+        schedule_data['single_trip_duration'] = schedule_data['single_trip_duration'].fillna(10).astype(int)
 
     # 时间特征
     flow_data['hour'] = flow_data['time_slot'].dt.hour
@@ -358,7 +363,7 @@ def preprocess_data(trade_data, broadcast_data, schedule_data, weather_data, tim
     logger.info("天气数据列: %s", weather_data.columns.tolist())
     logger.info("降雨分类分布: %s", weather_data['rain_category'].value_counts().to_dict())
 
-    enc = OneHotEncoder(sparse=False, handle_unknown='ignore')
+    enc = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
     rain_encoded = enc.fit_transform(weather_data[['rain_category']].fillna('no_rain'))
     rain_df = pd.DataFrame(rain_encoded, columns=enc.get_feature_names_out(['rain_category']))
     weather_data = pd.concat([weather_data, rain_df], axis=1)
@@ -377,9 +382,10 @@ def preprocess_data(trade_data, broadcast_data, schedule_data, weather_data, tim
         how='left'
     )
 
-    # 添加滞后特征
+    # 添加滞后特征，确保整数
     for lag in [1, 2]:
         data[f'lag_flow_{lag}'] = data.groupby('channel')['total_flow'].shift(lag)
+        data[f'lag_flow_{lag}'] = data[f'lag_flow_{lag}'].fillna(data['total_flow'].mean()).astype(int)
 
     # 填充缺失值
     for column in data.columns:
@@ -461,7 +467,7 @@ def train_and_save_models(data, features, window_days):
             models[channel] = XGBRegressor(n_estimators=200, max_depth=5, learning_rate=0.05, random_state=42)
             models[channel].fit(X_train, y_train)
             joblib.dump(models[channel], os.path.join(CONFIG['model_dir'], f'model_{channel}.pkl'))
-            logger.info("模型训练并保存总耗时: %.2f秒", time.time() - start_time)
+    logger.info("模型训练并保存总耗时: %.2f秒", time.time() - start_time)
     return models
 
 # 加载模型
@@ -509,7 +515,7 @@ def predict_and_validate(data, scaler, enc, weather_data, window_days, time_gran
                 y_valid = valid_channel_data['total_flow'].values
                 model = models.get(channel, XGBRegressor(n_estimators=100, max_depth=4, learning_rate=0.1, random_state=42))
                 y_pred = model.predict(X_valid)
-                y_pred = np.clip(np.round(y_pred), 0, None)
+                y_pred = np.clip(np.round(y_pred), 0, None).astype(int)
                 valid_channel_data['predicted_flow'] = y_pred
                 valid_channel_data['actual_flow'] = y_valid
                 valid_results.append(valid_channel_data[['time_slot', 'channel', 'actual_flow', 'predicted_flow']])

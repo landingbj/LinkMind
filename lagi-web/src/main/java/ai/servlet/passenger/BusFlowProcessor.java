@@ -112,18 +112,26 @@ public class BusFlowProcessor extends HttpServlet {
                     record.setStationIdOn(getCurrentStationId(busNo)); // TODO: 从公交云获取上车站点ID
                     record.setStationNameOn(getCurrentStationName(busNo)); // TODO: 从公交云获取上车站点名称
                     record.setUpCount(1);
+                    // 存储特征向量与上车站点的映射到 Redis
+                    cacheFeatureStationMapping(jedis, feature, record.getStationIdOn(), record.getStationNameOn());
                 } else {
                     downCount++;
                     record.setStationIdOff(getCurrentStationId(busNo)); // TODO: 从公交云获取下车站点ID
                     record.setStationNameOff(getCurrentStationName(busNo)); // TODO: 从公交云获取下车站点名称
                     record.setDownCount(1);
 
-                    // TODO: CV 团队实现特征向量匹配接口
+                    // TODO: 调用 CV 团队的特征向量匹配接口
                     float similarity = matchPassengerFeature(feature, busNo);
                     if (similarity > 0.8) { // 假设相似度阈值为 0.8
-                        String onStation = getOnStationFromFeature(feature); // TODO: 从向量数据库查询上车站点
-                        record.setStationIdOn(onStation);
-                        record.setStationNameOn(getStationNameById(onStation));
+                        // 从 Redis 查询匹配的上车站点
+                        JSONObject onStationInfo = getOnStationFromCache(jedis, feature);
+                        if (onStationInfo != null) {
+                            record.setStationIdOn(onStationInfo.getString("stationId"));
+                            record.setStationNameOn(onStationInfo.getString("stationName"));
+                        } else {
+                            // 未找到匹配的上车记录，记录日志
+                            System.err.println("No matching on-station found for feature: " + feature);
+                        }
                     }
                 }
 
@@ -331,11 +339,6 @@ public class BusFlowProcessor extends HttpServlet {
         return "Station Name";
     }
 
-    private String getOnStationFromFeature(String feature) {
-        // TODO: 从向量数据库查询上车站点
-        return "STATION_001";
-    }
-
     private String getStationNameById(String stationId) {
         // TODO: 根据站点ID获取站点名称
         return "Station Name";
@@ -343,6 +346,23 @@ public class BusFlowProcessor extends HttpServlet {
 
     private void sendToKafka(Object data) {
         // TODO: 实现 Kafka 发送逻辑
+    }
+
+    // 存储特征向量与上车站点的映射
+    private void cacheFeatureStationMapping(Jedis jedis, String feature, String stationId, String stationName) throws IOException {
+        JSONObject mapping = new JSONObject();
+        mapping.put("stationId", stationId);
+        mapping.put("stationName", stationName);
+        jedis.set("feature_station:" + feature, mapping.toString());
+    }
+
+    // 从 Redis 查询上车站点
+    private JSONObject getOnStationFromCache(Jedis jedis, String feature) {
+        String mappingJson = jedis.get("feature_station:" + feature);
+        if (mappingJson != null) {
+            return new JSONObject(mappingJson);
+        }
+        return null;
     }
 
     @Override

@@ -1,5 +1,6 @@
 package ai.servlet.passenger;
 
+import ai.servlet.BaseServlet;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.http.HttpEntity;
 import org.apache.http.client.methods.CloseableHttpResponse;
@@ -32,7 +33,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
 @WebServlet(urlPatterns = "/processor", loadOnStartup = 1)
-public class BusFlowProcessor extends HttpServlet {
+public class BusFlowProcessor extends BaseServlet {
     private static final long serialVersionUID = 1L;
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private WebSocketContainer container;

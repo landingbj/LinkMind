@@ -363,7 +363,7 @@ def preprocess_data(trade_data, broadcast_data, schedule_data, weather_data, tim
     logger.info("天气数据列: %s", weather_data.columns.tolist())
     logger.info("降雨分类分布: %s", weather_data['rain_category'].value_counts().to_dict())
 
-    enc = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
+    enc = OneHotEncoder(sparse=False, handle_unknown='ignore')
     rain_encoded = enc.fit_transform(weather_data[['rain_category']].fillna('no_rain'))
     rain_df = pd.DataFrame(rain_encoded, columns=enc.get_feature_names_out(['rain_category']))
     weather_data = pd.concat([weather_data, rain_df], axis=1)

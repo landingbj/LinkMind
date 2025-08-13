@@ -1,77 +1,60 @@
 package ai.servlet.passenger;
 
+import org.java_websocket.client.WebSocketClient;
+import org.java_websocket.handshake.ServerHandshake;
 import org.json.JSONObject;
-import javax.websocket.ClientEndpoint;
-import javax.websocket.CloseReason;
-import javax.websocket.OnClose;
-import javax.websocket.OnMessage;
-import javax.websocket.OnOpen;
-import javax.websocket.Session;
-import java.io.IOException;
+
+import java.net.URI;
 import java.time.LocalDateTime;
-import java.util.concurrent.atomic.AtomicReference;
 
-@ClientEndpoint
-public class WsClientHandler {
-    private static final AtomicReference<Session> sessionRef = new AtomicReference<>();
-    private final BusFlowProcessor processorServlet;
+public class WsClientHandler extends WebSocketClient {
 
-    public WsClientHandler(BusFlowProcessor processorServlet) {
-        this.processorServlet = processorServlet;
+    public WsClientHandler() throws Exception {
+        super(new URI(Config.CV_WEBSOCKET_URI));
     }
 
-    @OnOpen
-    public void onOpen(Session session) {
-        System.out.println("WebSocket connection opened with CV system.");
-        sessionRef.set(session);
+    @Override
+    public void onOpen(ServerHandshake handshakedata) {
+        System.out.println("WebSocket connected");
     }
 
-    @OnMessage
-    public void onMessage(String message, Session session) {
-        System.out.println("Received message from CV system: " + message);
-        try {
-            JSONObject jsonMessage = new JSONObject(message);
-            String event = jsonMessage.getString("event");
-
-            switch (event) {
-                case "downup":
-                    processorServlet.handleDownUpEvent(jsonMessage.getJSONObject("data"));
-                    break;
-                case "notify_pull_file":
-                    JSONObject data = jsonMessage.getJSONObject("data");
-                    String busNo = data.getString("bus_no");
-                    String cameraNo = data.getString("camera_no");
-                    String timestampBeginStr = data.getString("timestamp_begin");
-                    String timestampEndStr = data.getString("timestamp_end");
-                    String fileUrl = data.getString("fileurl");
-                    LocalDateTime timestampBegin = LocalDateTime.parse(timestampBeginStr);
-                    LocalDateTime timestampEnd = LocalDateTime.parse(timestampEndStr);
-                    processorServlet.processFinalData(busNo, cameraNo, timestampBegin, timestampEnd, fileUrl);
-                    break;
-                default:
-                    System.out.println("Unknown event type: " + event);
-            }
-        } catch (Exception e) {
-            System.err.println("Error processing WebSocket message: " + e.getMessage());
-        }
+    @Override
+    public void onMessage(String message) {
+        // 接收 CV 系统推送的消息，交由 Servlet 处理
+        System.out.println("Received message: " + message);
     }
 
-    @OnClose
-    public void onClose(Session session, CloseReason closeReason) {
-        System.out.println("WebSocket connection closed. Reason: " + closeReason.getReasonPhrase());
-        sessionRef.set(null);
+    @Override
+    public void onClose(int code, String reason, boolean remote) {
+        System.out.println("WebSocket closed: " + reason);
     }
 
-    public static Session getSession() {
-        return sessionRef.get();
+    @Override
+    public void onError(Exception ex) {
+        ex.printStackTrace();
     }
 
-    public void sendMessage(String message) throws IOException {
-        Session session = getSession();
-        if (session != null && session.isOpen()) {
-            session.getBasicRemote().sendText(message);
-        } else {
-            throw new IOException("WebSocket session is not open. Message not sent.");
-        }
+    public void sendOpenDoorSignal(String busNo, String cameraNo, LocalDateTime timestamp) {
+        JSONObject message = new JSONObject();
+        message.put("event", "open_door");
+        JSONObject data = new JSONObject();
+        data.put("bus_no", busNo);
+        data.put("camera_no", cameraNo);
+        data.put("action", "open");
+        data.put("timestamp", timestamp.toString().replace("T", " "));
+        message.put("data", data);
+        send(message.toString());
+    }
+
+    public void sendCloseDoorSignal(String busNo, String cameraNo, LocalDateTime timestamp) {
+        JSONObject message = new JSONObject();
+        message.put("event", "close_door");
+        JSONObject data = new JSONObject();
+        data.put("bus_no", busNo);
+        data.put("camera_no", cameraNo);
+        data.put("action", "close");
+        data.put("timestamp", timestamp.toString().replace("T", " "));
+        message.put("data", data);
+        send(message.toString());
     }
 }

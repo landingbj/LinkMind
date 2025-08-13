@@ -8,14 +8,17 @@ import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 import org.json.JSONObject;
+
 import java.io.File;
 import java.io.IOException;
 
 public class OssUtil {
+
     public static String uploadFile(File file, String fileName) throws IOException {
         String url = Config.OSS_UPLOAD_URL;
         try (CloseableHttpClient httpclient = HttpClients.createDefault()) {
             HttpPost httppost = new HttpPost(url);
+
             HttpEntity reqEntity = MultipartEntityBuilder.create()
                     .addBinaryBody("file", file)
                     .addTextBody("fileName", fileName)
@@ -38,6 +41,6 @@ public class OssUtil {
                 }
             }
         }
-        throw new IOException("Failed to upload file to OSS");
+        return null;
     }
 }

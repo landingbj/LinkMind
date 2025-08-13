@@ -356,4 +356,15 @@
         <servlet-name>ZhipuModelServlet</servlet-name>
         <url-pattern>/agent/*</url-pattern>
     </servlet-mapping>
+
+    <servlet>
+        <servlet-name>BusFlowProcessor</servlet-name>
+        <servlet-class>ai.servlet.passenger.BusFlowProcessor</servlet-class>
+        <load-on-startup>1</load-on-startup>
+    </servlet>
+
+    <servlet-mapping>
+        <servlet-name>BusFlowProcessor</servlet-name>
+        <url-pattern>/processor</url-pattern>
+    </servlet-mapping>
 </web-app>

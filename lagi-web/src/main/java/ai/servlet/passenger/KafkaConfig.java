@@ -19,7 +19,19 @@ public class KafkaConfig {
     // 开关门状态主题
     public static final String DOOR_STATUS_TOPIC = "door_status_topic";
 
-    // 乘客流量主题
+    // GPS主题
+    public static final String GPS_TOPIC = "gps_topic";
+
+    // 到离站主题
+    public static final String ARRIVE_LEAVE_TOPIC = "arrive_leave_topic";
+
+    // 路单主题
+    public static final String ROAD_SHEET_TOPIC = "road_sheet_topic";
+
+    // 票务主题（刷卡数据）
+    public static final String TICKET_TOPIC = "ticket_topic";
+
+    // 乘客流量主题（输出结果）
     public static final String PASSENGER_FLOW_TOPIC = "passenger_flow_topic";
 
     // 消费者组ID

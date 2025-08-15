@@ -27,6 +27,9 @@ public class BusOdRecord {
     /** 公交车编号 */
     private String busNo;
 
+    /** 车辆ID (新增，从Kafka获取) */
+    private Long busId;
+
     /** 摄像头编号 */
     private String cameraNo;
 

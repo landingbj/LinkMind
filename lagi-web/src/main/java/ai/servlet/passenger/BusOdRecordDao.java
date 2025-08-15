@@ -10,8 +10,8 @@ public class BusOdRecordDao {
                 "line_id, direction, trip_no, station_id_on, station_name_on, station_id_off, " +
                 "station_name_off, passenger_vector, up_count, down_count, gps_lat, gps_lng, " +
                 "counting_image, passenger_position, full_load_rate, feature_description, " +
-                "total_count, ticket_count, data_source, created_at) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                "total_count, ticket_count, data_source, created_at, bus_id) " +  // 添加bus_id
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         try (Connection conn = DriverManager.getConnection(Config.getDbUrl(), Config.getDbUser(), Config.getDbPassword());
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
@@ -40,6 +40,7 @@ public class BusOdRecordDao {
             pstmt.setObject(23, record.getTicketCount(), java.sql.Types.INTEGER);
             pstmt.setString(24, record.getDataSource());
             pstmt.setTimestamp(25, Timestamp.valueOf(LocalDateTime.now()));
+            pstmt.setLong(26, record.getBusId() != null ? record.getBusId() : 0L);  // 新增bus_id
 
             pstmt.executeUpdate();
         }

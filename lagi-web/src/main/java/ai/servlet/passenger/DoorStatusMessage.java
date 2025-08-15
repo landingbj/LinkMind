@@ -53,7 +53,7 @@ public class DoorStatusMessage {
     public DoorStatusMessage() {}
 
     public DoorStatusMessage(String busSelfNo, Long busId, Integer door1OpenSts,
-                           Integer door3OpenSts, Integer door5LockSts, LocalDateTime time) {
+                             Integer door3OpenSts, Integer door5LockSts, LocalDateTime time) {
         this.busSelfNo = busSelfNo;
         this.busId = busId;
         this.door1OpenSts = door1OpenSts;
@@ -130,8 +130,8 @@ public class DoorStatusMessage {
      */
     public boolean hasOpenDoor() {
         return (door1OpenSts != null && door1OpenSts == 1) ||
-               (door3OpenSts != null && door3OpenSts == 1) ||
-               (door5LockSts != null && door5LockSts == 1);
+                (door3OpenSts != null && door3OpenSts == 1) ||
+                (door5LockSts != null && door5LockSts == 1);
     }
 
     /**
@@ -139,8 +139,8 @@ public class DoorStatusMessage {
      */
     public boolean hasErrorDoor() {
         return (door1OpenSts != null && door1OpenSts == 2) ||
-               (door3OpenSts != null && door3OpenSts == 2) ||
-               (door5LockSts != null && door5LockSts == 2);
+                (door3OpenSts != null && door3OpenSts == 2) ||
+                (door5LockSts != null && door5LockSts == 2);
     }
 
     @Override

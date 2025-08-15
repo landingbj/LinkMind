@@ -336,10 +336,10 @@ filters:
 
 gateway:
   local_ip: 127.0.0.1
-  local_port: 8082
+  local_port: 8081
   gateway_ip: 127.0.0.1
-  gateway_port: 8081
-  service_name: model-middleware-service
+  gateway_port: 8085
+  service_name: model-passengerflow-service
 
 
 zhipu_agents:

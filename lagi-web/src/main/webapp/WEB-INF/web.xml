@@ -358,10 +358,10 @@
     </servlet-mapping>
 
     <servlet>
-        <servlet-name>BusFlowProcessor</servlet-name>
-        <servlet-class>ai.servlet.passenger.BusFlowProcessor</servlet-class>
-        <load-on-startup>1</load-on-startup>
-    </servlet>
+    <servlet-name>BusFlowProcessor</servlet-name>
+    <servlet-class>ai.servlet.passenger.BusFlowProcessor</servlet-class>
+    <load-on-startup>1</load-on-startup>
+</servlet>
 
     <servlet-mapping>
         <servlet-name>BusFlowProcessor</servlet-name>

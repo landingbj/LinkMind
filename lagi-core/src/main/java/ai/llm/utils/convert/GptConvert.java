@@ -52,10 +52,10 @@ public class GptConvert {
             return null;
         }
         ChatCompletionResult result = gson.fromJson(body, ChatCompletionResult.class);
-        result.getChoices().forEach(choice -> {
-            choice.setMessage(choice.getDelta());
-            choice.setDelta(null);
-        });
+//        result.getChoices().forEach(choice -> {
+//            choice.setMessage(choice.getDelta());
+//            choice.setDelta(null);
+//        });
         return result;
     }
 }

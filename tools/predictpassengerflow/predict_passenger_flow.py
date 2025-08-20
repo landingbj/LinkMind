@@ -216,9 +216,9 @@ def fetch_route_service_times(route_ids):
         return {rid: '' for rid in route_ids}
 
 
-def parse_service_windows(service_time_str, target_date):
+def parse_service_windows(service_time_str, target_date, route_id=None):
     """解析 service_time 字段，返回当天的服务时间窗口列表[(start_dt, end_dt), ...]。
-    仅根据 '工作日' 与 '节假日双休日' 判定。其它标签(如 冬令时/定时班)不作为过滤条件。
+    优先根据 '工作日' 与 '节假日双休日' 判定，如果没有匹配标签则使用其他可用标签作为兜底。
     """
     logger.debug("开始解析服务时间: %s, 目标日期: %s", service_time_str[:100] + "..." if len(service_time_str) > 100 else service_time_str, target_date)
     if not service_time_str:
@@ -233,6 +233,8 @@ def parse_service_windows(service_time_str, target_date):
     # 示例片段: 下行(冬令时-工作日-非定时班):07:00:00-17:30:00
     # 以 ';' 分段
     parts = [p.strip() for p in service_time_str.split(';') if p.strip()]
+    
+    # 第一轮：尝试匹配期望的日期类型标签
     for part in parts:
         try:
             # 抽取括号内标签与时间段
@@ -262,6 +264,33 @@ def parse_service_windows(service_time_str, target_date):
             logger.debug("解析服务时间片段失败: %s", part)
             continue
 
+    # 第二轮：如果没有找到匹配的标签，使用其他可用标签作为兜底
+    if not windows:
+        logger.warning("线路 %s 没有 %s 标签，尝试使用其他可用标签作为兜底", route_id or "未知", expected_flag)
+        for part in parts:
+            try:
+                m = re.search(r"\((.*?)\)\s*:\s*([0-9]{2}:[0-9]{2}:[0-9]{2})\s*-\s*([0-9]{2}:[0-9]{2}:[0-9]{2})", part)
+                if not m:
+                    continue
+                flags = m.group(1)
+                start_str = m.group(2)
+                end_str = m.group(3)
+                
+                # 检查是否包含日期类型标签
+                if '工作日' in flags or '节假日双休日' in flags:
+                    start_dt = datetime.combine(target_date, datetime.strptime(start_str, '%H:%M:%S').time())
+                    end_dt = datetime.combine(target_date, datetime.strptime(end_str, '%H:%M:%S').time())
+                    
+                    # 若跨天，简单处理为截断至当天 23:59:59
+                    if end_dt <= start_dt:
+                        end_dt = end_dt + timedelta(days=1)
+                    
+                    windows.append((start_dt, end_dt))
+                    logger.debug("兜底解析服务时间窗口: %s - %s (使用标签: %s)", start_dt, end_dt, flags)
+            except Exception:
+                logger.debug("兜底解析服务时间片段失败: %s", part)
+                continue
+
     logger.debug("解析完成，共 %d 个服务时间窗口", len(windows))
     return windows
 
@@ -280,7 +309,7 @@ def build_channel_service_windows(route_service_times):
         logger.info("处理通道 %s，包含线路: %s", channel, route_ids)
         for rid in route_ids:
             service_str = route_service_times.get(rid, '')
-            windows = parse_service_windows(service_str, today)
+            windows = parse_service_windows(service_str, today, rid)
             logger.info("线路 %s 解析出 %d 个服务窗口", rid, len(windows))
             channel_windows[channel].extend(windows)
     # 合并重叠窗口（简单按开始时间排序后线性合并）

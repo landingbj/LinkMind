@@ -68,10 +68,10 @@ public class KafkaConsumerService {
                 return;
             }
 
-            // 从数据库加载
+            // 从数据库加载（修正为4个占位符）
             String sql = "SELECT stop_id, stop_coord_wgs84_lat, stop_coord_wgs84_lng " +
                     "FROM ods.route_stop " +
-                    "WHERE route_id IN (?,?,?,?,?) AND biz_date = (SELECT MAX(biz_date) FROM ods.route_stop) " +
+                    "WHERE route_id IN (?,?,?,?) AND biz_date = (SELECT MAX(biz_date) FROM ods.route_stop) " +
                     "AND stop_coord_wgs84_lat IS NOT NULL AND stop_coord_wgs84_lng IS NOT NULL";
             try (Connection conn = DriverManager.getConnection(Config.getDbUrl(), Config.getDbUser(), Config.getDbPassword());
                  PreparedStatement pstmt = conn.prepareStatement(sql)) {
@@ -311,18 +311,19 @@ public class KafkaConsumerService {
 
         // 获取站点GPS
         double[] stationGps = stationGpsMap.getOrDefault(stationId, null);
-        if (stationGps == null) {
-            System.err.println("[KafkaConsumerService] No GPS data for station: " + stationId);
-            return;
+        boolean hasStationGps = stationGps != null;
+        double distance = Double.MAX_VALUE;
+        if (hasStationGps) {
+            distance = calculateDistance(busLat, busLng, stationGps[0], stationGps[1]);
+        } else {
+            System.err.println("[KafkaConsumerService] No GPS data for station: " + stationId + ", will judge door only by arrive/leave and door status");
         }
-
-        double distance = calculateDistance(busLat, busLng, stationGps[0], stationGps[1]);
 
         // 判断开门（优先报站 > GPS）
         boolean shouldOpen = false;
         if ("1".equals(arriveLeave.optString("isArriveOrLeft"))) {
             shouldOpen = true; // 报站到站
-        } else if (distance < 50 && speed < 1) { // GPS电子围栏 <50米且速度<1m/s
+        } else if (hasStationGps && distance < 50 && speed < 1) { // GPS电子围栏 <50米且速度<1m/s
             shouldOpen = true;
         } else if (doorStatus != null && doorStatus.hasOpenDoor()) {
             shouldOpen = true; // 门状态打开
@@ -332,7 +333,7 @@ public class KafkaConsumerService {
         boolean shouldClose = false;
         if ("2".equals(arriveLeave.optString("isArriveOrLeft"))) {
             shouldClose = true; // 报站离站
-        } else if (distance > 30 || speed > 10 / 3.6) { // >30米或速度>10km/h (m/s)
+        } else if (hasStationGps && (distance > 30 || speed > 10 / 3.6)) { // >30米或速度>10km/h (m/s)
             shouldClose = true;
         } else if (doorStatus != null && !doorStatus.hasOpenDoor()) {
             shouldClose = true; // 门状态关闭

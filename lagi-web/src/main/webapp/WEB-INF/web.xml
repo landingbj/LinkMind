@@ -2,12 +2,17 @@
 <web-app version="3.0" xmlns="http://java.sun.com/xml/ns/javaee"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://java.sun.com/xml/ns/javaee http://java.sun.com/xml/ns/javaee/web-app_3_0.xsd"
-         metadata-complete="true">
+         metadata-complete="false">
 
     <context-param>
         <param-name>version</param-name>
         <param-value>2401020054</param-value>
     </context-param>
+
+    <!-- 添加WebListener配置 -->
+    <listener>
+        <listener-class>ai.servlet.passenger.SimpleStartupListener</listener-class>
+    </listener>
 
     <welcome-file-list>
         <welcome-file>chat.jsp</welcome-file>

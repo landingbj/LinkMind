@@ -1,4 +1,5 @@
 import logging
+import re
 import psycopg2
 import psycopg2.extras
 import pandas as pd
@@ -30,7 +31,8 @@ CONFIG = {
         'password': 'gj_dw_r1',
         'database': 'GJ_DW'
     },
-    'model_dir': '/home/server/models'
+    'model_dir': '/home/server/models',
+    'service_end_buffer_minutes': 15
 }
 
 # 初始化 Flask 应用
@@ -67,6 +69,214 @@ CHANNEL_NAME_MAPPING = {
     'C4': "'7路'",
     'C5': "'龙翔桥至灵隐专线'"
 }
+
+# 通道索引（与实时表 inboundcount1..5 / outboundcount1..5 对应）
+CHANNEL_INDEX = {
+    'C1': 1,
+    'C2': 2,
+    'C3': 3,
+    'C4': 4,
+    'C5': 5
+}
+
+# ----------------------------
+# 实时客流与服务时间辅助方法
+# ----------------------------
+
+def _parse_pf_current_time(value):
+    """解析 ads.passenger_flow.current_time，支持仅有时间字符串如 '20:57:49 +0800'。"""
+    if not value:
+        return None
+    try:
+        # 仅时间(可带时区)的情况，补上今天日期
+        if isinstance(value, str) and re.match(r"^\d{2}:\d{2}:\d{2}(?:\s*[+-]\d{4})?$", value.strip()):
+            today = datetime.now().date()
+            # 去掉时区标识，仅用本地时区
+            time_part = value.strip().split()[0]
+            t = datetime.strptime(time_part, '%H:%M:%S').time()
+            return datetime.combine(today, t)
+        return pd.to_datetime(value)
+    except Exception:
+        return None
+
+
+def fetch_latest_passenger_flow():
+    """获取实时表 ads.passenger_flow 最新两条记录，计算每通道增量。
+    返回: {
+        'current_time': datetime | None,
+        'inbound': {'C1': int, ...},
+        'outbound': {'C1': int, ...},
+        'recent_increment': {'C1': int, ...}
+    }，获取失败时返回默认0。
+    """
+    try:
+        conn = psycopg2.connect(**CONFIG['db_config'])
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        cursor.execute("""
+            SELECT id, station_no, current_time,
+                   inboundcount1, inboundcount2, inboundcount3, inboundcount4, inboundcount5,
+                   outboundcount1, outboundcount2, outboundcount3, outboundcount4, outboundcount5
+            FROM ads.passenger_flow
+            ORDER BY id DESC
+            LIMIT 2
+        """)
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        if not rows:
+            return {
+                'current_time': None,
+                'inbound': {ch: 0 for ch in CHANNEL_INDEX.keys()},
+                'outbound': {ch: 0 for ch in CHANNEL_INDEX.keys()},
+                'recent_increment': {ch: 0 for ch in CHANNEL_INDEX.keys()}
+            }
+
+        latest = rows[0]
+        prev = rows[1] if len(rows) > 1 else None
+
+        current_dt = _parse_pf_current_time(latest.get('current_time'))
+
+        inbound_latest = {}
+        outbound_latest = {}
+        inbound_prev = {ch: 0 for ch in CHANNEL_INDEX.keys()}
+        outbound_prev = {ch: 0 for ch in CHANNEL_INDEX.keys()}
+        for ch, idx in CHANNEL_INDEX.items():
+            inbound_latest[ch] = int(latest.get(f'inboundcount{idx}', 0) or 0)
+            outbound_latest[ch] = int(latest.get(f'outboundcount{idx}', 0) or 0)
+            if prev is not None:
+                inbound_prev[ch] = int(prev.get(f'inboundcount{idx}', 0) or 0)
+                outbound_prev[ch] = int(prev.get(f'outboundcount{idx}', 0) or 0)
+
+        recent_increment = {}
+        for ch in CHANNEL_INDEX.keys():
+            inc = max(0, inbound_latest[ch] - inbound_prev[ch]) + max(0, outbound_latest[ch] - outbound_prev[ch])
+            recent_increment[ch] = inc
+
+        return {
+            'current_time': current_dt,
+            'inbound': inbound_latest,
+            'outbound': outbound_latest,
+            'recent_increment': recent_increment
+        }
+    except Exception as e:
+        logger.error("获取实时客流失败: %s", str(e))
+        return {
+            'current_time': None,
+            'inbound': {ch: 0 for ch in CHANNEL_INDEX.keys()},
+            'outbound': {ch: 0 for ch in CHANNEL_INDEX.keys()},
+            'recent_increment': {ch: 0 for ch in CHANNEL_INDEX.keys()}
+        }
+
+
+def fetch_route_service_times(route_ids):
+    """从 ods.route_portrai 读取指定线路的 service_time。
+    返回: {route_id: service_time_str}
+    """
+    if not route_ids:
+        return {}
+    try:
+        conn = psycopg2.connect(**CONFIG['db_config'])
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        cursor.execute(
+            """
+            SELECT route_id, service_time
+            FROM ods.route_portrai
+            WHERE route_id = ANY(%s)
+            """,
+            (list(route_ids),)
+        )
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return {str(r['route_id']): (r['service_time'] or '') for r in rows}
+    except Exception as e:
+        logger.error("获取线路服务时间失败: %s", str(e))
+        return {rid: '' for rid in route_ids}
+
+
+def parse_service_windows(service_time_str, target_date):
+    """解析 service_time 字段，返回当天的服务时间窗口列表[(start_dt, end_dt), ...]。
+    仅根据 '工作日' 与 '节假日双休日' 判定。其它标签(如 冬令时/定时班)不作为过滤条件。
+    """
+    if not service_time_str:
+        return []
+
+    is_holiday_today = target_date in China(years=target_date.year) or target_date.weekday() >= 5
+    expected_flag = '节假日双休日' if is_holiday_today else '工作日'
+
+    windows = []
+    # 示例片段: 下行(冬令时-工作日-非定时班):07:00:00-17:30:00
+    # 以 ';' 分段
+    parts = [p.strip() for p in service_time_str.split(';') if p.strip()]
+    for part in parts:
+        try:
+            # 抽取括号内标签与时间段
+            # 方向(标签...):HH:MM:SS-HH:MM:SS
+            m = re.search(r"\((.*?)\)\s*:\s*([0-9]{2}:[0-9]{2}:[0-9]{2})\s*-\s*([0-9]{2}:[0-9]{2}:[0-9]{2})", part)
+            if not m:
+                continue
+            flags = m.group(1)  # 例如: 冬令时-工作日-非定时班
+            start_str = m.group(2)
+            end_str = m.group(3)
+
+            if expected_flag not in flags:
+                continue
+
+            start_dt = datetime.combine(target_date, datetime.strptime(start_str, '%H:%M:%S').time())
+            end_dt = datetime.combine(target_date, datetime.strptime(end_str, '%H:%M:%S').time())
+
+            # 若跨天，简单处理为截断至当天 23:59:59
+            if end_dt <= start_dt:
+                end_dt = end_dt + timedelta(days=1)
+
+            windows.append((start_dt, end_dt))
+        except Exception:
+            continue
+
+    return windows
+
+
+def build_channel_service_windows(route_service_times):
+    """根据线路 service_time 构建通道服务窗口合集。
+    route_service_times: {route_id: service_time_str}
+    返回: {channel: [(start_dt, end_dt), ...]}
+    """
+    today = datetime.now().date()
+    channel_windows = {ch: [] for ch in CHANNEL_MAPPING.keys()}
+    for channel, route_ids in CHANNEL_MAPPING.items():
+        for rid in route_ids:
+            service_str = route_service_times.get(rid, '')
+            windows = parse_service_windows(service_str, today)
+            channel_windows[channel].extend(windows)
+    # 合并重叠窗口（简单按开始时间排序后线性合并）
+    for ch in channel_windows:
+        intervals = sorted(channel_windows[ch], key=lambda x: x[0])
+        merged = []
+        for interval in intervals:
+            if not merged:
+                merged.append(list(interval))
+            else:
+                if interval[0] <= merged[-1][1]:
+                    merged[-1][1] = max(merged[-1][1], interval[1])
+                else:
+                    merged.append(list(interval))
+        channel_windows[ch] = [(s, e) for s, e in merged]
+        if not channel_windows[ch]:
+            logger.warning("通道 %s 当天未解析到服务时间窗口，默认视为全时段服务", ch)
+    return channel_windows
+
+
+def is_active_at(dt_point, windows, buffer_minutes):
+    """判断时间点是否处于任一服务窗口内，或在窗口结束后 buffer_minutes 内。
+    若 windows 为空，则默认返回 True（兜底）。
+    """
+    if not windows:
+        return True
+    for start_dt, end_dt in windows:
+        if start_dt <= dt_point <= (end_dt + timedelta(minutes=buffer_minutes)):
+            return True
+    return False
 
 # 模拟天气数据
 def generate_simulated_weather_data(start_date, end_date, time_granularity):
@@ -548,6 +758,23 @@ def predict_and_validate(data, scaler, enc, weather_data, window_days, time_gran
 
     predict_start = time.time()
     now = datetime.now()
+
+    # 构建通道服务时间窗口
+    all_route_ids = set()
+    for routes in CHANNEL_MAPPING.values():
+        all_route_ids.update(routes)
+    route_service_times = fetch_route_service_times(list(all_route_ids))
+    channel_windows = build_channel_service_windows(route_service_times)
+
+    # 获取实时客流最新记录，用于近端滞后特征
+    latest_pf = fetch_latest_passenger_flow()
+    latest_time = latest_pf.get('current_time')
+    recent_valid = False
+    if latest_time is not None:
+        try:
+            recent_valid = (now - latest_time) <= timedelta(minutes=20)
+        except Exception:
+            recent_valid = False
     granularity_minutes = {'15min': 15, '30min': 30, '1h': 60}.get(time_granularity, 15)
     future_times = [now + timedelta(minutes=x) for x in range(15, 61, 15)]
     predictions = []
@@ -581,14 +808,30 @@ def predict_and_validate(data, scaler, enc, weather_data, window_days, time_gran
                 for lag in [1, 2]:
                     lag_time = future_slot - timedelta(minutes=15*lag)
                     lag_flow = train_data[(train_data['channel'] == channel) & (train_data['time_slot'] == lag_time)]['total_flow']
-                    future_data[f'lag_flow_{lag}'] = [lag_flow.mean() if not lag_flow.empty else train_data['total_flow'].mean()]
+                    fallback = lag_flow.mean() if not lag_flow.empty else train_data['total_flow'].mean()
+                    future_data[f'lag_flow_{lag}'] = [fallback]
+
+                # 使用实时通道计数加强近端滞后
+                if recent_valid:
+                    try:
+                        latest_inc = latest_pf.get('recent_increment', {}).get(channel, 0)
+                        # 仅覆盖 lag_flow_1，使用增量值更贴近最近一档流量
+                        future_data['lag_flow_1'] = [max(int(latest_inc), int(future_data['lag_flow_1'].iloc[0]))]
+                    except Exception:
+                        pass
                 for col in enc.get_feature_names_out(['rain_category']):
                     rain_mode = weather_data['rain_category'].mode()[0] if 'rain_category' in weather_data.columns and not weather_data['rain_category'].isna().all() else 'no_rain'
                     future_data[col] = [1 if col == f'rain_category_{rain_mode}' else 0]
 
                 X_future = scaler.transform(future_data[features])
                 model = models.get(channel, XGBRegressor(n_estimators=100, max_depth=4, learning_rate=0.1, random_state=42))
-                flow_pred = int(np.clip(np.round(model.predict(X_future)[0]), 0, None))
+
+                # 服务时间关停校验：若非服务时段（含结束后缓冲）则置0
+                active = is_active_at(future_slot.to_pydatetime(), channel_windows.get(channel, []), CONFIG.get('service_end_buffer_minutes', 15))
+                if not active:
+                    flow_pred = 0
+                else:
+                    flow_pred = int(np.clip(np.round(model.predict(X_future)[0]), 0, None))
 
                 for period in [15, 30, 60]:
                     if minutes_ahead <= period:

@@ -5,7 +5,7 @@ import ai.common.ModelService;
 import ai.common.exception.RRException;
 import ai.llm.adapter.ILlmAdapter;
 import ai.llm.pojo.LlmApiResponse;
-import ai.llm.utils.OpenAiApiUtil;;
+import ai.llm.utils.OpenAiApiUtil;
 import ai.llm.utils.convert.GptAzureConvert;
 import ai.openai.pojo.ChatCompletionRequest;
 import ai.openai.pojo.ChatCompletionResult;

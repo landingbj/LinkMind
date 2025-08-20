@@ -109,6 +109,8 @@ def fetch_latest_passenger_flow():
         'recent_increment': {'C1': int, ...}
     }，获取失败时返回默认0。
     """
+    start_time = time.time()
+    logger.info("开始获取实时客流数据...")
     try:
         conn = psycopg2.connect(**CONFIG['db_config'])
         cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
@@ -125,6 +127,7 @@ def fetch_latest_passenger_flow():
         conn.close()
 
         if not rows:
+            logger.warning("实时客流表为空，无数据可获取")
             return {
                 'current_time': None,
                 'inbound': {ch: 0 for ch in CHANNEL_INDEX.keys()},
@@ -134,8 +137,14 @@ def fetch_latest_passenger_flow():
 
         latest = rows[0]
         prev = rows[1] if len(rows) > 1 else None
+        logger.info("获取到实时客流记录 - 最新ID: %s, 时间: %s", 
+                   latest.get('id'), latest.get('current_time'))
+        if prev:
+            logger.info("获取到实时客流记录 - 上一条ID: %s, 时间: %s", 
+                       prev.get('id'), prev.get('current_time'))
 
         current_dt = _parse_pf_current_time(latest.get('current_time'))
+        logger.info("解析后的最新时间: %s", current_dt)
 
         inbound_latest = {}
         outbound_latest = {}
@@ -152,7 +161,10 @@ def fetch_latest_passenger_flow():
         for ch in CHANNEL_INDEX.keys():
             inc = max(0, inbound_latest[ch] - inbound_prev[ch]) + max(0, outbound_latest[ch] - outbound_prev[ch])
             recent_increment[ch] = inc
+            logger.info("通道 %s - 最新进站: %d, 最新出站: %d, 增量: %d", 
+                       ch, inbound_latest[ch], outbound_latest[ch], inc)
 
+        logger.info("实时客流数据获取完成，耗时: %.2f秒", time.time() - start_time)
         return {
             'current_time': current_dt,
             'inbound': inbound_latest,
@@ -160,7 +172,7 @@ def fetch_latest_passenger_flow():
             'recent_increment': recent_increment
         }
     except Exception as e:
-        logger.error("获取实时客流失败: %s", str(e))
+        logger.error("获取实时客流失败: %s", str(e), exc_info=True)
         return {
             'current_time': None,
             'inbound': {ch: 0 for ch in CHANNEL_INDEX.keys()},
@@ -173,11 +185,15 @@ def fetch_route_service_times(route_ids):
     """从 ods.route_portrai 读取指定线路的 service_time。
     返回: {route_id: service_time_str}
     """
+    start_time = time.time()
+    logger.info("开始获取线路服务时间，线路数量: %d", len(route_ids))
     if not route_ids:
+        logger.warning("线路ID列表为空，跳过服务时间获取")
         return {}
     try:
         conn = psycopg2.connect(**CONFIG['db_config'])
         cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        logger.info("查询线路服务时间，SQL: SELECT route_id, service_time FROM ods.route_portrai WHERE route_id = ANY(%s)", route_ids)
         cursor.execute(
             """
             SELECT route_id, service_time
@@ -189,9 +205,14 @@ def fetch_route_service_times(route_ids):
         rows = cursor.fetchall()
         cursor.close()
         conn.close()
-        return {str(r['route_id']): (r['service_time'] or '') for r in rows}
+        result = {str(r['route_id']): (r['service_time'] or '') for r in rows}
+        logger.info("成功获取 %d 条线路服务时间记录", len(rows))
+        for route_id, service_time in result.items():
+            logger.info("线路 %s 服务时间: %s", route_id, service_time[:100] + "..." if len(service_time) > 100 else service_time)
+        logger.info("线路服务时间获取完成，耗时: %.2f秒", time.time() - start_time)
+        return result
     except Exception as e:
-        logger.error("获取线路服务时间失败: %s", str(e))
+        logger.error("获取线路服务时间失败: %s", str(e), exc_info=True)
         return {rid: '' for rid in route_ids}
 
 
@@ -199,10 +220,13 @@ def parse_service_windows(service_time_str, target_date):
     """解析 service_time 字段，返回当天的服务时间窗口列表[(start_dt, end_dt), ...]。
     仅根据 '工作日' 与 '节假日双休日' 判定。其它标签(如 冬令时/定时班)不作为过滤条件。
     """
+    logger.debug("开始解析服务时间: %s, 目标日期: %s", service_time_str[:100] + "..." if len(service_time_str) > 100 else service_time_str, target_date)
     if not service_time_str:
+        logger.debug("服务时间字符串为空，返回空列表")
         return []
 
     is_holiday_today = target_date in China(years=target_date.year) or target_date.weekday() >= 5
+    logger.debug("当前日期类型: %s", "节假日/双休日" if is_holiday_today else "工作日")
     expected_flag = '节假日双休日' if is_holiday_today else '工作日'
 
     windows = []
@@ -215,12 +239,14 @@ def parse_service_windows(service_time_str, target_date):
             # 方向(标签...):HH:MM:SS-HH:MM:SS
             m = re.search(r"\((.*?)\)\s*:\s*([0-9]{2}:[0-9]{2}:[0-9]{2})\s*-\s*([0-9]{2}:[0-9]{2}:[0-9]{2})", part)
             if not m:
+                logger.debug("无法解析服务时间片段: %s", part)
                 continue
             flags = m.group(1)  # 例如: 冬令时-工作日-非定时班
             start_str = m.group(2)
             end_str = m.group(3)
 
             if expected_flag not in flags:
+                logger.debug("标签不匹配，期望: %s, 实际: %s", expected_flag, flags)
                 continue
 
             start_dt = datetime.combine(target_date, datetime.strptime(start_str, '%H:%M:%S').time())
@@ -231,9 +257,12 @@ def parse_service_windows(service_time_str, target_date):
                 end_dt = end_dt + timedelta(days=1)
 
             windows.append((start_dt, end_dt))
+            logger.debug("成功解析服务时间窗口: %s - %s", start_dt, end_dt)
         except Exception:
+            logger.debug("解析服务时间片段失败: %s", part)
             continue
 
+    logger.debug("解析完成，共 %d 个服务时间窗口", len(windows))
     return windows
 
 
@@ -242,12 +271,17 @@ def build_channel_service_windows(route_service_times):
     route_service_times: {route_id: service_time_str}
     返回: {channel: [(start_dt, end_dt), ...]}
     """
+    start_time = time.time()
+    logger.info("开始构建通道服务时间窗口...")
     today = datetime.now().date()
+    logger.info("目标日期: %s (是否为节假日: %s)", today, today in China(years=today.year) or today.weekday() >= 5)
     channel_windows = {ch: [] for ch in CHANNEL_MAPPING.keys()}
     for channel, route_ids in CHANNEL_MAPPING.items():
+        logger.info("处理通道 %s，包含线路: %s", channel, route_ids)
         for rid in route_ids:
             service_str = route_service_times.get(rid, '')
             windows = parse_service_windows(service_str, today)
+            logger.info("线路 %s 解析出 %d 个服务窗口", rid, len(windows))
             channel_windows[channel].extend(windows)
     # 合并重叠窗口（简单按开始时间排序后线性合并）
     for ch in channel_windows:
@@ -264,6 +298,11 @@ def build_channel_service_windows(route_service_times):
         channel_windows[ch] = [(s, e) for s, e in merged]
         if not channel_windows[ch]:
             logger.warning("通道 %s 当天未解析到服务时间窗口，默认视为全时段服务", ch)
+        else:
+            logger.info("通道 %s 最终服务时间窗口: %s", ch, 
+                       [(s.strftime('%H:%M'), e.strftime('%H:%M')) for s, e in channel_windows[ch]])
+
+    logger.info("通道服务时间窗口构建完成，耗时: %.2f秒", time.time() - start_time)
     return channel_windows
 
 
@@ -272,10 +311,15 @@ def is_active_at(dt_point, windows, buffer_minutes):
     若 windows 为空，则默认返回 True（兜底）。
     """
     if not windows:
+        logger.debug("无服务时间窗口，默认返回活跃状态")
         return True
     for start_dt, end_dt in windows:
         if start_dt <= dt_point <= (end_dt + timedelta(minutes=buffer_minutes)):
+            logger.debug("时间点 %s 在服务窗口内: %s - %s (缓冲: %d分钟)", 
+                        dt_point.strftime('%H:%M'), start_dt.strftime('%H:%M'), 
+                        end_dt.strftime('%H:%M'), buffer_minutes)
             return True
+    logger.debug("时间点 %s 不在任何服务窗口内", dt_point.strftime('%H:%M'))
     return False
 
 # 模拟天气数据

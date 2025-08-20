@@ -39,9 +39,6 @@ public class BusOdRecord {
     /** 上行/下行，up/down */
     private String direction;
 
-    /** 班次号 */
-    private String tripNo;
-
     /** 上车站点ID */
     private String stationIdOn;
 

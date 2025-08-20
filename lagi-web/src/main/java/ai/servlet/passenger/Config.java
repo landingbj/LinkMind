@@ -12,8 +12,8 @@ public class Config {
     public static final String OSS_DIR = "PassengerFlowRecognition";
     public static final String OSS_GROUP_ID = "305";
     public static final String OSS_TYPE = "20";
-    public static final String VIDEO_UNDERSTAND_API = "http://20.17.127.20:8005/api/v1/video_understand";
-    public static final String CV_WEBSOCKET_URI = "ws://20.17.127.16:6000/v1/bus-counting-info-push";
+    public static final String MEDIA_API = "http://20.17.127.20:8010/keliushibie-media";
+    public static final String PASSENGER_PROMPT = "请分析车门区域的下车乘客特征";
 
     public static String getDbUrl() { return DB_URL; }
     public static String getDbUser() { return DB_USER; }

@@ -14,22 +14,16 @@ public class KafkaConfig {
 
     // 从环境变量或配置文件读取，如果没有则使用默认值
     public static final String BOOTSTRAP_SERVERS = System.getenv("KAFKA_BOOTSTRAP_SERVERS") != null ?
-            System.getenv("KAFKA_BOOTSTRAP_SERVERS") : "localhost:9092";
+            System.getenv("KAFKA_BOOTSTRAP_SERVERS") : "20.17.39.79:9092,20.17.39.80:9092,20.17.39.81:9092";
 
     // 开关门状态主题
-    public static final String DOOR_STATUS_TOPIC = "door_status_topic";
+    public static final String DOOR_STATUS_TOPIC = "bus_door_status_signals";
 
-    // GPS主题
-    public static final String GPS_TOPIC = "gps_topic";
-
-    // 到离站主题
-    public static final String ARRIVE_LEAVE_TOPIC = "arrive_leave_topic";
-
-    // 路单主题
-    public static final String ROAD_SHEET_TOPIC = "road_sheet_topic";
+    // 车辆GPS与到离站放同一主题（通过pktType区分：3=gps, 4=到离站）
+    public static final String BUS_GPS_TOPIC = "bus_gps";
 
     // 票务主题（刷卡数据）
-    public static final String TICKET_TOPIC = "ticket_topic";
+    public static final String TICKET_TOPIC = "bus_card_swipe_data";
 
     // 乘客流量主题（输出结果）
     public static final String PASSENGER_FLOW_TOPIC = "passenger_flow_topic";

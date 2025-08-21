@@ -49,13 +49,31 @@ public class PassengerFlowProcessor {
 	public void processEvent(JSONObject eventJson) {
 		String event = eventJson.optString("event");
 		JSONObject data = eventJson.optJSONObject("data");
+		
 		if (Config.LOG_INFO) {
+			System.out.println("📥 [PassengerFlowProcessor] 收到CV系统事件:");
+			System.out.println("   事件类型: " + event);
+			System.out.println("   事件数据: " + eventJson.toString());
+			System.out.println("   时间: " + LocalDateTime.now().format(formatter));
+		}
+		
+		if (Config.LOG_DEBUG) {
 			System.out.println("[PassengerFlowProcessor] Receive event=" + event + ", payload=" + eventJson);
 		}
-		if (data == null) return;
+		
+		if (data == null) {
+			if (Config.LOG_ERROR) {
+				System.err.println("❌ [PassengerFlowProcessor] 事件数据为空，无法处理事件: " + event);
+			}
+			return;
+		}
 
 		String busNo = data.optString("bus_no");
 		String cameraNo = data.optString("camera_no");
+
+		if (Config.LOG_DEBUG) {
+			System.out.println("[PassengerFlowProcessor] 解析事件参数: busNo=" + busNo + ", cameraNo=" + cameraNo);
+		}
 
 		try (Jedis jedis = jedisPool.getResource()) {
 			jedis.auth(Config.REDIS_PASSWORD);
@@ -63,36 +81,50 @@ public class PassengerFlowProcessor {
 			switch (event) {
 				case "downup":
 					if (Config.LOG_INFO) {
+						System.out.println("👥 [PassengerFlowProcessor] 处理上下车事件: busNo=" + busNo + ", cameraNo=" + cameraNo);
+					}
+					if (Config.LOG_DEBUG) {
 						System.out.println("[PassengerFlowProcessor] Handle downup, busNo=" + busNo);
 					}
 					handleDownUpEvent(data, busNo, cameraNo, jedis);
 					break;
 				case "load_factor":
 					if (Config.LOG_INFO) {
+						System.out.println("📊 [PassengerFlowProcessor] 处理载客率事件: busNo=" + busNo + ", cameraNo=" + cameraNo);
+					}
+					if (Config.LOG_DEBUG) {
 						System.out.println("[PassengerFlowProcessor] Handle load_factor, busNo=" + busNo);
 					}
 					handleLoadFactorEvent(data, busNo, jedis);
 					break;
 				case "open_close_door":
 					if (Config.LOG_INFO) {
+						System.out.println("🚪 [PassengerFlowProcessor] 处理开关门事件: busNo=" + busNo + ", cameraNo=" + cameraNo);
+					}
+					if (Config.LOG_DEBUG) {
 						System.out.println("[PassengerFlowProcessor] Handle open_close_door, busNo=" + busNo);
 					}
 					handleOpenCloseDoorEvent(data, busNo, cameraNo, jedis);
 					break;
 				case "notify_pull_file":
 					if (Config.LOG_INFO) {
+						System.out.println("📁 [PassengerFlowProcessor] 处理文件拉取通知: busNo=" + busNo + ", cameraNo=" + cameraNo);
+					}
+					if (Config.LOG_DEBUG) {
 						System.out.println("[PassengerFlowProcessor] Handle notify_pull_file, busNo=" + busNo);
 					}
 					handleNotifyPullFileEvent(data, busNo, cameraNo, jedis);
 					break;
 				default:
 					if (Config.LOG_ERROR) {
-						System.err.println("[PassengerFlowProcessor] Unknown event: " + event);
+						System.err.println("❌ [PassengerFlowProcessor] 未知事件类型: " + event);
 					}
 			}
 		} catch (Exception e) {
 			if (Config.LOG_ERROR) {
-				System.err.println("[PassengerFlowProcessor] Process event error: " + e.getMessage());
+				System.err.println("❌ [PassengerFlowProcessor] 处理事件时发生错误: " + e.getMessage());
+				System.err.println("   事件类型: " + event);
+				System.err.println("   事件数据: " + eventJson.toString());
 			}
 		}
 	}
@@ -552,6 +584,14 @@ public class PassengerFlowProcessor {
 	private void sendToKafka(Object data) {
 		try {
 			String json = objectMapper.writeValueAsString(data);
+			
+			if (Config.LOG_INFO) {
+				System.out.println("📤 [PassengerFlowProcessor] 准备发送数据到Kafka:");
+				System.out.println("   主题: " + KafkaConfig.PASSENGER_FLOW_TOPIC);
+				System.out.println("   数据大小: " + json.length() + " 字符");
+				System.out.println("   数据内容: " + json);
+			}
+			
 			if (Config.LOG_DEBUG) {
 				System.out.println("[PassengerFlowProcessor] Send to Kafka topic=" + KafkaConfig.PASSENGER_FLOW_TOPIC + ", size=" + json.length());
 			}
@@ -561,11 +601,19 @@ public class PassengerFlowProcessor {
 				(metadata, exception) -> {
 					if (exception != null) {
 						if (Config.LOG_ERROR) {
-							System.err.println("[PassengerFlowProcessor] Kafka send failed: " + exception.getMessage());
+							System.err.println("❌ [PassengerFlowProcessor] Kafka发送失败: " + exception.getMessage());
+							System.err.println("   失败数据: " + json);
 						}
 						// 可以在这里添加重试逻辑或告警机制
 						handleKafkaSendFailure(data, exception);
 					} else {
+						if (Config.LOG_INFO) {
+							System.out.println("✅ [PassengerFlowProcessor] Kafka发送成功:");
+							System.out.println("   主题: " + metadata.topic());
+							System.out.println("   分区: " + metadata.partition());
+							System.out.println("   偏移量: " + metadata.offset());
+							System.out.println("   时间戳: " + metadata.timestamp());
+						}
 						if (Config.LOG_DEBUG) {
 							System.out.println("[PassengerFlowProcessor] Kafka send success: topic=" +
 								metadata.topic() + ", partition=" + metadata.partition() +
@@ -578,7 +626,8 @@ public class PassengerFlowProcessor {
 
 		} catch (Exception e) {
 			if (Config.LOG_ERROR) {
-				System.err.println("[PassengerFlowProcessor] Send to Kafka error: " + e.getMessage());
+				System.err.println("❌ [PassengerFlowProcessor] 发送到Kafka时发生错误: " + e.getMessage());
+				System.err.println("   错误数据: " + data);
 			}
 		}
 	}

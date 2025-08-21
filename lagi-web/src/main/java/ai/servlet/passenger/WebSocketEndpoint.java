@@ -47,43 +47,76 @@ public class WebSocketEndpoint {
 	@OnMessage
 	public void onMessage(String message, Session session) {
 		if (Config.LOG_DEBUG) {
-			System.out.println("收到来自 " + session.getId() + " 的消息: " + message);
+			System.out.println("📨 [WebSocket] 收到来自 " + session.getId() + " 的消息: " + message);
 		}
 
 		try {
 			JSONObject jsonMessage = new JSONObject(message);
 			String type = jsonMessage.optString("type", "unknown");
+			
+			if (Config.LOG_INFO) {
+				System.out.println("🔍 [WebSocket] 解析消息类型: " + type + ", 会话ID: " + session.getId());
+			}
+			
 			// 兼容CV协议：存在event字段则转处理器
 			if (jsonMessage.has("event")) {
+				String eventType = jsonMessage.optString("event");
+				if (Config.LOG_INFO) {
+					System.out.println("🎯 [WebSocket] 检测到CV事件: " + eventType + ", 转发给PassengerFlowProcessor处理");
+				}
+				
 				PROCESSOR.processEvent(jsonMessage);
+				
 				JSONObject ack = new JSONObject();
 				ack.put("type", "ack");
-				ack.put("event", jsonMessage.optString("event"));
+				ack.put("event", eventType);
 				ack.put("timestamp", LocalDateTime.now().toString());
+				
+				if (Config.LOG_DEBUG) {
+					System.out.println("✅ [WebSocket] 发送确认响应: " + ack.toString());
+				}
+				
 				session.getBasicRemote().sendText(ack.toString());
 				return;
 			}
 
 			switch (type) {
 				case "passenger_count":
+					if (Config.LOG_INFO) {
+						System.out.println("👥 [WebSocket] 处理乘客计数消息");
+					}
 					handlePassengerCount(session, jsonMessage);
 					break;
 				case "bus_status":
+					if (Config.LOG_INFO) {
+						System.out.println("🚌 [WebSocket] 处理车辆状态消息");
+					}
 					handleBusStatus(session, jsonMessage);
 					break;
 				case "heartbeat":
+					if (Config.LOG_DEBUG) {
+						System.out.println("💓 [WebSocket] 处理心跳消息");
+					}
 					handleHeartbeat(session, jsonMessage);
 					break;
 				case "door_status":
+					if (Config.LOG_INFO) {
+						System.out.println("🚪 [WebSocket] 处理车门状态消息");
+					}
 					handleDoorStatus(session, jsonMessage);
 					break;
 				default:
+					if (Config.LOG_INFO) {
+						System.out.println("📢 [WebSocket] 广播未知类型消息给所有客户端: " + type);
+					}
 					// 广播消息给所有客户端
 					broadcastMessage(jsonMessage);
 			}
 		} catch (Exception e) {
 			if (Config.LOG_ERROR) {
-				System.err.println("处理WebSocket消息时出错: " + e.getMessage());
+				System.err.println("❌ [WebSocket] 处理WebSocket消息时出错: " + e.getMessage());
+				System.err.println("   原始消息: " + message);
+				System.err.println("   会话ID: " + session.getId());
 				e.printStackTrace();
 			}
 
@@ -94,9 +127,12 @@ public class WebSocketEndpoint {
 
 			try {
 				session.getBasicRemote().sendText(errorResponse.toString());
+				if (Config.LOG_DEBUG) {
+					System.out.println("⚠️ [WebSocket] 已发送错误响应给客户端");
+				}
 			} catch (IOException ioException) {
 				if (Config.LOG_ERROR) {
-					System.err.println("发送错误响应失败: " + ioException.getMessage());
+					System.err.println("❌ [WebSocket] 发送错误响应失败: " + ioException.getMessage());
 				}
 			}
 		}

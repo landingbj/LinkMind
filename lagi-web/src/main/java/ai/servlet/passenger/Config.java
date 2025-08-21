@@ -30,7 +30,7 @@ public class Config {
     public static final int REDIS_TTL_STATION_GPS = 86400 * 7;   // 站点GPS缓存7天
 
     // 日志级别配置
-    public static final boolean LOG_DEBUG = false;               // 是否打印调试日志
+    public static final boolean LOG_DEBUG = true;                // 是否打印调试日志
     public static final boolean LOG_INFO = true;                 // 是否打印信息日志
     public static final boolean LOG_ERROR = true;                // 是否打印错误日志
 

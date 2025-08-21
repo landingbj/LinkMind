@@ -236,6 +236,12 @@ public class KafkaConsumerService {
         String trafficType = String.valueOf(message.opt("trafficType"));
         String direction = "4".equals(trafficType) ? "up" : "down";
 
+        if (Config.LOG_DEBUG) {
+            System.out.println("[KafkaConsumerService] 📍 处理GPS数据: busNo=" + busNo + 
+                ", lat=" + lat + ", lng=" + lng + ", speed=" + speed + "m/s (" + (speed * 3.6) + "km/h)" +
+                ", trafficType=" + trafficType + ", direction=" + direction);
+        }
+
         // 缓存GPS，设置过期时间
         JSONObject gpsJson = new JSONObject();
         gpsJson.put("lat", lat);
@@ -247,11 +253,20 @@ public class KafkaConsumerService {
             String busIdKey = "bus_id:" + busNo;
             jedis.set(busIdKey, String.valueOf(message.optLong("busId")));
             jedis.expire(busIdKey, Config.REDIS_TTL_COUNTS);
+            
+            if (Config.LOG_DEBUG) {
+                System.out.println("[KafkaConsumerService] 缓存车辆ID: busNo=" + busNo + ", busId=" + message.optLong("busId"));
+            }
         }
         String gpsKey = "gps:" + busNo;
         jedis.set(gpsKey, gpsJson.toString());
         jedis.expire(gpsKey, Config.REDIS_TTL_GPS);
 
+        if (Config.LOG_INFO) {
+            System.out.println("📍 [KafkaConsumerService] GPS数据已缓存: busNo=" + busNo + 
+                ", 坐标(" + lat + ", " + lng + "), 速度" + speed + "m/s, 方向" + direction);
+        }
+        
         if (Config.LOG_DEBUG) {
             System.out.println("[KafkaConsumerService] Cached gps for busNo=" + busNo + ", lat=" + lat + ", lng=" + lng + ", speed=" + speed + ", direction=" + direction);
         }
@@ -296,30 +311,53 @@ public class KafkaConsumerService {
     }
 
     private void handleTicket(JSONObject message, String busNo, Jedis jedis) {
-        String onOff = message.optString("onOff", "");
-        boolean isUpSwipe = !("down".equalsIgnoreCase(onOff));
-        if (isUpSwipe) {
-            String totalKey = "ticket_count_total:" + busNo;
-            jedis.incr(totalKey);
-            jedis.expire(totalKey, Config.REDIS_TTL_COUNTS);
+        String cardNo = message.optString("cardNo");
+        String stationId = message.optString("stationId");
+        String stationName = message.optString("stationName");
+        String trafficType = String.valueOf(message.opt("trafficType"));
+        String direction = "4".equals(trafficType) ? "up" : "down";
+        double amount = message.optDouble("amount", 0.0);
 
-            String windowId = jedis.get("open_time:" + busNo);
-            if (windowId != null) {
-                String windowKey = "ticket_count_window:" + busNo;
-                jedis.incr(windowKey);
-                jedis.expire(windowKey, Config.REDIS_TTL_OPEN_TIME);
-                if (Config.LOG_DEBUG) {
-                    System.out.println("[KafkaConsumerService] Ticket up-swipe counted in window, busNo=" + busNo + ", windowId=" + windowId);
-                }
-            } else {
-                if (Config.LOG_DEBUG) {
-                    System.out.println("[KafkaConsumerService] Ticket up-swipe counted (no open window), busNo=" + busNo);
-                }
-            }
-        } else {
+        if (Config.LOG_DEBUG) {
+            System.out.println("[KafkaConsumerService] 🎫 处理票务数据: busNo=" + busNo + 
+                ", cardNo=" + cardNo + ", stationId=" + stationId + ", stationName=" + stationName +
+                ", trafficType=" + trafficType + ", direction=" + direction + ", amount=" + amount);
+        }
+
+        // 缓存到离站信息
+        JSONObject arriveLeaveJson = new JSONObject();
+        arriveLeaveJson.put("stationId", stationId);
+        arriveLeaveJson.put("stationName", stationName);
+        arriveLeaveJson.put("isArriveOrLeft", trafficType);
+        arriveLeaveJson.put("timestamp", LocalDateTime.now().format(formatter));
+        arriveLeaveJson.put("cardNo", cardNo);
+        arriveLeaveJson.put("amount", amount);
+
+        String arriveLeaveKey = "arrive_leave:" + busNo;
+        jedis.set(arriveLeaveKey, arriveLeaveJson.toString());
+        jedis.expire(arriveLeaveKey, Config.REDIS_TTL_ARRIVE_LEAVE);
+
+        if (Config.LOG_INFO) {
+            System.out.println("🎫 [KafkaConsumerService] 票务数据已缓存: busNo=" + busNo + 
+                ", 站点=" + stationName + "(" + stationId + "), 方向=" + direction + 
+                ", 金额=" + amount + "元, 时间=" + LocalDateTime.now().format(formatter));
+        }
+
+        // 更新站点GPS缓存
+        if (message.has("lat") && message.has("lng")) {
+            double lat = message.optDouble("lat");
+            double lng = message.optDouble("lng");
+            double[] stationGps = {lat, lng};
+            stationGpsMap.put(stationId, stationGps);
+            
             if (Config.LOG_DEBUG) {
-                System.out.println("[KafkaConsumerService] Ticket down-swipe ignored in up-count, busNo=" + busNo);
+                System.out.println("[KafkaConsumerService] 更新站点GPS缓存: stationId=" + stationId + 
+                    ", lat=" + lat + ", lng=" + lng);
             }
+        }
+
+        if (Config.LOG_DEBUG) {
+            System.out.println("[KafkaConsumerService] Cached arrive/leave for busNo=" + busNo + ", stationId=" + stationId + ", trafficType=" + trafficType);
         }
     }
 
@@ -328,7 +366,14 @@ public class KafkaConsumerService {
         String arriveLeaveStr = jedis.get("arrive_leave:" + busNo);
         String gpsStr = jedis.get("gps:" + busNo);
 
-        if (arriveLeaveStr == null || gpsStr == null) return;
+        if (arriveLeaveStr == null || gpsStr == null) {
+            if (Config.LOG_DEBUG) {
+                System.out.println("[KafkaConsumerService] Missing data for door signal judgment: busNo=" + busNo + 
+                    ", arriveLeave=" + (arriveLeaveStr != null ? "exists" : "null") + 
+                    ", gps=" + (gpsStr != null ? "exists" : "null"));
+            }
+            return;
+        }
 
         JSONObject arriveLeave = new JSONObject(arriveLeaveStr);
         JSONObject gps = new JSONObject(gpsStr);
@@ -338,12 +383,23 @@ public class KafkaConsumerService {
         double busLng = gps.optDouble("lng");
         double speed = gps.optDouble("speed");
 
+        if (Config.LOG_DEBUG) {
+            System.out.println("[KafkaConsumerService] Door signal judgment input: busNo=" + busNo + 
+                ", stationId=" + stationId + ", busLat=" + busLat + ", busLng=" + busLng + 
+                ", speed=" + speed + "m/s (" + (speed * 3.6) + "km/h)");
+        }
+
         // 获取站点GPS
         double[] stationGps = stationGpsMap.getOrDefault(stationId, null);
         boolean hasStationGps = stationGps != null;
         double distance = Double.MAX_VALUE;
         if (hasStationGps) {
             distance = calculateDistance(busLat, busLng, stationGps[0], stationGps[1]);
+            if (Config.LOG_DEBUG) {
+                System.out.println("[KafkaConsumerService] Station GPS found: stationId=" + stationId + 
+                    ", stationLat=" + stationGps[0] + ", stationLng=" + stationGps[1] + 
+                    ", distance=" + distance + "m");
+            }
         } else {
             if (Config.LOG_DEBUG) {
                 System.err.println("[KafkaConsumerService] No GPS data for station: " + stationId + ", will judge door only by arrive/leave");
@@ -352,23 +408,32 @@ public class KafkaConsumerService {
 
         // 判断开门（优先报站 > GPS）
         boolean shouldOpen = false;
+        String openReason = "";
         if ("1".equals(arriveLeave.optString("isArriveOrLeft"))) {
             shouldOpen = true; // 报站到站
+            openReason = "报站到站信号";
         } else if (hasStationGps && distance < 50 && speed < 1) { // GPS电子围栏 <50米且速度<1m/s
             shouldOpen = true;
+            openReason = "GPS电子围栏触发(距离" + distance + "m, 速度" + speed + "m/s)";
         }
 
         // 判断关门
         boolean shouldClose = false;
+        String closeReason = "";
         if ("2".equals(arriveLeave.optString("isArriveOrLeft"))) {
             shouldClose = true; // 报站离站
+            closeReason = "报站离站信号";
         } else if (hasStationGps && (distance > 30 || speed > 10 / 3.6)) { // >30米或速度>10km/h (m/s)
             shouldClose = true;
+            closeReason = "GPS电子围栏触发(距离" + distance + "m, 速度" + speed + "m/s)";
         }
 
         LocalDateTime now = LocalDateTime.now();
         if (Config.LOG_DEBUG) {
-            System.out.println("[KafkaConsumerService] Door judge busNo=" + busNo + ", stationId=" + stationId + ", distance=" + distance + ", speed=" + speed + ", shouldOpen=" + shouldOpen + ", shouldClose=" + shouldClose);
+            System.out.println("[KafkaConsumerService] Door judgment result: busNo=" + busNo + 
+                ", stationId=" + stationId + ", distance=" + distance + "m, speed=" + speed + "m/s" +
+                ", shouldOpen=" + shouldOpen + " (" + openReason + ")" +
+                ", shouldClose=" + shouldClose + " (" + closeReason + ")");
         }
 
         if (shouldOpen) {
@@ -379,23 +444,40 @@ public class KafkaConsumerService {
             jedis.expire(openTimeKey, Config.REDIS_TTL_OPEN_TIME);
             jedis.expire(ticketCountKey, Config.REDIS_TTL_OPEN_TIME);
             
+            if (Config.LOG_INFO) {
+                System.out.println("[KafkaConsumerService] 🚪 发送开门信号到CV系统: busNo=" + busNo + 
+                    ", 原因=" + openReason + ", 时间=" + now.format(formatter));
+            }
+            
             // 发送开门信号到CV
             sendDoorSignalToCV(busNo, "open", now);
             
             if (Config.LOG_INFO) {
-                System.out.println("[KafkaConsumerService] Mark OPEN window for busNo=" + busNo + ", open_time=" + now.format(formatter));
+                System.out.println("[KafkaConsumerService] ✅ 开门信号处理完成: busNo=" + busNo + 
+                    ", open_time=" + now.format(formatter) + ", Redis缓存已设置");
             }
         } else if (shouldClose) {
             String openTimeStr = jedis.get("open_time:" + busNo);
             if (openTimeStr != null) {
-                jedis.del("open_time:" + busNo);
-                jedis.del("ticket_count_window:" + busNo);
+                if (Config.LOG_INFO) {
+                    System.out.println("[KafkaConsumerService] 🚪 发送关门信号到CV系统: busNo=" + busNo + 
+                        ", 原因=" + closeReason + ", 时间=" + now.format(formatter) + 
+                        ", 上次开门时间=" + openTimeStr);
+                }
                 
                 // 发送关门信号到CV
                 sendDoorSignalToCV(busNo, "close", now);
                 
                 if (Config.LOG_INFO) {
-                    System.out.println("[KafkaConsumerService] Mark CLOSE window for busNo=" + busNo + ", prev_open_time=" + openTimeStr);
+                    System.out.println("[KafkaConsumerService] ✅ 关门信号处理完成: busNo=" + busNo + 
+                        ", 清理Redis缓存, 准备处理OD数据");
+                }
+                
+                jedis.del("open_time:" + busNo);
+                jedis.del("ticket_count_window:" + busNo);
+            } else {
+                if (Config.LOG_DEBUG) {
+                    System.out.println("[KafkaConsumerService] 关门信号触发但未找到开门记录: busNo=" + busNo);
                 }
             }
         }

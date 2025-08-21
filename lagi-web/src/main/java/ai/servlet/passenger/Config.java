@@ -14,12 +14,12 @@ public class Config {
     public static final String OSS_TYPE = "20";
     public static final String MEDIA_API = "http://20.17.127.20:8010/keliushibie-media";
     public static final String PASSENGER_PROMPT = "请分析车门区域的下车乘客特征";
-    
+
     // 图片处理配置
     public static final boolean ENABLE_IMAGE_PROCESSING = true;        // 是否启用图片处理
     public static final boolean ENABLE_AI_IMAGE_ANALYSIS = true;       // 是否启用AI图片分析
-    public static final int MAX_IMAGES_PER_ANALYSIS = 20;              // 每次AI分析的最大图片数量
-    
+    public static final int MAX_IMAGES_PER_ANALYSIS = 40;              // 每次AI分析的最大图片数量
+
     // Redis TTL配置（秒）
     public static final int REDIS_TTL_DOOR_STATUS = 3600;        // 门状态缓存1小时
     public static final int REDIS_TTL_GPS = 1800;                // GPS缓存30分钟
@@ -28,7 +28,7 @@ public class Config {
     public static final int REDIS_TTL_OPEN_TIME = 7200;          // 开门时间窗口2小时
     public static final int REDIS_TTL_COUNTS = 86400;            // 计数缓存1天
     public static final int REDIS_TTL_STATION_GPS = 86400 * 7;   // 站点GPS缓存7天
-    
+
     // 日志级别配置
     public static final boolean LOG_DEBUG = false;               // 是否打印调试日志
     public static final boolean LOG_INFO = true;                 // 是否打印信息日志

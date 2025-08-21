@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -49,6 +50,8 @@ public class KafkaConsumerService {
 
     // 站点GPS映射
     private final Map<String, double[]> stationGpsMap = new HashMap<>();
+    // 判门未触发原因日志的节流：每辆车每分钟最多打印一次
+    private static final Map<String, Long> lastDoorSkipLogMsByBus = new ConcurrentHashMap<>();
 
     public KafkaConsumerService() {
         loadStationGpsFromDb();
@@ -319,7 +322,15 @@ public class KafkaConsumerService {
         String gpsStr = jedis.get("gps:" + busNo);
 
         if (arriveLeaveStr == null || gpsStr == null) {
-            // 移除判门缺少数据调试日志
+            String reason;
+            if (arriveLeaveStr == null && gpsStr == null) {
+                reason = "缺少arrive_leave与gps";
+            } else if (arriveLeaveStr == null) {
+                reason = "缺少arrive_leave";
+            } else {
+                reason = "缺少gps";
+            }
+            logDoorSkipThrottled(busNo, reason);
             return;
         }
 
@@ -339,8 +350,6 @@ public class KafkaConsumerService {
         double distance = Double.MAX_VALUE;
         if (hasStationGps) {
             distance = calculateDistance(busLat, busLng, stationGps[0], stationGps[1]);
-        } else {
-            // 移除站点GPS缺失调试日志
         }
 
         // 判断开门（优先报站 > GPS）
@@ -408,8 +417,23 @@ public class KafkaConsumerService {
                 jedis.del("open_time:" + busNo);
                 jedis.del("ticket_count_window:" + busNo);
             } else {
-                // 移除未找到开门记录调试日志
+                logDoorSkipThrottled(busNo, "未找到open_time窗口");
             }
+        } else {
+            // 数据齐全但条件未触发，低频提示原因
+            String arriveFlag = arriveLeave.optString("isArriveOrLeft");
+            logDoorSkipThrottled(busNo, "条件未满足: distance=" + distance + "m, speed=" + speed + "m/s, arriveLeave=" + arriveFlag);
+        }
+    }
+
+    private void logDoorSkipThrottled(String busNo, String reason) {
+        long now = System.currentTimeMillis();
+        long prev = lastDoorSkipLogMsByBus.getOrDefault(busNo, 0L);
+        if (now - prev > 60_000) { // 每车每分钟最多一次
+            if (Config.LOG_INFO) {
+                System.out.println("[KafkaConsumerService] ⏭️ 未触发开关门: busNo=" + busNo + ", 原因=" + reason);
+            }
+            lastDoorSkipLogMsByBus.put(busNo, now);
         }
     }
 

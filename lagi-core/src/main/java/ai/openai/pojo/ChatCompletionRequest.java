@@ -18,4 +18,5 @@ public class ChatCompletionRequest {
     private Double presence_penalty;
     private Double frequency_penalty;
     private Double top_p;
+    private Boolean logprobs;
 }

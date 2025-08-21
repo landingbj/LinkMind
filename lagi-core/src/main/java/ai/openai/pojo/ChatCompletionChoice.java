@@ -10,4 +10,5 @@ public class ChatCompletionChoice implements Serializable {
     private ChatMessage message;
     private ChatMessage delta;
     private String finish_reason;
+    private Logprobs logprobs;
 }

@@ -50,7 +50,9 @@ public class PassengerFlowProcessor {
 	public void processEvent(JSONObject eventJson) {
 		String event = eventJson.optString("event");
 		JSONObject data = eventJson.optJSONObject("data");
-		System.out.println("[PassengerFlowProcessor] Receive event=" + event + ", payload=" + eventJson);
+		if (Config.LOG_INFO) {
+			System.out.println("[PassengerFlowProcessor] Receive event=" + event + ", payload=" + eventJson);
+		}
 		if (data == null) return;
 
 		String busNo = data.optString("bus_no");
@@ -61,26 +63,38 @@ public class PassengerFlowProcessor {
 
 			switch (event) {
 				case "downup":
-					System.out.println("[PassengerFlowProcessor] Handle downup, busNo=" + busNo);
+					if (Config.LOG_INFO) {
+						System.out.println("[PassengerFlowProcessor] Handle downup, busNo=" + busNo);
+					}
 					handleDownUpEvent(data, busNo, cameraNo, jedis);
 					break;
 				case "load_factor":
-					System.out.println("[PassengerFlowProcessor] Handle load_factor, busNo=" + busNo);
+					if (Config.LOG_INFO) {
+						System.out.println("[PassengerFlowProcessor] Handle load_factor, busNo=" + busNo);
+					}
 					handleLoadFactorEvent(data, busNo, jedis);
 					break;
 				case "open_close_door":
-					System.out.println("[PassengerFlowProcessor] Handle open_close_door, busNo=" + busNo);
+					if (Config.LOG_INFO) {
+						System.out.println("[PassengerFlowProcessor] Handle open_close_door, busNo=" + busNo);
+					}
 					handleOpenCloseDoorEvent(data, busNo, cameraNo, jedis);
 					break;
 				case "notify_pull_file":
-					System.out.println("[PassengerFlowProcessor] Handle notify_pull_file, busNo=" + busNo);
+					if (Config.LOG_INFO) {
+						System.out.println("[PassengerFlowProcessor] Handle notify_pull_file, busNo=" + busNo);
+					}
 					handleNotifyPullFileEvent(data, busNo, cameraNo, jedis);
 					break;
 				default:
-					System.err.println("[PassengerFlowProcessor] Unknown event: " + event);
+					if (Config.LOG_ERROR) {
+						System.err.println("[PassengerFlowProcessor] Unknown event: " + event);
+					}
 			}
 		} catch (Exception e) {
-			System.err.println("[PassengerFlowProcessor] Process event error: " + e.getMessage());
+			if (Config.LOG_ERROR) {
+				System.err.println("[PassengerFlowProcessor] Process event error: " + e.getMessage());
+			}
 		}
 	}
 
@@ -116,9 +130,15 @@ public class PassengerFlowProcessor {
 				cacheFeatureStationMapping(jedis, feature, record.getStationIdOn(), record.getStationNameOn());
 				String windowId = jedis.get("open_time:" + busNo);
 				if (windowId != null) {
-					jedis.sadd("features_set:" + busNo + ":" + windowId, feature);
-					jedis.incr("cv_up_count:" + busNo + ":" + windowId);
-					System.out.println("[PassengerFlowProcessor] Cache UP feature and count, busNo=" + busNo + ", windowId=" + windowId);
+					String featuresKey = "features_set:" + busNo + ":" + windowId;
+					String cvUpCountKey = "cv_up_count:" + busNo + ":" + windowId;
+					jedis.sadd(featuresKey, feature);
+					jedis.incr(cvUpCountKey);
+					jedis.expire(featuresKey, Config.REDIS_TTL_FEATURES);
+					jedis.expire(cvUpCountKey, Config.REDIS_TTL_OPEN_TIME);
+					if (Config.LOG_DEBUG) {
+						System.out.println("[PassengerFlowProcessor] Cache UP feature and count, busNo=" + busNo + ", windowId=" + windowId);
+					}
 				}
 			} else {
 				downCount++;
@@ -127,7 +147,9 @@ public class PassengerFlowProcessor {
 				record.setDownCount(1);
 
 				float similarity = matchPassengerFeature(feature, busNo);
-				System.out.println("[PassengerFlowProcessor] DOWN similarity=" + similarity + ", busNo=" + busNo);
+				if (Config.LOG_DEBUG) {
+					System.out.println("[PassengerFlowProcessor] DOWN similarity=" + similarity + ", busNo=" + busNo);
+				}
 				if (similarity > 0.8f) {
 					JSONObject onStation = getOnStationFromCache(jedis, feature);
 					if (onStation != null) {
@@ -137,20 +159,30 @@ public class PassengerFlowProcessor {
 				}
 				String windowId = jedis.get("open_time:" + busNo);
 				if (windowId != null) {
-					jedis.incr("cv_down_count:" + busNo + ":" + windowId);
-					System.out.println("[PassengerFlowProcessor] Cache DOWN count, busNo=" + busNo + ", windowId=" + windowId);
+					String cvDownCountKey = "cv_down_count:" + busNo + ":" + windowId;
+					jedis.incr(cvDownCountKey);
+					jedis.expire(cvDownCountKey, Config.REDIS_TTL_OPEN_TIME);
+					if (Config.LOG_DEBUG) {
+						System.out.println("[PassengerFlowProcessor] Cache DOWN count, busNo=" + busNo + ", windowId=" + windowId);
+					}
 				}
 			}
 
 			odRecords.add(record);
 			busOdRecordDao.save(record);
-			System.out.println("[PassengerFlowProcessor] Saved OD record to DB, busNo=" + busNo + ", direction=" + direction);
+			if (Config.LOG_DEBUG) {
+				System.out.println("[PassengerFlowProcessor] Saved OD record to DB, busNo=" + busNo + ", direction=" + direction);
+			}
 		}
 
 		// 更新总计数
 		int totalCount = getTotalCountFromRedis(jedis, busNo) + upCount - downCount;
-		jedis.set("total_count:" + busNo, String.valueOf(totalCount));
-		System.out.println("[PassengerFlowProcessor] Update total_count to " + totalCount + ", busNo=" + busNo);
+		String totalCountKey = "total_count:" + busNo;
+		jedis.set(totalCountKey, String.valueOf(totalCount));
+		jedis.expire(totalCountKey, Config.REDIS_TTL_COUNTS);
+		if (Config.LOG_DEBUG) {
+			System.out.println("[PassengerFlowProcessor] Update total_count to " + totalCount + ", busNo=" + busNo);
+		}
 
 		// 发送到Kafka
 		sendToKafka(odRecords);
@@ -160,10 +192,16 @@ public class PassengerFlowProcessor {
 		int count = data.optInt("count");
 		double factor = data.optDouble("factor");
 
-		// 缓存满载率
-		jedis.set("load_factor:" + busNo, String.valueOf(factor));
-		jedis.set("total_count:" + busNo, String.valueOf(count));
-		System.out.println("[PassengerFlowProcessor] Cache load_factor=" + factor + ", total_count=" + count + ", busNo=" + busNo);
+		// 缓存满载率，设置过期时间
+		String loadFactorKey = "load_factor:" + busNo;
+		String totalCountKey = "total_count:" + busNo;
+		jedis.set(loadFactorKey, String.valueOf(factor));
+		jedis.set(totalCountKey, String.valueOf(count));
+		jedis.expire(loadFactorKey, Config.REDIS_TTL_COUNTS);
+		jedis.expire(totalCountKey, Config.REDIS_TTL_COUNTS);
+		if (Config.LOG_DEBUG) {
+			System.out.println("[PassengerFlowProcessor] Cache load_factor=" + factor + ", total_count=" + count + ", busNo=" + busNo);
+		}
 	}
 
 	private void handleOpenCloseDoorEvent(JSONObject data, String busNo, String cameraNo, Jedis jedis) throws IOException {
@@ -183,7 +221,9 @@ public class PassengerFlowProcessor {
 		}
 
 		cacheOdRecord(jedis, record);
-		System.out.println("[PassengerFlowProcessor] Cache OD window record, busNo=" + busNo + ", action=" + action);
+		if (Config.LOG_DEBUG) {
+			System.out.println("[PassengerFlowProcessor] Cache OD window record, busNo=" + busNo + ", action=" + action);
+		}
 	}
 
 	private void handleNotifyPullFileEvent(JSONObject data, String busNo, String cameraNo, Jedis jedis) throws IOException, SQLException {
@@ -194,14 +234,18 @@ public class PassengerFlowProcessor {
 		// 下载视频
 		File videoFile = downloadFile(fileUrl);
 		String ossUrl = OssUtil.uploadFile(videoFile, UUID.randomUUID().toString() + ".mp4");
-		System.out.println("[PassengerFlowProcessor] Video downloaded and uploaded to OSS, url=" + ossUrl);
+		if (Config.LOG_INFO) {
+			System.out.println("[PassengerFlowProcessor] Video downloaded and uploaded to OSS, url=" + ossUrl);
+		}
 
 		// 调用多模态模型（视频）
 		JSONObject modelResponse = callMediaApi(null, ossUrl, Config.PASSENGER_PROMPT);
 		JSONObject responseObj = modelResponse.optJSONObject("response");
 		JSONArray passengerFeatures = responseObj != null ? responseObj.optJSONArray("passenger_features") : new JSONArray();
 		int modelTotalCount = responseObj != null ? responseObj.optInt("total_count") : 0;
-		System.out.println("[PassengerFlowProcessor] Model total_count=" + modelTotalCount + ", features_len=" + passengerFeatures.length());
+		if (Config.LOG_DEBUG) {
+			System.out.println("[PassengerFlowProcessor] Model total_count=" + modelTotalCount + ", features_len=" + passengerFeatures.length());
+		}
 
 		BusOdRecord record = createBaseRecord(busNo, cameraNo, begin, jedis);
 		record.setTimestampEnd(end);
@@ -211,16 +255,22 @@ public class PassengerFlowProcessor {
 
 		// 校验CV结果
 		int cvDownCount = getCachedDownCount(jedis, busNo, begin);
-		System.out.println("[PassengerFlowProcessor] CV down_count in window=" + cvDownCount);
+		if (Config.LOG_DEBUG) {
+			System.out.println("[PassengerFlowProcessor] CV down_count in window=" + cvDownCount);
+		}
 		if (Math.abs(modelTotalCount - cvDownCount) > 2) {
 			record.setDownCount(modelTotalCount);
-			System.out.println("[PassengerFlowProcessor] Use model down_count due to deviation");
+			if (Config.LOG_DEBUG) {
+				System.out.println("[PassengerFlowProcessor] Use model down_count due to deviation");
+			}
 		} else {
 			record.setDownCount(cvDownCount);
 		}
 
 		busOdRecordDao.save(record);
-		System.out.println("[PassengerFlowProcessor] Saved MODEL OD record to DB, busNo=" + busNo);
+		if (Config.LOG_INFO) {
+			System.out.println("[PassengerFlowProcessor] Saved MODEL OD record to DB, busNo=" + busNo);
+		}
 		sendToKafka(record);
 	}
 
@@ -360,15 +410,22 @@ public class PassengerFlowProcessor {
 	private void cacheOdRecord(Jedis jedis, BusOdRecord record) throws IOException {
 		String key = "od_record:" + record.getBusNo() + ":" + record.getTimestampBegin();
 		jedis.set(key, objectMapper.writeValueAsString(record));
-		System.out.println("[PassengerFlowProcessor] Cache od_record key=" + key);
+		jedis.expire(key, Config.REDIS_TTL_OPEN_TIME);
+		if (Config.LOG_DEBUG) {
+			System.out.println("[PassengerFlowProcessor] Cache od_record key=" + key);
+		}
 	}
 
 	private void cacheFeatureStationMapping(Jedis jedis, String feature, String stationId, String stationName) {
 		JSONObject mapping = new JSONObject();
 		mapping.put("stationId", stationId);
 		mapping.put("stationName", stationName);
-		jedis.set("feature_station:" + feature, mapping.toString());
-		System.out.println("[PassengerFlowProcessor] Cache feature_station for feature hashLen=" + feature.length());
+		String key = "feature_station:" + feature;
+		jedis.set(key, mapping.toString());
+		jedis.expire(key, Config.REDIS_TTL_FEATURES);
+		if (Config.LOG_DEBUG) {
+			System.out.println("[PassengerFlowProcessor] Cache feature_station for feature hashLen=" + feature.length());
+		}
 	}
 
 	private JSONObject getOnStationFromCache(Jedis jedis, String feature) {
@@ -412,10 +469,14 @@ public class PassengerFlowProcessor {
 	private void sendToKafka(Object data) {
 		try {
 			String json = objectMapper.writeValueAsString(data);
-			System.out.println("[PassengerFlowProcessor] Send to Kafka topic=" + KafkaConfig.PASSENGER_FLOW_TOPIC + ", size=" + json.length());
+			if (Config.LOG_DEBUG) {
+				System.out.println("[PassengerFlowProcessor] Send to Kafka topic=" + KafkaConfig.PASSENGER_FLOW_TOPIC + ", size=" + json.length());
+			}
 			producer.send(new ProducerRecord<>(KafkaConfig.PASSENGER_FLOW_TOPIC, json));
 		} catch (Exception e) {
-			System.err.println("[PassengerFlowProcessor] Send to Kafka error: " + e.getMessage());
+			if (Config.LOG_ERROR) {
+				System.err.println("[PassengerFlowProcessor] Send to Kafka error: " + e.getMessage());
+			}
 		}
 	}
 

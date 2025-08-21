@@ -1,0 +1,220 @@
+package ai.servlet.passenger;
+
+import redis.clients.jedis.Jedis;
+import redis.clients.jedis.JedisPool;
+import redis.clients.jedis.ScanResult;
+
+import java.util.Set;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * Redis清理工具类，用于定期清理过期数据和监控内存使用情况
+ */
+public class RedisCleanupUtil {
+    
+    private final JedisPool jedisPool;
+    private final ScheduledExecutorService scheduler;
+    private static final long CLEANUP_INTERVAL_MINUTES = 30; // 每30分钟清理一次
+    
+    public RedisCleanupUtil() {
+        this.jedisPool = new JedisPool(Config.REDIS_HOST, Config.REDIS_PORT);
+        this.scheduler = Executors.newScheduledThreadPool(1);
+        startCleanupTask();
+    }
+    
+    /**
+     * 启动定期清理任务
+     */
+    private void startCleanupTask() {
+        scheduler.scheduleAtFixedRate(this::cleanupExpiredData, 
+            CLEANUP_INTERVAL_MINUTES, CLEANUP_INTERVAL_MINUTES, TimeUnit.MINUTES);
+        
+        if (Config.LOG_INFO) {
+            System.out.println("[RedisCleanupUtil] Started cleanup task, interval: " + CLEANUP_INTERVAL_MINUTES + " minutes");
+        }
+    }
+    
+    /**
+     * 清理过期数据
+     */
+    private void cleanupExpiredData() {
+        try (Jedis jedis = jedisPool.getResource()) {
+            jedis.auth(Config.REDIS_PASSWORD);
+            
+            // 清理过期的门状态数据
+            cleanupExpiredKeys(jedis, "door_status:*", "门状态数据");
+            
+            // 清理过期的GPS数据
+            cleanupExpiredKeys(jedis, "gps:*", "GPS数据");
+            
+            // 清理过期的到离站数据
+            cleanupExpiredKeys(jedis, "arrive_leave:*", "到离站数据");
+            
+            // 清理过期的特征向量数据
+            cleanupExpiredKeys(jedis, "features_set:*", "特征向量数据");
+            
+            // 清理过期的计数数据
+            cleanupExpiredKeys(jedis, "ticket_count_*", "票务计数数据");
+            cleanupExpiredKeys(jedis, "cv_*_count:*", "CV计数数据");
+            
+            // 清理过期的OD记录缓存
+            cleanupExpiredKeys(jedis, "od_record:*", "OD记录缓存");
+            
+            // 清理过期的特征站点映射
+            cleanupExpiredKeys(jedis, "feature_station:*", "特征站点映射");
+            
+            // 监控内存使用情况
+            monitorMemoryUsage(jedis);
+            
+        } catch (Exception e) {
+            if (Config.LOG_ERROR) {
+                System.err.println("[RedisCleanupUtil] Cleanup error: " + e.getMessage());
+            }
+        }
+    }
+    
+    /**
+     * 清理指定模式的过期键
+     */
+    private void cleanupExpiredKeys(Jedis jedis, String pattern, String dataType) {
+        try {
+            Set<String> keys = jedis.keys(pattern);
+            int expiredCount = 0;
+            
+            for (String key : keys) {
+                if (jedis.ttl(key) == -1) { // 没有设置过期时间的键
+                    // 根据键名判断应该设置什么过期时间
+                    long ttl = getTTLForKey(key);
+                    if (ttl > 0) {
+                        jedis.expire(key, ttl);
+                        expiredCount++;
+                    }
+                }
+            }
+            
+            if (expiredCount > 0 && Config.LOG_INFO) {
+                System.out.println("[RedisCleanupUtil] Set TTL for " + expiredCount + " " + dataType + " keys");
+            }
+            
+        } catch (Exception e) {
+            if (Config.LOG_ERROR) {
+                System.err.println("[RedisCleanupUtil] Error cleaning " + dataType + ": " + e.getMessage());
+            }
+        }
+    }
+    
+    /**
+     * 根据键名获取对应的TTL
+     */
+    private long getTTLForKey(String key) {
+        if (key.startsWith("door_status:")) {
+            return Config.REDIS_TTL_DOOR_STATUS;
+        } else if (key.startsWith("gps:")) {
+            return Config.REDIS_TTL_GPS;
+        } else if (key.startsWith("arrive_leave:")) {
+            return Config.REDIS_TTL_ARRIVE_LEAVE;
+        } else if (key.startsWith("features_set:")) {
+            return Config.REDIS_TTL_FEATURES;
+        } else if (key.startsWith("open_time:") || key.startsWith("ticket_count_window:") || 
+                   key.startsWith("cv_up_count:") || key.startsWith("cv_down_count:")) {
+            return Config.REDIS_TTL_OPEN_TIME;
+        } else if (key.startsWith("ticket_count_total:") || key.startsWith("total_count:") || 
+                   key.startsWith("load_factor:")) {
+            return Config.REDIS_TTL_COUNTS;
+        } else if (key.startsWith("od_record:")) {
+            return Config.REDIS_TTL_OPEN_TIME;
+        } else if (key.startsWith("feature_station:")) {
+            return Config.REDIS_TTL_FEATURES;
+        }
+        return 0; // 不设置过期时间
+    }
+    
+    /**
+     * 监控Redis内存使用情况
+     */
+    private void monitorMemoryUsage(Jedis jedis) {
+        try {
+            String info = jedis.info("memory");
+            String[] lines = info.split("\r\n");
+            
+            long usedMemory = 0;
+            long maxMemory = 0;
+            
+            for (String line : lines) {
+                if (line.startsWith("used_memory:")) {
+                    usedMemory = Long.parseLong(line.split(":")[1]);
+                } else if (line.startsWith("maxmemory:")) {
+                    maxMemory = Long.parseLong(line.split(":")[1]);
+                }
+            }
+            
+            if (maxMemory > 0) {
+                double usagePercent = (double) usedMemory / maxMemory * 100;
+                
+                if (usagePercent > 80) {
+                    if (Config.LOG_ERROR) {
+                        System.err.println("[RedisCleanupUtil] WARNING: Redis memory usage is " + 
+                            String.format("%.2f", usagePercent) + "% (" + 
+                            formatBytes(usedMemory) + "/" + formatBytes(maxMemory) + ")");
+                    }
+                } else if (Config.LOG_INFO) {
+                    System.out.println("[RedisCleanupUtil] Redis memory usage: " + 
+                        String.format("%.2f", usagePercent) + "% (" + 
+                        formatBytes(usedMemory) + "/" + formatBytes(maxMemory) + ")");
+                }
+            }
+            
+        } catch (Exception e) {
+            if (Config.LOG_ERROR) {
+                System.err.println("[RedisCleanupUtil] Error monitoring memory: " + e.getMessage());
+            }
+        }
+    }
+    
+    /**
+     * 格式化字节数
+     */
+    private String formatBytes(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format("%.2f KB", bytes / 1024.0);
+        if (bytes < 1024 * 1024 * 1024) return String.format("%.2f MB", bytes / (1024.0 * 1024.0));
+        return String.format("%.2f GB", bytes / (1024.0 * 1024.0 * 1024.0));
+    }
+    
+    /**
+     * 手动触发清理
+     */
+    public void manualCleanup() {
+        if (Config.LOG_INFO) {
+            System.out.println("[RedisCleanupUtil] Manual cleanup triggered");
+        }
+        cleanupExpiredData();
+    }
+    
+    /**
+     * 停止清理任务
+     */
+    public void shutdown() {
+        if (Config.LOG_INFO) {
+            System.out.println("[RedisCleanupUtil] Shutting down cleanup task");
+        }
+        scheduler.shutdown();
+        try {
+            if (!scheduler.awaitTermination(60, TimeUnit.SECONDS)) {
+                scheduler.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            scheduler.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+    }
+    
+    /**
+     * 获取Redis连接池
+     */
+    public JedisPool getJedisPool() {
+        return jedisPool;
+    }
+}

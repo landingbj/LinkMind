@@ -86,7 +86,7 @@ public class RedisCleanupUtil {
             for (String key : keys) {
                 if (jedis.ttl(key) == -1) { // 没有设置过期时间的键
                     // 根据键名判断应该设置什么过期时间
-                    long ttl = getTTLForKey(key);
+                    int ttl = getTTLForKey(key);
                     if (ttl > 0) {
                         jedis.expire(key, ttl);
                         expiredCount++;
@@ -108,7 +108,7 @@ public class RedisCleanupUtil {
     /**
      * 根据键名获取对应的TTL
      */
-    private long getTTLForKey(String key) {
+    private int getTTLForKey(String key) {
         if (key.startsWith("door_status:")) {
             return Config.REDIS_TTL_DOOR_STATUS;
         } else if (key.startsWith("gps:")) {

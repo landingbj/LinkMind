@@ -25,7 +25,7 @@ public class KafkaConfig {
     // 票务主题（刷卡数据）
     public static final String TICKET_TOPIC = "bus_card_swipe_data";
 
-    // 乘客流量主题（输出结果）
+    // 客流分析OD主题（输出OD结果到Kafka）
     public static final String PASSENGER_FLOW_TOPIC = "passenger_flow_topic";
 
     // 消费者组ID

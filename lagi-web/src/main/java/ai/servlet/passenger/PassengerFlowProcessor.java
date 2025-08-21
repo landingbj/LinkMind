@@ -115,9 +115,24 @@ public class PassengerFlowProcessor {
 			int boxW = ev.optInt("box_w");
 			int boxH = ev.optInt("box_h");
 
+			// 处理base64图片：解码并上传到OSS
+			String imageUrl = null;
+			if (image != null && !image.isEmpty() && Config.ENABLE_IMAGE_PROCESSING) {
+				try {
+					imageUrl = processBase64Image(image, busNo, cameraNo, eventTime);
+					if (Config.LOG_DEBUG) {
+						System.out.println("[PassengerFlowProcessor] Processed base64 image to URL: " + imageUrl);
+					}
+				} catch (Exception e) {
+					if (Config.LOG_ERROR) {
+						System.err.println("[PassengerFlowProcessor] Error processing base64 image: " + e.getMessage());
+					}
+				}
+			}
+
 			BusOdRecord record = createBaseRecord(busNo, cameraNo, eventTime, jedis);
 			record.setPassengerVector(feature);
-			record.setCountingImage(image);
+			record.setCountingImage(imageUrl); // 存储OSS URL而不是base64
 			record.setPassengerPosition(String.format("[{\"xLeftUp\":%d,\"yLeftUp\":%d,\"xRightBottom\":%d,\"yRightBottom\":%d}]",
 					boxX, boxY, boxX + boxW, boxY + boxH));
 			record.setDataSource("CV");
@@ -128,6 +143,12 @@ public class PassengerFlowProcessor {
 				record.setStationNameOn(getCurrentStationName(busNo, jedis));
 				record.setUpCount(1);
 				cacheFeatureStationMapping(jedis, feature, record.getStationIdOn(), record.getStationNameOn());
+				
+				// 缓存图片URL到Redis，用于后续AI分析
+				if (imageUrl != null) {
+					cacheImageUrl(jedis, busNo, eventTime, imageUrl, "up");
+				}
+				
 				String windowId = jedis.get("open_time:" + busNo);
 				if (windowId != null) {
 					String featuresKey = "features_set:" + busNo + ":" + windowId;
@@ -145,6 +166,11 @@ public class PassengerFlowProcessor {
 				record.setStationIdOff(getCurrentStationId(busNo, jedis));
 				record.setStationNameOff(getCurrentStationName(busNo, jedis));
 				record.setDownCount(1);
+
+				// 缓存图片URL到Redis，用于后续AI分析
+				if (imageUrl != null) {
+					cacheImageUrl(jedis, busNo, eventTime, imageUrl, "down");
+				}
 
 				float similarity = matchPassengerFeature(feature, busNo);
 				if (Config.LOG_DEBUG) {
@@ -272,6 +298,58 @@ public class PassengerFlowProcessor {
 			System.out.println("[PassengerFlowProcessor] Saved MODEL OD record to DB, busNo=" + busNo);
 		}
 		sendToKafka(record);
+	}
+
+	private void handleCloseDoorEvent(JSONObject data, String busNo, String cameraNo, Jedis jedis) throws IOException, SQLException {
+		LocalDateTime eventTime = LocalDateTime.parse(data.optString("timestamp").replace(" ", "T"));
+		String action = data.optString("action");
+
+		if ("close".equals(action)) {
+			// 获取开门时间窗口ID
+			String windowId = jedis.get("open_time:" + busNo);
+			if (windowId != null) {
+				// 创建关门记录
+				BusOdRecord record = createBaseRecord(busNo, cameraNo, eventTime, jedis);
+				record.setTimestampEnd(eventTime);
+				record.setDataSource("CV");
+
+				// 获取CV计数
+				int cvUpCount = getCachedUpCount(jedis, busNo, windowId);
+				int cvDownCount = getCachedDownCount(jedis, busNo, eventTime);
+				record.setUpCount(cvUpCount);
+				record.setDownCount(cvDownCount);
+
+				// 保存到数据库
+				busOdRecordDao.save(record);
+				if (Config.LOG_INFO) {
+					System.out.println("[PassengerFlowProcessor] Saved CLOSE DOOR OD record to DB, busNo=" + busNo);
+				}
+
+				// 发送到Kafka
+				sendToKafka(record);
+
+				// 在关门时触发AI图片分析
+				if (Config.ENABLE_AI_IMAGE_ANALYSIS) {
+					try {
+						analyzeImagesWithAI(jedis, busNo, eventTime);
+					} catch (Exception e) {
+						if (Config.LOG_ERROR) {
+							System.err.println("[PassengerFlowProcessor] Error during AI image analysis: " + e.getMessage());
+						}
+					}
+				}
+
+				// 清理开门时间窗口
+				jedis.del("open_time:" + busNo);
+				if (Config.LOG_DEBUG) {
+					System.out.println("[PassengerFlowProcessor] Cleaned up open_time window for busNo=" + busNo);
+				}
+			}
+		}
+
+		if (Config.LOG_DEBUG) {
+			System.out.println("[PassengerFlowProcessor] Close door event processed, busNo=" + busNo + ", action=" + action);
+		}
 	}
 
 	private BusOdRecord createBaseRecord(String busNo, String cameraNo, LocalDateTime time, Jedis jedis) {
@@ -443,6 +521,11 @@ public class PassengerFlowProcessor {
 		return v != null ? Integer.parseInt(v) : 0;
 	}
 
+	private int getCachedUpCount(Jedis jedis, String busNo, String windowId) {
+		String v = jedis.get("cv_up_count:" + busNo + ":" + windowId);
+		return v != null ? Integer.parseInt(v) : 0;
+	}
+
 	private Long getBusIdFromRedis(Jedis jedis, String busNo) {
 		String v = jedis.get("bus_id:" + busNo);
 		if (v == null) return null;
@@ -482,5 +565,148 @@ public class PassengerFlowProcessor {
 
 	public void close() {
 		if (producer != null) producer.close();
+	}
+
+	/**
+	 * 处理base64图片：解码为文件并上传到OSS
+	 */
+	private String processBase64Image(String base64Image, String busNo, String cameraNo, LocalDateTime eventTime) throws IOException {
+		// 1. 将base64图片解码为文件
+		File imageFile = decodeBase64ToFile(base64Image);
+		
+		// 2. 上传到OSS获取URL
+		String fileName = String.format("cv_%s_%s_%s_%s.jpg", 
+			busNo, cameraNo, eventTime.format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")), UUID.randomUUID().toString().substring(0, 8));
+		
+		String imageUrl = OssUtil.uploadFile(imageFile, fileName);
+		
+		// 清理临时文件
+		imageFile.delete();
+		
+		return imageUrl;
+	}
+
+	/**
+	 * 将base64字符串解码为文件
+	 */
+	private File decodeBase64ToFile(String base64Image) throws IOException {
+		// 移除base64前缀（如果有的话）
+		String base64Data = base64Image;
+		if (base64Image.contains(",")) {
+			base64Data = base64Image.substring(base64Image.indexOf(",") + 1);
+		}
+		
+		// 解码base64
+		byte[] imageBytes = java.util.Base64.getDecoder().decode(base64Data);
+		
+		// 创建临时文件
+		File tempFile = File.createTempFile("cv_image_", ".jpg");
+		try (FileOutputStream fos = new FileOutputStream(tempFile)) {
+			fos.write(imageBytes);
+		}
+		
+		return tempFile;
+	}
+
+	/**
+	 * 缓存图片URL到Redis，用于后续AI分析
+	 */
+	private void cacheImageUrl(Jedis jedis, String busNo, LocalDateTime eventTime, String imageUrl, String direction) {
+		String windowId = jedis.get("open_time:" + busNo);
+		if (windowId != null) {
+			String imageUrlsKey = "image_urls:" + busNo + ":" + windowId + ":" + direction;
+			jedis.sadd(imageUrlsKey, imageUrl);
+			jedis.expire(imageUrlsKey, Config.REDIS_TTL_OPEN_TIME);
+			
+			if (Config.LOG_DEBUG) {
+				System.out.println("[PassengerFlowProcessor] Cached image URL for " + direction + ", busNo=" + busNo + ", windowId=" + windowId);
+			}
+		}
+	}
+
+	/**
+	 * 收集指定时间窗口内的图片URL列表
+	 */
+	private List<String> collectImageUrlsInTimeWindow(Jedis jedis, String busNo, LocalDateTime timeWindow) {
+		List<String> imageUrls = new ArrayList<>();
+		String windowId = jedis.get("open_time:" + busNo);
+		
+		if (windowId != null) {
+			// 收集上车图片
+			String upImagesKey = "image_urls:" + busNo + ":" + windowId + ":up";
+			Set<String> upUrls = jedis.smembers(upImagesKey);
+			if (upUrls != null) {
+				imageUrls.addAll(upUrls);
+			}
+			
+			// 收集下车图片
+			String downImagesKey = "image_urls:" + busNo + ":" + windowId + ":down";
+			Set<String> downUrls = jedis.smembers(downImagesKey);
+			if (downUrls != null) {
+				imageUrls.addAll(downUrls);
+			}
+			
+			if (Config.LOG_DEBUG) {
+				System.out.println("[PassengerFlowProcessor] Collected " + imageUrls.size() + " image URLs for busNo=" + busNo + ", windowId=" + windowId);
+			}
+		}
+		
+		return imageUrls;
+	}
+
+	/**
+	 * 使用图片列表调用AI模型进行分析
+	 */
+	private void analyzeImagesWithAI(Jedis jedis, String busNo, LocalDateTime timeWindow) throws IOException, SQLException {
+		// 检查是否启用AI图片分析
+		if (!Config.ENABLE_AI_IMAGE_ANALYSIS) {
+			if (Config.LOG_DEBUG) {
+				System.out.println("[PassengerFlowProcessor] AI image analysis is disabled");
+			}
+			return;
+		}
+		
+		// 收集图片URL列表
+		List<String> imageUrls = collectImageUrlsInTimeWindow(jedis, busNo, timeWindow);
+		
+		if (imageUrls.isEmpty()) {
+			if (Config.LOG_DEBUG) {
+				System.out.println("[PassengerFlowProcessor] No images to analyze for busNo=" + busNo);
+			}
+			return;
+		}
+		
+		// 限制图片数量，避免AI模型处理过多图片
+		if (imageUrls.size() > Config.MAX_IMAGES_PER_ANALYSIS) {
+			if (Config.LOG_DEBUG) {
+				System.out.println("[PassengerFlowProcessor] Limiting images from " + imageUrls.size() + " to " + Config.MAX_IMAGES_PER_ANALYSIS);
+			}
+			imageUrls = imageUrls.subList(0, Config.MAX_IMAGES_PER_ANALYSIS);
+		}
+		
+		// 调用大模型分析图片
+		JSONObject modelResponse = callMediaApi(imageUrls, null, Config.PASSENGER_PROMPT);
+		JSONObject responseObj = modelResponse.optJSONObject("response");
+		JSONArray passengerFeatures = responseObj != null ? responseObj.optJSONArray("passenger_features") : new JSONArray();
+		int modelTotalCount = responseObj != null ? responseObj.optInt("total_count") : 0;
+		
+		if (Config.LOG_DEBUG) {
+			System.out.println("[PassengerFlowProcessor] AI analysis result - total_count=" + modelTotalCount + ", features_len=" + passengerFeatures.length());
+		}
+		
+		// 创建AI分析记录
+		BusOdRecord record = createBaseRecord(busNo, "AI_ANALYSIS", timeWindow, jedis);
+		record.setFeatureDescription(passengerFeatures.toString());
+		record.setTotalCount(modelTotalCount);
+		record.setDataSource("AI_IMAGE_ANALYSIS");
+		
+		// 保存到数据库
+		busOdRecordDao.save(record);
+		if (Config.LOG_INFO) {
+			System.out.println("[PassengerFlowProcessor] Saved AI image analysis record to DB, busNo=" + busNo);
+		}
+		
+		// 发送到Kafka
+		sendToKafka(record);
 	}
 }

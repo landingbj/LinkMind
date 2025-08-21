@@ -66,7 +66,7 @@ public class BusOdRecord {
     /** 车辆纬度 */
     private BigDecimal gpsLng;
 
-    /** 上下车画面截图（base64编码） */
+    /** 上下车画面截图（OSS URL） */
     private String countingImage;
 
     /**

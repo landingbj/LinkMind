@@ -11,7 +11,7 @@
 
     <!-- 添加WebListener配置 -->
     <listener>
-        <listener-class>ai.servlet.passenger.SimpleStartupListener</listener-class>
+        <listener-class>ai.servlet.passenger.simpleStartupListener</listener-class>
     </listener>
 
     <welcome-file-list>

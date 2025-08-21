@@ -9,7 +9,7 @@ import javax.servlet.annotation.WebListener;
  * 负责启动Kafka消费者服务和Redis清理任务
  */
 @WebListener
-public class impleStartupListener implements ServletContextListener {
+public class simpleStartupListener implements ServletContextListener {
 
     private KafkaConsumerService kafkaConsumerService;
     private RedisCleanupUtil redisCleanupUtil;

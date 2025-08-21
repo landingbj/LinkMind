@@ -50,16 +50,12 @@ public class PassengerFlowProcessor {
 		String event = eventJson.optString("event");
 		JSONObject data = eventJson.optJSONObject("data");
 		
-		if (Config.LOG_INFO) {
-			System.out.println("📥 [PassengerFlowProcessor] 收到CV系统事件:");
-			System.out.println("   事件类型: " + event);
-			System.out.println("   事件数据: " + eventJson.toString());
-			System.out.println("   时间: " + LocalDateTime.now().format(formatter));
-		}
+		// 保留关键日志可选：如需可打开，将下方日志集中为一行
+		// if (Config.LOG_INFO) {
+		// 	System.out.println("[PassengerFlowProcessor] event=" + event + ", time=" + LocalDateTime.now().format(formatter));
+		// }
 		
-		if (Config.LOG_DEBUG) {
-			System.out.println("[PassengerFlowProcessor] Receive event=" + event + ", payload=" + eventJson);
-		}
+		// 移除事件payload调试日志，避免秒级刷屏
 		
 		if (data == null) {
 			if (Config.LOG_ERROR) {
@@ -71,48 +67,25 @@ public class PassengerFlowProcessor {
 		String busNo = data.optString("bus_no");
 		String cameraNo = data.optString("camera_no");
 
-		if (Config.LOG_DEBUG) {
-			System.out.println("[PassengerFlowProcessor] 解析事件参数: busNo=" + busNo + ", cameraNo=" + cameraNo);
-		}
+		// 降低参数解析日志噪音
 
 		try (Jedis jedis = jedisPool.getResource()) {
 			jedis.auth(Config.REDIS_PASSWORD);
 
 			switch (event) {
 				case "downup":
-					if (Config.LOG_INFO) {
-						System.out.println("👥 [PassengerFlowProcessor] 处理上下车事件: busNo=" + busNo + ", cameraNo=" + cameraNo);
-					}
-					if (Config.LOG_DEBUG) {
-						System.out.println("[PassengerFlowProcessor] Handle downup, busNo=" + busNo);
-					}
 					handleDownUpEvent(data, busNo, cameraNo, jedis);
 					break;
 				case "load_factor":
-					if (Config.LOG_INFO) {
-						System.out.println("📊 [PassengerFlowProcessor] 处理载客率事件: busNo=" + busNo + ", cameraNo=" + cameraNo);
-					}
-					if (Config.LOG_DEBUG) {
-						System.out.println("[PassengerFlowProcessor] Handle load_factor, busNo=" + busNo);
-					}
+					// 高频事件，移除过程性日志
 					handleLoadFactorEvent(data, busNo, jedis);
 					break;
 				case "open_close_door":
-					if (Config.LOG_INFO) {
-						System.out.println("🚪 [PassengerFlowProcessor] 处理开关门事件: busNo=" + busNo + ", cameraNo=" + cameraNo);
-					}
-					if (Config.LOG_DEBUG) {
-						System.out.println("[PassengerFlowProcessor] Handle open_close_door, busNo=" + busNo);
-					}
+					// 关键事件在KafkaConsumerService侧已有明确日志
 					handleOpenCloseDoorEvent(data, busNo, cameraNo, jedis);
 					break;
 				case "notify_pull_file":
-					if (Config.LOG_INFO) {
-						System.out.println("📁 [PassengerFlowProcessor] 处理文件拉取通知: busNo=" + busNo + ", cameraNo=" + cameraNo);
-					}
-					if (Config.LOG_DEBUG) {
-						System.out.println("[PassengerFlowProcessor] Handle notify_pull_file, busNo=" + busNo);
-					}
+					// 此事件通常量不大，必要时可单行打印
 					handleNotifyPullFileEvent(data, busNo, cameraNo, jedis);
 					break;
 				default:
@@ -134,9 +107,6 @@ public class PassengerFlowProcessor {
 		JSONArray events = data.optJSONArray("events");
 
 		if (events == null || events.length() == 0) {
-			if (Config.LOG_DEBUG) {
-				System.out.println("[PassengerFlowProcessor] No events in downup data for busNo=" + busNo);
-			}
 			return;
 		}
 
@@ -158,9 +128,7 @@ public class PassengerFlowProcessor {
 			if (image != null && !image.isEmpty() && Config.ENABLE_IMAGE_PROCESSING) {
 				try {
 					imageUrl = processBase64Image(image, busNo, cameraNo, eventTime);
-					if (Config.LOG_DEBUG) {
-						System.out.println("[PassengerFlowProcessor] Processed base64 image to URL: " + imageUrl);
-					}
+					// 屏蔽图片URL日志
 				} catch (Exception e) {
 					if (Config.LOG_ERROR) {
 						System.err.println("[PassengerFlowProcessor] Error processing base64 image: " + e.getMessage());
@@ -171,9 +139,6 @@ public class PassengerFlowProcessor {
 			// 获取当前开门时间窗口ID
 			String windowId = jedis.get("open_time:" + busNo);
 			if (windowId == null) {
-				if (Config.LOG_DEBUG) {
-					System.out.println("[PassengerFlowProcessor] No open window found for busNo=" + busNo + ", skipping event");
-				}
 				continue;
 			}
 
@@ -198,24 +163,18 @@ public class PassengerFlowProcessor {
 					cacheImageUrl(jedis, busNo, windowId, imageUrl, "up");
 				}
 
-				if (Config.LOG_DEBUG) {
-					System.out.println("[PassengerFlowProcessor] Processed UP event for busNo=" + busNo + ", windowId=" + windowId);
-				}
+				// 移除逐条UP处理完成日志
 			} else if ("down".equals(direction)) {
 				downCount++;
 
 				// 尝试匹配上车特征
 				float similarity = matchPassengerFeature(feature, busNo);
-				if (Config.LOG_DEBUG) {
-					System.out.println("[PassengerFlowProcessor] DOWN similarity=" + similarity + ", busNo=" + busNo);
-				}
+				// 屏蔽相似度调试日志
 
 				if (similarity > 0.8f) {
 					JSONObject onStation = getOnStationFromCache(jedis, feature);
 					if (onStation != null) {
-						if (Config.LOG_DEBUG) {
-							System.out.println("[PassengerFlowProcessor] Matched passenger feature, onStation=" + onStation.optString("stationName"));
-						}
+						// 屏蔽命中特征调试日志
 					}
 				}
 
@@ -229,9 +188,7 @@ public class PassengerFlowProcessor {
 					cacheImageUrl(jedis, busNo, windowId, imageUrl, "down");
 				}
 
-				if (Config.LOG_DEBUG) {
-					System.out.println("[PassengerFlowProcessor] Processed DOWN event for busNo=" + busNo + ", windowId=" + windowId);
-				}
+				// 移除逐条DOWN处理完成日志
 			}
 		}
 
@@ -241,10 +198,7 @@ public class PassengerFlowProcessor {
 		jedis.set(totalCountKey, String.valueOf(totalCount));
 		jedis.expire(totalCountKey, Config.REDIS_TTL_COUNTS);
 
-		if (Config.LOG_INFO) {
-			System.out.println("[PassengerFlowProcessor] Processed downup events for busNo=" + busNo +
-				", upCount=" + upCount + ", downCount=" + downCount + ", totalCount=" + totalCount);
-		}
+		// 汇总日志可按需开启，默认关闭
 	}
 
 	private void handleLoadFactorEvent(JSONObject data, String busNo, Jedis jedis) {
@@ -258,9 +212,7 @@ public class PassengerFlowProcessor {
 		jedis.set(totalCountKey, String.valueOf(count));
 		jedis.expire(loadFactorKey, Config.REDIS_TTL_COUNTS);
 		jedis.expire(totalCountKey, Config.REDIS_TTL_COUNTS);
-		if (Config.LOG_DEBUG) {
-			System.out.println("[PassengerFlowProcessor] Cache load_factor=" + factor + ", total_count=" + count + ", busNo=" + busNo);
-		}
+		// 移除高频缓存日志
 	}
 
 	private void handleOpenCloseDoorEvent(JSONObject data, String busNo, String cameraNo, Jedis jedis) throws IOException, SQLException {
@@ -302,18 +254,14 @@ public class PassengerFlowProcessor {
 		// 下载视频
 		File videoFile = downloadFile(fileUrl);
 		String ossUrl = OssUtil.uploadFile(videoFile, UUID.randomUUID().toString() + ".mp4");
-		if (Config.LOG_INFO) {
-			System.out.println("[PassengerFlowProcessor] Video downloaded and uploaded to OSS, url=" + ossUrl);
-		}
+		// 移除视频上传信息日志
 
 		// 调用多模态模型（视频）
 		JSONObject modelResponse = callMediaApi(null, ossUrl, Config.PASSENGER_PROMPT);
 		JSONObject responseObj = modelResponse.optJSONObject("response");
 		JSONArray passengerFeatures = responseObj != null ? responseObj.optJSONArray("passenger_features") : new JSONArray();
 		int modelTotalCount = responseObj != null ? responseObj.optInt("total_count") : 0;
-		if (Config.LOG_DEBUG) {
-			System.out.println("[PassengerFlowProcessor] Model total_count=" + modelTotalCount + ", features_len=" + passengerFeatures.length());
-		}
+		// 移除模型计数调试日志
 
 		BusOdRecord record = createBaseRecord(busNo, cameraNo, begin, jedis);
 		record.setTimestampEnd(end);
@@ -322,13 +270,9 @@ public class PassengerFlowProcessor {
 
 		// 校验CV结果 - 这里暂时使用模型结果，因为notify_pull_file事件可能不在开门时间窗口内
 		record.setDownCount(modelTotalCount);
-		if (Config.LOG_DEBUG) {
-			System.out.println("[PassengerFlowProcessor] Using model down_count for notify_pull_file event: " + modelTotalCount);
-		}
+		// 移除模型down_count调试日志
 
-		if (Config.LOG_INFO) {
-			System.out.println("[PassengerFlowProcessor] Created MODEL OD record for busNo=" + busNo);
-		}
+		// 移除创建模型OD记录信息日志
 		sendToKafka(record);
 	}
 
@@ -380,15 +324,11 @@ public class PassengerFlowProcessor {
 				jedis.del("cv_up_count:" + busNo + ":" + windowId);
 				jedis.del("cv_down_count:" + busNo + ":" + windowId);
 
-				if (Config.LOG_DEBUG) {
-					System.out.println("[PassengerFlowProcessor] Cleaned up open_time window for busNo=" + busNo);
-				}
+				// 移除清理窗口调试日志
 			}
 		}
 
-		if (Config.LOG_DEBUG) {
-			System.out.println("[PassengerFlowProcessor] Close door event processed, busNo=" + busNo + ", action=" + action);
-		}
+		// 移除关门事件处理完成日志
 	}
 
 	private BusOdRecord createBaseRecord(String busNo, String cameraNo, LocalDateTime time, Jedis jedis) {
@@ -508,7 +448,7 @@ public class PassengerFlowProcessor {
 
 			try (CloseableHttpResponse response = client.execute(post)) {
 				String responseString = EntityUtils.toString(response.getEntity());
-				System.out.println("[PassengerFlowProcessor] Media API response: " + responseString);
+				// 屏蔽模型API原始响应日志
 				return new JSONObject(responseString);
 			}
 		}

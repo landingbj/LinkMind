@@ -141,17 +141,11 @@ public class KafkaConsumerService {
                     JSONObject message = new JSONObject(record.value());
                     String topic = record.topic();
                     String busNo = message.optString("busSelfNo", message.optString("busNo"));
-                    if (Config.LOG_DEBUG) {
-                        System.out.println("[KafkaConsumerService] Received from topic=" + topic + ", busNo=" + busNo + ", payload=" + record.value());
-                    }
                     if (busNo.isEmpty()) continue;
 
                     // 过滤试点线路
                     String routeId = extractRouteId(message, topic);
                     if (!isPilotRoute(routeId)) {
-                        if (Config.LOG_DEBUG) {
-                            System.out.println("[KafkaConsumerService] Skip non-pilot routeId=" + routeId + ", busNo=" + busNo);
-                        }
                         continue;
                     }
 
@@ -191,9 +185,6 @@ public class KafkaConsumerService {
             switch (topic) {
                 case KafkaConfig.BUS_GPS_TOPIC:
                     int pktType = message.optInt("pktType", 0);
-                    if (Config.LOG_DEBUG) {
-                        System.out.println("[KafkaConsumerService] Handling bus_gps pktType=" + pktType + ", busNo=" + busNo);
-                    }
                     if (pktType == 3) {
                         handleGps(message, busNo, jedis);
                     } else if (pktType == 4) {
@@ -204,16 +195,11 @@ public class KafkaConsumerService {
                         } else if (message.has("isArriveOrLeft")) {
                             handleArriveLeave(message, busNo, jedis);
                         } else {
-                            if (Config.LOG_DEBUG) {
-                                System.out.println("[KafkaConsumerService] Unknown bus_gps message schema, busNo=" + busNo);
-                            }
+                            
                         }
                     }
                     break;
                 case KafkaConfig.TICKET_TOPIC:
-                    if (Config.LOG_DEBUG) {
-                        System.out.println("[KafkaConsumerService] Handling ticket, busNo=" + busNo);
-                    }
                     handleTicket(message, busNo, jedis);
                     break;
             }
@@ -236,11 +222,7 @@ public class KafkaConsumerService {
         String trafficType = String.valueOf(message.opt("trafficType"));
         String direction = "4".equals(trafficType) ? "up" : "down";
 
-        if (Config.LOG_DEBUG) {
-            System.out.println("[KafkaConsumerService] 📍 处理GPS数据: busNo=" + busNo + 
-                ", lat=" + lat + ", lng=" + lng + ", speed=" + speed + "m/s (" + (speed * 3.6) + "km/h)" +
-                ", trafficType=" + trafficType + ", direction=" + direction);
-        }
+        // 移除高频GPS处理日志
 
         // 缓存GPS，设置过期时间
         JSONObject gpsJson = new JSONObject();
@@ -254,22 +236,15 @@ public class KafkaConsumerService {
             jedis.set(busIdKey, String.valueOf(message.optLong("busId")));
             jedis.expire(busIdKey, Config.REDIS_TTL_COUNTS);
             
-            if (Config.LOG_DEBUG) {
-                System.out.println("[KafkaConsumerService] 缓存车辆ID: busNo=" + busNo + ", busId=" + message.optLong("busId"));
-            }
+            // 移除缓存车辆ID高频日志
         }
         String gpsKey = "gps:" + busNo;
         jedis.set(gpsKey, gpsJson.toString());
         jedis.expire(gpsKey, Config.REDIS_TTL_GPS);
 
-        if (Config.LOG_INFO) {
-            System.out.println("📍 [KafkaConsumerService] GPS数据已缓存: busNo=" + busNo + 
-                ", 坐标(" + lat + ", " + lng + "), 速度" + speed + "m/s, 方向" + direction);
-        }
+        // 移除GPS缓存信息日志
         
-        if (Config.LOG_DEBUG) {
-            System.out.println("[KafkaConsumerService] Cached gps for busNo=" + busNo + ", lat=" + lat + ", lng=" + lng + ", speed=" + speed + ", direction=" + direction);
-        }
+        // 移除GPS缓存调试日志
     }
 
     private void handleArriveLeave(JSONObject message, String busNo, Jedis jedis) {
@@ -295,19 +270,9 @@ public class KafkaConsumerService {
         jedis.set(arriveLeaveKey, arriveLeave.toString());
         jedis.expire(arriveLeaveKey, Config.REDIS_TTL_ARRIVE_LEAVE);
 
-        if (Config.LOG_DEBUG) {
-            System.out.println("[KafkaConsumerService] Cached arrive_leave for busNo=" + busNo + ", isArriveOrLeft=" + isArriveOrLeft + ", stationId=" + stationId + ", stationName=" + stationName + ", direction=" + direction2);
-        }
+        // 移除到离站缓存调试日志
 
-        if ("1".equals(isArriveOrLeft)) {
-            if (Config.LOG_INFO) {
-                System.out.println("[KafkaConsumerService] Bus " + busNo + " arrived at station " + stationName);
-            }
-        } else if ("2".equals(isArriveOrLeft)) {
-            if (Config.LOG_INFO) {
-                System.out.println("[KafkaConsumerService] Bus " + busNo + " left station " + stationName);
-            }
-        }
+        // 移除到站/离站信息日志
     }
 
     private void handleTicket(JSONObject message, String busNo, Jedis jedis) {
@@ -318,11 +283,7 @@ public class KafkaConsumerService {
         String direction = "4".equals(trafficType) ? "up" : "down";
         double amount = message.optDouble("amount", 0.0);
 
-        if (Config.LOG_DEBUG) {
-            System.out.println("[KafkaConsumerService] 🎫 处理票务数据: busNo=" + busNo + 
-                ", cardNo=" + cardNo + ", stationId=" + stationId + ", stationName=" + stationName +
-                ", trafficType=" + trafficType + ", direction=" + direction + ", amount=" + amount);
-        }
+        // 移除票务数据处理调试日志
 
         // 缓存到离站信息
         JSONObject arriveLeaveJson = new JSONObject();
@@ -337,11 +298,7 @@ public class KafkaConsumerService {
         jedis.set(arriveLeaveKey, arriveLeaveJson.toString());
         jedis.expire(arriveLeaveKey, Config.REDIS_TTL_ARRIVE_LEAVE);
 
-        if (Config.LOG_INFO) {
-            System.out.println("🎫 [KafkaConsumerService] 票务数据已缓存: busNo=" + busNo + 
-                ", 站点=" + stationName + "(" + stationId + "), 方向=" + direction + 
-                ", 金额=" + amount + "元, 时间=" + LocalDateTime.now().format(formatter));
-        }
+        // 移除票务缓存信息日志
 
         // 更新站点GPS缓存
         if (message.has("lat") && message.has("lng")) {
@@ -350,15 +307,10 @@ public class KafkaConsumerService {
             double[] stationGps = {lat, lng};
             stationGpsMap.put(stationId, stationGps);
             
-            if (Config.LOG_DEBUG) {
-                System.out.println("[KafkaConsumerService] 更新站点GPS缓存: stationId=" + stationId + 
-                    ", lat=" + lat + ", lng=" + lng);
-            }
+            // 移除更新站点GPS缓存调试日志
         }
 
-        if (Config.LOG_DEBUG) {
-            System.out.println("[KafkaConsumerService] Cached arrive/leave for busNo=" + busNo + ", stationId=" + stationId + ", trafficType=" + trafficType);
-        }
+        // 移除到离站缓存调试日志
     }
 
     private void judgeAndSendDoorSignal(String busNo, Jedis jedis) throws JsonProcessingException {
@@ -367,11 +319,7 @@ public class KafkaConsumerService {
         String gpsStr = jedis.get("gps:" + busNo);
 
         if (arriveLeaveStr == null || gpsStr == null) {
-            if (Config.LOG_DEBUG) {
-                System.out.println("[KafkaConsumerService] Missing data for door signal judgment: busNo=" + busNo + 
-                    ", arriveLeave=" + (arriveLeaveStr != null ? "exists" : "null") + 
-                    ", gps=" + (gpsStr != null ? "exists" : "null"));
-            }
+            // 移除判门缺少数据调试日志
             return;
         }
 
@@ -383,11 +331,7 @@ public class KafkaConsumerService {
         double busLng = gps.optDouble("lng");
         double speed = gps.optDouble("speed");
 
-        if (Config.LOG_DEBUG) {
-            System.out.println("[KafkaConsumerService] Door signal judgment input: busNo=" + busNo + 
-                ", stationId=" + stationId + ", busLat=" + busLat + ", busLng=" + busLng + 
-                ", speed=" + speed + "m/s (" + (speed * 3.6) + "km/h)");
-        }
+        // 移除判门输入调试日志
 
         // 获取站点GPS
         double[] stationGps = stationGpsMap.getOrDefault(stationId, null);
@@ -395,15 +339,8 @@ public class KafkaConsumerService {
         double distance = Double.MAX_VALUE;
         if (hasStationGps) {
             distance = calculateDistance(busLat, busLng, stationGps[0], stationGps[1]);
-            if (Config.LOG_DEBUG) {
-                System.out.println("[KafkaConsumerService] Station GPS found: stationId=" + stationId + 
-                    ", stationLat=" + stationGps[0] + ", stationLng=" + stationGps[1] + 
-                    ", distance=" + distance + "m");
-            }
         } else {
-            if (Config.LOG_DEBUG) {
-                System.err.println("[KafkaConsumerService] No GPS data for station: " + stationId + ", will judge door only by arrive/leave");
-            }
+            // 移除站点GPS缺失调试日志
         }
 
         // 判断开门（优先报站 > GPS）
@@ -429,12 +366,7 @@ public class KafkaConsumerService {
         }
 
         LocalDateTime now = LocalDateTime.now();
-        if (Config.LOG_DEBUG) {
-            System.out.println("[KafkaConsumerService] Door judgment result: busNo=" + busNo + 
-                ", stationId=" + stationId + ", distance=" + distance + "m, speed=" + speed + "m/s" +
-                ", shouldOpen=" + shouldOpen + " (" + openReason + ")" +
-                ", shouldClose=" + shouldClose + " (" + closeReason + ")");
-        }
+        // 移除判门结果调试日志
 
         if (shouldOpen) {
             String openTimeKey = "open_time:" + busNo;
@@ -476,9 +408,7 @@ public class KafkaConsumerService {
                 jedis.del("open_time:" + busNo);
                 jedis.del("ticket_count_window:" + busNo);
             } else {
-                if (Config.LOG_DEBUG) {
-                    System.out.println("[KafkaConsumerService] 关门信号触发但未找到开门记录: busNo=" + busNo);
-                }
+                // 移除未找到开门记录调试日志
             }
         }
     }

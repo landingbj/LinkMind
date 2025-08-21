@@ -107,12 +107,11 @@ public class KafkaConsumerService {
         if (running.compareAndSet(false, true)) {
             if (Config.LOG_INFO) {
                 System.out.println("[KafkaConsumerService] Starting Kafka consumer service, topics=[" +
-                        String.join(", ", KafkaConfig.DOOR_STATUS_TOPIC, KafkaConfig.BUS_GPS_TOPIC, KafkaConfig.TICKET_TOPIC) + "]");
+                        String.join(", ", KafkaConfig.BUS_GPS_TOPIC, KafkaConfig.TICKET_TOPIC) + "]");
             }
             Properties props = KafkaConfig.getConsumerProperties();
             consumer = new KafkaConsumer<>(props);
             consumer.subscribe(Arrays.asList(
-                    KafkaConfig.DOOR_STATUS_TOPIC,
                     KafkaConfig.BUS_GPS_TOPIC,
                     KafkaConfig.TICKET_TOPIC
             ));
@@ -190,12 +189,6 @@ public class KafkaConsumerService {
             jedis.auth(Config.REDIS_PASSWORD);
 
             switch (topic) {
-                case KafkaConfig.DOOR_STATUS_TOPIC:
-                    if (Config.LOG_DEBUG) {
-                        System.out.println("[KafkaConsumerService] Handling door status, busNo=" + busNo);
-                    }
-                    handleDoorStatus(message, busNo, jedis);
-                    break;
                 case KafkaConfig.BUS_GPS_TOPIC:
                     int pktType = message.optInt("pktType", 0);
                     if (Config.LOG_DEBUG) {
@@ -234,37 +227,7 @@ public class KafkaConsumerService {
         }
     }
 
-    private void handleDoorStatus(JSONObject message, String busNo, Jedis jedis) throws Exception {
-        DoorStatusMessage doorStatus = new DoorStatusMessage();
-        doorStatus.setBusId(message.optLong("busId"));
-        doorStatus.setBusSelfNo(busNo);
-        doorStatus.setDoor1OpenSts(message.optInt("door1OpenSts"));
-        doorStatus.setDoor3OpenSts(message.optInt("door3OpenSts"));
-        doorStatus.setDoor5LockSts(message.optInt("door5LockSts"));
-        String timeStr = message.optString("time");
-        if (timeStr != null && !timeStr.isEmpty()) {
-            doorStatus.setTime(LocalDateTime.parse(timeStr.replace(" ", "T")));
-        }
 
-        // 缓存门状态，设置过期时间
-        String key = "door_status:" + busNo;
-        jedis.set(key, objectMapper.writeValueAsString(doorStatus));
-        jedis.expire(key, Config.REDIS_TTL_DOOR_STATUS);
-
-        if (Config.LOG_DEBUG) {
-            System.out.println("[KafkaConsumerService] Cached door_status for busNo=" + busNo + ", payload=" + objectMapper.writeValueAsString(doorStatus));
-        }
-
-        if (doorStatus.hasOpenDoor()) {
-            if (Config.LOG_INFO) {
-                System.out.println("[KafkaConsumerService] Door open detected for bus=" + busNo);
-            }
-        } else if (doorStatus.hasErrorDoor()) {
-            if (Config.LOG_ERROR) {
-                System.err.println("[KafkaConsumerService] Door error for bus=" + busNo);
-            }
-        }
-    }
 
     private void handleGps(JSONObject message, String busNo, Jedis jedis) {
         double lat = message.optDouble("lat");
@@ -364,13 +327,11 @@ public class KafkaConsumerService {
         // 获取缓存数据
         String arriveLeaveStr = jedis.get("arrive_leave:" + busNo);
         String gpsStr = jedis.get("gps:" + busNo);
-        String doorStatusStr = jedis.get("door_status:" + busNo);
 
         if (arriveLeaveStr == null || gpsStr == null) return;
 
         JSONObject arriveLeave = new JSONObject(arriveLeaveStr);
         JSONObject gps = new JSONObject(gpsStr);
-        DoorStatusMessage doorStatus = doorStatusStr != null ? objectMapper.readValue(doorStatusStr, DoorStatusMessage.class) : null;
 
         String stationId = arriveLeave.optString("stationId");
         double busLat = gps.optDouble("lat");
@@ -385,7 +346,7 @@ public class KafkaConsumerService {
             distance = calculateDistance(busLat, busLng, stationGps[0], stationGps[1]);
         } else {
             if (Config.LOG_DEBUG) {
-                System.err.println("[KafkaConsumerService] No GPS data for station: " + stationId + ", will judge door only by arrive/leave and door status");
+                System.err.println("[KafkaConsumerService] No GPS data for station: " + stationId + ", will judge door only by arrive/leave");
             }
         }
 
@@ -395,8 +356,6 @@ public class KafkaConsumerService {
             shouldOpen = true; // 报站到站
         } else if (hasStationGps && distance < 50 && speed < 1) { // GPS电子围栏 <50米且速度<1m/s
             shouldOpen = true;
-        } else if (doorStatus != null && doorStatus.hasOpenDoor()) {
-            shouldOpen = true; // 门状态打开
         }
 
         // 判断关门
@@ -405,8 +364,6 @@ public class KafkaConsumerService {
             shouldClose = true; // 报站离站
         } else if (hasStationGps && (distance > 30 || speed > 10 / 3.6)) { // >30米或速度>10km/h (m/s)
             shouldClose = true;
-        } else if (doorStatus != null && !doorStatus.hasOpenDoor()) {
-            shouldClose = true; // 门状态关闭
         }
 
         LocalDateTime now = LocalDateTime.now();
@@ -421,6 +378,10 @@ public class KafkaConsumerService {
             jedis.set(ticketCountKey, "0");
             jedis.expire(openTimeKey, Config.REDIS_TTL_OPEN_TIME);
             jedis.expire(ticketCountKey, Config.REDIS_TTL_OPEN_TIME);
+            
+            // 发送开门信号到CV
+            sendDoorSignalToCV(busNo, "open", now);
+            
             if (Config.LOG_INFO) {
                 System.out.println("[KafkaConsumerService] Mark OPEN window for busNo=" + busNo + ", open_time=" + now.format(formatter));
             }
@@ -429,9 +390,42 @@ public class KafkaConsumerService {
             if (openTimeStr != null) {
                 jedis.del("open_time:" + busNo);
                 jedis.del("ticket_count_window:" + busNo);
+                
+                // 发送关门信号到CV
+                sendDoorSignalToCV(busNo, "close", now);
+                
                 if (Config.LOG_INFO) {
                     System.out.println("[KafkaConsumerService] Mark CLOSE window for busNo=" + busNo + ", prev_open_time=" + openTimeStr);
                 }
+            }
+        }
+    }
+
+    /**
+     * 发送开关门信号到CV
+     */
+    private void sendDoorSignalToCV(String busNo, String action, LocalDateTime timestamp) {
+        try {
+            JSONObject doorSignal = new JSONObject();
+            doorSignal.put("event", "open_close_door");
+            
+            JSONObject data = new JSONObject();
+            data.put("bus_no", busNo);
+            data.put("camera_no", "default"); // 默认摄像头编号
+            data.put("action", action);
+            data.put("timestamp", timestamp.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+            
+            doorSignal.put("data", data);
+            
+            // 通过WebSocket发送给CV
+            WebSocketEndpoint.sendToAll(doorSignal.toString());
+            
+            if (Config.LOG_INFO) {
+                System.out.println("[KafkaConsumerService] Sent door signal to CV: " + doorSignal.toString());
+            }
+        } catch (Exception e) {
+            if (Config.LOG_ERROR) {
+                System.err.println("[KafkaConsumerService] Failed to send door signal to CV: " + e.getMessage());
             }
         }
     }

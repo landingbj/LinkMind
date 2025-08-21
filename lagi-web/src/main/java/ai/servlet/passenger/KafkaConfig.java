@@ -16,9 +16,6 @@ public class KafkaConfig {
     public static final String BOOTSTRAP_SERVERS = System.getenv("KAFKA_BOOTSTRAP_SERVERS") != null ?
             System.getenv("KAFKA_BOOTSTRAP_SERVERS") : "20.17.39.79:9092,20.17.39.80:9092,20.17.39.81:9092";
 
-    // 开关门状态主题
-    public static final String DOOR_STATUS_TOPIC = "bus_door_status_signals";
-
     // 车辆GPS与到离站放同一主题（通过pktType区分：3=gps, 4=到离站）
     public static final String BUS_GPS_TOPIC = "bus_gps";
 

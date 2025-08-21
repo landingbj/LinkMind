@@ -51,6 +51,9 @@ public class BusOdRecord {
     /** 下车站点名称 */
     private String stationNameOff;
 
+    /** 本站站点名称（从车辆到离站信号获取） */
+    private String currentStationName;
+
     /** 乘客ID向量（base64编码） */
     private String passengerVector;
 
@@ -86,9 +89,6 @@ public class BusOdRecord {
 
     /** 刷卡人数（票务数据） */
     private Integer ticketCount;
-
-    /** 数据来源标识（CV、票务、大模型修正等） */
-    private String dataSource;
 
     /** 数据入库时间 */
     private LocalDateTime createdAt;

@@ -27,7 +27,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Kafka消费者服务，统一消费多个主题，判断开门/关门，发送信号到CV
- * Kafka消费 → 判断信号 → 发送WebSocket到CV → CV推送 → 处理OD/大模型 → 保存DB/Kafka。
+ * Kafka消费 → 判断信号 → CV发送WebSocket到系统 → CV推送 → 处理OD/大模型 → 发送Kafka。
  */
 public class KafkaConsumerService {
 
@@ -250,7 +250,7 @@ public class KafkaConsumerService {
         String key = "door_status:" + busNo;
         jedis.set(key, objectMapper.writeValueAsString(doorStatus));
         jedis.expire(key, Config.REDIS_TTL_DOOR_STATUS);
-        
+
         if (Config.LOG_DEBUG) {
             System.out.println("[KafkaConsumerService] Cached door_status for busNo=" + busNo + ", payload=" + objectMapper.writeValueAsString(doorStatus));
         }
@@ -288,7 +288,7 @@ public class KafkaConsumerService {
         String gpsKey = "gps:" + busNo;
         jedis.set(gpsKey, gpsJson.toString());
         jedis.expire(gpsKey, Config.REDIS_TTL_GPS);
-        
+
         if (Config.LOG_DEBUG) {
             System.out.println("[KafkaConsumerService] Cached gps for busNo=" + busNo + ", lat=" + lat + ", lng=" + lng + ", speed=" + speed + ", direction=" + direction);
         }
@@ -316,7 +316,7 @@ public class KafkaConsumerService {
         String arriveLeaveKey = "arrive_leave:" + busNo;
         jedis.set(arriveLeaveKey, arriveLeave.toString());
         jedis.expire(arriveLeaveKey, Config.REDIS_TTL_ARRIVE_LEAVE);
-        
+
         if (Config.LOG_DEBUG) {
             System.out.println("[KafkaConsumerService] Cached arrive_leave for busNo=" + busNo + ", isArriveOrLeft=" + isArriveOrLeft + ", stationId=" + stationId + ", stationName=" + stationName + ", direction=" + direction2);
         }
@@ -339,7 +339,7 @@ public class KafkaConsumerService {
             String totalKey = "ticket_count_total:" + busNo;
             jedis.incr(totalKey);
             jedis.expire(totalKey, Config.REDIS_TTL_COUNTS);
-            
+
             String windowId = jedis.get("open_time:" + busNo);
             if (windowId != null) {
                 String windowKey = "ticket_count_window:" + busNo;

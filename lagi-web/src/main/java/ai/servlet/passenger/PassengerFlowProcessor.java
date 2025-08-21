@@ -555,10 +555,77 @@ public class PassengerFlowProcessor {
 			if (Config.LOG_DEBUG) {
 				System.out.println("[PassengerFlowProcessor] Send to Kafka topic=" + KafkaConfig.PASSENGER_FLOW_TOPIC + ", size=" + json.length());
 			}
-			producer.send(new ProducerRecord<>(KafkaConfig.PASSENGER_FLOW_TOPIC, json));
+			
+			// 使用回调来确认发送状态
+			producer.send(new ProducerRecord<>(KafkaConfig.PASSENGER_FLOW_TOPIC, json), 
+				(metadata, exception) -> {
+					if (exception != null) {
+						if (Config.LOG_ERROR) {
+							System.err.println("[PassengerFlowProcessor] Kafka send failed: " + exception.getMessage());
+						}
+						// 可以在这里添加重试逻辑或告警机制
+						handleKafkaSendFailure(data, exception);
+					} else {
+						if (Config.LOG_DEBUG) {
+							System.out.println("[PassengerFlowProcessor] Kafka send success: topic=" + 
+								metadata.topic() + ", partition=" + metadata.partition() + 
+								", offset=" + metadata.offset());
+						}
+						// 可以在这里添加发送成功的统计或监控
+						handleKafkaSendSuccess(data, metadata);
+					}
+				});
+				
 		} catch (Exception e) {
 			if (Config.LOG_ERROR) {
 				System.err.println("[PassengerFlowProcessor] Send to Kafka error: " + e.getMessage());
+			}
+		}
+	}
+
+	/**
+	 * 处理Kafka发送失败的情况
+	 */
+	private void handleKafkaSendFailure(Object data, Exception exception) {
+		try {
+			// 记录失败的数据到Redis，用于后续重试
+			String failureKey = "kafka_failure:" + System.currentTimeMillis() + ":" + UUID.randomUUID().toString().substring(0, 8);
+			try (Jedis jedis = jedisPool.getResource()) {
+				jedis.auth(Config.REDIS_PASSWORD);
+				jedis.set(failureKey, objectMapper.writeValueAsString(data));
+				jedis.expire(failureKey, Config.REDIS_TTL_OPEN_TIME); // 设置过期时间
+				
+				if (Config.LOG_ERROR) {
+					System.err.println("[PassengerFlowProcessor] Cached failed data to Redis, key=" + failureKey + ", error=" + exception.getMessage());
+				}
+			}
+		} catch (Exception e) {
+			if (Config.LOG_ERROR) {
+				System.err.println("[PassengerFlowProcessor] Failed to cache failed data: " + e.getMessage());
+			}
+		}
+	}
+
+	/**
+	 * 处理Kafka发送成功的情况
+	 */
+	private void handleKafkaSendSuccess(Object data, org.apache.kafka.clients.producer.RecordMetadata metadata) {
+		try {
+			// 可以在这里添加发送成功的统计信息
+			if (Config.LOG_DEBUG) {
+				System.out.println("[PassengerFlowProcessor] Successfully sent data to Kafka: " + 
+					"topic=" + metadata.topic() + 
+					", partition=" + metadata.partition() + 
+					", offset=" + metadata.offset() + 
+					", timestamp=" + metadata.timestamp());
+			}
+			
+			// 可以在这里添加成功发送的监控指标
+			// 例如：发送成功计数、延迟统计等
+			
+		} catch (Exception e) {
+			if (Config.LOG_ERROR) {
+				System.err.println("[PassengerFlowProcessor] Error handling success callback: " + e.getMessage());
 			}
 		}
 	}

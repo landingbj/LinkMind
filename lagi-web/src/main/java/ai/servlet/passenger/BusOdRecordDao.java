@@ -2,7 +2,10 @@ package ai.servlet.passenger;
 
 import java.sql.*;
 import java.time.LocalDateTime;
-
+/**
+ * 入库操作（当前不使用，链路最终只需发送Kafka）。
+ *
+ */
 public class BusOdRecordDao {
 
 	public void save(BusOdRecord record) throws SQLException {

@@ -39,7 +39,6 @@ public class PassengerFlowProcessor {
 	private static final ObjectMapper objectMapper = new ObjectMapper();
 	private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 	private final JedisPool jedisPool = new JedisPool(Config.REDIS_HOST, Config.REDIS_PORT);
-	private final BusOdRecordDao busOdRecordDao = new BusOdRecordDao();
 	private KafkaProducer<String, String> producer;
 
 	public PassengerFlowProcessor() {
@@ -195,9 +194,8 @@ public class PassengerFlowProcessor {
 			}
 
 			odRecords.add(record);
-			busOdRecordDao.save(record);
 			if (Config.LOG_DEBUG) {
-				System.out.println("[PassengerFlowProcessor] Saved OD record to DB, busNo=" + busNo + ", direction=" + direction);
+				System.out.println("[PassengerFlowProcessor] Created OD record for busNo=" + busNo + ", direction=" + direction);
 			}
 		}
 
@@ -210,8 +208,7 @@ public class PassengerFlowProcessor {
 			System.out.println("[PassengerFlowProcessor] Update total_count to " + totalCount + ", busNo=" + busNo);
 		}
 
-		// 发送到Kafka
-		sendToKafka(odRecords);
+		// 不发送到Kafka，等待AI分析完成后统一发送
 	}
 
 	private void handleLoadFactorEvent(JSONObject data, String busNo, Jedis jedis) {
@@ -293,9 +290,8 @@ public class PassengerFlowProcessor {
 			record.setDownCount(cvDownCount);
 		}
 
-		busOdRecordDao.save(record);
 		if (Config.LOG_INFO) {
-			System.out.println("[PassengerFlowProcessor] Saved MODEL OD record to DB, busNo=" + busNo);
+			System.out.println("[PassengerFlowProcessor] Created MODEL OD record for busNo=" + busNo);
 		}
 		sendToKafka(record);
 	}
@@ -319,10 +315,8 @@ public class PassengerFlowProcessor {
 				record.setUpCount(cvUpCount);
 				record.setDownCount(cvDownCount);
 
-				// 保存到数据库
-				busOdRecordDao.save(record);
 				if (Config.LOG_INFO) {
-					System.out.println("[PassengerFlowProcessor] Saved CLOSE DOOR OD record to DB, busNo=" + busNo);
+					System.out.println("[PassengerFlowProcessor] Created CLOSE DOOR OD record for busNo=" + busNo);
 				}
 
 				// 发送到Kafka
@@ -767,10 +761,8 @@ public class PassengerFlowProcessor {
 		record.setTotalCount(modelTotalCount);
 		record.setDataSource("AI_IMAGE_ANALYSIS");
 		
-		// 保存到数据库
-		busOdRecordDao.save(record);
 		if (Config.LOG_INFO) {
-			System.out.println("[PassengerFlowProcessor] Saved AI image analysis record to DB, busNo=" + busNo);
+			System.out.println("[PassengerFlowProcessor] Created AI image analysis record for busNo=" + busNo);
 		}
 		
 		// 发送到Kafka

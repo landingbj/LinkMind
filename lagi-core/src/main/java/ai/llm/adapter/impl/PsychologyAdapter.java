@@ -12,7 +12,7 @@ public class PsychologyAdapter extends OpenAIStandardAdapter {
     @Override
     public String getApiAddress() {
         if (apiAddress == null) {
-            apiAddress = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
+            apiAddress = "https://api.hunyuan.cloud.tencent.com/v1/chat/completions";
         }
         return apiAddress;
     }
@@ -30,6 +30,6 @@ public class PsychologyAdapter extends OpenAIStandardAdapter {
     }
 
     private void setReplaceModel(ChatCompletionRequest chatCompletionRequest) {
-        chatCompletionRequest.setModel("qwen-turbo");
+        chatCompletionRequest.setModel("hunyuan-turbos-latest");
     }
 }

@@ -244,11 +244,7 @@ public class PassengerFlowProcessor {
 			}
 		}
 
-		// 更新总计数
-		int totalCount = getTotalCountFromRedis(jedis, busNo) + upCount - downCount;
-		String totalCountKey = "total_count:" + busNo;
-		jedis.set(totalCountKey, String.valueOf(totalCount));
-		jedis.expire(totalCountKey, Config.REDIS_TTL_COUNTS);
+		// 不再在downup事件中自算总人数，统一以CV推送的vehicle_total_count为准
 
 		// 汇总日志可按需开启，默认关闭
 	}
@@ -257,13 +253,13 @@ public class PassengerFlowProcessor {
 		int count = data.optInt("count");
 		double factor = data.optDouble("factor");
 
-		// 缓存满载率，设置过期时间
+		// 缓存满载率和车辆总人数，设置过期时间
 		String loadFactorKey = "load_factor:" + busNo;
-		String totalCountKey = "total_count:" + busNo;
+		String vehicleTotalCountKey = "vehicle_total_count:" + busNo;
 		jedis.set(loadFactorKey, String.valueOf(factor));
-		jedis.set(totalCountKey, String.valueOf(count));
+		jedis.set(vehicleTotalCountKey, String.valueOf(count));  // 存储CV系统的车辆总人数
 		jedis.expire(loadFactorKey, Config.REDIS_TTL_COUNTS);
-		jedis.expire(totalCountKey, Config.REDIS_TTL_COUNTS);
+		jedis.expire(vehicleTotalCountKey, Config.REDIS_TTL_COUNTS);
 		// 移除高频缓存日志
 	}
 
@@ -338,17 +334,30 @@ public class PassengerFlowProcessor {
 		JSONObject modelResponse = callMediaApi(null, ossUrl, Config.PASSENGER_PROMPT);
 		JSONObject responseObj = modelResponse.optJSONObject("response");
 		JSONArray passengerFeatures = responseObj != null ? responseObj.optJSONArray("passenger_features") : new JSONArray();
-		int modelTotalCount = responseObj != null ? responseObj.optInt("total_count") : 0;
-		// 移除模型计数调试日志
+		
+		// 解析大模型识别的上下车人数
+		int aiUpCount = 0;
+		int aiDownCount = 0;
+		if (responseObj != null) {
+			// 假设大模型返回的是总人数，这里需要根据实际API响应格式调整
+			int modelTotalCount = responseObj.optInt("total_count", 0);
+			// 如果大模型能区分上下车，则分别获取；否则全部作为下车人数
+			aiUpCount = responseObj.optInt("up_count", 0);
+			aiDownCount = responseObj.optInt("down_count", modelTotalCount);
+		}
 
 		BusOdRecord record = createBaseRecord(busNo, cameraNo, begin, jedis);
 		record.setTimestampEnd(end);
 		record.setFeatureDescription(passengerFeatures.toString());
-		record.setTotalCount(modelTotalCount);
-
-		// 校验CV结果 - 这里暂时使用模型结果，因为notify_pull_file事件可能不在开门时间窗口内
-		record.setDownCount(modelTotalCount);
-		// 移除模型down_count调试日志
+		
+		// 设置大模型识别的上下车人数
+		record.setAiUpCount(aiUpCount);
+		record.setAiDownCount(aiDownCount);
+		
+		// 设置车辆总人数（从CV系统获取）
+		record.setVehicleTotalCount(getVehicleTotalCountFromRedis(jedis, busNo));
+		
+		// 不再设置tripTotalCount
 
 		// 移除创建模型OD记录信息日志
 		sendToKafka(record);
@@ -392,6 +401,8 @@ public class PassengerFlowProcessor {
 				record.setTimestampEnd(eventTime);
 				record.setUpCount(cvUpCount);
 				record.setDownCount(cvDownCount);
+				
+				// 不再设置tripTotalCount
 
 				// 设置站点信息
 				record.setStationIdOff(getCurrentStationId(busNo, jedis));
@@ -553,6 +564,12 @@ public class PassengerFlowProcessor {
 		record.setFullLoadRate(getFullLoadRateFromRedis(jedis, busNo));
 		record.setTicketCount(getTicketCountWindowFromRedis(jedis, busNo));
 		record.setCurrentStationName(getCurrentStationName(busNo, jedis));
+		
+		// 设置车辆总人数（来自CV系统满载率推送）
+		record.setVehicleTotalCount(getVehicleTotalCountFromRedis(jedis, busNo));
+		
+		// 不再设置tripTotalCount
+		
 		Long busId = getBusIdFromRedis(jedis, busNo);
 		if (busId != null) record.setBusId(busId);
 		return record;
@@ -617,10 +634,12 @@ public class PassengerFlowProcessor {
 		return count != null ? Integer.parseInt(count) : 0;
 	}
 
-	private int getTotalCountFromRedis(Jedis jedis, String busNo) {
-		String count = jedis.get("total_count:" + busNo);
+	private int getVehicleTotalCountFromRedis(Jedis jedis, String busNo) {
+		String count = jedis.get("vehicle_total_count:" + busNo);
 		return count != null ? Integer.parseInt(count) : 0;
 	}
+	
+
 
 	private BigDecimal getFullLoadRateFromRedis(Jedis jedis, String busNo) {
 		String factor = jedis.get("load_factor:" + busNo);
@@ -1000,18 +1019,29 @@ public class PassengerFlowProcessor {
             imageUrls = imageUrls.subList(0, Config.MAX_IMAGES_PER_ANALYSIS);
         }
 
-        // 调用大模型分析图片
-        JSONObject modelResponse = callMediaApi(imageUrls, null, Config.PASSENGER_PROMPT);
-        JSONObject responseObj = modelResponse.optJSONObject("response");
-        JSONArray passengerFeatures = responseObj != null ? responseObj.optJSONArray("passenger_features") : new JSONArray();
-        int modelTotalCount = responseObj != null ? responseObj.optInt("total_count") : 0;
+        		// 调用大模型分析图片
+		JSONObject modelResponse = callMediaApi(imageUrls, null, Config.PASSENGER_PROMPT);
+		JSONObject responseObj = modelResponse.optJSONObject("response");
+		JSONArray passengerFeatures = responseObj != null ? responseObj.optJSONArray("passenger_features") : new JSONArray();
+		
+		// 解析大模型识别的上下车人数
+		int aiUpCount = 0;
+		int aiDownCount = 0;
+		if (responseObj != null) {
+			// 如果大模型能区分上下车，则分别获取；否则根据当前上下车事件类型设置
+			aiUpCount = responseObj.optInt("up_count", 0);
+			aiDownCount = responseObj.optInt("down_count", 0);
+		}
 
-        if (Config.LOG_DEBUG) {
-            System.out.println("[PassengerFlowProcessor] AI analysis result - total_count=" + modelTotalCount + ", features_len=" + passengerFeatures.length());
-        }
+		if (Config.LOG_DEBUG) {
+			System.out.println("[PassengerFlowProcessor] AI analysis result - ai_up_count=" + aiUpCount + 
+				", ai_down_count=" + aiDownCount + ", features_len=" + passengerFeatures.length());
+		}
 
-        // 增强现有记录，而不是创建新记录
-        record.setFeatureDescription(passengerFeatures.toString());
+		// 增强现有记录，设置大模型识别的上下车人数
+		record.setFeatureDescription(passengerFeatures.toString());
+		record.setAiUpCount(aiUpCount);
+		record.setAiDownCount(aiDownCount);
 
         if (Config.LOG_INFO) {
             System.out.println("[PassengerFlowProcessor] Enhanced OD record with AI analysis for busNo=" + busNo);

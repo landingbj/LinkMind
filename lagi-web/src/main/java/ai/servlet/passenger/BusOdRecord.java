@@ -60,10 +60,10 @@ public class BusOdRecord {
      */
     private String passengerFeatures;
 
-    /** 本站上车人数 */
+    /** 本站上车人数（CV系统识别） */
     private Integer upCount;
 
-    /** 本站下车人数 */
+    /** 本站下车人数（CV系统识别） */
     private Integer downCount;
 
     /** 车辆经度 */
@@ -87,8 +87,24 @@ public class BusOdRecord {
     /** 乘客特征文字描述 */
     private String featureDescription;
 
-    /** 本趟次总人数 */
-    private Integer totalCount;
+    /** 
+     * 车辆当前总人数（来自CV系统满载率推送的count字段）
+     * 表示车辆在某个时刻的实时载客总数
+     */
+    private Integer vehicleTotalCount;
+
+
+    /** 
+     * 大模型识别的上车人数（AI分析图片/视频得出）
+     * 作为CV系统上车人数的补充验证
+     */
+    private Integer aiUpCount;
+
+    /** 
+     * 大模型识别的下车人数（AI分析图片/视频得出）
+     * 作为CV系统下车人数的补充验证
+     */
+    private Integer aiDownCount;
 
     /** 刷卡人数（票务数据） */
     private Integer ticketCount;

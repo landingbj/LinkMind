@@ -224,8 +224,33 @@ public class KafkaConsumerService {
 
                         // 过滤试点线路
                         String routeId = extractRouteId(message, topic);
-                        // 减少试点线路过滤的日志输出，只在匹配成功时打印
+                        // 对未命中白名单但为到/离站的消息，按开关打印原始Kafka数据
                         if (!isPilotRoute(routeId)) {
+                            if (topic.equals(KafkaConfig.BUS_GPS_TOPIC)) {
+                                int nonPilotPktType = message.optInt("pktType", 0);
+                                if (nonPilotPktType == 4 && Config.ARRIVE_LEAVE_LOG_NON_PILOT_ENABLED && Config.ARRIVE_LEAVE_LOG_ENABLED) {
+                                    String isArriveOrLeft = String.valueOf(message.opt("isArriveOrLeft"));
+                                    String stationId = message.optString("stationId");
+                                    String stationName = message.optString("stationName");
+                                    String nextStationSeqNum = message.optString("nextStationSeqNum");
+                                    String trafficType2 = String.valueOf(message.opt("trafficType"));
+                                    String direction2 = "4".equals(trafficType2) ? "up" : "down";
+                                    String srcAddrOrg = message.optString("srcAddrOrg");
+
+                                    System.out.println("[车辆到离站信号-非白名单] pktType=4 的Kafka原始数据:");
+                                    System.out.println("   busNo=" + busNo);
+                                    System.out.println("   routeId=" + routeId);
+                                    System.out.println("   isArriveOrLeft=" + isArriveOrLeft);
+                                    System.out.println("   stationId=" + stationId);
+                                    System.out.println("   stationName=" + stationName);
+                                    System.out.println("   nextStationSeqNum=" + nextStationSeqNum);
+                                    System.out.println("   trafficType=" + trafficType2);
+                                    System.out.println("   direction=" + direction2);
+                                    System.out.println("   srcAddrOrg=" + srcAddrOrg);
+                                    System.out.println("   完整消息: " + message.toString());
+                                    System.out.println("   =============================================================================");
+                                }
+                            }
                             continue;
                         }
                         

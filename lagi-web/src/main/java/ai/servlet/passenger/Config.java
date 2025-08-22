@@ -37,6 +37,7 @@ public class Config {
     // 试点线路专用日志配置
     public static final boolean PILOT_ROUTE_LOG_ENABLED = true;  // 是否启用试点线路流程日志
     public static final boolean ARRIVE_LEAVE_LOG_ENABLED = true; // 是否启用车辆到离站信号日志
+    public static final boolean ARRIVE_LEAVE_LOG_NON_PILOT_ENABLED = true; // 白名单外线路是否也打印到离站日志
 
     /** 应用关闭超时时间（毫秒） */
     public static final int APP_SHUTDOWN_TIMEOUT_MS = 30000;

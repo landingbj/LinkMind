@@ -98,6 +98,7 @@ public class KafkaConsumerService {
                 jedis.expire("station_gps_map", Config.REDIS_TTL_STATION_GPS);
                 if (Config.LOG_INFO) {
                     System.out.println("[KafkaConsumerService] Loaded " + stationGpsMap.size() + " stations from database");
+                    System.out.println("[KafkaConsumerService] 试点线路站点GPS数据加载完成，共加载 " + stationGpsMap.size() + " 个站点");
                 }
             }
         } catch (SQLException e) {
@@ -112,6 +113,8 @@ public class KafkaConsumerService {
             if (Config.LOG_INFO) {
                 System.out.println("[KafkaConsumerService] Starting Kafka consumer service, topics=[" +
                         String.join(", ", KafkaConfig.BUS_GPS_TOPIC, KafkaConfig.TICKET_TOPIC) + "]");
+                System.out.println("[KafkaConsumerService] 试点线路配置: " + Arrays.toString(PILOT_ROUTES));
+                System.out.println("[KafkaConsumerService] 试点线路说明: 8路(1001000021), 36路(1001000055), 316路(1001000248), 55路(1001000721), 522M路(3301000100116310)");
             }
             Properties props = KafkaConfig.getConsumerProperties();
             consumer = new KafkaConsumer<>(props);
@@ -217,8 +220,17 @@ public class KafkaConsumerService {
 
                         // 过滤试点线路
                         String routeId = extractRouteId(message, topic);
+                        if (Config.LOG_INFO) {
+                            System.out.println("[KafkaConsumerService] 试点线路过滤检查 - busNo=" + busNo + ", routeId=" + routeId + ", topic=" + topic);
+                        }
                         if (!isPilotRoute(routeId)) {
+                            if (Config.LOG_INFO) {
+                                System.out.println("[KafkaConsumerService] 非试点线路，跳过处理 - busNo=" + busNo + ", routeId=" + routeId);
+                            }
                             continue;
+                        }
+                        if (Config.LOG_INFO) {
+                            System.out.println("[KafkaConsumerService] 试点线路匹配成功，继续处理 - busNo=" + busNo + ", routeId=" + routeId);
                         }
 
                         processMessage(topic, message, busNo);
@@ -243,16 +255,42 @@ public class KafkaConsumerService {
 
     private String extractRouteId(JSONObject message, String topic) {
         if (topic.equals(KafkaConfig.BUS_GPS_TOPIC)) {
-            String v = message.optString("srcAddrOrg");
-            if (v != null && !v.isEmpty()) return v;
-            return message.optString("routeNo");
+            String srcAddrOrg = message.optString("srcAddrOrg");
+            String routeNo = message.optString("routeNo");
+            if (Config.LOG_DEBUG) {
+                System.out.println("[KafkaConsumerService] 提取线路ID - topic=" + topic + ", srcAddrOrg=" + srcAddrOrg + ", routeNo=" + routeNo);
+            }
+            if (srcAddrOrg != null && !srcAddrOrg.isEmpty()) {
+                if (Config.LOG_DEBUG) {
+                    System.out.println("[KafkaConsumerService] 使用srcAddrOrg作为线路ID: " + srcAddrOrg);
+                }
+                return srcAddrOrg;
+            }
+            if (Config.LOG_DEBUG) {
+                System.out.println("[KafkaConsumerService] 使用routeNo作为线路ID: " + routeNo);
+            }
+            return routeNo;
+        }
+        if (Config.LOG_DEBUG) {
+            System.out.println("[KafkaConsumerService] 非GPS主题，无法提取线路ID - topic=" + topic);
         }
         return "";
     }
 
     private boolean isPilotRoute(String routeId) {
+        if (Config.LOG_DEBUG) {
+            System.out.println("[KafkaConsumerService] 检查是否为试点线路 - routeId=" + routeId + ", 试点线路列表=" + Arrays.toString(PILOT_ROUTES));
+        }
         for (String pilot : PILOT_ROUTES) {
-            if (pilot.equals(routeId)) return true;
+            if (pilot.equals(routeId)) {
+                if (Config.LOG_DEBUG) {
+                    System.out.println("[KafkaConsumerService] 试点线路匹配成功 - routeId=" + routeId + " 匹配 " + pilot);
+                }
+                return true;
+            }
+        }
+        if (Config.LOG_DEBUG) {
+            System.out.println("[KafkaConsumerService] 试点线路匹配失败 - routeId=" + routeId + " 不在试点线路列表中");
         }
         return false;
     }

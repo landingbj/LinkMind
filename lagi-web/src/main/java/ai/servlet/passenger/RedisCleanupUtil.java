@@ -55,6 +55,12 @@ public class RedisCleanupUtil {
             // 清理过期的特征向量数据
             cleanupExpiredKeys(jedis, "features_set:*", "特征向量数据");
             
+            // 清理过期的乘客位置信息数据
+            cleanupExpiredKeys(jedis, "feature_position:*", "乘客位置信息数据");
+            
+            // 清理过期的图像URL数据
+            cleanupExpiredKeys(jedis, "image_urls:*", "图像URL数据");
+            
             // 清理过期的计数数据
             cleanupExpiredKeys(jedis, "ticket_count_*", "票务计数数据");
             cleanupExpiredKeys(jedis, "cv_*_count:*", "CV计数数据");
@@ -117,6 +123,10 @@ public class RedisCleanupUtil {
             return Config.REDIS_TTL_ARRIVE_LEAVE;
         } else if (key.startsWith("features_set:")) {
             return Config.REDIS_TTL_FEATURES;
+        } else if (key.startsWith("feature_position:")) {
+            return Config.REDIS_TTL_FEATURES; // 假设乘客位置信息数据也与特征向量数据同TTL
+        } else if (key.startsWith("image_urls:")) {
+            return Config.REDIS_TTL_OPEN_TIME; // 假设图像URL数据也与开放时间同TTL
         } else if (key.startsWith("open_time:") || key.startsWith("ticket_count_window:") || 
                    key.startsWith("cv_up_count:") || key.startsWith("cv_down_count:")) {
             return Config.REDIS_TTL_OPEN_TIME;

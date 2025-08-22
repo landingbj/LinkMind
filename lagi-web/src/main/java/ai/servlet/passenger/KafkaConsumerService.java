@@ -28,7 +28,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Kafka消费者服务，统一消费多个主题，判断开门/关门，发送信号到CV
- * Kafka消费 → 判断信号 → CV发送WebSocket到系统 → CV推送 → 处理OD/大模型 → 发送Kafka。
+     * Kafka消费 → 判断信号 → CV发送WebSocket到系统 → CV推送 → 处理OD/大模型 → 发送Kafka。
  */
 public class KafkaConsumerService {
 
@@ -42,10 +42,10 @@ public class KafkaConsumerService {
 
     // 试点线路
     private static final String[] PILOT_ROUTES = {
-            "1001000041",   // 8路
-            "1001000109",   // 36路
-            "1001000496",   // 316路
-            "1001001437"    // 55路
+            "1001000021",   // 8路
+            "1001000055",   // 36路
+            "1001000248",   // 316路
+            "1001000721"    // 55路
     };
 
     // 站点GPS映射
@@ -198,7 +198,7 @@ public class KafkaConsumerService {
                         } else if (message.has("isArriveOrLeft")) {
                             handleArriveLeave(message, busNo, jedis);
                         } else {
-                            
+
                         }
                     }
                     break;
@@ -238,7 +238,7 @@ public class KafkaConsumerService {
             String busIdKey = "bus_id:" + busNo;
             jedis.set(busIdKey, String.valueOf(message.optLong("busId")));
             jedis.expire(busIdKey, Config.REDIS_TTL_COUNTS);
-            
+
             // 移除缓存车辆ID高频日志
         }
         String gpsKey = "gps:" + busNo;
@@ -246,7 +246,7 @@ public class KafkaConsumerService {
         jedis.expire(gpsKey, Config.REDIS_TTL_GPS);
 
         // 移除GPS缓存信息日志
-        
+
         // 移除GPS缓存调试日志
     }
 
@@ -309,7 +309,7 @@ public class KafkaConsumerService {
             double lng = message.optDouble("lng");
             double[] stationGps = {lat, lng};
             stationGpsMap.put(stationId, stationGps);
-            
+
             // 移除更新站点GPS缓存调试日志
         }
 
@@ -384,36 +384,36 @@ public class KafkaConsumerService {
             jedis.set(ticketCountKey, "0");
             jedis.expire(openTimeKey, Config.REDIS_TTL_OPEN_TIME);
             jedis.expire(ticketCountKey, Config.REDIS_TTL_OPEN_TIME);
-            
+
             if (Config.LOG_INFO) {
-                System.out.println("[KafkaConsumerService] 🚪 发送开门信号到CV系统: busNo=" + busNo + 
+                System.out.println("[KafkaConsumerService] 🚪 发送开门信号到CV系统: busNo=" + busNo +
                     ", 原因=" + openReason + ", 时间=" + now.format(formatter));
             }
-            
+
             // 发送开门信号到CV
             sendDoorSignalToCV(busNo, "open", now);
-            
+
             if (Config.LOG_INFO) {
-                System.out.println("[KafkaConsumerService] ✅ 开门信号处理完成: busNo=" + busNo + 
+                System.out.println("[KafkaConsumerService] ✅ 开门信号处理完成: busNo=" + busNo +
                     ", open_time=" + now.format(formatter) + ", Redis缓存已设置");
             }
         } else if (shouldClose) {
             String openTimeStr = jedis.get("open_time:" + busNo);
             if (openTimeStr != null) {
                 if (Config.LOG_INFO) {
-                    System.out.println("[KafkaConsumerService] 🚪 发送关门信号到CV系统: busNo=" + busNo + 
-                        ", 原因=" + closeReason + ", 时间=" + now.format(formatter) + 
+                    System.out.println("[KafkaConsumerService] 🚪 发送关门信号到CV系统: busNo=" + busNo +
+                        ", 原因=" + closeReason + ", 时间=" + now.format(formatter) +
                         ", 上次开门时间=" + openTimeStr);
                 }
-                
+
                 // 发送关门信号到CV
                 sendDoorSignalToCV(busNo, "close", now);
-                
+
                 if (Config.LOG_INFO) {
-                    System.out.println("[KafkaConsumerService] ✅ 关门信号处理完成: busNo=" + busNo + 
+                    System.out.println("[KafkaConsumerService] ✅ 关门信号处理完成: busNo=" + busNo +
                         ", 清理Redis缓存, 准备处理OD数据");
                 }
-                
+
                 jedis.del("open_time:" + busNo);
                 jedis.del("ticket_count_window:" + busNo);
             } else {
@@ -444,18 +444,18 @@ public class KafkaConsumerService {
         try {
             JSONObject doorSignal = new JSONObject();
             doorSignal.put("event", "open_close_door");
-            
+
             JSONObject data = new JSONObject();
             data.put("bus_no", busNo);
             data.put("camera_no", "default"); // 默认摄像头编号
             data.put("action", action);
             data.put("timestamp", timestamp.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
-            
+
             doorSignal.put("data", data);
-            
+
             // 通过WebSocket发送给CV
             WebSocketEndpoint.sendToAll(doorSignal.toString());
-            
+
             if (Config.LOG_INFO) {
                 System.out.println("[KafkaConsumerService] Sent door signal to CV: " + doorSignal.toString());
             }

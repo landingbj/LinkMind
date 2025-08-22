@@ -163,6 +163,17 @@ public class PassengerFlowProcessor {
 					cacheImageUrl(jedis, busNo, windowId, imageUrl, "up");
 				}
 
+				// 缓存乘客位置信息（特征向量 -> 位置信息的映射）
+				String positionKey = "feature_position:" + busNo + ":" + windowId + ":" + feature;
+				JSONObject position = new JSONObject();
+				position.put("xLeftUp", boxX);
+				position.put("yLeftUp", boxY);
+				position.put("xRightBottom", boxX + boxW);
+				position.put("yRightBottom", boxY + boxH);
+				position.put("direction", "up");
+				jedis.set(positionKey, position.toString());
+				jedis.expire(positionKey, Config.REDIS_TTL_FEATURES);
+
 				// 移除逐条UP处理完成日志
 			} else if ("down".equals(direction)) {
 				downCount++;
@@ -187,6 +198,17 @@ public class PassengerFlowProcessor {
 				if (imageUrl != null) {
 					cacheImageUrl(jedis, busNo, windowId, imageUrl, "down");
 				}
+
+				// 缓存乘客位置信息（特征向量 -> 位置信息的映射）
+				String positionKey = "feature_position:" + busNo + ":" + windowId + ":" + feature;
+				JSONObject position = new JSONObject();
+				position.put("xLeftUp", boxX);
+				position.put("yLeftUp", boxY);
+				position.put("xRightBottom", boxX + boxW);
+				position.put("yRightBottom", boxY + boxH);
+				position.put("direction", "down");
+				jedis.set(positionKey, position.toString());
+				jedis.expire(positionKey, Config.REDIS_TTL_FEATURES);
 
 				// 移除逐条DOWN处理完成日志
 			}
@@ -298,9 +320,41 @@ public class PassengerFlowProcessor {
 				record.setStationIdOff(getCurrentStationId(busNo, jedis));
 				record.setStationNameOff(getCurrentStationName(busNo, jedis));
 
+				// 收集该趟次该站点的所有乘客特征向量
+				Set<String> features = jedis.smembers("features_set:" + busNo + ":" + windowId);
+				if (features != null && !features.isEmpty()) {
+					String passengerFeatures = new JSONArray(features).toString();
+					record.setPassengerFeatures(passengerFeatures);
+					if (Config.LOG_DEBUG) {
+						System.out.println("[PassengerFlowProcessor] Collected " + features.size() + " passenger features for busNo=" + busNo);
+					}
+				}
+
+				// 收集该趟次该站点的所有图片URL
+				List<String> imageUrls = collectImageUrlsInTimeWindow(jedis, busNo, windowId);
+				if (!imageUrls.isEmpty()) {
+					String passengerImages = new JSONArray(imageUrls).toString();
+					record.setPassengerImages(passengerImages);
+					if (Config.LOG_DEBUG) {
+						System.out.println("[PassengerFlowProcessor] Collected " + imageUrls.size() + " passenger images for busNo=" + busNo);
+					}
+				}
+
+				// 收集该趟次该站点的所有乘客位置信息
+				List<JSONObject> positions = collectPassengerPositions(jedis, busNo, windowId);
+				if (!positions.isEmpty()) {
+					String passengerPosition = new JSONArray(positions).toString();
+					record.setPassengerPosition(passengerPosition);
+					if (Config.LOG_DEBUG) {
+						System.out.println("[PassengerFlowProcessor] Collected " + positions.size() + " passenger positions for busNo=" + busNo);
+					}
+				}
+
 				if (Config.LOG_INFO) {
 					System.out.println("[PassengerFlowProcessor] Created CLOSE DOOR OD record for busNo=" + busNo +
-						", upCount=" + cvUpCount + ", downCount=" + cvDownCount);
+						", upCount=" + cvUpCount + ", downCount=" + cvDownCount +
+						", features=" + (features != null ? features.size() : 0) +
+						", images=" + imageUrls.size());
 				}
 
 				// 在关门时触发AI图片分析（但不发送到Kafka）
@@ -766,5 +820,38 @@ public class PassengerFlowProcessor {
 
         // 发送增强后的记录到Kafka（只发送一次）
         sendToKafka(record);
+    }
+
+    /**
+     * 收集指定时间窗口内的乘客位置信息
+     */
+    private List<JSONObject> collectPassengerPositions(Jedis jedis, String busNo, String windowId) {
+        List<JSONObject> positions = new ArrayList<>();
+
+        if (windowId != null) {
+            // 获取所有以feature_position开头的key
+            Set<String> keys = jedis.keys("feature_position:" + busNo + ":" + windowId + ":*");
+            if (keys != null) {
+                for (String key : keys) {
+                    String positionJson = jedis.get(key);
+                    if (positionJson != null) {
+                        try {
+                            JSONObject position = new JSONObject(positionJson);
+                            positions.add(position);
+                        } catch (Exception e) {
+                            if (Config.LOG_ERROR) {
+                                System.err.println("[PassengerFlowProcessor] Error parsing position JSON: " + positionJson);
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (Config.LOG_DEBUG) {
+                System.out.println("[PassengerFlowProcessor] Collected " + positions.size() + " passenger positions for busNo=" + busNo + ", windowId=" + windowId);
+            }
+        }
+
+        return positions;
     }
 }

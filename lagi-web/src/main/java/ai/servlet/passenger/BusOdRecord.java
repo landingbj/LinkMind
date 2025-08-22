@@ -54,8 +54,8 @@ public class BusOdRecord {
     /** 本站站点名称（从车辆到离站信号获取） */
     private String currentStationName;
 
-    /** 乘客ID向量（base64编码） */
-    private String passengerVector;
+    /** 乘客特征向量集合（JSON数组格式） */
+    private String passengerFeatures;
 
     /** 本站上车人数 */
     private Integer upCount;
@@ -69,8 +69,8 @@ public class BusOdRecord {
     /** 车辆纬度 */
     private BigDecimal gpsLng;
 
-    /** 上下车画面截图（OSS URL） */
-    private String countingImage;
+    /** 乘客图片URL集合（JSON数组格式，OSS URL） */
+    private String passengerImages;
 
     /**
      * 乘客图像坐标（JSON格式字符串）

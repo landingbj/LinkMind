@@ -21,6 +21,14 @@ public class simpleStartupListener implements ServletContextListener {
             System.out.println("[SimpleStartupListener] 正在启动服务...");
             System.out.println("[SimpleStartupListener] 日志配置 - LOG_INFO=" + Config.LOG_INFO + ", LOG_DEBUG=" + Config.LOG_DEBUG + ", LOG_ERROR=" + Config.LOG_ERROR);
             
+            // 打印Kafka配置信息
+            System.out.println("[SimpleStartupListener] 📡 Kafka配置信息:");
+            System.out.println("   Bootstrap Servers: " + KafkaConfig.BOOTSTRAP_SERVERS);
+            System.out.println("   GPS主题: " + KafkaConfig.BUS_GPS_TOPIC);
+            System.out.println("   票务主题: " + KafkaConfig.TICKET_TOPIC);
+            System.out.println("   客流分析主题: " + KafkaConfig.PASSENGER_FLOW_TOPIC);
+            System.out.println("   消费者组ID: " + KafkaConfig.CONSUMER_GROUP_ID);
+            
             // 启动Redis清理工具
             System.out.println("[SimpleStartupListener] 正在启动Redis清理工具...");
             redisCleanupUtil = new RedisCleanupUtil();

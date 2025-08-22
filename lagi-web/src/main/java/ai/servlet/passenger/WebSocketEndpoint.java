@@ -46,7 +46,12 @@ public class WebSocketEndpoint {
 
 	@OnMessage
 	public void onMessage(String message, Session session) {
-		// 移除逐条WebSocket消息调试日志
+		// 打印收到的WebSocket消息内容
+		if (Config.LOG_INFO) {
+			System.out.println("[WebSocket] 📨 收到WebSocket消息:");
+			System.out.println("   会话ID: " + session.getId());
+			System.out.println("   消息内容: " + message);
+		}
 
 		try {
 			JSONObject jsonMessage = new JSONObject(message);

@@ -50,10 +50,13 @@ public class PassengerFlowProcessor {
 		String event = eventJson.optString("event");
 		JSONObject data = eventJson.optJSONObject("data");
 		
-		// 保留关键日志可选：如需可打开，将下方日志集中为一行
-		// if (Config.LOG_INFO) {
-		// 	System.out.println("[PassengerFlowProcessor] event=" + event + ", time=" + LocalDateTime.now().format(formatter));
-		// }
+		// 打印CV事件处理的完整内容
+		if (Config.LOG_INFO) {
+			System.out.println("[PassengerFlowProcessor] 📨 收到CV事件:");
+			System.out.println("   事件类型: " + event);
+			System.out.println("   事件时间: " + LocalDateTime.now().format(formatter));
+			System.out.println("   完整事件内容: " + eventJson.toString());
+		}
 		
 		// 移除事件payload调试日志，避免秒级刷屏
 		

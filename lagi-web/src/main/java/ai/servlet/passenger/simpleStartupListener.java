@@ -40,9 +40,16 @@ public class simpleStartupListener implements ServletContextListener {
 
     @Override
     public void contextDestroyed(ServletContextEvent sce) {
+        if (Config.LOG_INFO) {
+            System.out.println("[SimpleStartupListener] Application context is being destroyed, stopping services...");
+        }
+        
         try {
             // 停止Kafka消费者服务
             if (kafkaConsumerService != null) {
+                if (Config.LOG_INFO) {
+                    System.out.println("[SimpleStartupListener] Stopping Kafka consumer service...");
+                }
                 kafkaConsumerService.stop();
                 if (Config.LOG_INFO) {
                     System.out.println("[SimpleStartupListener] Kafka consumer service stopped");
@@ -51,16 +58,36 @@ public class simpleStartupListener implements ServletContextListener {
 
             // 停止Redis清理工具
             if (redisCleanupUtil != null) {
+                if (Config.LOG_INFO) {
+                    System.out.println("[SimpleStartupListener] Stopping Redis cleanup utility...");
+                }
                 redisCleanupUtil.shutdown();
                 if (Config.LOG_INFO) {
                     System.out.println("[SimpleStartupListener] Redis cleanup utility stopped");
                 }
             }
 
+            // 等待一段时间确保所有资源都被释放
+            try {
+                Thread.sleep(Config.APP_SHUTDOWN_WAIT_MS);
+                if (Config.LOG_INFO) {
+                    System.out.println("[SimpleStartupListener] Waited " + (Config.APP_SHUTDOWN_WAIT_MS / 1000) + " seconds for resource cleanup");
+                }
+            } catch (InterruptedException e) {
+                if (Config.LOG_ERROR) {
+                    System.err.println("[SimpleStartupListener] Interrupted while waiting for resource cleanup: " + e.getMessage());
+                }
+                Thread.currentThread().interrupt();
+            }
+
         } catch (Exception e) {
             if (Config.LOG_ERROR) {
                 System.err.println("[SimpleStartupListener] Error stopping services: " + e.getMessage());
                 e.printStackTrace();
+            }
+        } finally {
+            if (Config.LOG_INFO) {
+                System.out.println("[SimpleStartupListener] All services stopped, context destruction complete");
             }
         }
     }

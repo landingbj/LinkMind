@@ -34,6 +34,18 @@ public class Config {
     public static final boolean LOG_INFO = true;                 // 是否打印信息日志
     public static final boolean LOG_ERROR = true;                // 是否打印错误日志
 
+    /** 应用关闭超时时间（毫秒） */
+    public static final int APP_SHUTDOWN_TIMEOUT_MS = 30000;
+    
+    /** Kafka消费者关闭超时时间（毫秒） */
+    public static final int KAFKA_SHUTDOWN_TIMEOUT_MS = 30000;
+    
+    /** Redis清理工具关闭超时时间（毫秒） */
+    public static final int REDIS_CLEANUP_SHUTDOWN_TIMEOUT_MS = 30000;
+    
+    /** 应用关闭等待时间（毫秒） */
+    public static final int APP_SHUTDOWN_WAIT_MS = 2000;
+
     public static String getDbUrl() { return DB_URL; }
     public static String getDbUser() { return DB_USER; }
     public static String getDbPassword() { return DB_PASSWORD; }

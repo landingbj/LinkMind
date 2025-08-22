@@ -210,14 +210,57 @@ public class RedisCleanupUtil {
         if (Config.LOG_INFO) {
             System.out.println("[RedisCleanupUtil] Shutting down cleanup task");
         }
-        scheduler.shutdown();
+        
         try {
-            if (!scheduler.awaitTermination(60, TimeUnit.SECONDS)) {
+            // 优雅关闭调度器
+            scheduler.shutdown();
+            
+            // 等待最多30秒让任务自然结束
+            if (!scheduler.awaitTermination(Config.REDIS_CLEANUP_SHUTDOWN_TIMEOUT_MS / 1000, TimeUnit.SECONDS)) {
+                if (Config.LOG_INFO) {
+                    System.out.println("[RedisCleanupUtil] Scheduler did not terminate gracefully, forcing shutdown");
+                }
+                // 如果30秒内没有结束，强制关闭
                 scheduler.shutdownNow();
+                
+                // 再等待最多10秒
+                if (!scheduler.awaitTermination(10, TimeUnit.SECONDS)) {
+                    if (Config.LOG_ERROR) {
+                        System.err.println("[RedisCleanupUtil] Scheduler did not terminate");
+                    }
+                }
             }
+            
+            if (Config.LOG_INFO) {
+                System.out.println("[RedisCleanupUtil] Scheduler stopped");
+            }
+            
         } catch (InterruptedException e) {
-            scheduler.shutdownNow();
+            if (Config.LOG_ERROR) {
+                System.err.println("[RedisCleanupUtil] Interrupted while waiting for scheduler to terminate: " + e.getMessage());
+            }
+            // 恢复中断状态
             Thread.currentThread().interrupt();
+            // 强制关闭
+            scheduler.shutdownNow();
+        }
+        
+        // 关闭Redis连接池
+        try {
+            if (jedisPool != null) {
+                jedisPool.close();
+                if (Config.LOG_INFO) {
+                    System.out.println("[RedisCleanupUtil] Redis connection pool closed");
+                }
+            }
+        } catch (Exception e) {
+            if (Config.LOG_ERROR) {
+                System.err.println("[RedisCleanupUtil] Error closing Redis connection pool: " + e.getMessage());
+            }
+        }
+        
+        if (Config.LOG_INFO) {
+            System.out.println("[RedisCleanupUtil] Cleanup task shutdown complete");
         }
     }
     

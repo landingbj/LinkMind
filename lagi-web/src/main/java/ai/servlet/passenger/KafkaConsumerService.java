@@ -129,8 +129,74 @@ public class KafkaConsumerService {
             if (Config.LOG_INFO) {
                 System.out.println("[KafkaConsumerService] Stopping Kafka consumer service");
             }
-            if (consumer != null) consumer.close();
-            if (executorService != null) executorService.shutdown();
+            
+            // 关闭Kafka消费者
+            if (consumer != null) {
+                try {
+                    consumer.close();
+                    if (Config.LOG_INFO) {
+                        System.out.println("[KafkaConsumerService] Kafka consumer closed");
+                    }
+                } catch (Exception e) {
+                    if (Config.LOG_ERROR) {
+                        System.err.println("[KafkaConsumerService] Error closing Kafka consumer: " + e.getMessage());
+                    }
+                }
+            }
+            
+            // 优雅关闭线程池
+            if (executorService != null) {
+                try {
+                    // 先尝试优雅关闭
+                    executorService.shutdown();
+                    
+                    // 等待最多30秒让线程自然结束
+                    if (!executorService.awaitTermination(Config.KAFKA_SHUTDOWN_TIMEOUT_MS / 1000, java.util.concurrent.TimeUnit.SECONDS)) {
+                        if (Config.LOG_INFO) {
+                            System.out.println("[KafkaConsumerService] Executor service did not terminate gracefully, forcing shutdown");
+                        }
+                        // 如果30秒内没有结束，强制关闭
+                        executorService.shutdownNow();
+                        
+                        // 再等待最多10秒
+                        if (!executorService.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS)) {
+                            if (Config.LOG_ERROR) {
+                                System.err.println("[KafkaConsumerService] Executor service did not terminate");
+                            }
+                        }
+                    }
+                    
+                    if (Config.LOG_INFO) {
+                        System.out.println("[KafkaConsumerService] Executor service stopped");
+                    }
+                } catch (InterruptedException e) {
+                    if (Config.LOG_ERROR) {
+                        System.err.println("[KafkaConsumerService] Interrupted while waiting for executor service to terminate: " + e.getMessage());
+                    }
+                    // 恢复中断状态
+                    Thread.currentThread().interrupt();
+                    // 强制关闭
+                    executorService.shutdownNow();
+                }
+            }
+            
+            // 关闭Redis连接池
+            if (jedisPool != null) {
+                try {
+                    jedisPool.close();
+                    if (Config.LOG_INFO) {
+                        System.out.println("[KafkaConsumerService] Redis connection pool closed");
+                    }
+                } catch (Exception e) {
+                    if (Config.LOG_ERROR) {
+                        System.err.println("[KafkaConsumerService] Error closing Redis connection pool: " + e.getMessage());
+                    }
+                }
+            }
+            
+            if (Config.LOG_INFO) {
+                System.out.println("[KafkaConsumerService] Kafka consumer service stopped completely");
+            }
         }
     }
 
@@ -139,24 +205,33 @@ public class KafkaConsumerService {
             System.out.println("[KafkaConsumerService] Enter consume loop");
         }
         while (running.get()) {
-            ConsumerRecords<String, String> records = consumer.poll(Duration.ofSeconds(1));
-            for (ConsumerRecord<String, String> record : records) {
-                try {
-                    JSONObject message = new JSONObject(record.value());
-                    String topic = record.topic();
-                    String busNo = message.optString("busSelfNo", message.optString("busNo"));
-                    if (busNo.isEmpty()) continue;
+            try {
+                // 减少poll超时时间，确保能够快速响应停止信号
+                ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(500));
+                for (ConsumerRecord<String, String> record : records) {
+                    try {
+                        JSONObject message = new JSONObject(record.value());
+                        String topic = record.topic();
+                        String busNo = message.optString("busSelfNo", message.optString("busNo"));
+                        if (busNo.isEmpty()) continue;
 
-                    // 过滤试点线路
-                    String routeId = extractRouteId(message, topic);
-                    if (!isPilotRoute(routeId)) {
-                        continue;
+                        // 过滤试点线路
+                        String routeId = extractRouteId(message, topic);
+                        if (!isPilotRoute(routeId)) {
+                            continue;
+                        }
+
+                        processMessage(topic, message, busNo);
+                    } catch (Exception e) {
+                        if (Config.LOG_ERROR) {
+                            System.err.println("[KafkaConsumerService] Error processing Kafka message: " + e.getMessage());
+                        }
                     }
-
-                    processMessage(topic, message, busNo);
-                } catch (Exception e) {
+                }
+            } catch (Exception e) {
+                if (running.get()) { // 只有在服务运行时才记录错误
                     if (Config.LOG_ERROR) {
-                        System.err.println("[KafkaConsumerService] Error processing Kafka message: " + e.getMessage());
+                        System.err.println("[KafkaConsumerService] Error in consume loop: " + e.getMessage());
                     }
                 }
             }

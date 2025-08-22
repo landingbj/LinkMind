@@ -224,17 +224,14 @@ public class KafkaConsumerService {
 
                         // 过滤试点线路
                         String routeId = extractRouteId(message, topic);
-                        if (Config.LOG_INFO) {
-                            System.out.println("[KafkaConsumerService] 试点线路过滤检查 - busNo=" + busNo + ", routeId=" + routeId + ", topic=" + topic);
-                        }
+                        // 减少试点线路过滤的日志输出，只在匹配成功时打印
                         if (!isPilotRoute(routeId)) {
-                            if (Config.LOG_INFO) {
-                                System.out.println("[KafkaConsumerService] 非试点线路，跳过处理 - busNo=" + busNo + ", routeId=" + routeId);
-                            }
                             continue;
                         }
+                        
+                        // 只在试点线路匹配成功时打印关键信息
                         if (Config.LOG_INFO) {
-                            System.out.println("[KafkaConsumerService] 试点线路匹配成功，继续处理 - busNo=" + busNo + ", routeId=" + routeId);
+                            System.out.println("[KafkaConsumerService] 试点线路匹配成功 - busNo=" + busNo + ", routeId=" + routeId + ", topic=" + topic);
                         }
 
                         processMessage(topic, message, busNo);
@@ -261,40 +258,19 @@ public class KafkaConsumerService {
         if (topic.equals(KafkaConfig.BUS_GPS_TOPIC)) {
             String srcAddrOrg = message.optString("srcAddrOrg");
             String routeNo = message.optString("routeNo");
-            if (Config.LOG_DEBUG) {
-                System.out.println("[KafkaConsumerService] 提取线路ID - topic=" + topic + ", srcAddrOrg=" + srcAddrOrg + ", routeNo=" + routeNo);
-            }
             if (srcAddrOrg != null && !srcAddrOrg.isEmpty()) {
-                if (Config.LOG_DEBUG) {
-                    System.out.println("[KafkaConsumerService] 使用srcAddrOrg作为线路ID: " + srcAddrOrg);
-                }
                 return srcAddrOrg;
             }
-            if (Config.LOG_DEBUG) {
-                System.out.println("[KafkaConsumerService] 使用routeNo作为线路ID: " + routeNo);
-            }
             return routeNo;
-        }
-        if (Config.LOG_DEBUG) {
-            System.out.println("[KafkaConsumerService] 非GPS主题，无法提取线路ID - topic=" + topic);
         }
         return "";
     }
 
     private boolean isPilotRoute(String routeId) {
-        if (Config.LOG_DEBUG) {
-            System.out.println("[KafkaConsumerService] 检查是否为试点线路 - routeId=" + routeId + ", 试点线路列表=" + Arrays.toString(PILOT_ROUTES));
-        }
         for (String pilot : PILOT_ROUTES) {
             if (pilot.equals(routeId)) {
-                if (Config.LOG_DEBUG) {
-                    System.out.println("[KafkaConsumerService] 试点线路匹配成功 - routeId=" + routeId + " 匹配 " + pilot);
-                }
                 return true;
             }
-        }
-        if (Config.LOG_DEBUG) {
-            System.out.println("[KafkaConsumerService] 试点线路匹配失败 - routeId=" + routeId + " 不在试点线路列表中");
         }
         return false;
     }
@@ -376,6 +352,21 @@ public class KafkaConsumerService {
         String trafficType2 = String.valueOf(message.opt("trafficType"));
         String direction2 = "4".equals(trafficType2) ? "up" : "down";
         String srcAddrOrg = message.optString("srcAddrOrg");
+
+        // 专门打印车辆到离站信号的Kafka原始数据（可通过配置控制）
+        if (Config.ARRIVE_LEAVE_LOG_ENABLED) {
+            System.out.println("[车辆到离站信号] pktType=4 的Kafka原始数据:");
+            System.out.println("   busNo=" + busNo);
+            System.out.println("   isArriveOrLeft=" + isArriveOrLeft);
+            System.out.println("   stationId=" + stationId);
+            System.out.println("   stationName=" + stationName);
+            System.out.println("   nextStationSeqNum=" + nextStationSeqNum);
+            System.out.println("   trafficType=" + trafficType2);
+            System.out.println("   direction=" + direction2);
+            System.out.println("   srcAddrOrg=" + srcAddrOrg);
+            System.out.println("   完整消息: " + message.toString());
+            System.out.println("   ================================================================================");
+        }
 
         // 缓存到离站，设置过期时间
         JSONObject arriveLeave = new JSONObject();
@@ -503,8 +494,20 @@ public class KafkaConsumerService {
             jedis.expire(openTimeKey, Config.REDIS_TTL_OPEN_TIME);
             jedis.expire(ticketCountKey, Config.REDIS_TTL_OPEN_TIME);
 
+            // 试点线路开门流程日志（可通过配置控制）
+            if (Config.PILOT_ROUTE_LOG_ENABLED) {
+                System.out.println("[试点线路开门流程] 开始发送开门信号到CV系统:");
+                System.out.println("   busNo=" + busNo);
+                System.out.println("   原因=" + openReason);
+                System.out.println("   时间=" + now.format(formatter));
+                System.out.println("   站点ID=" + stationId);
+                System.out.println("   站点名称=" + arriveLeave.optString("stationName"));
+                System.out.println("   线路ID=" + arriveLeave.optString("srcAddrOrg"));
+                System.out.println("   ================================================================================");
+            }
+
             if (Config.LOG_INFO) {
-                System.out.println("[KafkaConsumerService] 🚪 发送开门信号到CV系统: busNo=" + busNo +
+                System.out.println("[KafkaConsumerService] 发送开门信号到CV系统: busNo=" + busNo +
                     ", 原因=" + openReason + ", 时间=" + now.format(formatter));
             }
 
@@ -512,14 +515,27 @@ public class KafkaConsumerService {
             sendDoorSignalToCV(busNo, "open", now);
 
             if (Config.LOG_INFO) {
-                System.out.println("[KafkaConsumerService] ✅ 开门信号处理完成: busNo=" + busNo +
+                System.out.println("[KafkaConsumerService] 开门信号处理完成: busNo=" + busNo +
                     ", open_time=" + now.format(formatter) + ", Redis缓存已设置");
             }
         } else if (shouldClose) {
             String openTimeStr = jedis.get("open_time:" + busNo);
             if (openTimeStr != null) {
+                // 试点线路关门流程日志（可通过配置控制）
+                if (Config.PILOT_ROUTE_LOG_ENABLED) {
+                    System.out.println("[试点线路关门流程] 开始发送关门信号到CV系统:");
+                    System.out.println("   busNo=" + busNo);
+                    System.out.println("   原因=" + closeReason);
+                    System.out.println("   时间=" + now.format(formatter));
+                    System.out.println("   上次开门时间=" + openTimeStr);
+                    System.out.println("   站点ID=" + stationId);
+                    System.out.println("   站点名称=" + arriveLeave.optString("stationName"));
+                    System.out.println("   线路ID=" + arriveLeave.optString("srcAddrOrg"));
+                    System.out.println("   ================================================================================");
+                }
+
                 if (Config.LOG_INFO) {
-                    System.out.println("[KafkaConsumerService] 🚪 发送关门信号到CV系统: busNo=" + busNo +
+                    System.out.println("[KafkaConsumerService] 发送关门信号到CV系统: busNo=" + busNo +
                         ", 原因=" + closeReason + ", 时间=" + now.format(formatter) +
                         ", 上次开门时间=" + openTimeStr);
                 }
@@ -528,7 +544,7 @@ public class KafkaConsumerService {
                 sendDoorSignalToCV(busNo, "close", now);
 
                 if (Config.LOG_INFO) {
-                    System.out.println("[KafkaConsumerService] ✅ 关门信号处理完成: busNo=" + busNo +
+                    System.out.println("[KafkaConsumerService] 关门信号处理完成: busNo=" + busNo +
                         ", 清理Redis缓存, 准备处理OD数据");
                 }
 
@@ -549,7 +565,7 @@ public class KafkaConsumerService {
         long prev = lastDoorSkipLogMsByBus.getOrDefault(busNo, 0L);
         if (now - prev > 60_000) { // 每车每分钟最多一次
             if (Config.LOG_INFO) {
-                System.out.println("[KafkaConsumerService] ⏭️ 未触发开关门: busNo=" + busNo + ", 原因=" + reason);
+                System.out.println("[KafkaConsumerService] 未触发开关门: busNo=" + busNo + ", 原因=" + reason);
             }
             lastDoorSkipLogMsByBus.put(busNo, now);
         }

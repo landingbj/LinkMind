@@ -269,6 +269,15 @@ public class PassengerFlowProcessor {
 		LocalDateTime eventTime = LocalDateTime.parse(data.optString("timestamp").replace(" ", "T"));
 
 		if ("open".equals(action)) {
+			// 试点线路CV开门流程日志（可通过配置控制）
+			if (Config.PILOT_ROUTE_LOG_ENABLED) {
+				System.out.println("[试点线路CV开门流程] CV系统接收到开门信号:");
+				System.out.println("   busNo=" + busNo);
+				System.out.println("   cameraNo=" + cameraNo);
+				System.out.println("   时间=" + eventTime.format(formatter));
+				System.out.println("   ================================================================================");
+			}
+
 			// 开门时创建记录并缓存
 			BusOdRecord record = createBaseRecord(busNo, cameraNo, eventTime, jedis);
 			record.setTimestampBegin(eventTime);
@@ -286,10 +295,27 @@ public class PassengerFlowProcessor {
 			jedis.expire("cv_up_count:" + busNo + ":" + windowId, Config.REDIS_TTL_OPEN_TIME);
 			jedis.expire("cv_down_count:" + busNo + ":" + windowId, Config.REDIS_TTL_OPEN_TIME);
 
+			if (Config.PILOT_ROUTE_LOG_ENABLED) {
+				System.out.println("[试点线路CV开门流程] 开门时间窗口已创建:");
+				System.out.println("   windowId=" + windowId);
+				System.out.println("   上车计数已初始化");
+				System.out.println("   下车计数已初始化");
+				System.out.println("   ================================================================================");
+			}
+
 			if (Config.LOG_INFO) {
 				System.out.println("[PassengerFlowProcessor] Door OPEN event processed for busNo=" + busNo + ", windowId=" + windowId);
 			}
 		} else if ("close".equals(action)) {
+			// 试点线路CV关门流程日志（可通过配置控制）
+			if (Config.PILOT_ROUTE_LOG_ENABLED) {
+				System.out.println("[试点线路CV关门流程] CV系统接收到关门信号:");
+				System.out.println("   busNo=" + busNo);
+				System.out.println("   cameraNo=" + cameraNo);
+				System.out.println("   时间=" + eventTime.format(formatter));
+				System.out.println("   ================================================================================");
+			}
+
 			// 关门时处理OD数据并发送到Kafka
 			handleCloseDoorEvent(data, busNo, cameraNo, jedis);
 		}
@@ -330,12 +356,33 @@ public class PassengerFlowProcessor {
 		String action = data.optString("action");
 
 		if ("close".equals(action)) {
+			if (Config.PILOT_ROUTE_LOG_ENABLED) {
+				System.out.println("[试点线路CV关门流程] 开始处理关门事件:");
+				System.out.println("   busNo=" + busNo);
+				System.out.println("   cameraNo=" + cameraNo);
+				System.out.println("   关门时间=" + eventTime.format(formatter));
+				System.out.println("   ================================================================================");
+			}
+
 			// 获取开门时间窗口ID
 			String windowId = jedis.get("open_time:" + busNo);
 			if (windowId != null) {
+				if (Config.PILOT_ROUTE_LOG_ENABLED) {
+					System.out.println("[试点线路CV关门流程] 找到开门时间窗口:");
+				 System.out.println("   windowId=" + windowId);
+					System.out.println("   ================================================================================");
+				}
+
 				// 获取CV计数
 				int cvUpCount = getCachedUpCount(jedis, busNo, windowId);
 				int cvDownCount = getCachedDownCount(jedis, busNo, windowId);
+
+				if (Config.PILOT_ROUTE_LOG_ENABLED) {
+					System.out.println("[试点线路CV关门流程] CV计数统计完成:");
+					System.out.println("   上车人数=" + cvUpCount);
+					System.out.println("   下车人数=" + cvDownCount);
+					System.out.println("   ================================================================================");
+				}
 
 				// 创建关门记录
 				BusOdRecord record = createBaseRecord(busNo, cameraNo, eventTime, jedis);
@@ -347,12 +394,26 @@ public class PassengerFlowProcessor {
 				record.setStationIdOff(getCurrentStationId(busNo, jedis));
 				record.setStationNameOff(getCurrentStationName(busNo, jedis));
 
+				if (Config.PILOT_ROUTE_LOG_ENABLED) {
+					System.out.println("[试点线路CV关门流程] OD记录已创建:");
+					System.out.println("   上车站点=" + record.getStationNameOn());
+					System.out.println("   下车站点=" + record.getStationNameOff());
+					System.out.println("   线路ID=" + record.getLineId());
+					System.out.println("   方向=" + record.getRouteDirection());
+					System.out.println("   ================================================================================");
+				}
+
 				// 收集该趟次该站点的所有乘客特征向量
 				Set<String> features = jedis.smembers("features_set:" + busNo + ":" + windowId);
 				if (features != null && !features.isEmpty()) {
 					// 直接使用Redis中存储的完整特征信息（已包含方向、时间戳、图片、位置等）
 					String passengerFeatures = new JSONArray(features).toString();
 					record.setPassengerFeatures(passengerFeatures);
+					if (Config.PILOT_ROUTE_LOG_ENABLED) {
+						System.out.println("[试点线路CV关门流程] 乘客特征收集完成:");
+						System.out.println("   特征数量=" + features.size());
+						System.out.println("   ================================================================================");
+					}
 					if (Config.LOG_DEBUG) {
 						System.out.println("[PassengerFlowProcessor] Collected " + features.size() + " passenger features for busNo=" + busNo);
 					}
@@ -379,6 +440,11 @@ public class PassengerFlowProcessor {
 				if (!imageUrls.isEmpty()) {
 					String passengerImages = new JSONArray(imageUrls).toString();
 					record.setPassengerImages(passengerImages);
+					if (Config.PILOT_ROUTE_LOG_ENABLED) {
+						System.out.println("[试点线路CV关门流程] 乘客图片收集完成:");
+						System.out.println("   图片数量=" + imageUrls.size());
+						System.out.println("   ================================================================================");
+					}
 					if (Config.LOG_DEBUG) {
 						System.out.println("[PassengerFlowProcessor] Collected " + imageUrls.size() + " passenger images for busNo=" + busNo);
 					}
@@ -405,6 +471,11 @@ public class PassengerFlowProcessor {
 				if (!positions.isEmpty()) {
 					String passengerPosition = new JSONArray(positions).toString();
 					record.setPassengerPosition(passengerPosition);
+					if (Config.PILOT_ROUTE_LOG_ENABLED) {
+						System.out.println("[试点线路CV关门流程] 乘客位置信息收集完成:");
+						System.out.println("   位置信息数量=" + positions.size());
+						System.out.println("   ================================================================================");
+					}
 					if (Config.LOG_DEBUG) {
 						System.out.println("[PassengerFlowProcessor] Collected " + positions.size() + " passenger positions for busNo=" + busNo);
 					}
@@ -419,6 +490,13 @@ public class PassengerFlowProcessor {
 
 				// 在关门时触发AI图片分析（但不发送到Kafka）
 				if (Config.ENABLE_AI_IMAGE_ANALYSIS) {
+					if (Config.PILOT_ROUTE_LOG_ENABLED) {
+						System.out.println("[试点线路CV关门流程] 开始AI图片分析:");
+						System.out.println("   启用AI分析=" + Config.ENABLE_AI_IMAGE_ANALYSIS);
+						System.out.println("   最大图片数量=" + Config.MAX_IMAGES_PER_ANALYSIS);
+						System.out.println("   ================================================================================");
+					}
+
 					try {
 						analyzeImagesWithAI(jedis, busNo, eventTime, record);
 					} catch (Exception e) {
@@ -426,10 +504,19 @@ public class PassengerFlowProcessor {
 							System.err.println("[PassengerFlowProcessor] Error during AI image analysis: " + e.getMessage());
 						}
 						// AI分析失败时，仍然发送CV数据到Kafka
+						if (Config.PILOT_ROUTE_LOG_ENABLED) {
+							System.out.println("[试点线路CV关门流程] AI分析失败，发送CV数据到Kafka:");
+							System.out.println("   错误信息=" + e.getMessage());
+							System.out.println("   ================================================================================");
+						}
 						sendToKafka(record);
 					}
 				} else {
 					// 如果没有启用AI分析，直接发送CV数据到Kafka
+					if (Config.PILOT_ROUTE_LOG_ENABLED) {
+						System.out.println("[试点线路CV关门流程] 未启用AI分析，直接发送CV数据到Kafka:");
+						System.out.println("   ================================================================================");
+					}
 					sendToKafka(record);
 				}
 
@@ -437,6 +524,11 @@ public class PassengerFlowProcessor {
 				jedis.del("open_time:" + busNo);
 				jedis.del("cv_up_count:" + busNo + ":" + windowId);
 				jedis.del("cv_down_count:" + busNo + ":" + windowId);
+
+				if (Config.PILOT_ROUTE_LOG_ENABLED) {
+					System.out.println("[试点线路CV关门流程] 开门时间窗口已清理:");
+					System.out.println("   ================================================================================");
+				}
 
 				// 移除清理窗口调试日志
 			}
@@ -658,8 +750,17 @@ public class PassengerFlowProcessor {
 		try {
 			String json = objectMapper.writeValueAsString(data);
 			
+			// 试点线路最终流程日志 - 准备发送到Kafka（可通过配置控制）
+			if (Config.PILOT_ROUTE_LOG_ENABLED) {
+				System.out.println("[试点线路最终流程] 准备发送数据到Kafka:");
+				System.out.println("   主题: " + KafkaConfig.PASSENGER_FLOW_TOPIC);
+				System.out.println("   数据大小: " + json.length() + " 字符");
+				System.out.println("   数据内容: " + json);
+				System.out.println("   ================================================================================");
+			}
+			
 			if (Config.LOG_INFO) {
-				System.out.println("📤 [PassengerFlowProcessor] 准备发送数据到Kafka:");
+				System.out.println("准备发送数据到Kafka:");
 				System.out.println("   主题: " + KafkaConfig.PASSENGER_FLOW_TOPIC);
 				System.out.println("   数据大小: " + json.length() + " 字符");
 				System.out.println("   数据内容: " + json);
@@ -673,15 +774,35 @@ public class PassengerFlowProcessor {
 			producer.send(new ProducerRecord<>(KafkaConfig.PASSENGER_FLOW_TOPIC, json),
 				(metadata, exception) -> {
 					if (exception != null) {
+						// 试点线路最终流程日志 - Kafka发送失败（可通过配置控制）
+						if (Config.PILOT_ROUTE_LOG_ENABLED) {
+							System.out.println("[试点线路最终流程] Kafka发送失败:");
+							System.out.println("   错误信息: " + exception.getMessage());
+							System.out.println("   失败数据: " + json);
+							System.out.println("   ================================================================================");
+						}
+
 						if (Config.LOG_ERROR) {
-							System.err.println("❌ [PassengerFlowProcessor] Kafka发送失败: " + exception.getMessage());
+							System.err.println("[PassengerFlowProcessor] Kafka发送失败: " + exception.getMessage());
 							System.err.println("   失败数据: " + json);
 						}
 						// 可以在这里添加重试逻辑或告警机制
 						handleKafkaSendFailure(data, exception);
 					} else {
+						// 试点线路最终流程日志 - Kafka发送成功（可通过配置控制）
+						if (Config.PILOT_ROUTE_LOG_ENABLED) {
+							System.out.println("[试点线路最终流程] Kafka发送成功:");
+							System.out.println("   主题: " + metadata.topic());
+							System.out.println("   分区: " + metadata.partition());
+							System.out.println("   偏移量: " + metadata.offset());
+							System.out.println("   时间戳: " + metadata.timestamp());
+							System.out.println("   ================================================================================");
+							System.out.println("[试点线路完整流程] 从开关门信号到Kafka发送的整个流程已完成!");
+							System.out.println("   ================================================================================");
+						}
+
 						if (Config.LOG_INFO) {
-							System.out.println("✅ [PassengerFlowProcessor] Kafka发送成功:");
+							System.out.println("[PassengerFlowProcessor] Kafka发送成功:");
 							System.out.println("   主题: " + metadata.topic());
 							System.out.println("   分区: " + metadata.partition());
 							System.out.println("   偏移量: " + metadata.offset());
@@ -698,8 +819,16 @@ public class PassengerFlowProcessor {
 				});
 
 		} catch (Exception e) {
+			// 试点线路最终流程日志 - 数据序列化失败（可通过配置控制）
+			if (Config.PILOT_ROUTE_LOG_ENABLED) {
+				System.out.println("[试点线路最终流程] 数据序列化失败:");
+				System.out.println("   错误信息: " + e.getMessage());
+				System.out.println("   错误数据: " + data);
+				System.out.println("   ================================================================================");
+			}
+
 			if (Config.LOG_ERROR) {
-				System.err.println("❌ [PassengerFlowProcessor] 发送到Kafka时发生错误: " + e.getMessage());
+				System.err.println("[PassengerFlowProcessor] 发送到Kafka时发生错误: " + e.getMessage());
 				System.err.println("   错误数据: " + data);
 			}
 		}

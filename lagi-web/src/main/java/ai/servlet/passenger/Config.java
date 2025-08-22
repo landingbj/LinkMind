@@ -34,6 +34,10 @@ public class Config {
     public static final boolean LOG_INFO = true;                 // 是否打印信息日志
     public static final boolean LOG_ERROR = true;                // 是否打印错误日志
 
+    // 试点线路专用日志配置
+    public static final boolean PILOT_ROUTE_LOG_ENABLED = true;  // 是否启用试点线路流程日志
+    public static final boolean ARRIVE_LEAVE_LOG_ENABLED = true; // 是否启用车辆到离站信号日志
+
     /** 应用关闭超时时间（毫秒） */
     public static final int APP_SHUTDOWN_TIMEOUT_MS = 30000;
     

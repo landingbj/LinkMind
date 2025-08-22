@@ -578,7 +578,12 @@ public class PassengerFlowProcessor {
 	private String getLineIdFromBusNo(String busNo, Jedis jedis) {
 		String arriveLeaveStr = jedis.get("arrive_leave:" + busNo);
 		if (arriveLeaveStr != null) {
-			return new JSONObject(arriveLeaveStr).optString("srcAddrOrg", "UNKNOWN");
+			JSONObject arriveLeave = new JSONObject(arriveLeaveStr);
+			// 使用routeNo作为线路ID
+			String routeNo = arriveLeave.optString("routeNo");
+			if (routeNo != null && !routeNo.isEmpty()) {
+				return routeNo;
+			}
 		}
 		return "UNKNOWN";
 	}

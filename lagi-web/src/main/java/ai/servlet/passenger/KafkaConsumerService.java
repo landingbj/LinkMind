@@ -235,7 +235,7 @@ public class KafkaConsumerService {
                                     String nextStationSeqNum = message.optString("nextStationSeqNum");
                                     String trafficType2 = String.valueOf(message.opt("trafficType"));
                                     String direction2 = "4".equals(trafficType2) ? "up" : "down";
-                                    String srcAddrOrg = message.optString("srcAddrOrg");
+                                    String routeNo = message.optString("routeNo");
 
                                     System.out.println("[车辆到离站信号-非白名单] pktType=4 的Kafka原始数据:");
                                     System.out.println("   busNo=" + busNo);
@@ -246,7 +246,7 @@ public class KafkaConsumerService {
                                     System.out.println("   nextStationSeqNum=" + nextStationSeqNum);
                                     System.out.println("   trafficType=" + trafficType2);
                                     System.out.println("   direction=" + direction2);
-                                    System.out.println("   srcAddrOrg=" + srcAddrOrg);
+                                    System.out.println("   routeNo=" + routeNo);
                                     System.out.println("   完整消息: " + message.toString());
                                     System.out.println("   =============================================================================");
                                 }
@@ -281,12 +281,10 @@ public class KafkaConsumerService {
 
     private String extractRouteId(JSONObject message, String topic) {
         if (topic.equals(KafkaConfig.BUS_GPS_TOPIC)) {
-            String srcAddrOrg = message.optString("srcAddrOrg");
             String routeNo = message.optString("routeNo");
-            if (srcAddrOrg != null && !srcAddrOrg.isEmpty()) {
-                return srcAddrOrg;
+            if (routeNo != null && !routeNo.isEmpty()) {
+                return routeNo;
             }
-            return routeNo;
         }
         return "";
     }
@@ -352,6 +350,11 @@ public class KafkaConsumerService {
         gpsJson.put("lng", lng);
         gpsJson.put("speed", speed);
         gpsJson.put("direction", direction);
+        // 缓存线路信息
+        String routeNo = message.optString("routeNo");
+        if (routeNo != null && !routeNo.isEmpty()) {
+            gpsJson.put("routeNo", routeNo);
+        }
         if (message.has("busId")) {
             gpsJson.put("busId", message.optLong("busId"));
             String busIdKey = "bus_id:" + busNo;
@@ -376,7 +379,7 @@ public class KafkaConsumerService {
         String nextStationSeqNum = message.optString("nextStationSeqNum");
         String trafficType2 = String.valueOf(message.opt("trafficType"));
         String direction2 = "4".equals(trafficType2) ? "up" : "down";
-        String srcAddrOrg = message.optString("srcAddrOrg");
+        String routeNo = message.optString("routeNo");
 
         // 专门打印车辆到离站信号的Kafka原始数据（可通过配置控制）
         if (Config.ARRIVE_LEAVE_LOG_ENABLED) {
@@ -388,7 +391,7 @@ public class KafkaConsumerService {
             System.out.println("   nextStationSeqNum=" + nextStationSeqNum);
             System.out.println("   trafficType=" + trafficType2);
             System.out.println("   direction=" + direction2);
-            System.out.println("   srcAddrOrg=" + srcAddrOrg);
+            System.out.println("   routeNo=" + routeNo);
             System.out.println("   完整消息: " + message.toString());
             System.out.println("   ================================================================================");
         }
@@ -400,8 +403,9 @@ public class KafkaConsumerService {
         arriveLeave.put("stationName", stationName);
         arriveLeave.put("nextStationSeqNum", nextStationSeqNum);
         arriveLeave.put("direction", direction2);
-        if (srcAddrOrg != null && !srcAddrOrg.isEmpty()) {
-            arriveLeave.put("srcAddrOrg", srcAddrOrg);
+        // 使用routeNo作为线路ID
+        if (routeNo != null && !routeNo.isEmpty()) {
+            arriveLeave.put("routeNo", routeNo);
         }
         String arriveLeaveKey = "arrive_leave:" + busNo;
         jedis.set(arriveLeaveKey, arriveLeave.toString());
@@ -430,6 +434,11 @@ public class KafkaConsumerService {
         arriveLeaveJson.put("timestamp", LocalDateTime.now().format(formatter));
         arriveLeaveJson.put("cardNo", cardNo);
         arriveLeaveJson.put("amount", amount);
+        // 缓存线路信息
+        String routeNo = message.optString("routeNo");
+        if (routeNo != null && !routeNo.isEmpty()) {
+            arriveLeaveJson.put("routeNo", routeNo);
+        }
 
         String arriveLeaveKey = "arrive_leave:" + busNo;
         jedis.set(arriveLeaveKey, arriveLeaveJson.toString());
@@ -527,7 +536,7 @@ public class KafkaConsumerService {
                 System.out.println("   时间=" + now.format(formatter));
                 System.out.println("   站点ID=" + stationId);
                 System.out.println("   站点名称=" + arriveLeave.optString("stationName"));
-                System.out.println("   线路ID=" + arriveLeave.optString("srcAddrOrg"));
+                System.out.println("   线路ID=" + arriveLeave.optString("routeNo", "UNKNOWN"));
                 System.out.println("   ================================================================================");
             }
 
@@ -555,7 +564,7 @@ public class KafkaConsumerService {
                     System.out.println("   上次开门时间=" + openTimeStr);
                     System.out.println("   站点ID=" + stationId);
                     System.out.println("   站点名称=" + arriveLeave.optString("stationName"));
-                    System.out.println("   线路ID=" + arriveLeave.optString("srcAddrOrg"));
+                    System.out.println("   线路ID=" + arriveLeave.optString("routeNo", "UNKNOWN"));
                     System.out.println("   ================================================================================");
                 }
 

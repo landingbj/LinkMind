@@ -55,7 +55,11 @@ public class KafkaConsumerService {
     private static final Map<String, Long> lastDoorSkipLogMsByBus = new ConcurrentHashMap<>();
 
     public KafkaConsumerService() {
+        System.out.println("[KafkaConsumerService] 构造函数开始执行");
+        System.out.println("[KafkaConsumerService] 试点线路配置: " + Arrays.toString(PILOT_ROUTES));
+        System.out.println("[KafkaConsumerService] 正在加载站点GPS数据...");
         loadStationGpsFromDb();
+        System.out.println("[KafkaConsumerService] 构造函数执行完成");
     }
 
     private void loadStationGpsFromDb() {
@@ -74,10 +78,10 @@ public class KafkaConsumerService {
                 return;
             }
 
-            // 从数据库加载（修正为4个占位符）
+            // 从数据库加载（修正为5个占位符，匹配PILOT_ROUTES数组长度）
             String sql = "SELECT stop_id, stop_coord_wgs84_lat, stop_coord_wgs84_lng " +
                     "FROM ods.route_stop " +
-                    "WHERE route_id IN (?,?,?,?) AND biz_date = (SELECT MAX(biz_date) FROM ods.route_stop) " +
+                    "WHERE route_id IN (?,?,?,?,?) AND biz_date = (SELECT MAX(biz_date) FROM ods.route_stop) " +
                     "AND stop_coord_wgs84_lat IS NOT NULL AND stop_coord_wgs84_lng IS NOT NULL";
             try (Connection conn = DriverManager.getConnection(Config.getDbUrl(), Config.getDbUser(), Config.getDbPassword());
                  PreparedStatement pstmt = conn.prepareStatement(sql)) {

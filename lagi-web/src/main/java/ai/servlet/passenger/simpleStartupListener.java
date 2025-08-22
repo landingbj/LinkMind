@@ -17,20 +17,31 @@ public class simpleStartupListener implements ServletContextListener {
     @Override
     public void contextInitialized(ServletContextEvent sce) {
         try {
+            System.out.println("=== 应用启动监听器开始初始化 ===");
+            System.out.println("[SimpleStartupListener] 正在启动服务...");
+            System.out.println("[SimpleStartupListener] 日志配置 - LOG_INFO=" + Config.LOG_INFO + ", LOG_DEBUG=" + Config.LOG_DEBUG + ", LOG_ERROR=" + Config.LOG_ERROR);
+            
             // 启动Redis清理工具
+            System.out.println("[SimpleStartupListener] 正在启动Redis清理工具...");
             redisCleanupUtil = new RedisCleanupUtil();
             if (Config.LOG_INFO) {
-                System.out.println("[SimpleStartupListener] Redis cleanup utility started");
+                System.out.println("[SimpleStartupListener] Redis清理工具启动成功");
             }
 
             // 启动Kafka消费者服务
+            System.out.println("[SimpleStartupListener] 正在启动Kafka消费者服务...");
             kafkaConsumerService = new KafkaConsumerService();
+            System.out.println("[SimpleStartupListener] KafkaConsumerService实例创建成功，正在调用start()方法...");
             kafkaConsumerService.start();
             if (Config.LOG_INFO) {
-                System.out.println("[SimpleStartupListener] Kafka consumer service started");
+                System.out.println("[SimpleStartupListener] Kafka消费者服务启动成功");
             }
+            
+            System.out.println("=== 应用启动监听器初始化完成 ===");
 
         } catch (Exception e) {
+            System.err.println("[SimpleStartupListener] 启动服务失败: " + e.getMessage());
+            e.printStackTrace();
             if (Config.LOG_ERROR) {
                 System.err.println("[SimpleStartupListener] Failed to start services: " + e.getMessage());
                 e.printStackTrace();

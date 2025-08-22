@@ -42,11 +42,11 @@ public class KafkaConsumerService {
 
     // 试点线路
     private static final String[] PILOT_ROUTES = {
-            "1001000021",   // 8路
-            "1001000055",   // 36路
-            "1001000248",   // 316路
-            "1001000721",    // 55路
-            "3301000100116310"    // 522M路
+            "8路",   // 8路
+            "36路",   // 36路
+            "316路",   // 316路
+            "55路",    // 55路
+            "522M路"    // 522M路
     };
 
     // 站点GPS映射
@@ -78,34 +78,62 @@ public class KafkaConsumerService {
                 return;
             }
 
-            // 从数据库加载（修正为5个占位符，匹配PILOT_ROUTES数组长度）
-            String sql = "SELECT stop_id, stop_coord_wgs84_lat, stop_coord_wgs84_lng " +
+            // 从数据库加载试点线路的站点GPS数据
+            // 使用route_name字段匹配试点线路
+            String sql = "SELECT stop_id, stop_coord_wgs84_lat, stop_coord_wgs84_lng, stop_name " +
                     "FROM ods.route_stop " +
-                    "WHERE route_id IN (?,?,?,?,?) AND biz_date = (SELECT MAX(biz_date) FROM ods.route_stop) " +
-                    "AND stop_coord_wgs84_lat IS NOT NULL AND stop_coord_wgs84_lng IS NOT NULL";
+                    "WHERE route_name IN (?,?,?,?,?) AND biz_date = (SELECT MAX(biz_date) FROM ods.route_stop) " +
+                    "AND stop_coord_wgs84_lat IS NOT NULL AND stop_coord_wgs84_lng IS NOT NULL " +
+                    "AND stop_coord_wgs84_lat != '' AND stop_coord_wgs84_lng != ''";
+            
             try (Connection conn = DriverManager.getConnection(Config.getDbUrl(), Config.getDbUser(), Config.getDbPassword());
                  PreparedStatement pstmt = conn.prepareStatement(sql)) {
-                // 设置试点线路参数
+                // 设置试点线路名称参数
                 for (int i = 0; i < PILOT_ROUTES.length; i++) {
                     pstmt.setString(i + 1, PILOT_ROUTES[i]);
                 }
+                
                 try (ResultSet rs = pstmt.executeQuery()) {
                     while (rs.next()) {
                         String stopId = rs.getString("stop_id");
-                        double lat = rs.getDouble("stop_coord_wgs84_lat");
-                        double lng = rs.getDouble("stop_coord_wgs84_lng");
-                        stationGpsMap.put(stopId, new double[]{lat, lng});
-                        jedis.hset("station_gps_map", stopId, lat + "," + lng);
+                        String stopName = rs.getString("stop_name");
+                        String latStr = rs.getString("stop_coord_wgs84_lat");
+                        String lngStr = rs.getString("stop_coord_wgs84_lng");
+                        
+                        try {
+                            double lat = Double.parseDouble(latStr);
+                            double lng = Double.parseDouble(lngStr);
+                            
+                            // 使用stopId作为key存储GPS数据
+                            stationGpsMap.put(stopId, new double[]{lat, lng});
+                            jedis.hset("station_gps_map", stopId, lat + "," + lng);
+                            
+                            if (Config.LOG_DEBUG) {
+                                System.out.println("[KafkaConsumerService] 加载站点GPS: stopId=" + stopId + 
+                                    ", stopName=" + stopName + ", lat=" + lat + ", lng=" + lng);
+                            }
+                        } catch (NumberFormatException e) {
+                            if (Config.LOG_ERROR) {
+                                System.err.println("[KafkaConsumerService] 站点GPS坐标格式错误: stopId=" + stopId + 
+                                    ", lat=" + latStr + ", lng=" + lngStr + ", error=" + e.getMessage());
+                            }
+                        }
                     }
                 }
+                
                 // 设置站点GPS缓存过期时间
                 jedis.expire("station_gps_map", Config.REDIS_TTL_STATION_GPS);
                 if (Config.LOG_INFO) {
                     System.out.println("[KafkaConsumerService] Loaded " + stationGpsMap.size() + " stations from database");
                     System.out.println("[KafkaConsumerService] 试点线路站点GPS数据加载完成，共加载 " + stationGpsMap.size() + " 个站点");
                 }
+            } catch (SQLException e) {
+                if (Config.LOG_ERROR) {
+                    System.err.println("[KafkaConsumerService] Failed to load station GPS from database: " + e.getMessage());
+                }
+                // 数据库查询失败时，记录错误但不影响系统启动
             }
-        } catch (SQLException e) {
+        } catch (Exception e) {
             if (Config.LOG_ERROR) {
                 System.err.println("[KafkaConsumerService] Failed to load station GPS: " + e.getMessage());
             }
@@ -118,7 +146,7 @@ public class KafkaConsumerService {
                 System.out.println("[KafkaConsumerService] Starting Kafka consumer service, topics=[" +
                         String.join(", ", KafkaConfig.BUS_GPS_TOPIC, KafkaConfig.TICKET_TOPIC) + "]");
                 System.out.println("[KafkaConsumerService] 试点线路配置: " + Arrays.toString(PILOT_ROUTES));
-                System.out.println("[KafkaConsumerService] 试点线路说明: 8路(1001000021), 36路(1001000055), 316路(1001000248), 55路(1001000721), 522M路(3301000100116310)");
+                System.out.println("[KafkaConsumerService] 试点线路说明: 8路、36路、316路、55路、522M路 (通过站点名匹配 + 数据库查询站点GPS)");
             }
             Properties props = KafkaConfig.getConsumerProperties();
             consumer = new KafkaConsumer<>(props);
@@ -223,18 +251,18 @@ public class KafkaConsumerService {
                         if (busNo.isEmpty()) continue;
 
                         // 过滤试点线路
-                        String routeId = extractRouteId(message, topic);
+                        String stationName = extractStationName(message, topic);
                         if (Config.LOG_INFO) {
-                            System.out.println("[KafkaConsumerService] 试点线路过滤检查 - busNo=" + busNo + ", routeId=" + routeId + ", topic=" + topic);
+                            System.out.println("[KafkaConsumerService] 试点线路过滤检查 - busNo=" + busNo + ", stationName=" + stationName + ", topic=" + topic);
                         }
-                        if (!isPilotRoute(routeId)) {
+                        if (!isPilotRoute(stationName)) {
                             if (Config.LOG_INFO) {
-                                System.out.println("[KafkaConsumerService] 非试点线路，跳过处理 - busNo=" + busNo + ", routeId=" + routeId);
+                                System.out.println("[KafkaConsumerService] 非试点线路，跳过处理 - busNo=" + busNo + ", stationName=" + stationName);
                             }
                             continue;
                         }
                         if (Config.LOG_INFO) {
-                            System.out.println("[KafkaConsumerService] 试点线路匹配成功，继续处理 - busNo=" + busNo + ", routeId=" + routeId);
+                            System.out.println("[KafkaConsumerService] 试点线路匹配成功，继续处理 - busNo=" + busNo + ", stationName=" + stationName);
                         }
 
                         processMessage(topic, message, busNo);
@@ -257,44 +285,50 @@ public class KafkaConsumerService {
         }
     }
 
-    private String extractRouteId(JSONObject message, String topic) {
+    private String extractStationName(JSONObject message, String topic) {
         if (topic.equals(KafkaConfig.BUS_GPS_TOPIC)) {
-            String srcAddrOrg = message.optString("srcAddrOrg");
-            String routeNo = message.optString("routeNo");
+            String stationName = message.optString("stationName");
             if (Config.LOG_DEBUG) {
-                System.out.println("[KafkaConsumerService] 提取线路ID - topic=" + topic + ", srcAddrOrg=" + srcAddrOrg + ", routeNo=" + routeNo);
+                System.out.println("[KafkaConsumerService] 提取站点名 - topic=" + topic + ", stationName=" + stationName);
             }
-            if (srcAddrOrg != null && !srcAddrOrg.isEmpty()) {
+            if (stationName != null && !stationName.isEmpty()) {
                 if (Config.LOG_DEBUG) {
-                    System.out.println("[KafkaConsumerService] 使用srcAddrOrg作为线路ID: " + srcAddrOrg);
+                    System.out.println("[KafkaConsumerService] 使用stationName作为匹配字段: " + stationName);
                 }
-                return srcAddrOrg;
+                return stationName;
             }
             if (Config.LOG_DEBUG) {
-                System.out.println("[KafkaConsumerService] 使用routeNo作为线路ID: " + routeNo);
+                System.out.println("[KafkaConsumerService] stationName为空，无法匹配试点线路");
             }
-            return routeNo;
+            return "";
         }
         if (Config.LOG_DEBUG) {
-            System.out.println("[KafkaConsumerService] 非GPS主题，无法提取线路ID - topic=" + topic);
+            System.out.println("[KafkaConsumerService] 非GPS主题，无法提取站点名 - topic=" + topic);
         }
         return "";
     }
 
-    private boolean isPilotRoute(String routeId) {
+    private boolean isPilotRoute(String stationName) {
         if (Config.LOG_DEBUG) {
-            System.out.println("[KafkaConsumerService] 检查是否为试点线路 - routeId=" + routeId + ", 试点线路列表=" + Arrays.toString(PILOT_ROUTES));
+            System.out.println("[KafkaConsumerService] 检查是否为试点线路 - stationName=" + stationName + ", 试点线路列表=" + Arrays.toString(PILOT_ROUTES));
         }
+        if (stationName == null || stationName.isEmpty()) {
+            if (Config.LOG_DEBUG) {
+                System.out.println("[KafkaConsumerService] 站点名为空，无法匹配试点线路");
+            }
+            return false;
+        }
+        
         for (String pilot : PILOT_ROUTES) {
-            if (pilot.equals(routeId)) {
+            if (stationName.contains(pilot)) {
                 if (Config.LOG_DEBUG) {
-                    System.out.println("[KafkaConsumerService] 试点线路匹配成功 - routeId=" + routeId + " 匹配 " + pilot);
+                    System.out.println("[KafkaConsumerService] 试点线路匹配成功 - stationName=" + stationName + " 包含 " + pilot);
                 }
                 return true;
             }
         }
         if (Config.LOG_DEBUG) {
-            System.out.println("[KafkaConsumerService] 试点线路匹配失败 - routeId=" + routeId + " 不在试点线路列表中");
+            System.out.println("[KafkaConsumerService] 试点线路匹配失败 - stationName=" + stationName + " 不包含任何试点线路名称");
         }
         return false;
     }

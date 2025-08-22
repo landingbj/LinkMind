@@ -146,16 +146,27 @@ public class PassengerFlowProcessor {
 				upCount++;
 
 				// 缓存上车特征和站点信息
-				cacheFeatureStationMapping(jedis, feature, getCurrentStationId(busNo, jedis), getCurrentStationName(busNo, jedis));
+				cacheFeatureStationMapping(jedis, feature, getCurrentStationId(busNo, jedis), getCurrentStationName(busNo, jedis), "up");
 
 				// 更新上车计数
 				String cvUpCountKey = "cv_up_count:" + busNo + ":" + windowId;
 				jedis.incr(cvUpCountKey);
 				jedis.expire(cvUpCountKey, Config.REDIS_TTL_OPEN_TIME);
 
-				// 缓存特征集合
+				// 缓存特征集合（包含方向信息）
 				String featuresKey = "features_set:" + busNo + ":" + windowId;
-				jedis.sadd(featuresKey, feature);
+				JSONObject featureInfo = new JSONObject();
+				featureInfo.put("feature", feature);
+				featureInfo.put("direction", "up");
+				featureInfo.put("timestamp", eventTime.format(formatter));
+				featureInfo.put("image", imageUrl);
+				JSONObject position = new JSONObject();
+				position.put("xLeftUp", boxX);
+				position.put("yLeftUp", boxY);
+				position.put("xRightBottom", boxX + boxW);
+				position.put("yRightBottom", boxY + boxH);
+				featureInfo.put("position", position);
+				jedis.sadd(featuresKey, featureInfo.toString());
 				jedis.expire(featuresKey, Config.REDIS_TTL_FEATURES);
 
 				// 缓存图片URL
@@ -165,13 +176,13 @@ public class PassengerFlowProcessor {
 
 				// 缓存乘客位置信息（特征向量 -> 位置信息的映射）
 				String positionKey = "feature_position:" + busNo + ":" + windowId + ":" + feature;
-				JSONObject position = new JSONObject();
-				position.put("xLeftUp", boxX);
-				position.put("yLeftUp", boxY);
-				position.put("xRightBottom", boxX + boxW);
-				position.put("yRightBottom", boxY + boxH);
-				position.put("direction", "up");
-				jedis.set(positionKey, position.toString());
+				JSONObject positionInfo = new JSONObject();
+				positionInfo.put("xLeftUp", boxX);
+				positionInfo.put("yLeftUp", boxY);
+				positionInfo.put("xRightBottom", boxX + boxW);
+				positionInfo.put("yRightBottom", boxY + boxH);
+				positionInfo.put("direction", "up");
+				jedis.set(positionKey, positionInfo.toString());
 				jedis.expire(positionKey, Config.REDIS_TTL_FEATURES);
 
 				// 移除逐条UP处理完成日志
@@ -193,6 +204,22 @@ public class PassengerFlowProcessor {
 				String cvDownCountKey = "cv_down_count:" + busNo + ":" + windowId;
 				jedis.incr(cvDownCountKey);
 				jedis.expire(cvDownCountKey, Config.REDIS_TTL_OPEN_TIME);
+
+				// 缓存下车特征到特征集合（包含方向信息）
+				String featuresKey = "features_set:" + busNo + ":" + windowId;
+				JSONObject featureInfo = new JSONObject();
+				featureInfo.put("feature", feature);
+				featureInfo.put("direction", "down");
+				featureInfo.put("timestamp", eventTime.format(formatter));
+				featureInfo.put("image", imageUrl);
+				JSONObject positionInfo = new JSONObject();
+				positionInfo.put("xLeftUp", boxX);
+				positionInfo.put("yLeftUp", boxY);
+				positionInfo.put("xRightBottom", boxX + boxW);
+				positionInfo.put("yRightBottom", boxY + boxH);
+				featureInfo.put("position", positionInfo);
+				jedis.sadd(featuresKey, featureInfo.toString());
+				jedis.expire(featuresKey, Config.REDIS_TTL_FEATURES);
 
 				// 缓存图片URL
 				if (imageUrl != null) {
@@ -323,6 +350,7 @@ public class PassengerFlowProcessor {
 				// 收集该趟次该站点的所有乘客特征向量
 				Set<String> features = jedis.smembers("features_set:" + busNo + ":" + windowId);
 				if (features != null && !features.isEmpty()) {
+					// 直接使用Redis中存储的完整特征信息（已包含方向、时间戳、图片、位置等）
 					String passengerFeatures = new JSONArray(features).toString();
 					record.setPassengerFeatures(passengerFeatures);
 					if (Config.LOG_DEBUG) {
@@ -330,8 +358,24 @@ public class PassengerFlowProcessor {
 					}
 				}
 
-				// 收集该趟次该站点的所有图片URL
-				List<String> imageUrls = collectImageUrlsInTimeWindow(jedis, busNo, windowId);
+				// 收集该趟次该站点的所有图片URL（从特征数据中提取）
+				List<String> imageUrls = new ArrayList<>();
+				if (features != null && !features.isEmpty()) {
+					for (String featureStr : features) {
+						try {
+							JSONObject featureObj = new JSONObject(featureStr);
+							String imageUrl = featureObj.optString("image");
+							if (imageUrl != null && !imageUrl.isEmpty()) {
+								imageUrls.add(imageUrl);
+							}
+						} catch (Exception e) {
+							// 如果解析失败，跳过该特征
+							if (Config.LOG_DEBUG) {
+								System.out.println("[PassengerFlowProcessor] Failed to parse feature JSON for image extraction: " + featureStr);
+							}
+						}
+					}
+				}
 				if (!imageUrls.isEmpty()) {
 					String passengerImages = new JSONArray(imageUrls).toString();
 					record.setPassengerImages(passengerImages);
@@ -340,8 +384,24 @@ public class PassengerFlowProcessor {
 					}
 				}
 
-				// 收集该趟次该站点的所有乘客位置信息
-				List<JSONObject> positions = collectPassengerPositions(jedis, busNo, windowId);
+				// 收集该趟次该站点的所有乘客位置信息（从特征数据中提取）
+				List<JSONObject> positions = new ArrayList<>();
+				if (features != null && !features.isEmpty()) {
+					for (String featureStr : features) {
+						try {
+							JSONObject featureObj = new JSONObject(featureStr);
+							JSONObject position = featureObj.optJSONObject("position");
+							if (position != null) {
+								positions.add(position);
+							}
+						} catch (Exception e) {
+							// 如果解析失败，跳过该特征
+							if (Config.LOG_DEBUG) {
+								System.out.println("[PassengerFlowProcessor] Failed to parse feature JSON for position extraction: " + featureStr);
+							}
+						}
+					}
+				}
 				if (!positions.isEmpty()) {
 					String passengerPosition = new JSONArray(positions).toString();
 					record.setPassengerPosition(passengerPosition);
@@ -392,7 +452,7 @@ public class PassengerFlowProcessor {
 		record.setBusNo(busNo);
 		record.setCameraNo(cameraNo);
 		record.setLineId(getLineIdFromBusNo(busNo, jedis));
-		record.setDirection(getDirectionFromBusNo(busNo, jedis));
+		record.setRouteDirection(getRouteDirectionFromBusNo(busNo, jedis));
 		record.setGpsLat(getGpsLat(busNo, jedis));
 		record.setGpsLng(getGpsLng(busNo, jedis));
 		record.setFullLoadRate(getFullLoadRateFromRedis(jedis, busNo));
@@ -411,12 +471,18 @@ public class PassengerFlowProcessor {
 		return "UNKNOWN";
 	}
 
-	private String getDirectionFromBusNo(String busNo, Jedis jedis) {
+	private String getRouteDirectionFromBusNo(String busNo, Jedis jedis) {
 		String gpsStr = jedis.get("gps:" + busNo);
 		if (gpsStr != null) {
-			return new JSONObject(gpsStr).optString("direction");
+			String trafficType = new JSONObject(gpsStr).optString("trafficType");
+			switch (trafficType) {
+				case "4": return "up";      // 上行
+				case "5": return "down";    // 下行  
+				case "6": return "circular"; // 环形
+				default: return "unknown";
+			}
 		}
-		return "up";
+		return "unknown";
 	}
 
 	private String getCurrentStationId(String busNo, Jedis jedis) {
@@ -476,10 +542,22 @@ public class PassengerFlowProcessor {
 			double[] probe = parseFeatureVector(feature);
 			double best = 0.0;
 			for (String cand : features) {
-				double[] vec = parseFeatureVector(cand);
-				if (probe.length > 0 && vec.length == probe.length) {
-					double sim = CosineSimilarity.cosine(probe, vec);
-					if (sim > best) best = sim;
+				try {
+					// 从JSON字符串中提取feature字段
+					JSONObject featureObj = new JSONObject(cand);
+					String featureValue = featureObj.optString("feature");
+					if (featureValue != null && !featureValue.isEmpty()) {
+						double[] vec = parseFeatureVector(featureValue);
+						if (probe.length > 0 && vec.length == probe.length) {
+							double sim = CosineSimilarity.cosine(probe, vec);
+							if (sim > best) best = sim;
+						}
+					}
+				} catch (Exception e) {
+					// 如果解析失败，跳过该特征
+					if (Config.LOG_DEBUG) {
+						System.out.println("[PassengerFlowProcessor] Failed to parse feature JSON: " + cand);
+					}
 				}
 			}
 			return (float) best;
@@ -521,10 +599,11 @@ public class PassengerFlowProcessor {
 
 
 
-	private void cacheFeatureStationMapping(Jedis jedis, String feature, String stationId, String stationName) {
+	private void cacheFeatureStationMapping(Jedis jedis, String feature, String stationId, String stationName, String direction) {
 		JSONObject mapping = new JSONObject();
 		mapping.put("stationId", stationId);
 		mapping.put("stationName", stationName);
+		mapping.put("direction", direction); // 添加方向信息
 		String key = "feature_station:" + feature;
 		jedis.set(key, mapping.toString());
 		jedis.expire(key, Config.REDIS_TTL_FEATURES);
@@ -734,35 +813,6 @@ public class PassengerFlowProcessor {
     }
 
 	    /**
-     * 收集指定时间窗口内的图片URL列表
-     */
-    private List<String> collectImageUrlsInTimeWindow(Jedis jedis, String busNo, String windowId) {
-        List<String> imageUrls = new ArrayList<>();
-
-        if (windowId != null) {
-            // 收集上车图片
-            String upImagesKey = "image_urls:" + busNo + ":" + windowId + ":up";
-            Set<String> upUrls = jedis.smembers(upImagesKey);
-            if (upUrls != null) {
-                imageUrls.addAll(upUrls);
-            }
-
-            // 收集下车图片
-            String downImagesKey = "image_urls:" + busNo + ":" + windowId + ":down";
-            Set<String> downUrls = jedis.smembers(downImagesKey);
-            if (downUrls != null) {
-                imageUrls.addAll(downUrls);
-            }
-
-            if (Config.LOG_DEBUG) {
-                System.out.println("[PassengerFlowProcessor] Collected " + imageUrls.size() + " image URLs for busNo=" + busNo + ", windowId=" + windowId);
-            }
-        }
-
-        return imageUrls;
-    }
-
-	    /**
      * 使用图片列表调用AI模型进行分析，增强现有的OD记录
      */
     private void analyzeImagesWithAI(Jedis jedis, String busNo, LocalDateTime timeWindow, BusOdRecord record) throws IOException, SQLException {
@@ -783,8 +833,25 @@ public class PassengerFlowProcessor {
             return;
         }
 
-        // 收集图片URL列表
-        List<String> imageUrls = collectImageUrlsInTimeWindow(jedis, busNo, windowId);
+        // 从特征数据中收集图片URL列表
+        List<String> imageUrls = new ArrayList<>();
+        Set<String> features = jedis.smembers("features_set:" + busNo + ":" + windowId);
+        if (features != null && !features.isEmpty()) {
+            for (String featureStr : features) {
+                try {
+                    JSONObject featureObj = new JSONObject(featureStr);
+                    String imageUrl = featureObj.optString("image");
+                    if (imageUrl != null && !imageUrl.isEmpty()) {
+                        imageUrls.add(imageUrl);
+                    }
+                } catch (Exception e) {
+                    // 如果解析失败，跳过该特征
+                    if (Config.LOG_DEBUG) {
+                        System.out.println("[PassengerFlowProcessor] Failed to parse feature JSON for AI analysis: " + featureStr);
+                    }
+                }
+            }
+        }
 
         if (imageUrls.isEmpty()) {
             if (Config.LOG_DEBUG) {
@@ -820,38 +887,5 @@ public class PassengerFlowProcessor {
 
         // 发送增强后的记录到Kafka（只发送一次）
         sendToKafka(record);
-    }
-
-    /**
-     * 收集指定时间窗口内的乘客位置信息
-     */
-    private List<JSONObject> collectPassengerPositions(Jedis jedis, String busNo, String windowId) {
-        List<JSONObject> positions = new ArrayList<>();
-
-        if (windowId != null) {
-            // 获取所有以feature_position开头的key
-            Set<String> keys = jedis.keys("feature_position:" + busNo + ":" + windowId + ":*");
-            if (keys != null) {
-                for (String key : keys) {
-                    String positionJson = jedis.get(key);
-                    if (positionJson != null) {
-                        try {
-                            JSONObject position = new JSONObject(positionJson);
-                            positions.add(position);
-                        } catch (Exception e) {
-                            if (Config.LOG_ERROR) {
-                                System.err.println("[PassengerFlowProcessor] Error parsing position JSON: " + positionJson);
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (Config.LOG_DEBUG) {
-                System.out.println("[PassengerFlowProcessor] Collected " + positions.size() + " passenger positions for busNo=" + busNo + ", windowId=" + windowId);
-            }
-        }
-
-        return positions;
     }
 }

@@ -30,13 +30,13 @@ public class Config {
     public static final int REDIS_TTL_STATION_GPS = 86400 * 7;   // 站点GPS缓存7天
 
     // 日志级别配置
-    public static final boolean LOG_DEBUG = true;                // 是否打印调试日志
+    public static final boolean LOG_DEBUG = false;                // 是否打印调试日志
     public static final boolean LOG_INFO = true;                 // 是否打印信息日志
     public static final boolean LOG_ERROR = true;                // 是否打印错误日志
 
     // 试点线路专用日志配置
     public static final boolean PILOT_ROUTE_LOG_ENABLED = true;  // 是否启用试点线路流程日志
-    public static final boolean ARRIVE_LEAVE_LOG_ENABLED = true; // 是否启用车辆到离站信号日志
+    public static final boolean ARRIVE_LEAVE_LOG_ENABLED = false; // 是否启用车辆到离站信号日志
     public static final boolean ARRIVE_LEAVE_LOG_NON_PILOT_ENABLED = false; // 白名单外线路是否也打印到离站日志
 
     /** 应用关闭超时时间（毫秒） */

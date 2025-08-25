@@ -49,20 +49,20 @@ public class PassengerFlowProcessor {
 	public void processEvent(JSONObject eventJson) {
 		String event = eventJson.optString("event");
 		JSONObject data = eventJson.optJSONObject("data");
-		
+
 		// 打印CV事件处理的完整内容
 		if (Config.LOG_INFO) {
-			System.out.println("[PassengerFlowProcessor] 📨 收到CV事件:");
+			System.out.println("[PassengerFlowProcessor] 收到CV事件:");
 			System.out.println("   事件类型: " + event);
 			System.out.println("   事件时间: " + LocalDateTime.now().format(formatter));
 			System.out.println("   完整事件内容: " + eventJson.toString());
 		}
-		
+
 		// 移除事件payload调试日志，避免秒级刷屏
-		
+
 		if (data == null) {
 			if (Config.LOG_ERROR) {
-				System.err.println("❌ [PassengerFlowProcessor] 事件数据为空，无法处理事件: " + event);
+				System.err.println("[PassengerFlowProcessor] 事件数据为空，无法处理事件: " + event);
 			}
 			return;
 		}
@@ -93,12 +93,12 @@ public class PassengerFlowProcessor {
 					break;
 				default:
 					if (Config.LOG_ERROR) {
-						System.err.println("❌ [PassengerFlowProcessor] 未知事件类型: " + event);
+						System.err.println("[PassengerFlowProcessor] 未知事件类型: " + event);
 					}
 			}
 		} catch (Exception e) {
 			if (Config.LOG_ERROR) {
-				System.err.println("❌ [PassengerFlowProcessor] 处理事件时发生错误: " + e.getMessage());
+				System.err.println("[PassengerFlowProcessor] 处理事件时发生错误: " + e.getMessage());
 				System.err.println("   事件类型: " + event);
 				System.err.println("   事件数据: " + eventJson.toString());
 			}
@@ -334,7 +334,7 @@ public class PassengerFlowProcessor {
 		JSONObject modelResponse = callMediaApi(null, ossUrl, Config.PASSENGER_PROMPT);
 		JSONObject responseObj = modelResponse.optJSONObject("response");
 		JSONArray passengerFeatures = responseObj != null ? responseObj.optJSONArray("passenger_features") : new JSONArray();
-		
+
 		// 解析大模型识别的上下车人数
 		int aiUpCount = 0;
 		int aiDownCount = 0;
@@ -349,14 +349,14 @@ public class PassengerFlowProcessor {
 		BusOdRecord record = createBaseRecord(busNo, cameraNo, begin, jedis);
 		record.setTimestampEnd(end);
 		record.setFeatureDescription(passengerFeatures.toString());
-		
+
 		// 设置大模型识别的上下车人数
 		record.setAiUpCount(aiUpCount);
 		record.setAiDownCount(aiDownCount);
-		
+
 		// 设置车辆总人数（从CV系统获取）
 		record.setVehicleTotalCount(getVehicleTotalCountFromRedis(jedis, busNo));
-		
+
 		// 不再设置tripTotalCount
 
 		// 移除创建模型OD记录信息日志
@@ -401,7 +401,7 @@ public class PassengerFlowProcessor {
 				record.setTimestampEnd(eventTime);
 				record.setUpCount(cvUpCount);
 				record.setDownCount(cvDownCount);
-				
+
 				// 不再设置tripTotalCount
 
 				// 设置站点信息
@@ -564,12 +564,12 @@ public class PassengerFlowProcessor {
 		record.setFullLoadRate(getFullLoadRateFromRedis(jedis, busNo));
 		record.setTicketCount(getTicketCountWindowFromRedis(jedis, busNo));
 		record.setCurrentStationName(getCurrentStationName(busNo, jedis));
-		
+
 		// 设置车辆总人数（来自CV系统满载率推送）
 		record.setVehicleTotalCount(getVehicleTotalCountFromRedis(jedis, busNo));
-		
+
 		// 不再设置tripTotalCount
-		
+
 		Long busId = getBusIdFromRedis(jedis, busNo);
 		if (busId != null) record.setBusId(busId);
 		return record;
@@ -594,7 +594,7 @@ public class PassengerFlowProcessor {
 			String trafficType = new JSONObject(gpsStr).optString("trafficType");
 			switch (trafficType) {
 				case "4": return "up";      // 上行
-				case "5": return "down";    // 下行  
+				case "5": return "down";    // 下行
 				case "6": return "circular"; // 环形
 				default: return "unknown";
 			}
@@ -643,7 +643,7 @@ public class PassengerFlowProcessor {
 		String count = jedis.get("vehicle_total_count:" + busNo);
 		return count != null ? Integer.parseInt(count) : 0;
 	}
-	
+
 
 
 	private BigDecimal getFullLoadRateFromRedis(Jedis jedis, String busNo) {
@@ -776,7 +776,7 @@ public class PassengerFlowProcessor {
 	private void sendToKafka(Object data) {
 		try {
 			String json = objectMapper.writeValueAsString(data);
-			
+
 			// 试点线路最终流程日志 - 准备发送到Kafka（可通过配置控制）
 			if (Config.PILOT_ROUTE_LOG_ENABLED) {
 				System.out.println("[试点线路最终流程] 准备发送数据到Kafka:");
@@ -785,14 +785,14 @@ public class PassengerFlowProcessor {
 				System.out.println("   数据内容: " + json);
 				System.out.println("   ================================================================================");
 			}
-			
+
 			if (Config.LOG_INFO) {
 				System.out.println("准备发送数据到Kafka:");
 				System.out.println("   主题: " + KafkaConfig.PASSENGER_FLOW_TOPIC);
 				System.out.println("   数据大小: " + json.length() + " 字符");
 				System.out.println("   数据内容: " + json);
 			}
-			
+
 			if (Config.LOG_DEBUG) {
 				System.out.println("[PassengerFlowProcessor] Send to Kafka topic=" + KafkaConfig.PASSENGER_FLOW_TOPIC + ", size=" + json.length());
 			}
@@ -1028,7 +1028,7 @@ public class PassengerFlowProcessor {
 		JSONObject modelResponse = callMediaApi(imageUrls, null, Config.PASSENGER_PROMPT);
 		JSONObject responseObj = modelResponse.optJSONObject("response");
 		JSONArray passengerFeatures = responseObj != null ? responseObj.optJSONArray("passenger_features") : new JSONArray();
-		
+
 		// 解析大模型识别的上下车人数
 		int aiUpCount = 0;
 		int aiDownCount = 0;
@@ -1039,7 +1039,7 @@ public class PassengerFlowProcessor {
 		}
 
 		if (Config.LOG_DEBUG) {
-			System.out.println("[PassengerFlowProcessor] AI analysis result - ai_up_count=" + aiUpCount + 
+			System.out.println("[PassengerFlowProcessor] AI analysis result - ai_up_count=" + aiUpCount +
 				", ai_down_count=" + aiDownCount + ", features_len=" + passengerFeatures.length());
 		}
 

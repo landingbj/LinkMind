@@ -48,7 +48,7 @@ public class WebSocketEndpoint {
 	public void onMessage(String message, Session session) {
 		// 打印收到的WebSocket消息内容
 		if (Config.LOG_INFO) {
-			System.out.println("[WebSocket] 📨 收到WebSocket消息:");
+			System.out.println("[WebSocket] 收到WebSocket消息:");
 			System.out.println("   会话ID: " + session.getId());
 			System.out.println("   消息内容: " + message);
 		}
@@ -56,23 +56,23 @@ public class WebSocketEndpoint {
 		try {
 			JSONObject jsonMessage = new JSONObject(message);
 			String type = jsonMessage.optString("type", "unknown");
-			
+
 			// 移除消息类型解析日志
-			
+
 			// 兼容CV协议：存在event字段则转处理器
 			if (jsonMessage.has("event")) {
 				String eventType = jsonMessage.optString("event");
 				// 移除CV事件转发日志
-				
+
 				PROCESSOR.processEvent(jsonMessage);
-				
+
 				JSONObject ack = new JSONObject();
 				ack.put("type", "ack");
 				ack.put("event", eventType);
 				ack.put("timestamp", LocalDateTime.now().toString());
-				
+
 				// 移除确认响应调试日志
-				
+
 				session.getBasicRemote().sendText(ack.toString());
 				return;
 			}

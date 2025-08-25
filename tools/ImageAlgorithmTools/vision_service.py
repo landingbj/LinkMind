@@ -5,7 +5,7 @@ from openai import OpenAI
 import uvicorn
 
 # ---------- 配置 ----------
-API_KEY = "sk-476dd82f85f44e67981d0fc076846351"
+API_KEY = "sk-xxxxxxxxxxxxxxxxxxxxxxxx"
 MODEL_NAME = "qwen-vl-max"
 
 client = OpenAI(

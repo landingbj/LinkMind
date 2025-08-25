@@ -49,11 +49,9 @@ public class WebSocketEndpoint {
 
 	@OnMessage
 	public void onMessage(String message, Session session) {
-		// 打印收到的WebSocket消息内容
+		// 关闭原始消息内容打印，避免base64刷屏
 		if (Config.LOG_INFO) {
-			System.out.println("[WebSocket] 收到WebSocket消息:");
-			System.out.println("   会话ID: " + session.getId());
-			System.out.println("   消息内容: " + message);
+			System.out.println("[WebSocket] 收到消息，会话ID: " + session.getId());
 		}
 
 		try {
@@ -104,9 +102,7 @@ public class WebSocketEndpoint {
 			}
 		} catch (Exception e) {
 			if (Config.LOG_ERROR) {
-				System.err.println("❌ [WebSocket] 处理WebSocket消息时出错: " + e.getMessage());
-				System.err.println("   原始消息: " + message);
-				System.err.println("   会话ID: " + session.getId());
+				System.err.println("❌ [WebSocket] 处理消息出错: " + e.getMessage() + ", 会话ID: " + session.getId());
 				e.printStackTrace();
 			}
 

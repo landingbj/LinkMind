@@ -27,7 +27,7 @@ public class WsClientHandler extends WebSocketClient {
 
 	@Override
 	public void onMessage(String message) {
-		System.out.println("Received message: " + message);
+		// 关闭原始消息打印，避免base64刷屏
 		try {
 			JSONObject json = new JSONObject(message);
 			processor.processEvent(json);

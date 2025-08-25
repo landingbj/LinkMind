@@ -24,6 +24,9 @@ public class WebSocketEndpoint {
 	@OnOpen
 	public void onOpen(Session session) {
 		sessions.add(session);
+		// 放大文本/二进制消息缓冲区（10MB）
+		session.setMaxTextMessageBufferSize(10 * 1024 * 1024);
+		session.setMaxBinaryMessageBufferSize(10 * 1024 * 1024);
 		if (Config.LOG_INFO) {
 			System.out.println("新的WebSocket客户端连接: " + session.getId());
 		}

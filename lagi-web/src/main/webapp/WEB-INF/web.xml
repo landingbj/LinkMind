@@ -14,6 +14,16 @@
         <listener-class>ai.servlet.passenger.simpleStartupListener</listener-class>
     </listener>
 
+    <!-- WebSocket配置 -->
+    <context-param>
+        <param-name>org.apache.tomcat.websocket.WS_MAX_TEXT_MESSAGE_BUFFER_SIZE</param-name>
+        <param-value>10485760</param-value>
+    </context-param>
+    <context-param>
+        <param-name>org.apache.tomcat.websocket.WS_MAX_BINARY_MESSAGE_BUFFER_SIZE</param-name>
+        <param-value>10485760</param-value>
+    </context-param>
+
     <welcome-file-list>
         <welcome-file>chat.jsp</welcome-file>
     </welcome-file-list>

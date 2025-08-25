@@ -50,19 +50,11 @@ public class PassengerFlowProcessor {
 		String event = eventJson.optString("event");
 		JSONObject data = eventJson.optJSONObject("data");
 
-		// 打印CV事件处理的完整内容
-		if (Config.LOG_INFO) {
-			System.out.println("[PassengerFlowProcessor] 收到CV事件:");
-			System.out.println("   事件类型: " + event);
-			System.out.println("   事件时间: " + LocalDateTime.now().format(formatter));
-			System.out.println("   完整事件内容: " + eventJson.toString());
-		}
-
-		// 移除事件payload调试日志，避免秒级刷屏
+		// 关闭CV事件详细日志，避免大payload(如base64)刷屏
 
 		if (data == null) {
 			if (Config.LOG_ERROR) {
-				System.err.println("[PassengerFlowProcessor] 事件数据为空，无法处理事件: " + event);
+				System.err.println("[流程中断] CV事件data为空，跳过。event=" + event);
 			}
 			return;
 		}
@@ -93,14 +85,12 @@ public class PassengerFlowProcessor {
 					break;
 				default:
 					if (Config.LOG_ERROR) {
-						System.err.println("[PassengerFlowProcessor] 未知事件类型: " + event);
+						System.err.println("[流程中断] 未知CV事件类型，跳过。event=" + event);
 					}
 			}
 		} catch (Exception e) {
 			if (Config.LOG_ERROR) {
-				System.err.println("[PassengerFlowProcessor] 处理事件时发生错误: " + e.getMessage());
-				System.err.println("   事件类型: " + event);
-				System.err.println("   事件数据: " + eventJson.toString());
+				System.err.println("[流程异常] 处理CV事件失败: " + e.getMessage());
 			}
 		}
 	}
@@ -786,11 +776,8 @@ public class PassengerFlowProcessor {
 				System.out.println("   ================================================================================");
 			}
 
-			if (Config.LOG_INFO) {
-				System.out.println("准备发送数据到Kafka:");
-				System.out.println("   主题: " + KafkaConfig.PASSENGER_FLOW_TOPIC);
-				System.out.println("   数据大小: " + json.length() + " 字符");
-				System.out.println("   数据内容: " + json);
+			if (Config.FLOW_LOG_ENABLED && data instanceof BusOdRecord) {
+				System.out.println("[发送BusOdRecord] topic=" + KafkaConfig.PASSENGER_FLOW_TOPIC + ", data=" + json);
 			}
 
 			if (Config.LOG_DEBUG) {
@@ -810,8 +797,7 @@ public class PassengerFlowProcessor {
 						}
 
 						if (Config.LOG_ERROR) {
-							System.err.println("[PassengerFlowProcessor] Kafka发送失败: " + exception.getMessage());
-							System.err.println("   失败数据: " + json);
+							System.err.println("[发送失败] BusOdRecord发送Kafka失败: " + exception.getMessage());
 						}
 						// 可以在这里添加重试逻辑或告警机制
 						handleKafkaSendFailure(data, exception);
@@ -828,17 +814,8 @@ public class PassengerFlowProcessor {
 							System.out.println("   ================================================================================");
 						}
 
-						if (Config.LOG_INFO) {
-							System.out.println("[PassengerFlowProcessor] Kafka发送成功:");
-							System.out.println("   主题: " + metadata.topic());
-							System.out.println("   分区: " + metadata.partition());
-							System.out.println("   偏移量: " + metadata.offset());
-							System.out.println("   时间戳: " + metadata.timestamp());
-						}
-						if (Config.LOG_DEBUG) {
-							System.out.println("[PassengerFlowProcessor] Kafka send success: topic=" +
-								metadata.topic() + ", partition=" + metadata.partition() +
-								", offset=" + metadata.offset());
+						if (Config.FLOW_LOG_ENABLED && data instanceof BusOdRecord) {
+							System.out.println("[发送成功] BusOdRecord已发送 topic=" + metadata.topic() + ", partition=" + metadata.partition() + ", offset=" + metadata.offset());
 						}
 						// 可以在这里添加发送成功的统计或监控
 						handleKafkaSendSuccess(data, metadata);
@@ -855,8 +832,7 @@ public class PassengerFlowProcessor {
 			}
 
 			if (Config.LOG_ERROR) {
-				System.err.println("[PassengerFlowProcessor] 发送到Kafka时发生错误: " + e.getMessage());
-				System.err.println("   错误数据: " + data);
+				System.err.println("[流程异常] 序列化发送数据失败: " + e.getMessage());
 			}
 		}
 	}

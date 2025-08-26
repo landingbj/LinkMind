@@ -39,17 +39,11 @@ public class BusOdRecord {
     /** 线路运行方向（从GPS数据获取：up=上行, down=下行, circular=环形） */
     private String routeDirection;
 
-    /** 上车站点ID */
-    private String stationIdOn;
-
-    /** 上车站点名称 */
-    private String stationNameOn;
-
-    /** 下车站点ID */
-    private String stationIdOff;
-
-    /** 下车站点名称 */
-    private String stationNameOff;
+    /** 
+     * 区间客流数集合（JSON数组格式）
+     * 格式：[{"stationIdOn":"xxx","stationNameOn":"xxx","stationIdOff":"xxx","stationNameOff":"xxx","passengerFlowCount":5}]
+     */
+    private String sectionPassengerFlowCount;
 
     /** 本站站点名称（从车辆到离站信号获取） */
     private String currentStationName;
@@ -74,6 +68,9 @@ public class BusOdRecord {
 
     /** 乘客图片URL集合（JSON数组格式，OSS URL） */
     private String passengerImages;
+
+    /** 乘客视频URL（OSS URL，由图片集合转换生成） */
+    private String passengerVideoUrl;
 
     /**
      * 乘客图像坐标（JSON格式字符串）

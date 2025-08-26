@@ -26,7 +26,9 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
@@ -51,6 +53,9 @@ public class PassengerFlowProcessor {
 		JSONObject data = eventJson.optJSONObject("data");
 
 		// 关闭CV事件详细日志，避免大payload(如base64)刷屏
+		if (Config.PILOT_ROUTE_LOG_ENABLED) {
+			System.out.println("[流程] 收到CV事件: event=" + event + ", 字段: " + (data != null ? data.keySet() : java.util.Collections.emptySet()));
+		}
 
 		if (data == null) {
 			if (Config.LOG_ERROR) {
@@ -79,10 +84,6 @@ public class PassengerFlowProcessor {
 					// 关键事件在KafkaConsumerService侧已有明确日志
 					handleOpenCloseDoorEvent(data, busNo, cameraNo, jedis);
 					break;
-				case "notify_pull_file":
-					// 此事件通常量不大，必要时可单行打印
-					handleNotifyPullFileEvent(data, busNo, cameraNo, jedis);
-					break;
 				default:
 					if (Config.LOG_ERROR) {
 						System.err.println("[流程中断] 未知CV事件类型，跳过。event=" + event);
@@ -106,6 +107,10 @@ public class PassengerFlowProcessor {
 		List<BusOdRecord> odRecords = new ArrayList<>();
 		int upCount = 0, downCount = 0;
 
+		if (Config.PILOT_ROUTE_LOG_ENABLED) {
+			System.out.println("[流程] downup事件开始: busNo=" + busNo + ", 事件数=" + (events != null ? events.length() : 0));
+		}
+
 		for (int i = 0; i < events.length(); i++) {
 			JSONObject ev = events.getJSONObject(i);
 			String direction = ev.optString("direction");
@@ -120,8 +125,13 @@ public class PassengerFlowProcessor {
 			String imageUrl = null;
 			if (image != null && !image.isEmpty() && Config.ENABLE_IMAGE_PROCESSING) {
 				try {
+					if (Config.PILOT_ROUTE_LOG_ENABLED) {
+						System.out.println("[流程] 开始处理图片(base64->文件->OSS): busNo=" + busNo + ", cameraNo=" + cameraNo);
+					}
 					imageUrl = processBase64Image(image, busNo, cameraNo, eventTime);
-					// 屏蔽图片URL日志
+					if (Config.PILOT_ROUTE_LOG_ENABLED) {
+						System.out.println("[流程] 图片上传完成，得到URL");
+					}
 				} catch (Exception e) {
 					if (Config.LOG_ERROR) {
 						System.err.println("[PassengerFlowProcessor] Error processing base64 image: " + e.getMessage());
@@ -174,24 +184,15 @@ public class PassengerFlowProcessor {
 				positionInfo.put("yLeftUp", boxY);
 				positionInfo.put("xRightBottom", boxX + boxW);
 				positionInfo.put("yRightBottom", boxY + boxH);
-				positionInfo.put("direction", "up");
+				positionInfo.put("position", positionInfo);
 				jedis.set(positionKey, positionInfo.toString());
 				jedis.expire(positionKey, Config.REDIS_TTL_FEATURES);
 
-				// 移除逐条UP处理完成日志
 			} else if ("down".equals(direction)) {
 				downCount++;
 
-				// 尝试匹配上车特征
-				float similarity = matchPassengerFeature(feature, busNo);
-				// 屏蔽相似度调试日志
-
-				if (similarity > 0.8f) {
-					JSONObject onStation = getOnStationFromCache(jedis, feature);
-					if (onStation != null) {
-						// 屏蔽命中特征调试日志
-					}
-				}
+				// 尝试匹配上车特征，计算区间客流
+				processPassengerMatching(feature, busNo, jedis, eventTime);
 
 				// 更新下车计数
 				String cvDownCountKey = "cv_down_count:" + busNo + ":" + windowId;
@@ -229,14 +230,133 @@ public class PassengerFlowProcessor {
 				position.put("direction", "down");
 				jedis.set(positionKey, position.toString());
 				jedis.expire(positionKey, Config.REDIS_TTL_FEATURES);
-
-				// 移除逐条DOWN处理完成日志
 			}
 		}
 
 		// 不再在downup事件中自算总人数，统一以CV推送的vehicle_total_count为准
 
 		// 汇总日志可按需开启，默认关闭
+		if (Config.PILOT_ROUTE_LOG_ENABLED) {
+			System.out.println("[流程] downup事件结束: busNo=" + busNo + ", upCount=" + upCount + ", downCount=" + downCount);
+		}
+	}
+
+	/**
+	 * 处理乘客特征向量匹配，计算区间客流
+	 * @param downFeature 下车特征向量
+	 * @param busNo 公交车编号
+	 * @param jedis Redis连接
+	 * @param eventTime 事件时间
+	 */
+	private void processPassengerMatching(String downFeature, String busNo, Jedis jedis, LocalDateTime eventTime) {
+		try {
+			String windowId = jedis.get("open_time:" + busNo);
+			if (windowId == null) return;
+
+			// 获取上车特征集合
+			String featuresKey = "features_set:" + busNo + ":" + windowId;
+			Set<String> features = jedis.smembers(featuresKey);
+			
+			if (features == null || features.isEmpty()) return;
+
+			double[] downFeatureVec = CosineSimilarity.parseFeatureVector(downFeature);
+			if (downFeatureVec.length == 0) return;
+
+			// 遍历上车特征，寻找匹配
+			for (String featureStr : features) {
+				try {
+					JSONObject featureObj = new JSONObject(featureStr);
+					String direction = featureObj.optString("direction");
+					
+					// 只处理上车特征
+					if (!"up".equals(direction)) continue;
+					
+					String upFeature = featureObj.optString("feature");
+					double[] upFeatureVec = CosineSimilarity.parseFeatureVector(upFeature);
+					
+					if (upFeatureVec.length > 0) {
+						// 使用余弦相似度计算匹配度
+						double similarity = CosineSimilarity.cosine(downFeatureVec, upFeatureVec);
+						
+						// 相似度大于0.5认为是同一乘客
+						if (similarity > 0.5) {
+							// 获取上车站点信息
+							JSONObject onStation = getOnStationFromCache(jedis, upFeature);
+							if (onStation != null) {
+								// 获取当前下车站点信息
+								String currentStationId = getCurrentStationId(busNo, jedis);
+								String currentStationName = getCurrentStationName(busNo, jedis);
+								
+								// 更新区间客流统计
+								updateSectionPassengerFlow(jedis, busNo, windowId, 
+									onStation.optString("stationId"), 
+									onStation.optString("stationName"),
+									currentStationId, 
+									currentStationName);
+							}
+							break; // 找到匹配后跳出循环
+						}
+					}
+				} catch (Exception e) {
+					if (Config.LOG_DEBUG) {
+						System.out.println("[PassengerFlowProcessor] Failed to parse feature JSON: " + featureStr);
+					}
+				}
+			}
+		} catch (Exception e) {
+			if (Config.LOG_ERROR) {
+				System.err.println("[PassengerFlowProcessor] Error in processPassengerMatching: " + e.getMessage());
+			}
+		}
+	}
+
+	/**
+	 * 更新区间客流统计
+	 * @param jedis Redis连接
+	 * @param busNo 公交车编号
+	 * @param windowId 时间窗口ID
+	 * @param stationIdOn 上车站点ID
+	 * @param stationNameOn 上车站点名称
+	 * @param stationIdOff 下车站点ID
+	 * @param stationNameOff 下车站点名称
+	 */
+	private void updateSectionPassengerFlow(Jedis jedis, String busNo, String windowId, 
+										  String stationIdOn, String stationNameOn,
+										  String stationIdOff, String stationNameOff) {
+		try {
+			String flowKey = "section_flow:" + busNo + ":" + windowId;
+			
+			// 构建区间标识
+			String sectionKey = stationIdOn + "_" + stationIdOff;
+			
+			// 获取现有区间客流数据
+			String existingFlowJson = jedis.hget(flowKey, sectionKey);
+			JSONObject sectionFlow;
+			
+			if (existingFlowJson != null) {
+				sectionFlow = new JSONObject(existingFlowJson);
+			} else {
+				sectionFlow = new JSONObject();
+				sectionFlow.put("stationIdOn", stationIdOn);
+				sectionFlow.put("stationNameOn", stationNameOn);
+				sectionFlow.put("stationIdOff", stationIdOff);
+				sectionFlow.put("stationNameOff", stationNameOff);
+				sectionFlow.put("passengerFlowCount", 0);
+			}
+			
+			// 增加客流数
+			int currentCount = sectionFlow.optInt("passengerFlowCount", 0);
+			sectionFlow.put("passengerFlowCount", currentCount + 1);
+			
+			// 更新Redis
+			jedis.hset(flowKey, sectionKey, sectionFlow.toString());
+			jedis.expire(flowKey, Config.REDIS_TTL_OPEN_TIME);
+			
+		} catch (Exception e) {
+			if (Config.LOG_ERROR) {
+				System.err.println("[PassengerFlowProcessor] Error updating section passenger flow: " + e.getMessage());
+			}
+		}
 	}
 
 	private void handleLoadFactorEvent(JSONObject data, String busNo, Jedis jedis) {
@@ -306,51 +426,11 @@ public class PassengerFlowProcessor {
 			}
 
 			// 关门时处理OD数据并发送到Kafka
+			if (Config.PILOT_ROUTE_LOG_ENABLED) {
+				System.out.println("[流程] 准备处理关门->生成并发送OD: busNo=" + busNo);
+			}
 			handleCloseDoorEvent(data, busNo, cameraNo, jedis);
 		}
-	}
-
-	private void handleNotifyPullFileEvent(JSONObject data, String busNo, String cameraNo, Jedis jedis) throws IOException, SQLException {
-		LocalDateTime begin = LocalDateTime.parse(data.optString("timestamp_begin").replace(" ", "T"));
-		LocalDateTime end = LocalDateTime.parse(data.optString("timestamp_end").replace(" ", "T"));
-		String fileUrl = data.optString("fileurl");
-
-		// 下载视频
-		File videoFile = downloadFile(fileUrl);
-		String ossUrl = OssUtil.uploadFile(videoFile, UUID.randomUUID().toString() + ".mp4");
-		// 移除视频上传信息日志
-
-		// 调用多模态模型（视频）
-		JSONObject modelResponse = callMediaApi(null, ossUrl, Config.PASSENGER_PROMPT);
-		JSONObject responseObj = modelResponse.optJSONObject("response");
-		JSONArray passengerFeatures = responseObj != null ? responseObj.optJSONArray("passenger_features") : new JSONArray();
-
-		// 解析大模型识别的上下车人数
-		int aiUpCount = 0;
-		int aiDownCount = 0;
-		if (responseObj != null) {
-			// 假设大模型返回的是总人数，这里需要根据实际API响应格式调整
-			int modelTotalCount = responseObj.optInt("total_count", 0);
-			// 如果大模型能区分上下车，则分别获取；否则全部作为下车人数
-			aiUpCount = responseObj.optInt("up_count", 0);
-			aiDownCount = responseObj.optInt("down_count", modelTotalCount);
-		}
-
-		BusOdRecord record = createBaseRecord(busNo, cameraNo, begin, jedis);
-		record.setTimestampEnd(end);
-		record.setFeatureDescription(passengerFeatures.toString());
-
-		// 设置大模型识别的上下车人数
-		record.setAiUpCount(aiUpCount);
-		record.setAiDownCount(aiDownCount);
-
-		// 设置车辆总人数（从CV系统获取）
-		record.setVehicleTotalCount(getVehicleTotalCountFromRedis(jedis, busNo));
-
-		// 不再设置tripTotalCount
-
-		// 移除创建模型OD记录信息日志
-		sendToKafka(record);
 	}
 
 	private void handleCloseDoorEvent(JSONObject data, String busNo, String cameraNo, Jedis jedis) throws IOException, SQLException {
@@ -371,7 +451,7 @@ public class PassengerFlowProcessor {
 			if (windowId != null) {
 				if (Config.PILOT_ROUTE_LOG_ENABLED) {
 					System.out.println("[试点线路CV关门流程] 找到开门时间窗口:");
-				 System.out.println("   windowId=" + windowId);
+					System.out.println("   windowId=" + windowId);
 					System.out.println("   ================================================================================");
 				}
 
@@ -392,153 +472,146 @@ public class PassengerFlowProcessor {
 				record.setUpCount(cvUpCount);
 				record.setDownCount(cvDownCount);
 
-				// 不再设置tripTotalCount
+				// 设置区间客流统计
+				setSectionPassengerFlowCount(record, jedis, busNo, windowId);
 
-				// 设置站点信息
-				record.setStationIdOff(getCurrentStationId(busNo, jedis));
-				record.setStationNameOff(getCurrentStationName(busNo, jedis));
+				// 处理图片转视频
+				processImagesToVideo(record, jedis, busNo, windowId);
 
-				if (Config.PILOT_ROUTE_LOG_ENABLED) {
-					System.out.println("[试点线路CV关门流程] OD记录已创建:");
-					System.out.println("   上车站点=" + record.getStationNameOn());
-					System.out.println("   下车站点=" + record.getStationNameOff());
-					System.out.println("   线路ID=" + record.getLineId());
-					System.out.println("   方向=" + record.getRouteDirection());
-					System.out.println("   ================================================================================");
-				}
+				// 设置乘客特征集合
+				setPassengerFeatures(record, jedis, busNo, windowId);
 
-				// 收集该趟次该站点的所有乘客特征向量
-				Set<String> features = jedis.smembers("features_set:" + busNo + ":" + windowId);
-				if (features != null && !features.isEmpty()) {
-					// 直接使用Redis中存储的完整特征信息（已包含方向、时间戳、图片、位置等）
-					String passengerFeatures = new JSONArray(features).toString();
-					record.setPassengerFeatures(passengerFeatures);
-					if (Config.PILOT_ROUTE_LOG_ENABLED) {
-						System.out.println("[试点线路CV关门流程] 乘客特征收集完成:");
-						System.out.println("   特征数量=" + features.size());
-						System.out.println("   ================================================================================");
-					}
-					if (Config.LOG_DEBUG) {
-						System.out.println("[PassengerFlowProcessor] Collected " + features.size() + " passenger features for busNo=" + busNo);
-					}
-				}
-
-				// 收集该趟次该站点的所有图片URL（从特征数据中提取）
-				List<String> imageUrls = new ArrayList<>();
-				if (features != null && !features.isEmpty()) {
-					for (String featureStr : features) {
-						try {
-							JSONObject featureObj = new JSONObject(featureStr);
-							String imageUrl = featureObj.optString("image");
-							if (imageUrl != null && !imageUrl.isEmpty()) {
-								imageUrls.add(imageUrl);
-							}
-						} catch (Exception e) {
-							// 如果解析失败，跳过该特征
-							if (Config.LOG_DEBUG) {
-								System.out.println("[PassengerFlowProcessor] Failed to parse feature JSON for image extraction: " + featureStr);
-							}
-						}
-					}
-				}
-				if (!imageUrls.isEmpty()) {
-					String passengerImages = new JSONArray(imageUrls).toString();
-					record.setPassengerImages(passengerImages);
-					if (Config.PILOT_ROUTE_LOG_ENABLED) {
-						System.out.println("[试点线路CV关门流程] 乘客图片收集完成:");
-						System.out.println("   图片数量=" + imageUrls.size());
-						System.out.println("   ================================================================================");
-					}
-					if (Config.LOG_DEBUG) {
-						System.out.println("[PassengerFlowProcessor] Collected " + imageUrls.size() + " passenger images for busNo=" + busNo);
-					}
-				}
-
-				// 收集该趟次该站点的所有乘客位置信息（从特征数据中提取）
-				List<JSONObject> positions = new ArrayList<>();
-				if (features != null && !features.isEmpty()) {
-					for (String featureStr : features) {
-						try {
-							JSONObject featureObj = new JSONObject(featureStr);
-							JSONObject position = featureObj.optJSONObject("position");
-							if (position != null) {
-								positions.add(position);
-							}
-						} catch (Exception e) {
-							// 如果解析失败，跳过该特征
-							if (Config.LOG_DEBUG) {
-								System.out.println("[PassengerFlowProcessor] Failed to parse feature JSON for position extraction: " + featureStr);
-							}
-						}
-					}
-				}
-				if (!positions.isEmpty()) {
-					String passengerPosition = new JSONArray(positions).toString();
-					record.setPassengerPosition(passengerPosition);
-					if (Config.PILOT_ROUTE_LOG_ENABLED) {
-						System.out.println("[试点线路CV关门流程] 乘客位置信息收集完成:");
-						System.out.println("   位置信息数量=" + positions.size());
-						System.out.println("   ================================================================================");
-					}
-					if (Config.LOG_DEBUG) {
-						System.out.println("[PassengerFlowProcessor] Collected " + positions.size() + " passenger positions for busNo=" + busNo);
-					}
-				}
-
-				if (Config.LOG_INFO) {
-					System.out.println("[PassengerFlowProcessor] Created CLOSE DOOR OD record for busNo=" + busNo +
-						", upCount=" + cvUpCount + ", downCount=" + cvDownCount +
-						", features=" + (features != null ? features.size() : 0) +
-						", images=" + imageUrls.size());
-				}
-
-				// 在关门时触发AI图片分析（但不发送到Kafka）
-				if (Config.ENABLE_AI_IMAGE_ANALYSIS) {
-					if (Config.PILOT_ROUTE_LOG_ENABLED) {
-						System.out.println("[试点线路CV关门流程] 开始AI图片分析:");
-						System.out.println("   启用AI分析=" + Config.ENABLE_AI_IMAGE_ANALYSIS);
-						System.out.println("   最大图片数量=" + Config.MAX_IMAGES_PER_ANALYSIS);
-						System.out.println("   ================================================================================");
-					}
-
-					try {
-						analyzeImagesWithAI(jedis, busNo, eventTime, record);
-					} catch (Exception e) {
-						if (Config.LOG_ERROR) {
-							System.err.println("[PassengerFlowProcessor] Error during AI image analysis: " + e.getMessage());
-						}
-						// AI分析失败时，仍然发送CV数据到Kafka
-						if (Config.PILOT_ROUTE_LOG_ENABLED) {
-							System.out.println("[试点线路CV关门流程] AI分析失败，发送CV数据到Kafka:");
-							System.out.println("   错误信息=" + e.getMessage());
-							System.out.println("   ================================================================================");
-						}
-						sendToKafka(record);
-					}
-				} else {
-					// 如果没有启用AI分析，直接发送CV数据到Kafka
-					if (Config.PILOT_ROUTE_LOG_ENABLED) {
-						System.out.println("[试点线路CV关门流程] 未启用AI分析，直接发送CV数据到Kafka:");
-						System.out.println("   ================================================================================");
-					}
-					sendToKafka(record);
-				}
-
-				// 清理开门时间窗口
-				jedis.del("open_time:" + busNo);
-				jedis.del("cv_up_count:" + busNo + ":" + windowId);
-				jedis.del("cv_down_count:" + busNo + ":" + windowId);
+				// 设置车辆总人数（从CV系统获取）
+				record.setVehicleTotalCount(getVehicleTotalCountFromRedis(jedis, busNo));
 
 				if (Config.PILOT_ROUTE_LOG_ENABLED) {
-					System.out.println("[试点线路CV关门流程] 开门时间窗口已清理:");
-					System.out.println("   ================================================================================");
+					System.out.println("[流程] 关门事件OD记录构建完成，准备发送Kafka");
 				}
-
-				// 移除清理窗口调试日志
+				sendToKafka(record);
 			}
 		}
+	}
 
-		// 移除关门事件处理完成日志
+	/**
+	 * 设置区间客流统计信息
+	 * @param record BusOdRecord记录
+	 * @param jedis Redis连接
+	 * @param busNo 公交车编号
+	 * @param windowId 时间窗口ID
+	 */
+	private void setSectionPassengerFlowCount(BusOdRecord record, Jedis jedis, String busNo, String windowId) {
+		try {
+			String flowKey = "section_flow:" + busNo + ":" + windowId;
+			Map<String, String> sectionFlows = jedis.hgetAll(flowKey);
+			
+			if (sectionFlows != null && !sectionFlows.isEmpty()) {
+				JSONArray sectionFlowArray = new JSONArray();
+				
+				for (String sectionKey : sectionFlows.keySet()) {
+					String flowJson = sectionFlows.get(sectionKey);
+					JSONObject flowObj = new JSONObject(flowJson);
+					sectionFlowArray.put(flowObj);
+				}
+				
+				record.setSectionPassengerFlowCount(sectionFlowArray.toString());
+				
+				if (Config.PILOT_ROUTE_LOG_ENABLED) {
+					System.out.println("[流程] 区间客流统计设置完成，区间数: " + sectionFlowArray.length());
+				}
+			}
+		} catch (Exception e) {
+			if (Config.LOG_ERROR) {
+				System.err.println("[PassengerFlowProcessor] Error setting section passenger flow count: " + e.getMessage());
+			}
+		}
+	}
+
+	/**
+	 * 处理图片转视频功能
+	 * @param record BusOdRecord记录
+	 * @param jedis Redis连接
+	 * @param busNo 公交车编号
+	 * @param windowId 时间窗口ID
+	 */
+	private void processImagesToVideo(BusOdRecord record, Jedis jedis, String busNo, String windowId) {
+		try {
+			// 获取所有图片URL
+			List<String> imageUrls = getAllImageUrls(jedis, busNo, windowId);
+			
+			if (imageUrls != null && !imageUrls.isEmpty()) {
+				if (Config.PILOT_ROUTE_LOG_ENABLED) {
+					System.out.println("[流程] 开始处理图片转视频，图片数量: " + imageUrls.size());
+				}
+				
+				// 设置图片URL集合
+				JSONArray imageArray = new JSONArray();
+				for (String imageUrl : imageUrls) {
+					imageArray.put(imageUrl);
+				}
+				record.setPassengerImages(imageArray.toString());
+				
+				// 转换为视频
+				try {
+					String tempDir = System.getProperty("java.io.tmpdir");
+					File videoFile = ImageToVideoConverter.convertImagesToVideo(imageUrls, tempDir);
+					
+					// 生成动态目录名（基于开关门事件）
+					String dynamicDir = "PassengerFlowRecognition/" + windowId;
+					
+					// 上传视频到OSS（使用视频配置）
+					String videoUrl = OssUtil.uploadVideoFile(videoFile, UUID.randomUUID().toString() + ".mp4", dynamicDir);
+					record.setPassengerVideoUrl(videoUrl);
+					
+					// 删除临时视频文件
+					videoFile.delete();
+					
+					if (Config.PILOT_ROUTE_LOG_ENABLED) {
+						System.out.println("[流程] 图片转视频完成，视频URL: " + videoUrl);
+					}
+				} catch (Exception e) {
+					if (Config.LOG_ERROR) {
+						System.err.println("[PassengerFlowProcessor] Error converting images to video: " + e.getMessage());
+					}
+				}
+			}
+		} catch (Exception e) {
+			if (Config.LOG_ERROR) {
+				System.err.println("[PassengerFlowProcessor] Error processing images to video: " + e.getMessage());
+			}
+		}
+	}
+
+	/**
+	 * 获取所有图片URL
+	 * @param jedis Redis连接
+	 * @param busNo 公交车编号
+	 * @param windowId 时间窗口ID
+	 * @return 图片URL列表
+	 */
+	private List<String> getAllImageUrls(Jedis jedis, String busNo, String windowId) {
+		List<String> imageUrls = new ArrayList<>();
+		
+		try {
+			// 获取上车图片URL
+			String upImagesKey = "image_urls:" + busNo + ":" + windowId + ":up";
+			Set<String> upImages = jedis.smembers(upImagesKey);
+			if (upImages != null) {
+				imageUrls.addAll(upImages);
+			}
+			
+			// 获取下车图片URL
+			String downImagesKey = "image_urls:" + busNo + ":" + windowId + ":down";
+			Set<String> downImages = jedis.smembers(downImagesKey);
+			if (downImages != null) {
+				imageUrls.addAll(downImages);
+			}
+		} catch (Exception e) {
+			if (Config.LOG_ERROR) {
+				System.err.println("[PassengerFlowProcessor] Error getting image URLs: " + e.getMessage());
+			}
+		}
+		
+		return imageUrls;
 	}
 
 	private BusOdRecord createBaseRecord(String busNo, String cameraNo, LocalDateTime time, Jedis jedis) {
@@ -557,8 +630,6 @@ public class PassengerFlowProcessor {
 
 		// 设置车辆总人数（来自CV系统满载率推送）
 		record.setVehicleTotalCount(getVehicleTotalCountFromRedis(jedis, busNo));
-
-		// 不再设置tripTotalCount
 
 		Long busId = getBusIdFromRedis(jedis, busNo);
 		if (busId != null) record.setBusId(busId);
@@ -648,7 +719,7 @@ public class PassengerFlowProcessor {
 			if (windowId == null) return 0.0f;
 			String key = "features_set:" + busNo + ":" + windowId;
 			Set<String> features = jedis.smembers(key);
-			double[] probe = parseFeatureVector(feature);
+			double[] probe = CosineSimilarity.parseFeatureVector(feature);
 			double best = 0.0;
 			for (String cand : features) {
 				try {
@@ -656,7 +727,7 @@ public class PassengerFlowProcessor {
 					JSONObject featureObj = new JSONObject(cand);
 					String featureValue = featureObj.optString("feature");
 					if (featureValue != null && !featureValue.isEmpty()) {
-						double[] vec = parseFeatureVector(featureValue);
+						double[] vec = CosineSimilarity.parseFeatureVector(featureValue);
 						if (probe.length > 0 && vec.length == probe.length) {
 							double sim = CosineSimilarity.cosine(probe, vec);
 							if (sim > best) best = sim;
@@ -746,38 +817,17 @@ public class PassengerFlowProcessor {
 		try { return Long.parseLong(v); } catch (Exception e) { return null; }
 	}
 
-	private double[] parseFeatureVector(String feature) {
-		if (feature == null || feature.isEmpty()) return new double[0];
-		try {
-			JSONArray arr = new JSONArray(feature);
-			double[] vec = new double[arr.length()];
-			for (int i = 0; i < arr.length(); i++) vec[i] = arr.getDouble(i);
-			return vec;
-		} catch (Exception ignore) {}
-		try {
-			String[] parts = feature.split(",");
-			double[] vec = new double[parts.length];
-			for (int i = 0; i < parts.length; i++) vec[i] = Double.parseDouble(parts[i].trim());
-			return vec;
-		} catch (Exception ignore) {}
-		return new double[0];
-	}
-
 	private void sendToKafka(Object data) {
 		try {
 			String json = objectMapper.writeValueAsString(data);
 
-			// 试点线路最终流程日志 - 准备发送到Kafka（可通过配置控制）
+			// 试点线路最终流程日志 - 准备发送到Kafka（隐藏payload，仅打印主题与大小）
 			if (Config.PILOT_ROUTE_LOG_ENABLED) {
-				System.out.println("[试点线路最终流程] 准备发送数据到Kafka:");
-				System.out.println("   主题: " + KafkaConfig.PASSENGER_FLOW_TOPIC);
-				System.out.println("   数据大小: " + json.length() + " 字符");
-				System.out.println("   数据内容: " + json);
-				System.out.println("   ================================================================================");
+				System.out.println("[流程] 准备发送Kafka: topic=" + KafkaConfig.PASSENGER_FLOW_TOPIC + ", size=" + json.length());
 			}
 
 			if (Config.FLOW_LOG_ENABLED && data instanceof BusOdRecord) {
-				System.out.println("[发送BusOdRecord] topic=" + KafkaConfig.PASSENGER_FLOW_TOPIC + ", data=" + json);
+				System.out.println("[发送BusOdRecord] topic=" + KafkaConfig.PASSENGER_FLOW_TOPIC + ", size=" + json.length());
 			}
 
 			if (Config.LOG_DEBUG) {
@@ -788,12 +838,9 @@ public class PassengerFlowProcessor {
 			producer.send(new ProducerRecord<>(KafkaConfig.PASSENGER_FLOW_TOPIC, json),
 				(metadata, exception) -> {
 					if (exception != null) {
-						// 试点线路最终流程日志 - Kafka发送失败（可通过配置控制）
+						// 试点线路最终流程日志 - Kafka发送失败（隐藏payload）
 						if (Config.PILOT_ROUTE_LOG_ENABLED) {
-							System.out.println("[试点线路最终流程] Kafka发送失败:");
-							System.out.println("   错误信息: " + exception.getMessage());
-							System.out.println("   失败数据: " + json);
-							System.out.println("   ================================================================================");
+							System.out.println("[流程] Kafka发送失败: error=" + exception.getMessage());
 						}
 
 						if (Config.LOG_ERROR) {
@@ -802,16 +849,9 @@ public class PassengerFlowProcessor {
 						// 可以在这里添加重试逻辑或告警机制
 						handleKafkaSendFailure(data, exception);
 					} else {
-						// 试点线路最终流程日志 - Kafka发送成功（可通过配置控制）
+						// 试点线路最终流程日志 - Kafka发送成功（打印元数据）
 						if (Config.PILOT_ROUTE_LOG_ENABLED) {
-							System.out.println("[试点线路最终流程] Kafka发送成功:");
-							System.out.println("   主题: " + metadata.topic());
-							System.out.println("   分区: " + metadata.partition());
-							System.out.println("   偏移量: " + metadata.offset());
-							System.out.println("   时间戳: " + metadata.timestamp());
-							System.out.println("   ================================================================================");
-							System.out.println("[试点线路完整流程] 从开关门信号到Kafka发送的整个流程已完成!");
-							System.out.println("   ================================================================================");
+							System.out.println("[流程] Kafka发送成功: topic=" + metadata.topic() + ", partition=" + metadata.partition() + ", offset=" + metadata.offset());
 						}
 
 						if (Config.FLOW_LOG_ENABLED && data instanceof BusOdRecord) {
@@ -895,16 +935,34 @@ public class PassengerFlowProcessor {
 		// 1. 将base64图片解码为文件
 		File imageFile = decodeBase64ToFile(base64Image);
 
-		// 2. 上传到OSS获取URL
+		// 2. 生成动态目录名（基于开关门事件）
+		String windowId = getCurrentWindowId(busNo);
+		String dynamicDir = "PassengerFlowRecognition/" + (windowId != null ? windowId : "default");
+		
+		// 3. 上传到OSS获取URL（使用图片配置）
 		String fileName = String.format("cv_%s_%s_%s_%s.jpg",
 			busNo, cameraNo, eventTime.format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")), UUID.randomUUID().toString().substring(0, 8));
 
-		String imageUrl = OssUtil.uploadFile(imageFile, fileName);
+		String imageUrl = OssUtil.uploadImageFile(imageFile, fileName, dynamicDir);
 
 		// 清理临时文件
 		imageFile.delete();
 
 		return imageUrl;
+	}
+
+	/**
+	 * 获取当前开门时间窗口ID
+	 * @param busNo 公交车编号
+	 * @return 时间窗口ID
+	 */
+	private String getCurrentWindowId(String busNo) {
+		try (Jedis jedis = jedisPool.getResource()) {
+			jedis.auth(Config.REDIS_PASSWORD);
+			return jedis.get("open_time:" + busNo);
+		} catch (Exception e) {
+			return null;
+		}
 	}
 
 	/**
@@ -1031,4 +1089,35 @@ public class PassengerFlowProcessor {
         // 发送增强后的记录到Kafka（只发送一次）
         sendToKafka(record);
     }
+
+	/**
+	 * 设置乘客特征集合信息
+	 * @param record BusOdRecord记录
+	 * @param jedis Redis连接
+	 * @param busNo 公交车编号
+	 * @param windowId 时间窗口ID
+	 */
+	private void setPassengerFeatures(BusOdRecord record, Jedis jedis, String busNo, String windowId) {
+		try {
+			String featuresKey = "features_set:" + busNo + ":" + windowId;
+			Set<String> features = jedis.smembers(featuresKey);
+			
+			if (features != null && !features.isEmpty()) {
+				JSONArray featuresArray = new JSONArray();
+				for (String featureStr : features) {
+					featuresArray.put(new JSONObject(featureStr));
+				}
+				
+				record.setPassengerFeatures(featuresArray.toString());
+				
+				if (Config.PILOT_ROUTE_LOG_ENABLED) {
+					System.out.println("[流程] 乘客特征集合设置完成，特征数: " + featuresArray.length());
+				}
+			}
+		} catch (Exception e) {
+			if (Config.LOG_ERROR) {
+				System.err.println("[PassengerFlowProcessor] Error setting passenger features: " + e.getMessage());
+			}
+		}
+	}
 }

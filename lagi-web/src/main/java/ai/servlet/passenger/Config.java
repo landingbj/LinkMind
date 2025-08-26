@@ -9,9 +9,15 @@ public class Config {
     public static final int REDIS_PORT = 6379;
     public static final String OSS_UPLOAD_URL = "http://20.17.39.66:8089/api/admin/sys-file/upload";
     public static final String OSS_FILE_BASE_URL = "http://20.17.39.66:8089/api";
-    public static final String OSS_DIR = "PassengerFlowRecognition";
-    public static final String OSS_GROUP_ID = "305";
-    public static final String OSS_TYPE = "20";
+    
+    // OSS配置 - 图片文件
+    public static final String OSS_GROUP_ID_IMAGE = "307";
+    public static final String OSS_TYPE_IMAGE = "10";
+    
+    // OSS配置 - 视频文件
+    public static final String OSS_GROUP_ID_VIDEO = "305";
+    public static final String OSS_TYPE_VIDEO = "20";
+    
     public static final String MEDIA_API = "http://20.17.127.20:8010/keliushibie-media";
     public static final String PASSENGER_PROMPT = "请分析车门区域的下车乘客特征";
 
@@ -35,7 +41,7 @@ public class Config {
     public static final boolean LOG_ERROR = true;                // 是否打印错误日志
 
     // 试点线路专用日志配置
-    public static final boolean PILOT_ROUTE_LOG_ENABLED = false;  // 是否启用试点线路流程日志
+    public static final boolean PILOT_ROUTE_LOG_ENABLED = true;  // 是否启用试点线路流程日志
     public static final boolean ARRIVE_LEAVE_LOG_ENABLED = false; // 是否启用车辆到离站信号日志
     public static final boolean ARRIVE_LEAVE_LOG_NON_PILOT_ENABLED = false; // 白名单外线路是否也打印到离站日志
 

@@ -14,17 +14,62 @@ import java.io.IOException;
 
 public class OssUtil {
 
+    /**
+     * 上传文件到OSS（使用默认配置）
+     * @param file 文件
+     * @param fileName 文件名
+     * @return OSS文件URL
+     * @throws IOException 上传异常
+     */
     public static String uploadFile(File file, String fileName) throws IOException {
+        return uploadFile(file, fileName, null, null, null);
+    }
+
+    /**
+     * 上传文件到OSS（指定目录）
+     * @param file 文件
+     * @param fileName 文件名
+     * @param dir 目录
+     * @return OSS文件URL
+     * @throws IOException 上传异常
+     */
+    public static String uploadFile(File file, String fileName, String dir) throws IOException {
+        return uploadFile(file, fileName, dir, null, null);
+    }
+
+    /**
+     * 上传文件到OSS（完整配置）
+     * @param file 文件
+     * @param fileName 文件名
+     * @param dir 目录
+     * @param groupId 分组ID
+     * @param type 文件类型
+     * @return OSS文件URL
+     * @throws IOException 上传异常
+     */
+    public static String uploadFile(File file, String fileName, String dir, String groupId, String type) throws IOException {
         String url = Config.OSS_UPLOAD_URL;
+        
+        // 使用默认值
+        if (dir == null) {
+            dir = "PassengerFlowRecognition";
+        }
+        if (groupId == null) {
+            groupId = Config.OSS_GROUP_ID_IMAGE; // 默认使用图片配置
+        }
+        if (type == null) {
+            type = Config.OSS_TYPE_IMAGE; // 默认使用图片配置
+        }
+        
         try (CloseableHttpClient httpclient = HttpClients.createDefault()) {
             HttpPost httppost = new HttpPost(url);
 
             HttpEntity reqEntity = MultipartEntityBuilder.create()
                     .addBinaryBody("file", file)
                     .addTextBody("fileName", fileName)
-                    .addTextBody("dir", Config.OSS_DIR)
-                    .addTextBody("groupId", Config.OSS_GROUP_ID)
-                    .addTextBody("type", Config.OSS_TYPE)
+                    .addTextBody("dir", dir)
+                    .addTextBody("groupId", groupId)
+                    .addTextBody("type", type)
                     .build();
             httppost.setEntity(reqEntity);
 
@@ -42,5 +87,29 @@ public class OssUtil {
             }
         }
         return null;
+    }
+
+    /**
+     * 上传图片文件到OSS
+     * @param file 文件
+     * @param fileName 文件名
+     * @param dir 目录
+     * @return OSS文件URL
+     * @throws IOException 上传异常
+     */
+    public static String uploadImageFile(File file, String fileName, String dir) throws IOException {
+        return uploadFile(file, fileName, dir, Config.OSS_GROUP_ID_IMAGE, Config.OSS_TYPE_IMAGE);
+    }
+
+    /**
+     * 上传视频文件到OSS
+     * @param file 文件
+     * @param fileName 文件名
+     * @param dir 目录
+     * @return OSS文件URL
+     * @throws IOException 上传异常
+     */
+    public static String uploadVideoFile(File file, String fileName, String dir) throws IOException {
+        return uploadFile(file, fileName, dir, Config.OSS_GROUP_ID_VIDEO, Config.OSS_TYPE_VIDEO);
     }
 }

@@ -17,6 +17,7 @@ import joblib
 import os
 import time
 from sklearn.model_selection import GridSearchCV
+import json
 
 warnings.filterwarnings("ignore")
 
@@ -34,6 +35,14 @@ CONFIG = {
     'model_dir': '/home/server/models',
     'service_end_buffer_minutes': 15
 }
+# 数据与特征存储目录
+RAW_DIR = '/home/server/data/raw'
+META_FILE = '/home/server/data/meta.json'
+FEATURE_DIR = '/home/server/feature_store'
+FEATURE_DATA_FILE = os.path.join(FEATURE_DIR, 'data.parquet')
+FEATURES_FILE = os.path.join(FEATURE_DIR, 'features.json')
+SCALER_FILE = os.path.join(FEATURE_DIR, 'scaler.pkl')
+ENCODER_FILE = os.path.join(FEATURE_DIR, 'encoder.pkl')
 
 # 初始化 Flask 应用
 app = Flask(__name__)
@@ -78,6 +87,242 @@ CHANNEL_INDEX = {
     'C4': 4,
     'C5': 5
 }
+
+# 缓存目录与文件
+CACHE_DIR = '/home/server/cache'
+PRED_CACHE_FILE = os.path.join(CACHE_DIR, 'predictions.json')
+
+def _ensure_cache_dir():
+    try:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+    except Exception:
+        pass
+
+def save_predictions_cache(predictions):
+    _ensure_cache_dir()
+    payload = {
+        'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'data': predictions
+    }
+    try:
+        with open(PRED_CACHE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(payload, f, ensure_ascii=False)
+        logger.info("预测结果已写入缓存: %s", PRED_CACHE_FILE)
+    except Exception as e:
+        logger.error("写入预测缓存失败: %s", str(e))
+
+def load_predictions_cache(max_age_seconds=180):
+    try:
+        if not os.path.exists(PRED_CACHE_FILE):
+            return None
+        mtime = os.path.getmtime(PRED_CACHE_FILE)
+        age = time.time() - mtime
+        if age > max_age_seconds:
+            logger.warning("预测缓存已过期(%.1fs)，文件: %s", age, PRED_CACHE_FILE)
+        with open(PRED_CACHE_FILE, 'r', encoding='utf-8') as f:
+            payload = json.load(f)
+        return payload.get('data')
+    except Exception as e:
+        logger.error("读取预测缓存失败: %s", str(e))
+        return None
+
+# ----------------------------
+# 增量抽取到本地 Parquet（raw）
+# ----------------------------
+
+def _ensure_dirs():
+    for d in [RAW_DIR, FEATURE_DIR, CACHE_DIR, CONFIG['model_dir'], os.path.dirname(META_FILE)]:
+        try:
+            os.makedirs(d, exist_ok=True)
+        except Exception:
+            pass
+
+def _read_meta():
+    try:
+        with open(META_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _write_meta(meta):
+    try:
+        os.makedirs(os.path.dirname(META_FILE), exist_ok=True)
+        with open(META_FILE, 'w', encoding='utf-8') as f:
+            json.dump(meta, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error("写入meta失败: %s", str(e))
+
+def incremental_extract_to_parquet(window_days):
+    start_time = time.time()
+    _ensure_dirs()
+    logger.info("开始增量抽取到Parquet，窗口: %d天", window_days)
+    meta = _read_meta()
+
+    conn = psycopg2.connect(**CONFIG['db_config'])
+    cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+
+    now_dt = datetime.now()
+    window_start = now_dt - timedelta(days=window_days)
+    ws = window_start.strftime('%Y-%m-%d %H:%M:%S')
+    we = now_dt.strftime('%Y-%m-%d %H:%M:%S')
+
+    # trade
+    last_trade_ts = meta.get('last_trade_ts')
+    trade_cond = "trade_time > %s AND trade_time <= %s"
+    trade_params = [last_trade_ts or ws, we]
+    logger.info("增量抽取trade，起点: %s", trade_params[0])
+    cursor.execute(
+        """
+        SELECT trade_time, stop_id, route_id
+        FROM ods.trade
+        WHERE (stop_id = '1001001154' OR off_stop_id = '1001001154')
+          AND """ + trade_cond + """
+        ORDER BY trade_time
+        """,
+        trade_params
+    )
+    trade_df = pd.DataFrame([dict(r) for r in cursor.fetchall()])
+    if not trade_df.empty:
+        trade_path = os.path.join(RAW_DIR, 'trade.parquet')
+        try:
+            if os.path.exists(trade_path):
+                old = pd.read_parquet(trade_path)
+                trade_df = pd.concat([old, trade_df], ignore_index=True)
+                trade_df.drop_duplicates(subset=['trade_time', 'stop_id', 'route_id'], inplace=True)
+            trade_df.to_parquet(trade_path, index=False)
+            meta['last_trade_ts'] = trade_df['trade_time'].max().strftime('%Y-%m-%d %H:%M:%S')
+        except Exception as e:
+            logger.error("写入trade parquet失败: %s", str(e))
+
+    # sim_station
+    last_brd_ts = meta.get('last_broadcast_ts')
+    brd_cond = "arrive_time > %s AND arrive_time <= %s"
+    brd_params = [last_brd_ts or ws, we]
+    logger.info("增量抽取sim_station，起点: %s", brd_params[0])
+    cursor.execute(
+        """
+        SELECT arrive_time, leave_time, stop_id, route_id, board_amount, off_amount
+        FROM ods.sim_station
+        WHERE stop_id = '1001001154' AND """ + brd_cond + """
+        ORDER BY arrive_time
+        """,
+        brd_params
+    )
+    brd_df = pd.DataFrame([dict(r) for r in cursor.fetchall()])
+    if not brd_df.empty:
+        brd_path = os.path.join(RAW_DIR, 'broadcast.parquet')
+        try:
+            if os.path.exists(brd_path):
+                old = pd.read_parquet(brd_path)
+                brd_df = pd.concat([old, brd_df], ignore_index=True)
+                brd_df.drop_duplicates(subset=['arrive_time', 'stop_id', 'route_id'], inplace=True)
+            brd_df.to_parquet(brd_path, index=False)
+            meta['last_broadcast_ts'] = brd_df['arrive_time'].max().strftime('%Y-%m-%d %H:%M:%S')
+        except Exception as e:
+            logger.error("写入broadcast parquet失败: %s", str(e))
+
+    # assign_schedule
+    last_sch_ts = meta.get('last_schedule_ts')
+    sch_cond = "dispatch_departure_time > %s AND dispatch_departure_time <= %s"
+    sch_params = [last_sch_ts or ws, we]
+    logger.info("增量抽取assign_schedule，起点: %s", sch_params[0])
+    cursor.execute(
+        """
+        SELECT dispatch_departure_time, dispatch_end_time, route_id, route_name, single_trip_duration, assign_status, is_delete
+        FROM ods.assign_schedule
+        WHERE (origin_id = '1001001154' OR terminal_id = '1001001154')
+          AND assign_status = 'RELEASE' AND is_delete = false AND """ + sch_cond + """
+        ORDER BY dispatch_departure_time
+        """,
+        sch_params
+    )
+    sch_df = pd.DataFrame([dict(r) for r in cursor.fetchall()])
+    if not sch_df.empty:
+        sch_path = os.path.join(RAW_DIR, 'schedule.parquet')
+        try:
+            if os.path.exists(sch_path):
+                old = pd.read_parquet(sch_path)
+                sch_df = pd.concat([old, sch_df], ignore_index=True)
+                sch_df.drop_duplicates(subset=['dispatch_departure_time', 'route_id'], inplace=True)
+            sch_df.to_parquet(sch_path, index=False)
+            meta['last_schedule_ts'] = sch_df['dispatch_departure_time'].max().strftime('%Y-%m-%d %H:%M:%S')
+        except Exception as e:
+            logger.error("写入schedule parquet失败: %s", str(e))
+
+    cursor.close()
+    conn.close()
+    _write_meta(meta)
+    logger.info("增量抽取完成，耗时: %.2f秒", time.time() - start_time)
+
+# ----------------------------
+# 物化特征层
+# ----------------------------
+
+def materialize_feature_store(window_days, time_granularity):
+    _ensure_dirs()
+    start_time = time.time()
+    logger.info("开始生成物化特征层，窗口: %d天，粒度: %s", window_days, time_granularity)
+
+    # 读取raw parquet并裁剪窗口
+    now_dt = datetime.now()
+    window_start = now_dt - timedelta(days=window_days)
+
+    trade_path = os.path.join(RAW_DIR, 'trade.parquet')
+    brd_path = os.path.join(RAW_DIR, 'broadcast.parquet')
+    sch_path = os.path.join(RAW_DIR, 'schedule.parquet')
+
+    trade_data = pd.read_parquet(trade_path) if os.path.exists(trade_path) else pd.DataFrame(columns=['trade_time','stop_id','route_id'])
+    broadcast_data = pd.read_parquet(brd_path) if os.path.exists(brd_path) else pd.DataFrame(columns=['arrive_time','leave_time','stop_id','route_id','board_amount','off_amount'])
+    schedule_data = pd.read_parquet(sch_path) if os.path.exists(sch_path) else pd.DataFrame(columns=['dispatch_departure_time','dispatch_end_time','route_id','route_name','single_trip_duration','assign_status','is_delete'])
+
+    if not trade_data.empty:
+        trade_data = trade_data[pd.to_datetime(trade_data['trade_time']) >= window_start]
+    if not broadcast_data.empty:
+        broadcast_data = broadcast_data[pd.to_datetime(broadcast_data['arrive_time']) >= window_start]
+    if not schedule_data.empty:
+        schedule_data = schedule_data[pd.to_datetime(schedule_data['dispatch_departure_time']) >= window_start]
+
+    # 生成天气（仅用于合并一致性；训练阶段仍会用到当日天气）
+    today = datetime.now().strftime('%Y-%m-%d')
+    weather_data = fetch_real_time_weather(today, today, time_granularity)
+
+    data, scaler, enc, weather_data, features = preprocess_data(trade_data, broadcast_data, schedule_data, weather_data, time_granularity)
+
+    os.makedirs(FEATURE_DIR, exist_ok=True)
+    data.to_parquet(FEATURE_DATA_FILE, index=False)
+    joblib.dump(scaler, SCALER_FILE)
+    joblib.dump(enc, ENCODER_FILE)
+    with open(FEATURES_FILE, 'w', encoding='utf-8') as f:
+        json.dump({'features': features}, f, ensure_ascii=False)
+
+    logger.info("物化特征层已生成：%s，耗时: %.2f秒", FEATURE_DATA_FILE, time.time() - start_time)
+
+def load_materialized():
+    try:
+        data = pd.read_parquet(FEATURE_DATA_FILE)
+        scaler = joblib.load(SCALER_FILE) if os.path.exists(SCALER_FILE) else None
+        enc = joblib.load(ENCODER_FILE) if os.path.exists(ENCODER_FILE) else None
+        with open(FEATURES_FILE, 'r', encoding='utf-8') as f:
+            features = json.load(f).get('features', [])
+        return data, scaler, enc, features
+    except Exception as e:
+        logger.error("加载物化特征失败: %s", str(e))
+        return None, None, None, []
+
+def train_from_materialized(window_days):
+    start_time = time.time()
+    logger.info("从物化特征层训练模型，窗口: %d天", window_days)
+    data, _, _, features = load_materialized()
+    if data is None or not features:
+        logger.warning("物化特征缺失或无特征定义，回退至在线训练")
+        trade_data, broadcast_data, schedule_data = fetch_data_from_db(window_days)
+        today = datetime.now().strftime('%Y-%m-%d')
+        weather_data = fetch_real_time_weather(today, today, CONFIG['time_granularity'])
+        data, scaler, enc, weather_data, features = preprocess_data(trade_data, broadcast_data, schedule_data, weather_data, CONFIG['time_granularity'])
+        return train_and_save_models(data, features, window_days)
+    models = train_and_save_models(data, features, window_days)
+    logger.info("从物化特征层训练完成，耗时: %.2f秒", time.time() - start_time)
+    return models
 
 # ----------------------------
 # 实时客流与服务时间辅助方法
@@ -426,7 +671,7 @@ def map_weather_code(code):
     return 'cloudy'
 
 # 数据提取
-def fetch_data_from_db(window_days):
+def fetch_data_from_db(window_days, time_granularity=None):
     start_time = time.time()
     logger.info("开始从数据库提取数据...")
     try:
@@ -440,39 +685,65 @@ def fetch_data_from_db(window_days):
         start_date_str = start_date.strftime('%Y-%m-%d %H:%M:%S')
         end_date_str = end_date.strftime('%Y-%m-%d %H:%M:%S')
 
+        # 仅支持 15 分钟聚合（当前配置默认）
+        if time_granularity is None:
+            time_granularity = CONFIG.get('time_granularity', '15min')
+        if time_granularity != '15min':
+            logger.warning("目前SQL端仅实现15分钟聚合，收到: %s，将按15分钟处理", time_granularity)
+
         query_start = time.time()
+        # 交易数据：SQL端按15分钟聚合，减少传输体量
         query_trade = """
-        SELECT trade_time, stop_id, off_stop_id, route_id, direction, route_name
+        SELECT 
+            (date_trunc('hour', trade_time) + make_interval(mins => 15 * floor(extract(minute from trade_time)::int / 15))) AS time_slot,
+            route_id,
+            COUNT(*) AS trade_count
         FROM ods.trade
         WHERE (stop_id = '1001001154' OR off_stop_id = '1001001154')
-        AND trade_time >= %s AND trade_time < %s
+          AND trade_time >= %s AND trade_time < %s
+        GROUP BY 1, 2
+        ORDER BY 1, 2
         """
         cursor.execute(query_trade, (start_date_str, end_date_str))
         trade_data = pd.DataFrame([dict(row) for row in cursor.fetchall()])
-        logger.info("提取交易数据记录数: %d, 查询耗时: %.2f秒", len(trade_data), time.time() - query_start)
+        logger.info("提取交易聚合记录数: %d, 查询耗时: %.2f秒", len(trade_data), time.time() - query_start)
 
         query_start = time.time()
+        # 报站数据：SQL端按15分钟聚合
         query_broadcast = """
-        SELECT arrive_time, leave_time, board_amount, off_amount, on_bus_amount, stop_id, route_id
+        SELECT 
+            (date_trunc('hour', arrive_time) + make_interval(mins => 15 * floor(extract(minute from arrive_time)::int / 15))) AS time_slot,
+            route_id,
+            SUM(board_amount) AS board_amount,
+            SUM(off_amount) AS off_amount
         FROM ods.sim_station
         WHERE stop_id = '1001001154'
-        AND arrive_time >= %s AND arrive_time < %s
+          AND arrive_time >= %s AND arrive_time < %s
+        GROUP BY 1, 2
+        ORDER BY 1, 2
         """
         cursor.execute(query_broadcast, (start_date_str, end_date_str))
         broadcast_data = pd.DataFrame([dict(row) for row in cursor.fetchall()])
-        logger.info("提取报站数据记录数: %d, 查询耗时: %.2f秒", len(broadcast_data), time.time() - query_start)
+        logger.info("提取报站聚合记录数: %d, 查询耗时: %.2f秒", len(broadcast_data), time.time() - query_start)
 
         query_start = time.time()
+        # 调度数据：SQL端按15分钟聚合，统计发班次数和平均单程时长
         query_schedule = """
-        SELECT assign_name, dispatch_departure_time, dispatch_end_time, single_trip_duration, terminal_id, route_name, route_id
+        SELECT 
+            (date_trunc('hour', dispatch_departure_time) + make_interval(mins => 15 * floor(extract(minute from dispatch_departure_time)::int / 15))) AS time_slot,
+            route_id,
+            COUNT(*) AS dispatch_count,
+            AVG(GREATEST(5, LEAST(60, COALESCE(single_trip_duration, 10))))::int AS single_trip_duration
         FROM ods.assign_schedule
         WHERE (origin_id = '1001001154' OR terminal_id = '1001001154')
-        AND dispatch_departure_time >= %s AND dispatch_departure_time < %s
-        AND assign_status = 'RELEASE' AND is_delete = false
+          AND dispatch_departure_time >= %s AND dispatch_departure_time < %s
+          AND assign_status = 'RELEASE' AND is_delete = false
+        GROUP BY 1, 2
+        ORDER BY 1, 2
         """
         cursor.execute(query_schedule, (start_date_str, end_date_str))
         schedule_data = pd.DataFrame([dict(row) for row in cursor.fetchall()])
-        logger.info("提取调度数据记录数: %d, 查询耗时: %.2f秒", len(schedule_data), time.time() - query_start)
+        logger.info("提取调度聚合记录数: %d, 查询耗时: %.2f秒", len(schedule_data), time.time() - query_start)
 
         cursor.close()
         conn.close()
@@ -932,20 +1203,39 @@ def predict_and_validate(data, scaler, enc, weather_data, window_days, time_gran
     logger.info("预测与验证总耗时: %.2f秒", time.time() - start_time)
     return predictions, valid_results_df, metrics
 
+def compute_and_cache_predictions(window_days=None, time_granularity=None):
+    total_start = time.time()
+    try:
+        wd = window_days or CONFIG['window_days']
+        tg = time_granularity or CONFIG['time_granularity']
+        logger.info("开始离线计算并缓存预测结果，窗口天数: %d, 粒度: %s", wd, tg)
+        trade_data, broadcast_data, schedule_data = fetch_data_from_db(wd)
+        today = datetime.now().strftime('%Y-%m-%d')
+        weather_data = fetch_real_time_weather(today, today, tg)
+        data, scaler, enc, weather_data, features = preprocess_data(trade_data, broadcast_data, schedule_data, weather_data, tg)
+        models = load_models()
+        predictions, _, _ = predict_and_validate(data, scaler, enc, weather_data, wd, tg, features, models, validate=False)
+        save_predictions_cache(predictions)
+        logger.info("离线预测完成并写入缓存，总耗时: %.2f秒", time.time() - total_start)
+        return predictions
+    except Exception as e:
+        logger.error("离线计算预测失败: %s", str(e), exc_info=True)
+        return None
+
 # Flask 接口 - 预测
 @app.route('/station/passenger/forecast/passengewayList', methods=['GET'])
 def get_passenger_forecast():
     total_start = time.time()
     try:
         logger.info("接收到客流预测请求")
-        trade_data, broadcast_data, schedule_data = fetch_data_from_db(CONFIG['window_days'])
-        today = datetime.now().strftime('%Y-%m-%d')
-        weather_data = fetch_real_time_weather(today, today, CONFIG['time_granularity'])
-        preprocess_start = time.time()
-        data, scaler, enc, weather_data, features = preprocess_data(trade_data, broadcast_data, schedule_data, weather_data, CONFIG['time_granularity'])
-        logger.info("数据预处理耗时: %.2f秒", time.time() - preprocess_start)
-        models = load_models()
-        predictions, _, _ = predict_and_validate(data, scaler, enc, weather_data, CONFIG['window_days'], CONFIG['time_granularity'], features, models, validate=False)
+        # 先读缓存，避免每次请求查库
+        cached = load_predictions_cache(max_age_seconds=300)
+        if cached is not None:
+            predictions = cached
+            logger.info("命中预测缓存，直接返回")
+        else:
+            logger.warning("预测缓存缺失，执行一次计算(可能较慢)")
+            predictions = compute_and_cache_predictions()
 
         response = {
             'code': '0',

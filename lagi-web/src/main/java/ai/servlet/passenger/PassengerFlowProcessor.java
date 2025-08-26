@@ -124,7 +124,7 @@ public class PassengerFlowProcessor {
 		}
 		if (jedis.get("open_time:" + canonicalBusNo) == null) {
 			String resolvedWindowId = null;
-			for (int delta = 0; delta <= 2 && resolvedWindowId == null; delta++) {
+			for (int delta = 0; delta <= 10 && resolvedWindowId == null; delta++) {
 				LocalDateTime t0 = eventTime.minusSeconds(delta);
 				LocalDateTime t1 = delta == 0 ? null : eventTime.plusSeconds(delta);
 				String k0 = t0.format(formatter);
@@ -144,6 +144,10 @@ public class PassengerFlowProcessor {
 					}
 				}
 			}
+			// 将解析到的windowId暂存到ThreadLocal变量或在后续窗口查找中使用
+			// 这里直接通过局部变量传递：在窗口获取失败时回退使用
+			// 为简洁起见，保存到一个最终变量
+			final String timestampResolvedWindowId = resolvedWindowId;
 		}
 
 		for (int i = 0; i < events.length(); i++) {

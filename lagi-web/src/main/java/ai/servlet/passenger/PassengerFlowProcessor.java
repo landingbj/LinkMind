@@ -387,11 +387,9 @@ public class PassengerFlowProcessor {
 				System.out.println("   ================================================================================");
 			}
 
-			// 开门时创建记录并缓存
+			// 开门时创建记录并缓存（不再设置单独的站点字段，使用区间客流统计）
 			BusOdRecord record = createBaseRecord(busNo, cameraNo, eventTime, jedis);
 			record.setTimestampBegin(eventTime);
-			record.setStationIdOn(getCurrentStationId(busNo, jedis));
-			record.setStationNameOn(getCurrentStationName(busNo, jedis));
 
 			// 生成开门时间窗口ID
 			String windowId = System.currentTimeMillis() + "_" + busNo;

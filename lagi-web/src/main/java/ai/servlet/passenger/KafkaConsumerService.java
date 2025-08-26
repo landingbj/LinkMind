@@ -580,11 +580,12 @@ public class KafkaConsumerService {
 
                 if (Config.LOG_INFO) {
                     System.out.println("[KafkaConsumerService] 关门信号处理完成: busNo=" + busNo +
-                        ", 清理Redis缓存, 准备处理OD数据");
+                        ", 已发送关门信号到CV系统，等待CV系统处理OD数据");
                 }
 
-                jedis.del("open_time:" + busNo);
-                jedis.del("ticket_count_window:" + busNo);
+                // 注意：不再立即清理Redis缓存，让CV系统处理完OD数据后再清理
+                // jedis.del("open_time:" + busNo);
+                // jedis.del("ticket_count_window:" + busNo);
             } else {
                 logDoorSkipThrottled(busNo, "未找到open_time窗口");
             }

@@ -492,6 +492,13 @@ public class PassengerFlowProcessor {
 					System.out.println("[流程] 关门事件OD记录构建完成，准备发送Kafka");
 				}
 				sendToKafka(record);
+				
+				// 注意：不再手动清理Redis缓存，让Redis的TTL机制和RedisCleanupUtil自动管理
+				// 这样可以确保乘客特征向量、区间客流数据等关键信息在需要时仍然可用
+				if (Config.PILOT_ROUTE_LOG_ENABLED) {
+					System.out.println("[试点线路CV关门流程] OD数据处理完成，Redis缓存将由TTL机制自动管理");
+					System.out.println("   ================================================================================");
+				}
 			}
 		}
 	}

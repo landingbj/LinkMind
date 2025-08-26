@@ -56,8 +56,8 @@ public class Config {
     public static final int CV_RESULT_POLL_INTERVAL_MS = 200; // 轮询间隔200ms
 
     // 判门参数
-    public static final int MIN_DOOR_OPEN_MS = 5000;            // 最小开门时长5s
-    public static final int CLOSE_CONSECUTIVE_REQUIRED = 3;     // 关门条件需连续满足3次
+    public static final int MIN_DOOR_OPEN_MS = 2000;            // 最小开门时长2s（放宽）
+    public static final int CLOSE_CONSECUTIVE_REQUIRED = 1;     // 关门条件单次满足即可（放宽）
     public static final double OPEN_DISTANCE_THRESHOLD_M = 50.0; // 开门距离阈值50m
     public static final double OPEN_SPEED_THRESHOLD_MS = 1.0;    // 开门速度阈值1 m/s
     public static final double CLOSE_DISTANCE_THRESHOLD_M = 60.0;// 关门距离阈值60m（更宽松）

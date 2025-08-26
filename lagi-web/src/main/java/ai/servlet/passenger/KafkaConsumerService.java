@@ -525,7 +525,8 @@ public class KafkaConsumerService {
 
         boolean closeCondition = false;
         String closeReason = "";
-        if ("2".equals(arriveLeave.optString("isArriveOrLeft"))) {
+        boolean isArriveLeaveClose = "2".equals(arriveLeave.optString("isArriveOrLeft"));
+        if (isArriveLeaveClose) {
             closeCondition = true; // 报站离站
             closeReason = "报站离站信号";
         } else if (hasStationGps && (distance > Config.CLOSE_DISTANCE_THRESHOLD_M || speed > Config.CLOSE_SPEED_THRESHOLD_MS)) {
@@ -541,26 +542,28 @@ public class KafkaConsumerService {
                 LocalDateTime openTimeParsed = LocalDateTime.parse(openTimeStrForClose, formatter);
                 long openMs = java.time.Duration.between(openTimeParsed, now).toMillis();
                 if (closeCondition && openMs >= Config.MIN_DOOR_OPEN_MS) {
-                    // 顺序约束：上一条必须是到站(1)后再允许离站(2)
-                    String lastFlagKey = "last_arrive_leave_flag:" + busNo;
-                    String lastFlag = jedis.get(lastFlagKey);
-                    if (lastFlag != null && "1".equals(lastFlag)) {
-                    // 连续满足计数
-                    String counterKey = "door_close_candidate:" + busNo;
-                    long c = jedis.incr(counterKey);
-                    jedis.expire(counterKey, 10); // 候选计数短期有效
-                    if (c >= Config.CLOSE_CONSECUTIVE_REQUIRED) {
+                    if (isArriveLeaveClose) {
+                        // 报站离站=2：直接允许关门，不做连续计数与顺序标志校验
                         shouldClose = true;
-                        // 重置计数，避免重复触发
-                        jedis.del(counterKey);
-                    }
+                    } else {
+                        // GPS分支：保留连续计数，过滤抖动
+                        String counterKey = "door_close_candidate:" + busNo;
+                        long c = jedis.incr(counterKey);
+                        jedis.expire(counterKey, 10);
+                        if (c >= Config.CLOSE_CONSECUTIVE_REQUIRED) {
+                            shouldClose = true;
+                            jedis.del(counterKey);
+                        }
                     }
                 } else {
                     // 条件不满足或开门时间不足，重置计数
                     jedis.del("door_close_candidate:" + busNo);
                 }
             } catch (Exception e) {
-                // 时间解析异常则保守处理：不触发关门
+                // 时间解析异常：保守放行（视为已满足最小开门时长）
+                if (closeCondition) {
+                    shouldClose = true;
+                }
             }
         }
 

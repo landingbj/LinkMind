@@ -55,6 +55,9 @@ public class KafkaConsumerService {
     // 判门未触发原因日志的节流：每辆车每分钟最多打印一次
     private static final Map<String, Long> lastDoorSkipLogMsByBus = new ConcurrentHashMap<>();
 
+    // 本地乘客流处理器：用于在判定开/关门后直接触发处理，无需依赖CV回推
+    private final PassengerFlowProcessor passengerFlowProcessor = new PassengerFlowProcessor();
+
     public KafkaConsumerService() {
         System.out.println("[KafkaConsumerService] 构造函数开始执行");
         System.out.println("[KafkaConsumerService] 试点线路配置: " + Arrays.toString(PILOT_ROUTES));
@@ -630,7 +633,7 @@ public class KafkaConsumerService {
 
                 if (Config.LOG_INFO) {
                     System.out.println("[KafkaConsumerService] 关门信号处理完成: busNo=" + busNo +
-                        ", 已发送关门信号到CV系统，等待CV系统处理OD数据");
+                        ", 已发送关门信号到CV系统，并已触发本地OD处理流程");
                 }
 
                 // 注意：不再立即清理Redis缓存，让CV系统处理完OD数据后再清理
@@ -708,6 +711,16 @@ public class KafkaConsumerService {
 
             if (Config.LOG_INFO) {
                 System.out.println("[KafkaConsumerService] Sent door signal to CV: " + doorSignal.toString());
+            }
+
+            // 本地自回推：直接触发 PassengerFlowProcessor 处理开/关门事件
+            // 这样即使CV不回发 open_close_door，也能继续OD流程
+            try {
+                passengerFlowProcessor.processEvent(doorSignal);
+            } catch (Exception e) {
+                if (Config.LOG_ERROR) {
+                    System.err.println("[KafkaConsumerService] Failed to process local door event: " + e.getMessage());
+                }
             }
         } catch (Exception e) {
             if (Config.LOG_ERROR) {

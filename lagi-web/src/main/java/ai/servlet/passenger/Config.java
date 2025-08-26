@@ -50,6 +50,19 @@ public class Config {
     // 精简流程日志：仅关注是否发送了BusOdRecord
     public static final boolean FLOW_LOG_ENABLED = true;
 
+    // CV结果等待配置（毫秒）
+    public static final int CV_RESULT_GRACE_MS = 3000;       // 关门后最多等待CV结果3秒
+    public static final int CV_RESULT_STABLE_MS = 800;       // 在800ms内无变化视为稳定
+    public static final int CV_RESULT_POLL_INTERVAL_MS = 200; // 轮询间隔200ms
+
+    // 判门参数
+    public static final int MIN_DOOR_OPEN_MS = 5000;            // 最小开门时长5s
+    public static final int CLOSE_CONSECUTIVE_REQUIRED = 3;     // 关门条件需连续满足3次
+    public static final double OPEN_DISTANCE_THRESHOLD_M = 50.0; // 开门距离阈值50m
+    public static final double OPEN_SPEED_THRESHOLD_MS = 1.0;    // 开门速度阈值1 m/s
+    public static final double CLOSE_DISTANCE_THRESHOLD_M = 60.0;// 关门距离阈值60m（更宽松）
+    public static final double CLOSE_SPEED_THRESHOLD_MS = 15.0/3.6; // 关门速度阈值15km/h
+
     /** 应用关闭超时时间（毫秒） */
     public static final int APP_SHUTDOWN_TIMEOUT_MS = 30000;
 

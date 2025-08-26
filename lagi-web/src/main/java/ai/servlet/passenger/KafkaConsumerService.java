@@ -34,7 +34,7 @@ import java.util.Set;
 public class KafkaConsumerService {
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
-    private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
+    private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final JedisPool jedisPool = new JedisPool(Config.REDIS_HOST, Config.REDIS_PORT);
     private KafkaConsumer<String, String> consumer;
@@ -409,6 +409,19 @@ public class KafkaConsumerService {
             arriveLeave.put("routeNo", routeNo);
         }
         String arriveLeaveKey = "arrive_leave:" + busNo;
+        // 附加一致性字段，便于后续判门校验
+        if (message.has("busId")) {
+            arriveLeave.put("busId", message.optLong("busId"));
+        }
+        if (message.has("srcAddr")) {
+            arriveLeave.put("srcAddr", message.optString("srcAddr"));
+        }
+        if (message.has("seqNum")) {
+            arriveLeave.put("seqNum", message.optLong("seqNum"));
+        }
+        if (message.has("packetTime")) {
+            arriveLeave.put("packetTime", message.optLong("packetTime"));
+        }
         jedis.set(arriveLeaveKey, arriveLeave.toString());
         jedis.expire(arriveLeaveKey, Config.REDIS_TTL_ARRIVE_LEAVE);
 
@@ -418,46 +431,32 @@ public class KafkaConsumerService {
     }
 
     private void handleTicket(JSONObject message, String busNo, Jedis jedis) {
-        String cardNo = message.optString("cardNo");
+        // 刷卡数据按窗口累计
+        String busSelfNo = message.optString("busSelfNo", busNo);
+        String tradeTime = message.optString("tradeTime");
+
+        // 只在存在已开启窗口时累计
+        String windowId = jedis.get("open_time:" + busNo);
+        if (windowId != null && !windowId.isEmpty()) {
+            String key = "ticket_count_window:" + busNo + ":" + windowId;
+            jedis.incr(key);
+            jedis.expire(key, Config.REDIS_TTL_OPEN_TIME);
+        }
+
+        // 为兼容原有逻辑，仍维护到离站最近信息（若字段提供）
         String stationId = message.optString("stationId");
         String stationName = message.optString("stationName");
-        String trafficType = String.valueOf(message.opt("trafficType"));
-        String direction = "4".equals(trafficType) ? "up" : "down";
-        double amount = message.optDouble("amount", 0.0);
-
-        // 移除票务数据处理调试日志
-
-        // 缓存到离站信息
-        JSONObject arriveLeaveJson = new JSONObject();
-        arriveLeaveJson.put("stationId", stationId);
-        arriveLeaveJson.put("stationName", stationName);
-        arriveLeaveJson.put("isArriveOrLeft", trafficType);
-        arriveLeaveJson.put("timestamp", LocalDateTime.now().format(formatter));
-        arriveLeaveJson.put("cardNo", cardNo);
-        arriveLeaveJson.put("amount", amount);
-        // 缓存线路信息
         String routeNo = message.optString("routeNo");
-        if (routeNo != null && !routeNo.isEmpty()) {
-            arriveLeaveJson.put("routeNo", routeNo);
+        if (!stationId.isEmpty() || !stationName.isEmpty() || !routeNo.isEmpty()) {
+            JSONObject arriveLeaveJson = new JSONObject();
+            if (!stationId.isEmpty()) arriveLeaveJson.put("stationId", stationId);
+            if (!stationName.isEmpty()) arriveLeaveJson.put("stationName", stationName);
+            if (!routeNo.isEmpty()) arriveLeaveJson.put("routeNo", routeNo);
+            arriveLeaveJson.put("timestamp", LocalDateTime.now().format(formatter));
+            String arriveLeaveKey = "arrive_leave:" + busNo;
+            jedis.set(arriveLeaveKey, arriveLeaveJson.toString());
+            jedis.expire(arriveLeaveKey, Config.REDIS_TTL_ARRIVE_LEAVE);
         }
-
-        String arriveLeaveKey = "arrive_leave:" + busNo;
-        jedis.set(arriveLeaveKey, arriveLeaveJson.toString());
-        jedis.expire(arriveLeaveKey, Config.REDIS_TTL_ARRIVE_LEAVE);
-
-        // 移除票务缓存信息日志
-
-        // 更新站点GPS缓存
-        if (message.has("lat") && message.has("lng")) {
-            double lat = message.optDouble("lat");
-            double lng = message.optDouble("lng");
-            double[] stationGps = {lat, lng};
-            stationGpsMap.put(stationId, stationGps);
-
-            // 移除更新站点GPS缓存调试日志
-        }
-
-        // 移除到离站缓存调试日志
     }
 
     private void judgeAndSendDoorSignal(String busNo, Jedis jedis) throws JsonProcessingException {
@@ -495,6 +494,8 @@ public class KafkaConsumerService {
         if (hasStationGps) {
             distance = calculateDistance(busLat, busLng, stationGps[0], stationGps[1]);
         }
+        
+        LocalDateTime now = LocalDateTime.now();
 
         // 判断开门（优先报站 > GPS）
         boolean shouldOpen = false;
@@ -502,32 +503,75 @@ public class KafkaConsumerService {
         if ("1".equals(arriveLeave.optString("isArriveOrLeft"))) {
             shouldOpen = true; // 报站到站
             openReason = "报站到站信号";
-        } else if (hasStationGps && distance < 50 && speed < 1) { // GPS电子围栏 <50米且速度<1m/s
-            shouldOpen = true;
+        } else if (hasStationGps && distance < Config.OPEN_DISTANCE_THRESHOLD_M && speed < Config.OPEN_SPEED_THRESHOLD_MS) {
+            shouldOpen = true; // GPS阈值触发
             openReason = "GPS电子围栏触发(距离" + distance + "m, 速度" + speed + "m/s)";
         }
 
-        // 判断关门
-        boolean shouldClose = false;
+        // 判断关门（加入去抖与最小开门时长约束）
+        // 一致性校验：到/离站的route/busId需与当前缓存一致
+        String gpsRouteNo = gps.optString("routeNo", "");
+        String arriveRouteNo = arriveLeave.optString("routeNo", "");
+        if (!gpsRouteNo.isEmpty() && !arriveRouteNo.isEmpty() && !gpsRouteNo.equals(arriveRouteNo)) {
+            logDoorSkipThrottled(busNo, "routeNo不一致，忽略本次到/离站: gps=" + gpsRouteNo + ", arrive=" + arriveRouteNo);
+            return;
+        }
+        String cachedBusId = jedis.get("bus_id:" + busNo);
+        String arriveBusId = arriveLeave.has("busId") ? String.valueOf(arriveLeave.optLong("busId")) : "";
+        if (cachedBusId != null && !cachedBusId.isEmpty() && !arriveBusId.isEmpty() && !cachedBusId.equals(arriveBusId)) {
+            logDoorSkipThrottled(busNo, "busId不一致，忽略本次到/离站: cached=" + cachedBusId + ", arrive=" + arriveBusId);
+            return;
+        }
+
+        boolean closeCondition = false;
         String closeReason = "";
         if ("2".equals(arriveLeave.optString("isArriveOrLeft"))) {
-            shouldClose = true; // 报站离站
+            closeCondition = true; // 报站离站
             closeReason = "报站离站信号";
-        } else if (hasStationGps && (distance > 30 || speed > 10 / 3.6)) { // >30米或速度>10km/h (m/s)
-            shouldClose = true;
+        } else if (hasStationGps && (distance > Config.CLOSE_DISTANCE_THRESHOLD_M || speed > Config.CLOSE_SPEED_THRESHOLD_MS)) {
+            closeCondition = true; // GPS阈值触发
             closeReason = "GPS电子围栏触发(距离" + distance + "m, 速度" + speed + "m/s)";
         }
 
-        LocalDateTime now = LocalDateTime.now();
+        boolean shouldClose = false;
+        String openTimeStrForClose = jedis.get("open_time:" + busNo);
+        if (openTimeStrForClose != null) {
+            // 最小开门时长约束
+            try {
+                LocalDateTime openTimeParsed = LocalDateTime.parse(openTimeStrForClose, formatter);
+                long openMs = java.time.Duration.between(openTimeParsed, now).toMillis();
+                if (closeCondition && openMs >= Config.MIN_DOOR_OPEN_MS) {
+                    // 顺序约束：上一条必须是到站(1)后再允许离站(2)
+                    String lastFlagKey = "last_arrive_leave_flag:" + busNo;
+                    String lastFlag = jedis.get(lastFlagKey);
+                    if (lastFlag != null && "1".equals(lastFlag)) {
+                    // 连续满足计数
+                    String counterKey = "door_close_candidate:" + busNo;
+                    long c = jedis.incr(counterKey);
+                    jedis.expire(counterKey, 10); // 候选计数短期有效
+                    if (c >= Config.CLOSE_CONSECUTIVE_REQUIRED) {
+                        shouldClose = true;
+                        // 重置计数，避免重复触发
+                        jedis.del(counterKey);
+                    }
+                    }
+                } else {
+                    // 条件不满足或开门时间不足，重置计数
+                    jedis.del("door_close_candidate:" + busNo);
+                }
+            } catch (Exception e) {
+                // 时间解析异常则保守处理：不触发关门
+            }
+        }
+
         // 移除判门结果调试日志
 
         if (shouldOpen) {
             String openTimeKey = "open_time:" + busNo;
             String ticketCountKey = "ticket_count_window:" + busNo;
             jedis.set(openTimeKey, now.format(formatter));
-            jedis.set(ticketCountKey, "0");
+            // 改为按窗口计数，不在bus维度单独维护
             jedis.expire(openTimeKey, Config.REDIS_TTL_OPEN_TIME);
-            jedis.expire(ticketCountKey, Config.REDIS_TTL_OPEN_TIME);
 
             // 试点线路开门流程日志（可通过配置控制）
             if (Config.PILOT_ROUTE_LOG_ENABLED) {
@@ -553,6 +597,9 @@ public class KafkaConsumerService {
                 System.out.println("[KafkaConsumerService] 开门信号处理完成: busNo=" + busNo +
                     ", open_time=" + now.format(formatter) + ", Redis缓存已设置");
             }
+            // 记录最近一次到离站标志
+            jedis.set("last_arrive_leave_flag:" + busNo, arriveLeave.optString("isArriveOrLeft", ""));
+            jedis.expire("last_arrive_leave_flag:" + busNo, Config.REDIS_TTL_ARRIVE_LEAVE);
         } else if (shouldClose) {
             String openTimeStr = jedis.get("open_time:" + busNo);
             if (openTimeStr != null) {
@@ -586,6 +633,9 @@ public class KafkaConsumerService {
                 // 注意：不再立即清理Redis缓存，让CV系统处理完OD数据后再清理
                 // jedis.del("open_time:" + busNo);
                 // jedis.del("ticket_count_window:" + busNo);
+                // 记录最近一次到离站标志
+                jedis.set("last_arrive_leave_flag:" + busNo, arriveLeave.optString("isArriveOrLeft", ""));
+                jedis.expire("last_arrive_leave_flag:" + busNo, Config.REDIS_TTL_ARRIVE_LEAVE);
             } else {
                 logDoorSkipThrottled(busNo, "未找到open_time窗口");
             }

@@ -95,16 +95,9 @@ public class BusOdRecord {
 
 
     /** 
-     * 大模型识别的上车人数（AI分析图片/视频得出）
-     * 作为CV系统上车人数的补充验证
+     * 大模型识别的总人数（AI基于窗口内所有图片统计）
      */
-    private Integer aiUpCount;
-
-    /** 
-     * 大模型识别的下车人数（AI分析图片/视频得出）
-     * 作为CV系统下车人数的补充验证
-     */
-    private Integer aiDownCount;
+    private Integer aiTotalCount;
 
     /** 刷卡人数（票务数据） */
     private Integer ticketCount;

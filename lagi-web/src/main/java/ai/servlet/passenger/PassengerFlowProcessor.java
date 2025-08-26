@@ -391,8 +391,8 @@ public class PassengerFlowProcessor {
 			BusOdRecord record = createBaseRecord(busNo, cameraNo, eventTime, jedis);
 			record.setTimestampBegin(eventTime);
 
-			// 生成开门时间窗口ID
-			String windowId = System.currentTimeMillis() + "_" + busNo;
+			// 生成开门时间窗口ID = 开门时间字符串（与Kafka侧一致）
+			String windowId = eventTime.format(formatter);
 			jedis.set("open_time:" + busNo, windowId);
 			jedis.expire("open_time:" + busNo, Config.REDIS_TTL_OPEN_TIME);
 
@@ -454,14 +454,15 @@ public class PassengerFlowProcessor {
 				}
 
 				// 获取CV计数
-				int cvUpCount = getCachedUpCount(jedis, busNo, windowId);
-				int cvDownCount = getCachedDownCount(jedis, busNo, windowId);
+				int[] cvCounts = waitForCvResultsStable(jedis, busNo, windowId);
+				int cvUpCount = cvCounts[0];
+				int cvDownCount = cvCounts[1];
 
 				if (Config.PILOT_ROUTE_LOG_ENABLED) {
 					System.out.println("[试点线路CV关门流程] CV计数统计完成:");
 					System.out.println("   上车人数=" + cvUpCount);
 					System.out.println("   下车人数=" + cvDownCount);
-					System.out.println("   ================================================================================");
+					System.out.println("   ==============================================================================");
 				}
 
 				// 创建关门记录
@@ -765,7 +766,11 @@ public class PassengerFlowProcessor {
 	}
 
 	private int getTicketCountWindowFromRedis(Jedis jedis, String busNo) {
-		String count = jedis.get("ticket_count_window:" + busNo);
+		String windowId = jedis.get("open_time:" + busNo);
+		if (windowId == null) {
+			return 0;
+		}
+		String count = jedis.get("ticket_count_window:" + busNo + ":" + windowId);
 		return count != null ? Integer.parseInt(count) : 0;
 	}
 
@@ -1147,25 +1152,21 @@ public class PassengerFlowProcessor {
         JSONObject responseObj = modelResponse.optJSONObject("response");
         JSONArray passengerFeatures = responseObj != null ? responseObj.optJSONArray("passenger_features") : new JSONArray();
 
-		// 解析大模型识别的上下车人数
-		int aiUpCount = 0;
-		int aiDownCount = 0;
-		if (responseObj != null) {
-			// 如果大模型能区分上下车，则分别获取；否则根据当前上下车事件类型设置
-			aiUpCount = responseObj.optInt("up_count", 0);
-			aiDownCount = responseObj.optInt("down_count", 0);
-		}
+        // 解析大模型识别的总人数（不再拆分上下）
+        int aiTotalCount = 0;
+        if (responseObj != null) {
+            aiTotalCount = responseObj.optInt("total_count", 0);
+        }
 
-		System.out.println("[大模型分析] AI分析结果 - 上车人数: " + aiUpCount + 
-			", 下车人数: " + aiDownCount + ", 特征数量: " + passengerFeatures.length());
+        System.out.println("[大模型分析] AI分析结果 - 总人数: " + aiTotalCount + 
+            ", 特征数量: " + passengerFeatures.length());
 
-		// 增强现有记录，设置大模型识别的上下车人数
-		record.setFeatureDescription(passengerFeatures.toString());
-		record.setAiUpCount(aiUpCount);
-		record.setAiDownCount(aiDownCount);
+        // 增强现有记录，设置大模型识别的总人数
+        record.setFeatureDescription(passengerFeatures.toString());
+        record.setAiTotalCount(aiTotalCount);
 
-        System.out.println("[大模型分析] 成功增强OD记录，车辆: " + busNo + "，AI上车人数: " + aiUpCount + "，AI下车人数: " + aiDownCount);
-
+        System.out.println("[大模型分析] 成功增强OD记录，车辆: " + busNo + "，AI总人数: " + aiTotalCount);
+        
         // 注意：不再在这里发送到Kafka，由调用方统一处理
     }
 
@@ -1199,4 +1200,35 @@ public class PassengerFlowProcessor {
 			}
 		}
 	}
+
+    private int[] waitForCvResultsStable(Jedis jedis, String busNo, String windowId) {
+        long start = System.currentTimeMillis();
+        long lastChange = start;
+        int lastUp = getCachedUpCount(jedis, busNo, windowId);
+        int lastDown = getCachedDownCount(jedis, busNo, windowId);
+        int lastImageCount = getAllImageUrls(jedis, busNo, windowId).size();
+
+        while (System.currentTimeMillis() - start < Config.CV_RESULT_GRACE_MS) {
+            try {
+                Thread.sleep(Config.CV_RESULT_POLL_INTERVAL_MS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+            int up = getCachedUpCount(jedis, busNo, windowId);
+            int down = getCachedDownCount(jedis, busNo, windowId);
+            int img = getAllImageUrls(jedis, busNo, windowId).size();
+
+            if (up != lastUp || down != lastDown || img != lastImageCount) {
+                lastUp = up;
+                lastDown = down;
+                lastImageCount = img;
+                lastChange = System.currentTimeMillis();
+            }
+            if (System.currentTimeMillis() - lastChange >= Config.CV_RESULT_STABLE_MS) {
+                break; // 在稳定窗口内无变化
+            }
+        }
+        return new int[]{lastUp, lastDown};
+    }
 }

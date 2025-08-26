@@ -25,6 +25,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.Set;
 
 /**
  * Kafka消费者服务，统一消费多个主题，判断开门/关门，发送信号到CV
@@ -600,6 +601,33 @@ public class KafkaConsumerService {
         if (now - prev > 60_000) { // 每车每分钟最多一次
             if (Config.LOG_INFO) {
                 System.out.println("[KafkaConsumerService] 未触发开关门: busNo=" + busNo + ", 原因=" + reason);
+                
+                // 增加详细的状态信息
+                try (Jedis jedis = jedisPool.getResource()) {
+                    jedis.auth(Config.REDIS_PASSWORD);
+                    
+                    // 检查关键状态
+                    String openTime = jedis.get("open_time:" + busNo);
+                    String arriveLeave = jedis.get("arrive_leave:" + busNo);
+                    String gps = jedis.get("gps:" + busNo);
+                    
+                    System.out.println("[KafkaConsumerService] 车辆 " + busNo + " 状态诊断:");
+                    System.out.println("  open_time: " + (openTime != null ? openTime : "NULL"));
+                    System.out.println("  arrive_leave: " + (arriveLeave != null ? "EXISTS" : "NULL"));
+                    System.out.println("  gps: " + (gps != null ? "EXISTS" : "NULL"));
+                    
+                    // 检查相关数据
+                    Set<String> featuresKeys = jedis.keys("features_set:" + busNo + ":*");
+                    Set<String> imageKeys = jedis.keys("image_urls:" + busNo + ":*");
+                    Set<String> countKeys = jedis.keys("cv_*_count:" + busNo + ":*");
+                    
+                    System.out.println("  特征数据: " + (featuresKeys != null ? featuresKeys.size() : 0) + " 个");
+                    System.out.println("  图片数据: " + (imageKeys != null ? imageKeys.size() : 0) + " 个");
+                    System.out.println("  计数数据: " + (countKeys != null ? countKeys.size() : 0) + " 个");
+                    
+                } catch (Exception e) {
+                    System.err.println("[KafkaConsumerService] 状态诊断失败: " + e.getMessage());
+                }
             }
             lastDoorSkipLogMsByBus.put(busNo, now);
         }

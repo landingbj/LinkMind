@@ -52,24 +52,27 @@ public class RedisCleanupUtil {
             // 清理过期的到离站数据
             cleanupExpiredKeys(jedis, "arrive_leave:*", "到离站数据");
             
-            // 清理过期的特征向量数据
+            // 清理过期的特征向量数据（只清理已过期的）
             cleanupExpiredKeys(jedis, "features_set:*", "特征向量数据");
             
-            // 清理过期的乘客位置信息数据
+            // 清理过期的乘客位置信息数据（只清理已过期的）
             cleanupExpiredKeys(jedis, "feature_position:*", "乘客位置信息数据");
             
-            // 清理过期的图像URL数据
+            // 清理过期的图像URL数据（只清理已过期的）
             cleanupExpiredKeys(jedis, "image_urls:*", "图像URL数据");
             
-            // 清理过期的计数数据
+            // 清理过期的计数数据（只清理已过期的）
             cleanupExpiredKeys(jedis, "ticket_count_*", "票务计数数据");
             cleanupExpiredKeys(jedis, "cv_*_count:*", "CV计数数据");
             
             // 清理过期的OD记录缓存
             cleanupExpiredKeys(jedis, "od_record:*", "OD记录缓存");
             
-            // 清理过期的特征站点映射
+            // 清理过期的特征站点映射（只清理已过期的）
             cleanupExpiredKeys(jedis, "feature_station:*", "特征站点映射");
+            
+            // 清理过期的区间客流数据
+            cleanupExpiredKeys(jedis, "section_flow:*", "区间客流数据");
             
             // 监控内存使用情况
             monitorMemoryUsage(jedis);
@@ -88,20 +91,45 @@ public class RedisCleanupUtil {
         try {
             Set<String> keys = jedis.keys(pattern);
             int expiredCount = 0;
+            int skippedCount = 0;
             
             for (String key : keys) {
-                if (jedis.ttl(key) == -1) { // 没有设置过期时间的键
+                long ttl = jedis.ttl(key);
+                
+                if (ttl == -1) { // 没有设置过期时间的键
                     // 根据键名判断应该设置什么过期时间
-                    int ttl = getTTLForKey(key);
-                    if (ttl > 0) {
-                        jedis.expire(key, ttl);
+                    int newTtl = getTTLForKey(key);
+                    if (newTtl > 0) {
+                        jedis.expire(key, newTtl);
                         expiredCount++;
+                        
+                        if (Config.LOG_DEBUG) {
+                            System.out.println("[RedisCleanupUtil] Set TTL for key: " + key + ", TTL: " + newTtl + "s");
+                        }
+                    }
+                } else if (ttl == -2) { // 键不存在（已被删除）
+                    // 跳过已删除的键
+                    continue;
+                } else if (ttl > 0) { // 键还有剩余时间
+                    // 跳过还有剩余时间的键，不进行清理
+                    skippedCount++;
+                    continue;
+                } else if (ttl == 0) { // 键已过期
+                    // 只删除已过期的键
+                    jedis.del(key);
+                    expiredCount++;
+                    
+                    if (Config.LOG_DEBUG) {
+                        System.out.println("[RedisCleanupUtil] Deleted expired key: " + key);
                     }
                 }
             }
             
-            if (expiredCount > 0 && Config.LOG_INFO) {
-                System.out.println("[RedisCleanupUtil] Set TTL for " + expiredCount + " " + dataType + " keys");
+            if (expiredCount > 0 || skippedCount > 0) {
+                if (Config.LOG_INFO) {
+                    System.out.println("[RedisCleanupUtil] " + dataType + " cleanup: " + 
+                        expiredCount + " processed, " + skippedCount + " skipped (still valid)");
+                }
             }
             
         } catch (Exception e) {
@@ -137,6 +165,8 @@ public class RedisCleanupUtil {
             return Config.REDIS_TTL_OPEN_TIME;
         } else if (key.startsWith("feature_station:")) {
             return Config.REDIS_TTL_FEATURES;
+        } else if (key.startsWith("section_flow:")) {
+            return Config.REDIS_TTL_OPEN_TIME; // 假设区间客流数据也与开放时间同TTL
         }
         return 0; // 不设置过期时间
     }

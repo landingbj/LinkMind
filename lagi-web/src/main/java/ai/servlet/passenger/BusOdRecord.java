@@ -78,7 +78,10 @@ public class BusOdRecord {
      */
     private String passengerPosition;
 
-    /** 满载率（百分比，例如 75.25 表示75.25%） */
+    /** 
+     * 满载率（小数形式，例如 0.9 表示满载率90%，0.75 表示满载率75%）
+     * 直接存储CV系统推送的factor值，不做百分比转换
+     */
     private BigDecimal fullLoadRate;
 
     /** 乘客特征文字描述 */
@@ -86,7 +89,7 @@ public class BusOdRecord {
 
     /** 
      * 车辆当前总人数（来自CV系统满载率推送的count字段）
-     * 表示车辆在某个时刻的实时载客总数
+     * 表示车辆在某个时刻的实时载客总数，直接存储CV推送的原始值
      */
     private Integer vehicleTotalCount;
 

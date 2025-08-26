@@ -473,11 +473,17 @@ public class PassengerFlowProcessor {
 				// 设置区间客流统计
 				setSectionPassengerFlowCount(record, jedis, busNo, windowId);
 
-				// 处理图片转视频
-				processImagesToVideo(record, jedis, busNo, windowId);
-
 				// 设置乘客特征集合
 				setPassengerFeatures(record, jedis, busNo, windowId);
+
+				// 并行处理图片：AI分析和视频转换
+				try {
+					processImagesParallel(record, jedis, busNo, windowId, eventTime);
+				} catch (Exception e) {
+					if (Config.LOG_ERROR) {
+						System.err.println("[PassengerFlowProcessor] Error in parallel image processing: " + e.getMessage());
+					}
+				}
 
 				// 设置车辆总人数（从CV系统获取）
 				record.setVehicleTotalCount(getVehicleTotalCountFromRedis(jedis, busNo));
@@ -525,21 +531,66 @@ public class PassengerFlowProcessor {
 	}
 
 	/**
+	 * 并行处理图片：AI分析和视频转换
+	 * @param record BusOdRecord记录
+	 * @param jedis Redis连接
+	 * @param busNo 公交车编号
+	 * @param windowId 时间窗口ID
+	 * @param eventTime 事件时间
+	 */
+	private void processImagesParallel(BusOdRecord record, Jedis jedis, String busNo, String windowId, LocalDateTime eventTime) throws IOException, SQLException {
+		System.out.println("[并行处理] 开始为车辆 " + busNo + " 并行处理图片，时间窗口: " + windowId);
+		
+		// 1. 收集图片URL
+		List<String> imageUrls = getAllImageUrls(jedis, busNo, windowId);
+		
+		if (imageUrls == null || imageUrls.isEmpty()) {
+			System.out.println("[并行处理] 没有图片需要处理，跳过");
+			return;
+		}
+		
+		System.out.println("[并行处理] 收集到 " + imageUrls.size() + " 张图片，开始并行处理");
+		
+		// 2. 设置图片URL集合到记录中
+		JSONArray imageArray = new JSONArray();
+		for (String imageUrl : imageUrls) {
+			imageArray.put(imageUrl);
+		}
+		record.setPassengerImages(imageArray.toString());
+		
+		// 3. 并行处理：AI分析和视频转换
+		try {
+			// 3.1 AI分析（同步执行，因为需要结果）
+			System.out.println("[并行处理] 开始AI图片分析");
+			analyzeImagesWithAI(jedis, busNo, eventTime, record, imageUrls);
+			
+			// 3.2 视频转换（同步执行，因为需要结果）
+			System.out.println("[并行处理] 开始图片转视频");
+			processImagesToVideo(record, jedis, busNo, windowId, imageUrls);
+			
+			System.out.println("[并行处理] 并行处理完成，AI分析和视频转换都已成功");
+			
+		} catch (Exception e) {
+			System.err.println("[并行处理] 并行处理过程中发生异常: " + e.getMessage());
+			e.printStackTrace();
+		}
+	}
+
+	/**
 	 * 处理图片转视频功能
 	 * @param record BusOdRecord记录
 	 * @param jedis Redis连接
 	 * @param busNo 公交车编号
 	 * @param windowId 时间窗口ID
+	 * @param imageUrls 图片URL列表（已收集）
 	 */
-	private void processImagesToVideo(BusOdRecord record, Jedis jedis, String busNo, String windowId) {
+	private void processImagesToVideo(BusOdRecord record, Jedis jedis, String busNo, String windowId, List<String> imageUrls) {
+		System.out.println("[图片转视频] 开始为车辆 " + busNo + " 处理图片转视频，时间窗口: " + windowId);
+		
 		try {
-			// 获取所有图片URL
-			List<String> imageUrls = getAllImageUrls(jedis, busNo, windowId);
-			
+			// 使用传入的图片URL列表
 			if (imageUrls != null && !imageUrls.isEmpty()) {
-				if (Config.PILOT_ROUTE_LOG_ENABLED) {
-					System.out.println("[流程] 开始处理图片转视频，图片数量: " + imageUrls.size());
-				}
+				System.out.println("[图片转视频] 收集到 " + imageUrls.size() + " 张图片，开始转换视频");
 				
 				// 设置图片URL集合
 				JSONArray imageArray = new JSONArray();
@@ -548,34 +599,37 @@ public class PassengerFlowProcessor {
 				}
 				record.setPassengerImages(imageArray.toString());
 				
-				// 转换为视频
+				// 转换为视频 - 与AI分析并行处理，用于存储和展示
 				try {
+					System.out.println("[图片转视频] 开始调用FFmpeg转换图片为视频，临时目录: " + System.getProperty("java.io.tmpdir"));
+					
 					String tempDir = System.getProperty("java.io.tmpdir");
 					File videoFile = ImageToVideoConverter.convertImagesToVideo(imageUrls, tempDir);
 					
+					System.out.println("[图片转视频] FFmpeg转换完成，生成视频文件: " + videoFile.getAbsolutePath() + ", 大小: " + videoFile.length() + " 字节");
+					
 					// 生成动态目录名（基于开关门事件）
 					String dynamicDir = "PassengerFlowRecognition/" + windowId;
+					System.out.println("[图片转视频] 准备上传视频到OSS，目录: " + dynamicDir);
 					
 					// 上传视频到OSS（使用视频配置）
 					String videoUrl = OssUtil.uploadVideoFile(videoFile, UUID.randomUUID().toString() + ".mp4", dynamicDir);
 					record.setPassengerVideoUrl(videoUrl);
 					
+					System.out.println("[图片转视频] 视频上传OSS成功，URL: " + videoUrl);
+					
 					// 删除临时视频文件
 					videoFile.delete();
+					System.out.println("[图片转视频] 临时视频文件已清理");
 					
-					if (Config.PILOT_ROUTE_LOG_ENABLED) {
-						System.out.println("[流程] 图片转视频完成，视频URL: " + videoUrl);
-					}
 				} catch (Exception e) {
-					if (Config.LOG_ERROR) {
-						System.err.println("[PassengerFlowProcessor] Error converting images to video: " + e.getMessage());
-					}
+					System.err.println("[图片转视频] 转换失败: " + e.getMessage());
+					e.printStackTrace();
 				}
 			}
 		} catch (Exception e) {
-			if (Config.LOG_ERROR) {
-				System.err.println("[PassengerFlowProcessor] Error processing images to video: " + e.getMessage());
-			}
+			System.err.println("[图片转视频] 处理过程发生异常: " + e.getMessage());
+			e.printStackTrace();
 		}
 	}
 
@@ -589,24 +643,34 @@ public class PassengerFlowProcessor {
 	private List<String> getAllImageUrls(Jedis jedis, String busNo, String windowId) {
 		List<String> imageUrls = new ArrayList<>();
 		
+		System.out.println("[图片收集] 开始收集车辆 " + busNo + " 在时间窗口 " + windowId + " 的图片URL");
+		
 		try {
 			// 获取上车图片URL
 			String upImagesKey = "image_urls:" + busNo + ":" + windowId + ":up";
 			Set<String> upImages = jedis.smembers(upImagesKey);
-			if (upImages != null) {
+			if (upImages != null && !upImages.isEmpty()) {
 				imageUrls.addAll(upImages);
+				System.out.println("[图片收集] 收集到上车图片 " + upImages.size() + " 张");
+			} else {
+				System.out.println("[图片收集] 未找到上车图片");
 			}
 			
 			// 获取下车图片URL
 			String downImagesKey = "image_urls:" + busNo + ":" + windowId + ":down";
 			Set<String> downImages = jedis.smembers(downImagesKey);
-			if (downImages != null) {
+			if (downImages != null && !downImages.isEmpty()) {
 				imageUrls.addAll(downImages);
+				System.out.println("[图片收集] 收集到下车图片 " + downImages.size() + " 张");
+			} else {
+				System.out.println("[图片收集] 未找到下车图片");
 			}
+			
+			System.out.println("[图片收集] 总共收集到图片 " + imageUrls.size() + " 张");
+			
 		} catch (Exception e) {
-			if (Config.LOG_ERROR) {
-				System.err.println("[PassengerFlowProcessor] Error getting image URLs: " + e.getMessage());
-			}
+			System.err.println("[图片收集] 收集图片URL时发生异常: " + e.getMessage());
+			e.printStackTrace();
 		}
 		
 		return imageUrls;
@@ -743,23 +807,47 @@ public class PassengerFlowProcessor {
 	}
 
 	private JSONObject callMediaApi(List<String> imageList, String videoPath, String prompt) throws IOException {
+		System.out.println("[大模型API] 开始调用大模型API: " + Config.MEDIA_API);
+		System.out.println("[大模型API] 请求参数 - 图片数量: " + (imageList != null ? imageList.size() : 0) + 
+			", 视频路径: " + (videoPath != null ? videoPath : "无") + ", 提示词: " + prompt);
+		
 		try (CloseableHttpClient client = HttpClients.createDefault()) {
 			HttpPost post = new HttpPost(Config.MEDIA_API);
 			post.setHeader("Content-Type", "application/json");
 			JSONObject payload = new JSONObject();
+			
+			// 根据API文档，优先使用image_path_list参数
 			if (imageList != null && !imageList.isEmpty()) {
 				payload.put("image_path_list", new JSONArray(imageList));
+				System.out.println("[大模型API] 使用图片列表参数，图片数量: " + imageList.size());
 			} else if (videoPath != null && !videoPath.isEmpty()) {
 				payload.put("video_path", videoPath);
+				System.out.println("[大模型API] 使用视频路径参数");
+			} else {
+				System.err.println("[大模型API] 错误：既没有图片列表也没有视频路径");
+				throw new IllegalArgumentException("必须提供图片列表或视频路径");
 			}
+			
 			payload.put("system_prompt", prompt);
 			StringEntity entity = new StringEntity(payload.toString(), "UTF-8");
 			post.setEntity(entity);
 
+			System.out.println("[大模型API] 发送HTTP请求，payload大小: " + payload.toString().length());
+			
 			try (CloseableHttpResponse response = client.execute(post)) {
 				String responseString = EntityUtils.toString(response.getEntity());
-				// 屏蔽模型API原始响应日志
-				return new JSONObject(responseString);
+				System.out.println("[大模型API] 收到响应，状态码: " + response.getStatusLine().getStatusCode() + 
+					", 响应大小: " + responseString.length());
+				
+				// 屏蔽模型API原始响应日志，只显示关键信息
+				JSONObject responseJson = new JSONObject(responseString);
+				if (responseJson.has("response")) {
+					System.out.println("[大模型API] 响应包含response字段，解析成功");
+				} else {
+					System.out.println("[大模型API] 响应格式异常，缺少response字段");
+				}
+				
+				return responseJson;
 			}
 		}
 	}
@@ -994,72 +1082,63 @@ public class PassengerFlowProcessor {
             jedis.sadd(imageUrlsKey, imageUrl);
             jedis.expire(imageUrlsKey, Config.REDIS_TTL_OPEN_TIME);
 
-            if (Config.LOG_DEBUG) {
-                System.out.println("[PassengerFlowProcessor] Cached image URL for " + direction + ", busNo=" + busNo + ", windowId=" + windowId);
-            }
+            System.out.println("[图片缓存] 成功缓存图片URL: 车辆=" + busNo + ", 方向=" + direction + ", 时间窗口=" + windowId + ", URL长度=" + imageUrl.length());
         }
     }
 
 	    /**
      * 使用图片列表调用AI模型进行分析，增强现有的OD记录
      */
-    private void analyzeImagesWithAI(Jedis jedis, String busNo, LocalDateTime timeWindow, BusOdRecord record) throws IOException, SQLException {
+    /**
+     * 使用大模型分析图片列表 - 与图片转视频并行处理
+     * 图片转视频：用于存储和展示
+     * 大模型分析：直接使用图片列表进行AI分析，无需等待视频转换
+     */
+    private void analyzeImagesWithAI(Jedis jedis, String busNo, LocalDateTime timeWindow, BusOdRecord record, List<String> imageUrls) throws IOException, SQLException {
         // 检查是否启用AI图片分析
         if (!Config.ENABLE_AI_IMAGE_ANALYSIS) {
-            if (Config.LOG_DEBUG) {
-                System.out.println("[PassengerFlowProcessor] AI image analysis is disabled");
-            }
+            System.out.println("[大模型分析] AI图片分析功能已禁用，跳过分析");
             return;
         }
+
+        System.out.println("[大模型分析] 开始为车辆 " + busNo + " 进行AI图片分析");
 
         // 获取当前开门时间窗口ID
         String windowId = jedis.get("open_time:" + busNo);
         if (windowId == null) {
-            if (Config.LOG_DEBUG) {
-                System.out.println("[PassengerFlowProcessor] No open window found for busNo=" + busNo + ", skipping AI analysis");
-            }
+            System.out.println("[大模型分析] 未找到车辆 " + busNo + " 的开门时间窗口，跳过AI分析");
             return;
         }
 
-        // 从特征数据中收集图片URL列表
-        List<String> imageUrls = new ArrayList<>();
-        Set<String> features = jedis.smembers("features_set:" + busNo + ":" + windowId);
-        if (features != null && !features.isEmpty()) {
-            for (String featureStr : features) {
-                try {
-                    JSONObject featureObj = new JSONObject(featureStr);
-                    String imageUrl = featureObj.optString("image");
-                    if (imageUrl != null && !imageUrl.isEmpty()) {
-                        imageUrls.add(imageUrl);
-                    }
-                } catch (Exception e) {
-                    // 如果解析失败，跳过该特征
-                    if (Config.LOG_DEBUG) {
-                        System.out.println("[PassengerFlowProcessor] Failed to parse feature JSON for AI analysis: " + featureStr);
-                    }
-                }
-            }
+        System.out.println("[大模型分析] 找到时间窗口: " + windowId);
+
+        // 使用传入的图片URL列表，不再从特征数据中收集
+        if (imageUrls == null || imageUrls.isEmpty()) {
+            System.out.println("[大模型分析] 传入的图片URL列表为空，跳过AI分析");
+            return;
         }
 
         if (imageUrls.isEmpty()) {
-            if (Config.LOG_DEBUG) {
-                System.out.println("[PassengerFlowProcessor] No images to analyze for busNo=" + busNo);
-            }
+            System.out.println("[大模型分析] 车辆 " + busNo + " 没有图片需要分析，跳过AI分析");
             return;
         }
 
+        System.out.println("[大模型分析] 收集到 " + imageUrls.size() + " 张图片，准备调用大模型分析");
+
         // 限制图片数量，避免AI模型处理过多图片
         if (imageUrls.size() > Config.MAX_IMAGES_PER_ANALYSIS) {
-            if (Config.LOG_DEBUG) {
-                System.out.println("[PassengerFlowProcessor] Limiting images from " + imageUrls.size() + " to " + Config.MAX_IMAGES_PER_ANALYSIS);
-            }
+            System.out.println("[大模型分析] 图片数量过多，从 " + imageUrls.size() + " 张限制到 " + Config.MAX_IMAGES_PER_ANALYSIS + " 张");
             imageUrls = imageUrls.subList(0, Config.MAX_IMAGES_PER_ANALYSIS);
         }
 
-        		// 调用大模型分析图片
-		JSONObject modelResponse = callMediaApi(imageUrls, null, Config.PASSENGER_PROMPT);
-		JSONObject responseObj = modelResponse.optJSONObject("response");
-		JSONArray passengerFeatures = responseObj != null ? responseObj.optJSONArray("passenger_features") : new JSONArray();
+        System.out.println("[大模型分析] 开始调用大模型API，图片数量: " + imageUrls.size() + "，提示词: " + Config.PASSENGER_PROMPT);
+        
+        // 调用大模型分析图片 - 直接传入图片列表，不使用视频路径
+        JSONObject modelResponse = callMediaApi(imageUrls, null, Config.PASSENGER_PROMPT);
+        System.out.println("[大模型分析] 大模型API调用完成，响应: " + modelResponse.toString());
+        
+        JSONObject responseObj = modelResponse.optJSONObject("response");
+        JSONArray passengerFeatures = responseObj != null ? responseObj.optJSONArray("passenger_features") : new JSONArray();
 
 		// 解析大模型识别的上下车人数
 		int aiUpCount = 0;
@@ -1070,22 +1149,17 @@ public class PassengerFlowProcessor {
 			aiDownCount = responseObj.optInt("down_count", 0);
 		}
 
-		if (Config.LOG_DEBUG) {
-			System.out.println("[PassengerFlowProcessor] AI analysis result - ai_up_count=" + aiUpCount +
-				", ai_down_count=" + aiDownCount + ", features_len=" + passengerFeatures.length());
-		}
+		System.out.println("[大模型分析] AI分析结果 - 上车人数: " + aiUpCount + 
+			", 下车人数: " + aiDownCount + ", 特征数量: " + passengerFeatures.length());
 
 		// 增强现有记录，设置大模型识别的上下车人数
 		record.setFeatureDescription(passengerFeatures.toString());
 		record.setAiUpCount(aiUpCount);
 		record.setAiDownCount(aiDownCount);
 
-        if (Config.LOG_INFO) {
-            System.out.println("[PassengerFlowProcessor] Enhanced OD record with AI analysis for busNo=" + busNo);
-        }
+        System.out.println("[大模型分析] 成功增强OD记录，车辆: " + busNo + "，AI上车人数: " + aiUpCount + "，AI下车人数: " + aiDownCount);
 
-        // 发送增强后的记录到Kafka（只发送一次）
-        sendToKafka(record);
+        // 注意：不再在这里发送到Kafka，由调用方统一处理
     }
 
 	/**

@@ -20,6 +20,8 @@ public class ImageToVideoConverter {
      * @throws IOException 转换异常
      */
     public static File convertImagesToVideo(List<String> imageUrls, String outputDir, int frameRate) throws IOException {
+        System.out.println("[FFmpeg转换] 开始转换图片为视频，图片数量: " + imageUrls.size() + ", 输出目录: " + outputDir + ", 帧率: " + frameRate);
+        
         if (imageUrls == null || imageUrls.isEmpty()) {
             throw new IllegalArgumentException("图片URL列表不能为空");
         }
@@ -34,10 +36,16 @@ public class ImageToVideoConverter {
         String outputFileName = "passenger_video_" + UUID.randomUUID().toString() + ".mp4";
         File outputFile = new File(outputDirectory, outputFileName);
         
+        System.out.println("[FFmpeg转换] 输出文件路径: " + outputFile.getAbsolutePath());
+        
         try {
             // 使用FFmpeg将图片转换为视频
             // 这里需要系统安装FFmpeg
             String ffmpegCommand = buildFFmpegCommand(imageUrls, outputFile.getAbsolutePath(), frameRate);
+            
+            System.out.println("[FFmpeg转换] 开始创建临时图片目录并下载图片");
+            File tempDir = createTempImageDirectory(imageUrls);
+            System.out.println("[FFmpeg转换] 临时图片目录创建完成: " + tempDir.getAbsolutePath());
             
             ProcessBuilder processBuilder = new ProcessBuilder();
             processBuilder.command("ffmpeg", "-y", "-framerate", String.valueOf(frameRate), 
@@ -45,15 +53,18 @@ public class ImageToVideoConverter {
                                  outputFile.getAbsolutePath());
             
             // 设置工作目录为临时图片目录
-            File tempDir = createTempImageDirectory(imageUrls);
             processBuilder.directory(tempDir);
             
+            System.out.println("[FFmpeg转换] 开始执行FFmpeg命令，工作目录: " + tempDir.getAbsolutePath());
             Process process = processBuilder.start();
             int exitCode = process.waitFor();
             
             if (exitCode != 0) {
+                System.err.println("[FFmpeg转换] FFmpeg转换失败，退出码: " + exitCode);
                 throw new IOException("FFmpeg转换失败，退出码: " + exitCode);
             }
+            
+            System.out.println("[FFmpeg转换] FFmpeg转换成功，退出码: " + exitCode);
             
             // 清理临时文件
             cleanupTempFiles(tempDir);

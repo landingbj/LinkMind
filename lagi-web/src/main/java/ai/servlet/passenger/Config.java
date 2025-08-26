@@ -18,6 +18,8 @@ public class Config {
     public static final String OSS_GROUP_ID_VIDEO = "305";
     public static final String OSS_TYPE_VIDEO = "20";
     
+    // 大模型API配置 - 支持图片列表和视频两种输入方式
+    // 优先使用image_path_list参数，fallback到video_path参数
     public static final String MEDIA_API = "http://20.17.127.20:8010/keliushibie-media";
     public static final String PASSENGER_PROMPT = "请分析车门区域的下车乘客特征";
 

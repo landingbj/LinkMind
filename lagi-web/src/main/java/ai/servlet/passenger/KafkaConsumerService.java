@@ -582,44 +582,23 @@ public class KafkaConsumerService {
             return;
         }
 
-        // 获取缓存数据
+        // 获取缓存数据（仅到离站）
         String arriveLeaveStr = jedis.get("arrive_leave:" + busNo);
-        String gpsStr = jedis.get("gps:" + busNo);
 
-        if (arriveLeaveStr == null || gpsStr == null) {
-            String reason;
-            if (arriveLeaveStr == null && gpsStr == null) {
-                reason = "缺少arrive_leave与gps";
-            } else if (arriveLeaveStr == null) {
-                reason = "缺少arrive_leave";
-            } else {
-                reason = "缺少gps";
-            }
-            logDoorSkipThrottled(busNo, reason);
+        if (arriveLeaveStr == null) {
+            logDoorSkipThrottled(busNo, "缺少arrive_leave");
             return;
         }
 
         JSONObject arriveLeave = new JSONObject(arriveLeaveStr);
-        JSONObject gps = new JSONObject(gpsStr);
-
         String stationId = arriveLeave.optString("stationId");
-        double busLat = gps.optDouble("lat");
-        double busLng = gps.optDouble("lng");
-        double speed = gps.optDouble("speed");
 
         // 移除判门输入调试日志
 
-        // 获取站点GPS
-        double[] stationGps = stationGpsMap.getOrDefault(stationId, null);
-        boolean hasStationGps = stationGps != null;
-        double distance = -1.0; // 使用-1表示无效距离，避免JSON序列化问题
-        if (hasStationGps) {
-            // 验证GPS坐标的有效性
-            if (isValidGpsCoordinate(stationGps[0], stationGps[1]) && isValidGpsCoordinate(busLat, busLng)) {
-                distance = calculateDistance(busLat, busLng, stationGps[0], stationGps[1]);
-            }
-        }
-        
+        // 仅依赖到离站数据进行判定
+        double distance = -1.0;
+        double speed = -1.0;
+
         LocalDateTime now = LocalDateTime.now();
 
         // 判断开门（优先报站 > GPS）
@@ -638,11 +617,12 @@ public class KafkaConsumerService {
         }
         
         if ("1".equals(arriveLeave.optString("isArriveOrLeft"))) {
-            shouldOpen = true; // 报站到站
-            openReason = "报站到站信号";
-        } else if (hasStationGps && distance >= 0 && distance < Config.OPEN_DISTANCE_THRESHOLD_M && speed < Config.OPEN_SPEED_THRESHOLD_MS) {
-            shouldOpen = true; // GPS阈值触发
-            openReason = "GPS电子围栏触发(距离" + distance + "m, 速度" + speed + "m/s)";
+            // 防重复开门：若已存在开门窗口则不重复
+            String openTimeExisting = jedis.get("open_time:" + busNo);
+            if (openTimeExisting == null) {
+                shouldOpen = true;
+                openReason = "报站到站信号";
+            }
         }
 
         // 判断关门（加入去抖与最小开门时长约束）
@@ -653,9 +633,6 @@ public class KafkaConsumerService {
         if (isArriveLeaveClose) {
             closeCondition = true; // 报站离站
             closeReason = "报站离站信号";
-        } else if (hasStationGps && distance >= 0 && (distance > Config.CLOSE_DISTANCE_THRESHOLD_M || speed > Config.CLOSE_SPEED_THRESHOLD_MS)) {
-            closeCondition = true; // GPS阈值触发
-            closeReason = "GPS电子围栏触发(距离" + distance + "m, 速度" + speed + "m/s)";
         }
 
         // 增加关门超时机制：如果开门时间超过最大允许时长，强制关门
@@ -674,19 +651,8 @@ public class KafkaConsumerService {
                 
                 // 关门条件判断
                 if (closeCondition && openMs >= Config.MIN_DOOR_OPEN_MS) {
-                    if (isArriveLeaveClose) {
-                        // 报站离站=2：直接允许关门，不做连续计数与顺序标志校验
-                        shouldClose = true;
-                    } else {
-                        // GPS分支：保留连续计数，过滤抖动
-                        String counterKey = "door_close_candidate:" + busNo;
-                        long c = jedis.incr(counterKey);
-                        jedis.expire(counterKey, 10);
-                        if (c >= Config.CLOSE_CONSECUTIVE_REQUIRED) {
-                            shouldClose = true;
-                            jedis.del(counterKey);
-                        }
-                    }
+                    // 报站离站=2：直接允许关门
+                    shouldClose = true;
                 } else if (openMs >= Config.MAX_DOOR_OPEN_MS) {
                     // 超时强制关门：防止车门长时间不关闭
                     shouldClose = true;
@@ -695,8 +661,7 @@ public class KafkaConsumerService {
                         System.out.println("[KafkaConsumerService] 车辆 " + busNo + " 开门超时，强制关门: " + openMs + "ms");
                     }
                 } else {
-                    // 条件不满足或开门时间不足，重置计数
-                    jedis.del("door_close_candidate:" + busNo);
+                    // 条件不满足或开门时间不足
                 }
             } catch (Exception e) {
                 // 时间解析异常：保守放行（视为已满足最小开门时长）
@@ -751,6 +716,12 @@ public class KafkaConsumerService {
         } else if (shouldClose) {
             String openTimeStr = jedis.get("open_time:" + busNo);
             if (openTimeStr != null) {
+                // 幂等：该开门窗口是否已发过关门
+                String closeSentKey = "close_sent:" + busNo + ":" + (openTimeStr.contains("T") ? openTimeStr.replace("T", " ") : openTimeStr);
+                if (jedis.get(closeSentKey) != null) {
+                    logDoorSkipThrottled(busNo, "该开门窗口已发送过关门，忽略重复");
+                    return;
+                }
                 // 试点线路关门流程日志（可通过配置控制）
                 if (Config.PILOT_ROUTE_LOG_ENABLED) {
                     System.out.println("[试点线路关门流程] 开始发送关门信号到CV系统:");
@@ -781,6 +752,9 @@ public class KafkaConsumerService {
                 // 注意：不再立即清理Redis缓存，让CV系统处理完OD数据后再清理
                 // jedis.del("open_time:" + busNo);
                 // jedis.del("ticket_count_window:" + busNo);
+                // 设置关门幂等标记
+                jedis.set(closeSentKey, "1");
+                jedis.expire(closeSentKey, Config.REDIS_TTL_OPEN_TIME);
                 // 记录最近一次到离站标志
                 jedis.set("last_arrive_leave_flag:" + busNo, arriveLeave.optString("isArriveOrLeft", ""));
                 jedis.expire("last_arrive_leave_flag:" + busNo, Config.REDIS_TTL_ARRIVE_LEAVE);
@@ -793,8 +767,7 @@ public class KafkaConsumerService {
         } else {
             // 数据齐全但条件未触发，低频提示原因
             String arriveFlag = arriveLeave.optString("isArriveOrLeft");
-            String distanceStr = distance >= 0 ? distance + "m" : "无效";
-            logDoorSkipThrottled(busNo, "条件未满足: distance=" + distanceStr + ", speed=" + speed + "m/s, arriveLeave=" + arriveFlag);
+            logDoorSkipThrottled(busNo, "条件未满足: arriveLeave=" + arriveFlag);
         }
     }
 

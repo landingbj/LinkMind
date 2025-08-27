@@ -70,6 +70,11 @@ public class KafkaConsumerService {
         System.out.println("[KafkaConsumerService] 开关门白名单车辆: " + Arrays.toString(DOOR_SIGNAL_WHITELIST));
         System.out.println("[KafkaConsumerService] 正在加载站点GPS数据...");
         loadStationGpsFromDb();
+        
+        // 打印bus_no到车牌号的映射关系
+        System.out.println("[KafkaConsumerService] 车辆编号与车牌号映射关系:");
+        BusPlateMappingUtil.printAllMappings();
+        
         System.out.println("[KafkaConsumerService] 构造函数执行完成");
     }
 
@@ -722,14 +727,19 @@ public class KafkaConsumerService {
 
     /**
      * 发送开关门信号到CV
+     * 现在推送车牌号而不是bus_no，确保与CV系统数据一致
      */
     private void sendDoorSignalToCV(String busNo, String action, LocalDateTime timestamp) {
         try {
+            // 获取对应的车牌号
+            String plateNumber = BusPlateMappingUtil.getPlateNumber(busNo);
+            
             JSONObject doorSignal = new JSONObject();
             doorSignal.put("event", "open_close_door");
 
             JSONObject data = new JSONObject();
-            data.put("bus_no", busNo);
+            data.put("bus_no", plateNumber); // 推送车牌号而不是bus_no
+            data.put("original_bus_no", busNo); // 保留原始bus_no用于内部处理
             data.put("camera_no", "default"); // 默认摄像头编号
             data.put("action", action);
             data.put("timestamp", timestamp.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
@@ -740,7 +750,12 @@ public class KafkaConsumerService {
             WebSocketEndpoint.sendToAll(doorSignal.toString());
 
             if (Config.LOG_INFO) {
-                System.out.println("[KafkaConsumerService] Sent door signal to CV: " + doorSignal.toString());
+                System.out.println("[KafkaConsumerService] 发送开关门信号到CV系统:");
+                System.out.println("   原始bus_no: " + busNo);
+                System.out.println("   推送车牌号: " + plateNumber);
+                System.out.println("   动作: " + action);
+                System.out.println("   时间: " + timestamp.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+                System.out.println("   完整消息: " + doorSignal.toString());
             }
 
             // 本地自回推：直接触发 PassengerFlowProcessor 处理开/关门事件

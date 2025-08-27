@@ -5,6 +5,8 @@ import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Properties;
 
 /**
@@ -27,6 +29,48 @@ public class KafkaConfig {
 
     // 消费者组ID
     public static final String CONSUMER_GROUP_ID = "passenger_flow_group";
+
+    // bus_no到车牌号的映射关系
+    public static final Map<String, String> BUS_NO_TO_PLATE_MAP = new HashMap<>();
+    
+    static {
+        // 初始化映射关系
+        BUS_NO_TO_PLATE_MAP.put("2-8091", "浙A05705D");
+        BUS_NO_TO_PLATE_MAP.put("2-8089", "浙A03231D");
+        BUS_NO_TO_PLATE_MAP.put("2-8117", "浙A02572D");
+        BUS_NO_TO_PLATE_MAP.put("2-8116", "浙A05366D");
+        BUS_NO_TO_PLATE_MAP.put("2-9050", "浙A06063D");
+        BUS_NO_TO_PLATE_MAP.put("2-9059", "浙A05679D");
+        BUS_NO_TO_PLATE_MAP.put("8-6161", "浙A33735D");
+        BUS_NO_TO_PLATE_MAP.put("8-6162", "浙A05150D");
+        BUS_NO_TO_PLATE_MAP.put("8-6173", "浙A00583D");
+        BUS_NO_TO_PLATE_MAP.put("8-6172", "浙A30125D");
+        BUS_NO_TO_PLATE_MAP.put("8-8065", "浙A00150D");
+        BUS_NO_TO_PLATE_MAP.put("8-8062", "浙A01788D");
+    }
+
+    /**
+     * 根据bus_no获取对应的车牌号
+     * @param busNo 车辆编号
+     * @return 车牌号，如果未找到则返回原bus_no
+     */
+    public static String getPlateNumber(String busNo) {
+        return BUS_NO_TO_PLATE_MAP.getOrDefault(busNo, busNo);
+    }
+
+    /**
+     * 根据车牌号获取对应的bus_no
+     * @param plateNumber 车牌号
+     * @return bus_no，如果未找到则返回null
+     */
+    public static String getBusNoByPlate(String plateNumber) {
+        for (Map.Entry<String, String> entry : BUS_NO_TO_PLATE_MAP.entrySet()) {
+            if (entry.getValue().equals(plateNumber)) {
+                return entry.getKey();
+            }
+        }
+        return null;
+    }
 
     /**
      * 获取Kafka消费者配置

@@ -119,6 +119,33 @@ public class PassengerFlowProcessor {
 		System.out.println("   timestamp: " + data.optString("timestamp"));
 		System.out.println("   事件数量: " + (events != null ? events.length() : 0));
 		System.out.println("   ================================================================================");
+		
+		// 增加调试信息：检查当前是否有开门时间窗口
+		try (Jedis debugJedis = jedisPool.getResource()) {
+			debugJedis.auth(Config.REDIS_PASSWORD);
+			String mappedBusNo = BusPlateMappingUtil.getBusNoByPlate(busNo);
+			if (mappedBusNo != null) {
+				// 检查该车辆的开门时间窗口
+				String openTimeKey = "open_time:" + mappedBusNo;
+				String openTime = debugJedis.get(openTimeKey);
+				if (openTime != null) {
+					System.out.println("[CV数据调试] 车辆 " + mappedBusNo + " 当前开门时间窗口: " + openTime);
+					
+					// 检查该时间窗口的图片缓存
+					String upImagesKey = "image_urls:" + mappedBusNo + ":" + openTime + ":up";
+					String downImagesKey = "image_urls:" + mappedBusNo + ":" + openTime + ":down";
+					Set<String> upImages = debugJedis.smembers(upImagesKey);
+					Set<String> downImages = debugJedis.smembers(downImagesKey);
+					System.out.println("[CV数据调试] 时间窗口 " + openTime + " 的图片缓存状态:");
+					System.out.println("   上车图片: " + (upImages != null ? upImages.size() : 0) + " 张");
+					System.out.println("   下车图片: " + (downImages != null ? downImages.size() : 0) + " 张");
+				} else {
+					System.out.println("[CV数据调试] 车辆 " + mappedBusNo + " 当前没有开门时间窗口");
+				}
+			}
+		} catch (Exception e) {
+			System.err.println("[CV数据调试] 检查开门时间窗口时发生异常: " + e.getMessage());
+		}
 
 		if (Config.PILOT_ROUTE_LOG_ENABLED) {
 			System.out.println("[流程] downup事件开始: busNo=" + busNo + ", 事件数=" + (events != null ? events.length() : 0));
@@ -788,6 +815,38 @@ public class PassengerFlowProcessor {
 		System.out.println("[图片收集] 开始收集车辆 " + busNo + " 在时间窗口 " + windowId + " 的图片URL");
 		
 		try {
+			// 首先尝试精确匹配
+			List<String> exactMatchImages = getImagesByExactWindow(jedis, busNo, windowId);
+			if (!exactMatchImages.isEmpty()) {
+				imageUrls.addAll(exactMatchImages);
+				System.out.println("[图片收集] 精确匹配收集到图片 " + exactMatchImages.size() + " 张");
+			} else {
+				// 如果精确匹配失败，尝试模糊匹配（前后5分钟）
+				System.out.println("[图片收集] 精确匹配未找到图片，尝试模糊匹配...");
+				List<String> fuzzyMatchImages = getImagesByFuzzyWindow(jedis, busNo, windowId);
+				if (!fuzzyMatchImages.isEmpty()) {
+					imageUrls.addAll(fuzzyMatchImages);
+					System.out.println("[图片收集] 模糊匹配收集到图片 " + fuzzyMatchImages.size() + " 张");
+				}
+			}
+			
+			System.out.println("[图片收集] 总共收集到图片 " + imageUrls.size() + " 张");
+			
+		} catch (Exception e) {
+			System.err.println("[图片收集] 收集图片URL时发生异常: " + e.getMessage());
+			e.printStackTrace();
+		}
+		
+		return imageUrls;
+	}
+	
+	/**
+	 * 精确匹配时间窗口的图片
+	 */
+	private List<String> getImagesByExactWindow(Jedis jedis, String busNo, String windowId) {
+		List<String> imageUrls = new ArrayList<>();
+		
+		try {
 			// 获取上车图片URL
 			String upImagesKey = "image_urls:" + busNo + ":" + windowId + ":up";
 			Set<String> upImages = jedis.smembers(upImagesKey);
@@ -807,12 +866,46 @@ public class PassengerFlowProcessor {
 			} else {
 				System.out.println("[图片收集] 未找到下车图片");
 			}
-			
-			System.out.println("[图片收集] 总共收集到图片 " + imageUrls.size() + " 张");
-			
 		} catch (Exception e) {
-			System.err.println("[图片收集] 收集图片URL时发生异常: " + e.getMessage());
-			e.printStackTrace();
+			System.err.println("[图片收集] 精确匹配收集图片时发生异常: " + e.getMessage());
+		}
+		
+		return imageUrls;
+	}
+	
+	/**
+	 * 模糊匹配时间窗口的图片（前后5分钟）
+	 */
+	private List<String> getImagesByFuzzyWindow(Jedis jedis, String busNo, String windowId) {
+		List<String> imageUrls = new ArrayList<>();
+		
+		try {
+			// 解析时间窗口
+			LocalDateTime windowTime = LocalDateTime.parse(windowId, formatter);
+			
+			// 搜索前后5分钟的时间窗口
+			for (int delta = -5; delta <= 5; delta++) {
+				LocalDateTime searchTime = windowTime.plusMinutes(delta);
+				String searchWindowId = searchTime.format(formatter);
+				
+				// 获取上车图片URL
+				String upImagesKey = "image_urls:" + busNo + ":" + searchWindowId + ":up";
+				Set<String> upImages = jedis.smembers(upImagesKey);
+				if (upImages != null && !upImages.isEmpty()) {
+					imageUrls.addAll(upImages);
+					System.out.println("[图片收集] 模糊匹配找到上车图片 " + upImages.size() + " 张，时间窗口: " + searchWindowId);
+				}
+				
+				// 获取下车图片URL
+				String downImagesKey = "image_urls:" + busNo + ":" + searchWindowId + ":down";
+				Set<String> downImages = jedis.smembers(downImagesKey);
+				if (downImages != null && !downImages.isEmpty()) {
+					imageUrls.addAll(downImages);
+					System.out.println("[图片收集] 模糊匹配找到下车图片 " + downImages.size() + " 张，时间窗口: " + searchWindowId);
+				}
+			}
+		} catch (Exception e) {
+			System.err.println("[图片收集] 模糊匹配收集图片时发生异常: " + e.getMessage());
 		}
 		
 		return imageUrls;

@@ -64,6 +64,10 @@ public class KafkaConsumerService {
     // 防重复发送开关门信号：每辆车在指定时间内只能发送一次相同信号
     private static final Map<String, String> lastDoorSignalByBus = new ConcurrentHashMap<>();
     private static final long DOOR_SIGNAL_COOLDOWN_MS = 5000; // 5秒内不重复发送相同信号
+    
+    // 开关门间隔控制：避免频繁开关门
+    private static final Map<String, Long> lastDoorActionTimeByBus = new ConcurrentHashMap<>();
+    private static final long MIN_DOOR_ACTION_INTERVAL_MS = 30000; // 30秒内不能重复开关门
 
     // 本地乘客流处理器：用于在判定开/关门后直接触发处理，无需依赖CV回推
     private final PassengerFlowProcessor passengerFlowProcessor = new PassengerFlowProcessor();
@@ -621,6 +625,18 @@ public class KafkaConsumerService {
         // 判断开门（优先报站 > GPS）
         boolean shouldOpen = false;
         String openReason = "";
+        
+        // 检查开关门间隔控制
+        long currentTime = System.currentTimeMillis();
+        Long lastActionTime = lastDoorActionTimeByBus.get(busNo);
+        if (lastActionTime != null && (currentTime - lastActionTime) < MIN_DOOR_ACTION_INTERVAL_MS) {
+            if (Config.LOG_INFO) {
+                System.out.println("[KafkaConsumerService] 跳过开关门判断: busNo=" + busNo + 
+                    ", 距离上次操作=" + (currentTime - lastActionTime) + "ms, 需要间隔=" + MIN_DOOR_ACTION_INTERVAL_MS + "ms");
+            }
+            return;
+        }
+        
         if ("1".equals(arriveLeave.optString("isArriveOrLeft"))) {
             shouldOpen = true; // 报站到站
             openReason = "报站到站信号";
@@ -729,6 +745,9 @@ public class KafkaConsumerService {
             // 记录最近一次到离站标志
             jedis.set("last_arrive_leave_flag:" + busNo, arriveLeave.optString("isArriveOrLeft", ""));
             jedis.expire("last_arrive_leave_flag:" + busNo, Config.REDIS_TTL_ARRIVE_LEAVE);
+            
+            // 更新最后操作时间
+            lastDoorActionTimeByBus.put(busNo, currentTime);
         } else if (shouldClose) {
             String openTimeStr = jedis.get("open_time:" + busNo);
             if (openTimeStr != null) {
@@ -765,6 +784,9 @@ public class KafkaConsumerService {
                 // 记录最近一次到离站标志
                 jedis.set("last_arrive_leave_flag:" + busNo, arriveLeave.optString("isArriveOrLeft", ""));
                 jedis.expire("last_arrive_leave_flag:" + busNo, Config.REDIS_TTL_ARRIVE_LEAVE);
+                
+                // 更新最后操作时间
+                lastDoorActionTimeByBus.put(busNo, currentTime);
             } else {
                 logDoorSkipThrottled(busNo, "未找到open_time窗口");
             }

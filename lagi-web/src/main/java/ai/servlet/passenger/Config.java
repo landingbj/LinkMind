@@ -57,7 +57,7 @@ public class Config {
 
     // 判门参数
     public static final int MIN_DOOR_OPEN_MS = 2000;            // 最小开门时长2s（放宽）
-    public static final int MAX_DOOR_OPEN_MS = 30000;           // 最大开门时长30s（超时强制关门）
+    public static final int MAX_DOOR_OPEN_MS = 300000;          // 最大开门时长5分钟（超时强制关门）
     public static final int CLOSE_CONSECUTIVE_REQUIRED = 1;     // 关门条件单次满足即可（放宽）
     public static final double OPEN_DISTANCE_THRESHOLD_M = 50.0; // 开门距离阈值50m
     public static final double OPEN_SPEED_THRESHOLD_MS = 1.0;    // 开门速度阈值1 m/s

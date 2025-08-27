@@ -271,15 +271,20 @@ public class KafkaConsumerService {
                             continue;
                         }
                         
-                        // 只在试点线路匹配成功时打印关键信息
-                        if (Config.LOG_INFO) {
-                            System.out.println("[KafkaConsumerService] 试点线路匹配成功 - busNo=" + busNo + ", routeId=" + routeId + ", topic=" + topic);
-                        }
+                        // 试点线路匹配成功，但不打印日志，避免刷屏
 
                         processMessage(topic, message, busNo);
                     } catch (Exception e) {
                         if (Config.LOG_ERROR) {
-                            System.err.println("[KafkaConsumerService] Error processing Kafka message: " + e.getMessage());
+                            System.err.println("[KafkaConsumerService] Process message error: " + e.getMessage());
+                            // 如果是JSON序列化错误，打印更多调试信息
+                            if (e.getMessage() != null && e.getMessage().contains("non-finite numbers")) {
+                                System.err.println("[KafkaConsumerService] JSON序列化错误详情:");
+                                System.err.println("  Topic: " + record.topic());
+                                System.err.println("  BusNo: " + busNo);
+                                System.err.println("  Message: " + record.value());
+                                e.printStackTrace();
+                            }
                         }
                     }
                 }
@@ -372,6 +377,19 @@ public class KafkaConsumerService {
         double speed = message.optDouble("speed");
         String trafficType = String.valueOf(message.opt("trafficType"));
         String direction = "4".equals(trafficType) ? "up" : "down";
+
+        // 验证GPS坐标有效性，防止JSON序列化问题
+        if (!isValidGpsCoordinate(lat, lng)) {
+            if (Config.LOG_ERROR) {
+                System.err.println("[KafkaConsumerService] 无效GPS坐标，跳过处理: busNo=" + busNo + ", lat=" + lat + ", lng=" + lng);
+            }
+            return;
+        }
+
+        // 验证速度值有效性
+        if (Double.isNaN(speed) || Double.isInfinite(speed)) {
+            speed = 0.0; // 使用默认值
+        }
 
         // 移除高频GPS处理日志
 
@@ -492,9 +510,7 @@ public class KafkaConsumerService {
     private void judgeAndSendDoorSignal(String busNo, Jedis jedis) throws JsonProcessingException {
         // 白名单检查：只有白名单内的车辆才能触发开关门信号
         if (!isDoorSignalWhitelisted(busNo)) {
-            if (Config.LOG_INFO) {
-                System.out.println("[KafkaConsumerService] 车辆 " + busNo + " 不在开关门白名单中，跳过开关门判断");
-            }
+            // 移除日志，避免刷屏
             return;
         }
 
@@ -528,9 +544,12 @@ public class KafkaConsumerService {
         // 获取站点GPS
         double[] stationGps = stationGpsMap.getOrDefault(stationId, null);
         boolean hasStationGps = stationGps != null;
-        double distance = Double.MAX_VALUE;
+        double distance = -1.0; // 使用-1表示无效距离，避免JSON序列化问题
         if (hasStationGps) {
-            distance = calculateDistance(busLat, busLng, stationGps[0], stationGps[1]);
+            // 验证GPS坐标的有效性
+            if (isValidGpsCoordinate(stationGps[0], stationGps[1]) && isValidGpsCoordinate(busLat, busLng)) {
+                distance = calculateDistance(busLat, busLng, stationGps[0], stationGps[1]);
+            }
         }
         
         LocalDateTime now = LocalDateTime.now();
@@ -541,7 +560,7 @@ public class KafkaConsumerService {
         if ("1".equals(arriveLeave.optString("isArriveOrLeft"))) {
             shouldOpen = true; // 报站到站
             openReason = "报站到站信号";
-        } else if (hasStationGps && distance < Config.OPEN_DISTANCE_THRESHOLD_M && speed < Config.OPEN_SPEED_THRESHOLD_MS) {
+        } else if (hasStationGps && distance >= 0 && distance < Config.OPEN_DISTANCE_THRESHOLD_M && speed < Config.OPEN_SPEED_THRESHOLD_MS) {
             shouldOpen = true; // GPS阈值触发
             openReason = "GPS电子围栏触发(距离" + distance + "m, 速度" + speed + "m/s)";
         }
@@ -567,7 +586,7 @@ public class KafkaConsumerService {
         if (isArriveLeaveClose) {
             closeCondition = true; // 报站离站
             closeReason = "报站离站信号";
-        } else if (hasStationGps && (distance > Config.CLOSE_DISTANCE_THRESHOLD_M || speed > Config.CLOSE_SPEED_THRESHOLD_MS)) {
+        } else if (hasStationGps && distance >= 0 && (distance > Config.CLOSE_DISTANCE_THRESHOLD_M || speed > Config.CLOSE_SPEED_THRESHOLD_MS)) {
             closeCondition = true; // GPS阈值触发
             closeReason = "GPS电子围栏触发(距离" + distance + "m, 速度" + speed + "m/s)";
         }
@@ -683,7 +702,8 @@ public class KafkaConsumerService {
         } else {
             // 数据齐全但条件未触发，低频提示原因
             String arriveFlag = arriveLeave.optString("isArriveOrLeft");
-            logDoorSkipThrottled(busNo, "条件未满足: distance=" + distance + "m, speed=" + speed + "m/s, arriveLeave=" + arriveFlag);
+            String distanceStr = distance >= 0 ? distance + "m" : "无效";
+            logDoorSkipThrottled(busNo, "条件未满足: distance=" + distanceStr + ", speed=" + speed + "m/s, arriveLeave=" + arriveFlag);
         }
     }
 
@@ -694,7 +714,9 @@ public class KafkaConsumerService {
             if (Config.LOG_INFO) {
                 System.out.println("[KafkaConsumerService] 未触发开关门: busNo=" + busNo + ", 原因=" + reason);
                 
-                // 增加详细的状态信息
+                // 关闭状态诊断日志，避免刷屏
+                // 如需调试，可临时启用以下代码
+                /*
                 try (Jedis jedis = jedisPool.getResource()) {
                     jedis.auth(Config.REDIS_PASSWORD);
                     
@@ -720,6 +742,7 @@ public class KafkaConsumerService {
                 } catch (Exception e) {
                     System.err.println("[KafkaConsumerService] 状态诊断失败: " + e.getMessage());
                 }
+                */
             }
             lastDoorSkipLogMsByBus.put(busNo, now);
         }
@@ -783,5 +806,9 @@ public class KafkaConsumerService {
         double s = 2 * Math.asin(Math.sqrt(Math.pow(Math.sin(a / 2), 2) + Math.cos(radLat1) * Math.cos(radLat2) * Math.pow(Math.sin(b / 2), 2)));
         s = s * 6378137.0; // 地球半径
         return Math.round(s * 10000) / 10000;
+    }
+
+    private boolean isValidGpsCoordinate(double lat, double lng) {
+        return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
     }
 }

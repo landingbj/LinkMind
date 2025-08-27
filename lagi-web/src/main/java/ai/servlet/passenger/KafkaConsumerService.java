@@ -281,7 +281,6 @@ public class KafkaConsumerService {
                             if (e.getMessage() != null && e.getMessage().contains("non-finite numbers")) {
                                 System.err.println("[KafkaConsumerService] JSON序列化错误详情:");
                                 System.err.println("  Topic: " + record.topic());
-                                System.err.println("  BusNo: " + busNo);
                                 System.err.println("  Message: " + record.value());
                                 e.printStackTrace();
                             }

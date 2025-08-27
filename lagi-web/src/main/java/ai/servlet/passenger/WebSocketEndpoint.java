@@ -55,7 +55,32 @@ public class WebSocketEndpoint {
 		}
 
 		try {
-			JSONObject jsonMessage = new JSONObject(message);
+			// 验证JSON格式正确性
+			JSONObject jsonMessage;
+			try {
+				jsonMessage = new JSONObject(message);
+			} catch (Exception e) {
+				if (Config.LOG_ERROR) {
+					System.err.println("[WebSocket] JSON格式错误，会话ID: " + session.getId() + ", 错误: " + e.getMessage());
+					System.err.println("  原始消息: " + message.substring(0, Math.min(message.length(), 200)) + "...");
+				}
+				
+				// 发送错误响应
+				JSONObject errorResponse = new JSONObject();
+				errorResponse.put("type", "error");
+				errorResponse.put("message", "JSON格式错误: " + e.getMessage());
+				errorResponse.put("timestamp", LocalDateTime.now().toString());
+				
+				try {
+					session.getBasicRemote().sendText(errorResponse.toString());
+				} catch (IOException sendError) {
+					if (Config.LOG_ERROR) {
+						System.err.println("[WebSocket] 发送错误响应失败: " + sendError.getMessage());
+					}
+				}
+				return;
+			}
+			
 			String type = jsonMessage.optString("type", "unknown");
 
 			// 移除消息类型解析日志

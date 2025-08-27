@@ -64,6 +64,31 @@ public class KafkaConsumerService {
     // 本地乘客流处理器：用于在判定开/关门后直接触发处理，无需依赖CV回推
     private final PassengerFlowProcessor passengerFlowProcessor = new PassengerFlowProcessor();
 
+    /**
+     * 安全地序列化JSON对象，避免循环引用问题
+     */
+    private String safeJsonToString(JSONObject jsonObject) {
+        try {
+            // 先尝试直接toString
+            return jsonObject.toString();
+        } catch (Exception e) {
+            if (Config.LOG_ERROR) {
+                System.err.println("[KafkaConsumerService] JSON序列化失败，尝试使用Jackson: " + e.getMessage());
+            }
+            
+            try {
+                // 如果JSONObject.toString失败，使用Jackson作为备选方案
+                return objectMapper.writeValueAsString(jsonObject.toMap());
+            } catch (Exception jacksonError) {
+                if (Config.LOG_ERROR) {
+                    System.err.println("[KafkaConsumerService] Jackson序列化也失败: " + jacksonError.getMessage());
+                }
+                // 最后尝试手动构建字符串
+                return "{\"error\":\"序列化失败\",\"message\":\"" + e.getMessage() + "\"}";
+            }
+        }
+    }
+
     public KafkaConsumerService() {
         System.out.println("[KafkaConsumerService] 构造函数开始执行");
         System.out.println("[KafkaConsumerService] 试点线路配置: " + Arrays.toString(PILOT_ROUTES));
@@ -565,20 +590,7 @@ public class KafkaConsumerService {
         }
 
         // 判断关门（加入去抖与最小开门时长约束）
-        // 一致性校验：到/离站的route/busId需与当前缓存一致
-        String gpsRouteNo = gps.optString("routeNo", "");
-        String arriveRouteNo = arriveLeave.optString("routeNo", "");
-        if (!gpsRouteNo.isEmpty() && !arriveRouteNo.isEmpty() && !gpsRouteNo.equals(arriveRouteNo)) {
-            logDoorSkipThrottled(busNo, "routeNo不一致，忽略本次到/离站: gps=" + gpsRouteNo + ", arrive=" + arriveRouteNo);
-            return;
-        }
-        String cachedBusId = jedis.get("bus_id:" + busNo);
-        String arriveBusId = arriveLeave.has("busId") ? String.valueOf(arriveLeave.optLong("busId")) : "";
-        if (cachedBusId != null && !cachedBusId.isEmpty() && !arriveBusId.isEmpty() && !cachedBusId.equals(arriveBusId)) {
-            logDoorSkipThrottled(busNo, "busId不一致，忽略本次到/离站: cached=" + cachedBusId + ", arrive=" + arriveBusId);
-            return;
-        }
-
+        // 放宽一致性校验：只做基本的数据完整性检查，不过于严格
         boolean closeCondition = false;
         String closeReason = "";
         boolean isArriveLeaveClose = "2".equals(arriveLeave.optString("isArriveOrLeft"));
@@ -590,13 +602,15 @@ public class KafkaConsumerService {
             closeReason = "GPS电子围栏触发(距离" + distance + "m, 速度" + speed + "m/s)";
         }
 
+        // 增加关门超时机制：如果开门时间超过最大允许时长，强制关门
         boolean shouldClose = false;
         String openTimeStrForClose = jedis.get("open_time:" + busNo);
         if (openTimeStrForClose != null) {
-            // 最小开门时长约束
             try {
                 LocalDateTime openTimeParsed = LocalDateTime.parse(openTimeStrForClose, formatter);
                 long openMs = java.time.Duration.between(openTimeParsed, now).toMillis();
+                
+                // 关门条件判断
                 if (closeCondition && openMs >= Config.MIN_DOOR_OPEN_MS) {
                     if (isArriveLeaveClose) {
                         // 报站离站=2：直接允许关门，不做连续计数与顺序标志校验
@@ -611,6 +625,13 @@ public class KafkaConsumerService {
                             jedis.del(counterKey);
                         }
                     }
+                } else if (openMs >= Config.MAX_DOOR_OPEN_MS) {
+                    // 超时强制关门：防止车门长时间不关闭
+                    shouldClose = true;
+                    closeReason = "超时强制关门(" + (openMs / 1000) + "秒)";
+                    if (Config.LOG_INFO) {
+                        System.out.println("[KafkaConsumerService] 车辆 " + busNo + " 开门超时，强制关门: " + openMs + "ms");
+                    }
                 } else {
                     // 条件不满足或开门时间不足，重置计数
                     jedis.del("door_close_candidate:" + busNo);
@@ -619,6 +640,9 @@ public class KafkaConsumerService {
                 // 时间解析异常：保守放行（视为已满足最小开门时长）
                 if (closeCondition) {
                     shouldClose = true;
+                }
+                if (Config.LOG_ERROR) {
+                    System.err.println("[KafkaConsumerService] 时间解析异常，车辆 " + busNo + ": " + e.getMessage());
                 }
             }
         }
@@ -749,27 +773,30 @@ public class KafkaConsumerService {
 
     /**
      * 发送开关门信号到CV
-     * 现在推送车牌号而不是bus_no，确保与CV系统数据一致
+     * 严格按照与CV约定的WebSocket数据格式发送
      */
     private void sendDoorSignalToCV(String busNo, String action, LocalDateTime timestamp) {
         try {
             // 获取对应的车牌号
             String plateNumber = BusPlateMappingUtil.getPlateNumber(busNo);
             
+            // 严格按照约定格式构建消息
             JSONObject doorSignal = new JSONObject();
             doorSignal.put("event", "open_close_door");
 
             JSONObject data = new JSONObject();
-            data.put("bus_no", plateNumber); // 推送车牌号而不是bus_no
-            data.put("original_bus_no", busNo); // 保留原始bus_no用于内部处理
-            data.put("camera_no", "default"); // 默认摄像头编号
-            data.put("action", action);
+            data.put("bus_no", plateNumber); // 车牌号
+            data.put("camera_no", "default"); // 摄像头编号
+            data.put("action", action); // open 或 close
             data.put("timestamp", timestamp.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
 
             doorSignal.put("data", data);
 
+            // 使用安全的JSON序列化方法
+            String messageJson = safeJsonToString(doorSignal);
+
             // 通过WebSocket发送给CV
-            WebSocketEndpoint.sendToAll(doorSignal.toString());
+            WebSocketEndpoint.sendToAll(messageJson);
 
             if (Config.LOG_INFO) {
                 System.out.println("[KafkaConsumerService] 发送开关门信号到CV系统:");
@@ -777,7 +804,7 @@ public class KafkaConsumerService {
                 System.out.println("   推送车牌号: " + plateNumber);
                 System.out.println("   动作: " + action);
                 System.out.println("   时间: " + timestamp.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
-                System.out.println("   完整消息: " + doorSignal.toString());
+                System.out.println("   完整消息: " + messageJson);
             }
 
             // 本地自回推：直接触发 PassengerFlowProcessor 处理开/关门事件

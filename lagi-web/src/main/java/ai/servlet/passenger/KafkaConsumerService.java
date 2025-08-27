@@ -683,6 +683,17 @@ public class KafkaConsumerService {
             // 改为按窗口计数，不在bus维度单独维护
             jedis.expire(openTimeKey, Config.REDIS_TTL_OPEN_TIME);
 
+            // 维护车牌到bus的映射，便于CV以车牌推送时反查窗口
+            try {
+                String plateNumberForMap = BusPlateMappingUtil.getPlateNumber(busNo);
+                if (plateNumberForMap != null && !plateNumberForMap.isEmpty()) {
+                    jedis.set("plate_to_bus:" + plateNumberForMap, busNo);
+                    jedis.expire("plate_to_bus:" + plateNumberForMap, Config.REDIS_TTL_OPEN_TIME);
+                }
+            } catch (Exception ignore) {
+                // 忽略映射异常，避免影响主流程
+            }
+
             // 试点线路开门流程日志（可通过配置控制）
             if (Config.PILOT_ROUTE_LOG_ENABLED) {
                 System.out.println("[试点线路开门流程] 开始发送开门信号到CV系统:");

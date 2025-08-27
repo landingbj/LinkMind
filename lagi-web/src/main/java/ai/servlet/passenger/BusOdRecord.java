@@ -1,6 +1,7 @@
 package ai.servlet.passenger;
 
 import lombok.Data;
+import com.fasterxml.jackson.annotation.JsonFormat;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -19,9 +20,11 @@ public class BusOdRecord {
     private LocalDate date;
 
     /** 开门时间 */
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "Asia/Shanghai")
     private LocalDateTime timestampBegin;
 
     /** 关门时间 */
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "Asia/Shanghai")
     private LocalDateTime timestampEnd;
 
     /** 公交车编号 */
@@ -103,5 +106,6 @@ public class BusOdRecord {
     private Integer ticketCount;
 
     /** 数据入库时间 */
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "Asia/Shanghai")
     private LocalDateTime createdAt;
 }

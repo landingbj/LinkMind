@@ -50,6 +50,12 @@ public class KafkaConsumerService {
             "3301000100116310"    // 522M路
     };
 
+    // 开关门白名单车辆
+    private static final String[] DOOR_SIGNAL_WHITELIST = {
+            "2-8091", "2-8089", "2-8117", "2-8116", "2-9050", "2-9059",
+            "8-6161", "8-6162", "8-6173", "8-6172", "8-8065", "8-8062"
+    };
+
     // 站点GPS映射
     private final Map<String, double[]> stationGpsMap = new HashMap<>();
     // 判门未触发原因日志的节流：每辆车每分钟最多打印一次
@@ -61,6 +67,7 @@ public class KafkaConsumerService {
     public KafkaConsumerService() {
         System.out.println("[KafkaConsumerService] 构造函数开始执行");
         System.out.println("[KafkaConsumerService] 试点线路配置: " + Arrays.toString(PILOT_ROUTES));
+        System.out.println("[KafkaConsumerService] 开关门白名单车辆: " + Arrays.toString(DOOR_SIGNAL_WHITELIST));
         System.out.println("[KafkaConsumerService] 正在加载站点GPS数据...");
         loadStationGpsFromDb();
         System.out.println("[KafkaConsumerService] 构造函数执行完成");
@@ -123,6 +130,7 @@ public class KafkaConsumerService {
                         String.join(", ", KafkaConfig.BUS_GPS_TOPIC, KafkaConfig.TICKET_TOPIC) + "]");
                 System.out.println("[KafkaConsumerService] 试点线路配置: " + Arrays.toString(PILOT_ROUTES));
                 System.out.println("[KafkaConsumerService] 试点线路说明: 8路(1001000021), 36路(1001000055), 316路(1001000248), 55路(1001000721), 522M路(3301000100116310)");
+                System.out.println("[KafkaConsumerService] 开关门白名单车辆: " + Arrays.toString(DOOR_SIGNAL_WHITELIST));
             }
             Properties props = KafkaConfig.getConsumerProperties();
             consumer = new KafkaConsumer<>(props);
@@ -302,6 +310,20 @@ public class KafkaConsumerService {
         return false;
     }
 
+    /**
+     * 检查车辆是否在开关门白名单中
+     * @param busNo 车辆编号
+     * @return 是否在白名单中
+     */
+    private boolean isDoorSignalWhitelisted(String busNo) {
+        for (String whitelistedBus : DOOR_SIGNAL_WHITELIST) {
+            if (whitelistedBus.equals(busNo)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void processMessage(String topic, JSONObject message, String busNo) {
         try (Jedis jedis = jedisPool.getResource()) {
             jedis.auth(Config.REDIS_PASSWORD);
@@ -463,6 +485,14 @@ public class KafkaConsumerService {
     }
 
     private void judgeAndSendDoorSignal(String busNo, Jedis jedis) throws JsonProcessingException {
+        // 白名单检查：只有白名单内的车辆才能触发开关门信号
+        if (!isDoorSignalWhitelisted(busNo)) {
+            if (Config.LOG_INFO) {
+                System.out.println("[KafkaConsumerService] 车辆 " + busNo + " 不在开关门白名单中，跳过开关门判断");
+            }
+            return;
+        }
+
         // 获取缓存数据
         String arriveLeaveStr = jedis.get("arrive_leave:" + busNo);
         String gpsStr = jedis.get("gps:" + busNo);

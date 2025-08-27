@@ -18,6 +18,7 @@ import os
 import time
 from sklearn.model_selection import GridSearchCV
 import json
+import fcntl
 
 warnings.filterwarnings("ignore")
 
@@ -40,6 +41,7 @@ RAW_DIR = '/home/server/data/raw'
 META_FILE = '/home/server/data/meta.json'
 FEATURE_DIR = '/home/server/feature_store'
 FEATURE_DATA_FILE = os.path.join(FEATURE_DIR, 'data.parquet')
+FEATURE_DATA_CSV = os.path.join(FEATURE_DIR, 'data.csv')
 FEATURES_FILE = os.path.join(FEATURE_DIR, 'features.json')
 SCALER_FILE = os.path.join(FEATURE_DIR, 'scaler.pkl')
 ENCODER_FILE = os.path.join(FEATURE_DIR, 'encoder.pkl')
@@ -137,6 +139,26 @@ def _ensure_dirs():
         except Exception:
             pass
 
+def _write_df_with_fallback(df, parquet_path, csv_path, index=False):
+    try:
+        df.to_parquet(parquet_path, index=index)
+        return 'parquet'
+    except Exception as e:
+        logger.error("写入parquet失败:%s，回退CSV: %s", str(e), csv_path)
+        df.to_csv(csv_path, index=index)
+        return 'csv'
+
+def _read_df_with_fallback(parquet_path, csv_path, empty_columns=None):
+    try:
+        if os.path.exists(parquet_path):
+            return pd.read_parquet(parquet_path)
+        if os.path.exists(csv_path):
+            return pd.read_csv(csv_path)
+        return pd.DataFrame(columns=empty_columns or [])
+    except Exception as e:
+        logger.error("读取数据失败:%s，返回空表", str(e))
+        return pd.DataFrame(columns=empty_columns or [])
+
 def _read_meta():
     try:
         with open(META_FILE, 'r', encoding='utf-8') as f:
@@ -173,23 +195,24 @@ def incremental_extract_to_parquet(window_days):
     logger.info("增量抽取trade，起点: %s", trade_params[0])
     cursor.execute(
         """
-        SELECT trade_time, stop_id, route_id
+        SELECT trade_time::timestamp AS trade_time, stop_id, route_id::text AS route_id
         FROM ods.trade
         WHERE (stop_id = '1001001154' OR off_stop_id = '1001001154')
-          AND """ + trade_cond + """
-        ORDER BY trade_time
+          AND trade_time::timestamp > %s::timestamp AND trade_time::timestamp <= %s::timestamp
+        ORDER BY trade_time::timestamp
         """,
         trade_params
     )
     trade_df = pd.DataFrame([dict(r) for r in cursor.fetchall()])
     if not trade_df.empty:
         trade_path = os.path.join(RAW_DIR, 'trade.parquet')
+        trade_csv = os.path.join(RAW_DIR, 'trade.csv')
         try:
-            if os.path.exists(trade_path):
-                old = pd.read_parquet(trade_path)
+            if os.path.exists(trade_path) or os.path.exists(trade_csv):
+                old = _read_df_with_fallback(trade_path, trade_csv)
                 trade_df = pd.concat([old, trade_df], ignore_index=True)
                 trade_df.drop_duplicates(subset=['trade_time', 'stop_id', 'route_id'], inplace=True)
-            trade_df.to_parquet(trade_path, index=False)
+            _write_df_with_fallback(trade_df, trade_path, trade_csv, index=False)
             meta['last_trade_ts'] = trade_df['trade_time'].max().strftime('%Y-%m-%d %H:%M:%S')
         except Exception as e:
             logger.error("写入trade parquet失败: %s", str(e))
@@ -201,22 +224,23 @@ def incremental_extract_to_parquet(window_days):
     logger.info("增量抽取sim_station，起点: %s", brd_params[0])
     cursor.execute(
         """
-        SELECT arrive_time, leave_time, stop_id, route_id, board_amount, off_amount
+        SELECT arrive_time::timestamp AS arrive_time, leave_time::timestamp AS leave_time, stop_id, route_id, board_amount, off_amount
         FROM ods.sim_station
-        WHERE stop_id = '1001001154' AND """ + brd_cond + """
-        ORDER BY arrive_time
+        WHERE stop_id = '1001001154' AND arrive_time::timestamp > %s::timestamp AND arrive_time::timestamp <= %s::timestamp
+        ORDER BY arrive_time::timestamp
         """,
         brd_params
     )
     brd_df = pd.DataFrame([dict(r) for r in cursor.fetchall()])
     if not brd_df.empty:
         brd_path = os.path.join(RAW_DIR, 'broadcast.parquet')
+        brd_csv = os.path.join(RAW_DIR, 'broadcast.csv')
         try:
-            if os.path.exists(brd_path):
-                old = pd.read_parquet(brd_path)
+            if os.path.exists(brd_path) or os.path.exists(brd_csv):
+                old = _read_df_with_fallback(brd_path, brd_csv)
                 brd_df = pd.concat([old, brd_df], ignore_index=True)
                 brd_df.drop_duplicates(subset=['arrive_time', 'stop_id', 'route_id'], inplace=True)
-            brd_df.to_parquet(brd_path, index=False)
+            _write_df_with_fallback(brd_df, brd_path, brd_csv, index=False)
             meta['last_broadcast_ts'] = brd_df['arrive_time'].max().strftime('%Y-%m-%d %H:%M:%S')
         except Exception as e:
             logger.error("写入broadcast parquet失败: %s", str(e))
@@ -228,23 +252,26 @@ def incremental_extract_to_parquet(window_days):
     logger.info("增量抽取assign_schedule，起点: %s", sch_params[0])
     cursor.execute(
         """
-        SELECT dispatch_departure_time, dispatch_end_time, route_id, route_name, single_trip_duration, assign_status, is_delete
+        SELECT dispatch_departure_time::timestamp AS dispatch_departure_time, dispatch_end_time::timestamp AS dispatch_end_time,
+               route_id::text AS route_id, route_name, single_trip_duration, assign_status, is_delete
         FROM ods.assign_schedule
         WHERE (origin_id = '1001001154' OR terminal_id = '1001001154')
-          AND assign_status = 'RELEASE' AND is_delete = false AND """ + sch_cond + """
-        ORDER BY dispatch_departure_time
+          AND assign_status = 'RELEASE' AND is_delete = false 
+          AND dispatch_departure_time::timestamp > %s::timestamp AND dispatch_departure_time::timestamp <= %s::timestamp
+        ORDER BY dispatch_departure_time::timestamp
         """,
         sch_params
     )
     sch_df = pd.DataFrame([dict(r) for r in cursor.fetchall()])
     if not sch_df.empty:
         sch_path = os.path.join(RAW_DIR, 'schedule.parquet')
+        sch_csv = os.path.join(RAW_DIR, 'schedule.csv')
         try:
-            if os.path.exists(sch_path):
-                old = pd.read_parquet(sch_path)
+            if os.path.exists(sch_path) or os.path.exists(sch_csv):
+                old = _read_df_with_fallback(sch_path, sch_csv)
                 sch_df = pd.concat([old, sch_df], ignore_index=True)
                 sch_df.drop_duplicates(subset=['dispatch_departure_time', 'route_id'], inplace=True)
-            sch_df.to_parquet(sch_path, index=False)
+            _write_df_with_fallback(sch_df, sch_path, sch_csv, index=False)
             meta['last_schedule_ts'] = sch_df['dispatch_departure_time'].max().strftime('%Y-%m-%d %H:%M:%S')
         except Exception as e:
             logger.error("写入schedule parquet失败: %s", str(e))
@@ -270,10 +297,13 @@ def materialize_feature_store(window_days, time_granularity):
     trade_path = os.path.join(RAW_DIR, 'trade.parquet')
     brd_path = os.path.join(RAW_DIR, 'broadcast.parquet')
     sch_path = os.path.join(RAW_DIR, 'schedule.parquet')
+    trade_csv = os.path.join(RAW_DIR, 'trade.csv')
+    brd_csv = os.path.join(RAW_DIR, 'broadcast.csv')
+    sch_csv = os.path.join(RAW_DIR, 'schedule.csv')
 
-    trade_data = pd.read_parquet(trade_path) if os.path.exists(trade_path) else pd.DataFrame(columns=['trade_time','stop_id','route_id'])
-    broadcast_data = pd.read_parquet(brd_path) if os.path.exists(brd_path) else pd.DataFrame(columns=['arrive_time','leave_time','stop_id','route_id','board_amount','off_amount'])
-    schedule_data = pd.read_parquet(sch_path) if os.path.exists(sch_path) else pd.DataFrame(columns=['dispatch_departure_time','dispatch_end_time','route_id','route_name','single_trip_duration','assign_status','is_delete'])
+    trade_data = _read_df_with_fallback(trade_path, trade_csv, empty_columns=['trade_time','stop_id','route_id'])
+    broadcast_data = _read_df_with_fallback(brd_path, brd_csv, empty_columns=['arrive_time','leave_time','stop_id','route_id','board_amount','off_amount'])
+    schedule_data = _read_df_with_fallback(sch_path, sch_csv, empty_columns=['dispatch_departure_time','dispatch_end_time','route_id','route_name','single_trip_duration','assign_status','is_delete'])
 
     if not trade_data.empty:
         trade_data = trade_data[pd.to_datetime(trade_data['trade_time']) >= window_start]
@@ -289,7 +319,7 @@ def materialize_feature_store(window_days, time_granularity):
     data, scaler, enc, weather_data, features = preprocess_data(trade_data, broadcast_data, schedule_data, weather_data, time_granularity)
 
     os.makedirs(FEATURE_DIR, exist_ok=True)
-    data.to_parquet(FEATURE_DATA_FILE, index=False)
+    _write_df_with_fallback(data, FEATURE_DATA_FILE, FEATURE_DATA_CSV, index=False)
     joblib.dump(scaler, SCALER_FILE)
     joblib.dump(enc, ENCODER_FILE)
     with open(FEATURES_FILE, 'w', encoding='utf-8') as f:
@@ -299,7 +329,7 @@ def materialize_feature_store(window_days, time_granularity):
 
 def load_materialized():
     try:
-        data = pd.read_parquet(FEATURE_DATA_FILE)
+        data = _read_df_with_fallback(FEATURE_DATA_FILE, FEATURE_DATA_CSV)
         scaler = joblib.load(SCALER_FILE) if os.path.exists(SCALER_FILE) else None
         enc = joblib.load(ENCODER_FILE) if os.path.exists(ENCODER_FILE) else None
         with open(FEATURES_FILE, 'r', encoding='utf-8') as f:
@@ -695,12 +725,15 @@ def fetch_data_from_db(window_days, time_granularity=None):
         # 交易数据：SQL端按15分钟聚合，减少传输体量
         query_trade = """
         SELECT 
-            (date_trunc('hour', trade_time) + make_interval(mins => 15 * floor(extract(minute from trade_time)::int / 15))) AS time_slot,
+            (
+                date_trunc('hour', trade_time::timestamp)
+                + ((extract(minute from trade_time::timestamp)::int / 15) * interval '15 minutes')
+            ) AS time_slot,
             route_id,
             COUNT(*) AS trade_count
         FROM ods.trade
         WHERE (stop_id = '1001001154' OR off_stop_id = '1001001154')
-          AND trade_time >= %s AND trade_time < %s
+          AND trade_time::timestamp >= %s::timestamp AND trade_time::timestamp < %s::timestamp
         GROUP BY 1, 2
         ORDER BY 1, 2
         """
@@ -712,13 +745,16 @@ def fetch_data_from_db(window_days, time_granularity=None):
         # 报站数据：SQL端按15分钟聚合
         query_broadcast = """
         SELECT 
-            (date_trunc('hour', arrive_time) + make_interval(mins => 15 * floor(extract(minute from arrive_time)::int / 15))) AS time_slot,
+            (
+                date_trunc('hour', arrive_time::timestamp)
+                + ((extract(minute from arrive_time::timestamp)::int / 15) * interval '15 minutes')
+            ) AS time_slot,
             route_id,
             SUM(board_amount) AS board_amount,
             SUM(off_amount) AS off_amount
         FROM ods.sim_station
         WHERE stop_id = '1001001154'
-          AND arrive_time >= %s AND arrive_time < %s
+          AND arrive_time::timestamp >= %s::timestamp AND arrive_time::timestamp < %s::timestamp
         GROUP BY 1, 2
         ORDER BY 1, 2
         """
@@ -730,13 +766,16 @@ def fetch_data_from_db(window_days, time_granularity=None):
         # 调度数据：SQL端按15分钟聚合，统计发班次数和平均单程时长
         query_schedule = """
         SELECT 
-            (date_trunc('hour', dispatch_departure_time) + make_interval(mins => 15 * floor(extract(minute from dispatch_departure_time)::int / 15))) AS time_slot,
+            (
+                date_trunc('hour', dispatch_departure_time::timestamp)
+                + ((extract(minute from dispatch_departure_time::timestamp)::int / 15) * interval '15 minutes')
+            ) AS time_slot,
             route_id,
             COUNT(*) AS dispatch_count,
             AVG(GREATEST(5, LEAST(60, COALESCE(single_trip_duration, 10))))::int AS single_trip_duration
         FROM ods.assign_schedule
-        WHERE (origin_id = '1001001154' OR terminal_id = '1001001154')
-          AND dispatch_departure_time >= %s AND dispatch_departure_time < %s
+        WHERE (origin_id = 1001001154 OR terminal_id = 1001001154)
+          AND dispatch_departure_time::timestamp >= %s::timestamp AND dispatch_departure_time::timestamp < %s::timestamp
           AND assign_status = 'RELEASE' AND is_delete = false
         GROUP BY 1, 2
         ORDER BY 1, 2
@@ -809,9 +848,12 @@ def preprocess_data(trade_data, broadcast_data, schedule_data, weather_data, tim
     logger.info("去重后数据量 - 交易: %d, 报站: %d, 调度: %d", len(trade_data), len(broadcast_data), len(schedule_data))
 
     # 时间转换
-    trade_data['trade_time'] = pd.to_datetime(trade_data['trade_time'])
-    broadcast_data['arrive_time'] = pd.to_datetime(broadcast_data['arrive_time'])
-    broadcast_data['leave_time'] = pd.to_datetime(broadcast_data['leave_time'])
+    if 'trade_time' in trade_data.columns:
+        trade_data['trade_time'] = pd.to_datetime(trade_data['trade_time'], errors='coerce')
+    if 'arrive_time' in broadcast_data.columns:
+        broadcast_data['arrive_time'] = pd.to_datetime(broadcast_data['arrive_time'], errors='coerce')
+    if 'leave_time' in broadcast_data.columns:
+        broadcast_data['leave_time'] = pd.to_datetime(broadcast_data['leave_time'], errors='coerce')
     weather_data['datetime'] = pd.to_datetime(weather_data['datetime'])
 
     # 调度数据处理
@@ -824,6 +866,11 @@ def preprocess_data(trade_data, broadcast_data, schedule_data, weather_data, tim
     trade_data['time_slot'] = trade_data['trade_time'].dt.floor(time_granularity)
     broadcast_data['time_slot'] = broadcast_data['arrive_time'].dt.floor(time_granularity)
     if not schedule_data.empty:
+        # schedule兜底列
+        if 'plan_departure_time' not in schedule_data.columns and 'dispatch_departure_time' in schedule_data.columns:
+            schedule_data['plan_departure_time'] = pd.to_datetime(schedule_data['dispatch_departure_time'], errors='coerce')
+        if 'single_trip_duration' not in schedule_data.columns:
+            schedule_data['single_trip_duration'] = 10
         schedule_data['time_slot'] = schedule_data['plan_departure_time'].dt.floor(time_granularity)
 
     # 通道映射
@@ -925,11 +972,24 @@ def preprocess_data(trade_data, broadcast_data, schedule_data, weather_data, tim
     logger.info("天气特征处理完成，编码后列: %s", weather_data.columns.tolist())
 
     # 合并数据
-    data = flow_data.merge(
-        schedule_data[['time_slot', 'channel', 'dispatch_count', 'single_trip_duration']],
-        on=['time_slot', 'channel'],
-        how='left'
-    )
+    sched_cols = [c for c in ['time_slot','channel','dispatch_count','single_trip_duration'] if c in schedule_data.columns]
+    if not sched_cols or ('time_slot' not in sched_cols or 'channel' not in sched_cols):
+        # 完整缺失则补默认
+        schedule_fallback = pd.DataFrame({
+            'time_slot': flow_data['time_slot'],
+            'channel': flow_data['channel'],
+            'dispatch_count': 1,
+            'single_trip_duration': 10
+        })
+        data = flow_data.merge(schedule_fallback, on=['time_slot','channel'], how='left')
+    else:
+        # 若仅少量列缺失，补齐默认再合并
+        sched_df = schedule_data.copy()
+        if 'dispatch_count' not in sched_df.columns:
+            sched_df['dispatch_count'] = 1
+        if 'single_trip_duration' not in sched_df.columns:
+            sched_df['single_trip_duration'] = 10
+        data = flow_data.merge(sched_df[['time_slot','channel','dispatch_count','single_trip_duration']], on=['time_slot','channel'], how='left')
     data = data.merge(
         weather_data[['time_slot', 'temperature', 'precipitation', 'wind_speed', 'temp_comfort'] + list(enc.get_feature_names_out(['rain_category']))],
         on='time_slot',
@@ -1205,22 +1265,44 @@ def predict_and_validate(data, scaler, enc, weather_data, window_days, time_gran
 
 def compute_and_cache_predictions(window_days=None, time_granularity=None):
     total_start = time.time()
-    try:
-        wd = window_days or CONFIG['window_days']
-        tg = time_granularity or CONFIG['time_granularity']
-        logger.info("开始离线计算并缓存预测结果，窗口天数: %d, 粒度: %s", wd, tg)
-        trade_data, broadcast_data, schedule_data = fetch_data_from_db(wd)
-        today = datetime.now().strftime('%Y-%m-%d')
-        weather_data = fetch_real_time_weather(today, today, tg)
-        data, scaler, enc, weather_data, features = preprocess_data(trade_data, broadcast_data, schedule_data, weather_data, tg)
-        models = load_models()
-        predictions, _, _ = predict_and_validate(data, scaler, enc, weather_data, wd, tg, features, models, validate=False)
-        save_predictions_cache(predictions)
-        logger.info("离线预测完成并写入缓存，总耗时: %.2f秒", time.time() - total_start)
-        return predictions
-    except Exception as e:
-        logger.error("离线计算预测失败: %s", str(e), exc_info=True)
-        return None
+    wd = window_days or CONFIG['window_days']
+    tg = time_granularity or CONFIG['time_granularity']
+    logger.info("开始离线计算并缓存预测结果，窗口天数: %d, 粒度: %s", wd, tg)
+    # 文件锁，避免多进程/多线程并发计算缓存
+    lock_path = os.path.join(CACHE_DIR, 'predictions.lock')
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    with open(lock_path, 'w') as lock_file:
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except IOError:
+            logger.warning("另一个进程正在生成预测缓存，放弃本次生成")
+            return load_predictions_cache(max_age_seconds=600)
+        try:
+            # 从物化层读取，避免在请求路径查库
+            data, scaler, enc, features = load_materialized()
+            if data is None or scaler is None or enc is None or not features:
+                logger.warning("物化特征或变换器缺失，尝试触发物化生成")
+                materialize_feature_store(wd, tg)
+                data, scaler, enc, features = load_materialized()
+                if data is None or scaler is None or enc is None or not features:
+                    logger.error("物化层仍不可用，取消缓存生成")
+                    return None
+            # 天气用于未来时间特征构造
+            today = datetime.now().strftime('%Y-%m-%d')
+            weather_data = fetch_real_time_weather(today, today, tg)
+            models = load_models()
+            predictions, _, _ = predict_and_validate(data, scaler, enc, weather_data, wd, tg, features, models, validate=False)
+            save_predictions_cache(predictions)
+            logger.info("离线预测完成并写入缓存，总耗时: %.2f秒", time.time() - total_start)
+            return predictions
+        except Exception as e:
+            logger.error("离线计算预测失败: %s", str(e), exc_info=True)
+            return None
+        finally:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            except Exception:
+                pass
 
 # Flask 接口 - 预测
 @app.route('/station/passenger/forecast/passengewayList', methods=['GET'])

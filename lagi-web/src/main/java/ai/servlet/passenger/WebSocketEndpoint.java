@@ -64,13 +64,13 @@ public class WebSocketEndpoint {
 					System.err.println("[WebSocket] JSON格式错误，会话ID: " + session.getId() + ", 错误: " + e.getMessage());
 					System.err.println("  原始消息: " + message.substring(0, Math.min(message.length(), 200)) + "...");
 				}
-				
+
 				// 发送错误响应
 				JSONObject errorResponse = new JSONObject();
 				errorResponse.put("type", "error");
 				errorResponse.put("message", "JSON格式错误: " + e.getMessage());
 				errorResponse.put("timestamp", LocalDateTime.now().toString());
-				
+
 				try {
 					session.getBasicRemote().sendText(errorResponse.toString());
 				} catch (IOException sendError) {
@@ -80,7 +80,7 @@ public class WebSocketEndpoint {
 				}
 				return;
 			}
-			
+
 			String type = jsonMessage.optString("type", "unknown");
 
 			// 移除消息类型解析日志
@@ -89,6 +89,31 @@ public class WebSocketEndpoint {
 			if (jsonMessage.has("event")) {
 				String eventType = jsonMessage.optString("event");
 				// 移除CV事件转发日志
+
+				// 添加JSON循环引用检查
+				try {
+					// 尝试序列化一次，检查是否有循环引用
+					jsonMessage.toString();
+				} catch (StackOverflowError soe) {
+					if (Config.LOG_ERROR) {
+						System.err.println("[WebSocket] 检测到JSON循环引用，会话ID: " + session.getId() + ", event: " + eventType);
+					}
+
+					// 发送错误响应
+					JSONObject errorResponse = new JSONObject();
+					errorResponse.put("type", "error");
+					errorResponse.put("message", "JSON循环引用错误");
+					errorResponse.put("timestamp", LocalDateTime.now().toString());
+
+					try {
+						session.getBasicRemote().sendText(errorResponse.toString());
+					} catch (IOException sendError) {
+						if (Config.LOG_ERROR) {
+							System.err.println("[WebSocket] 发送错误响应失败: " + sendError.getMessage());
+						}
+					}
+					return;
+				}
 
 				PROCESSOR.processEvent(jsonMessage);
 
@@ -127,7 +152,7 @@ public class WebSocketEndpoint {
 			}
 		} catch (Exception e) {
 			if (Config.LOG_ERROR) {
-				System.err.println("❌ [WebSocket] 处理消息出错: " + e.getMessage() + ", 会话ID: " + session.getId());
+				System.err.println("[WebSocket] 处理消息出错: " + e.getMessage() + ", 会话ID: " + session.getId());
 				e.printStackTrace();
 			}
 
@@ -141,7 +166,7 @@ public class WebSocketEndpoint {
 				// 移除错误响应发送调试日志
 			} catch (IOException ioException) {
 				if (Config.LOG_ERROR) {
-					System.err.println("❌ [WebSocket] 发送错误响应失败: " + ioException.getMessage());
+					System.err.println("[WebSocket] 发送错误响应失败: " + ioException.getMessage());
 				}
 			}
 		}

@@ -60,6 +60,10 @@ public class KafkaConsumerService {
     private final Map<String, double[]> stationGpsMap = new HashMap<>();
     // 判门未触发原因日志的节流：每辆车每分钟最多打印一次
     private static final Map<String, Long> lastDoorSkipLogMsByBus = new ConcurrentHashMap<>();
+    
+    // 防重复发送开关门信号：每辆车在指定时间内只能发送一次相同信号
+    private static final Map<String, String> lastDoorSignalByBus = new ConcurrentHashMap<>();
+    private static final long DOOR_SIGNAL_COOLDOWN_MS = 5000; // 5秒内不重复发送相同信号
 
     // 本地乘客流处理器：用于在判定开/关门后直接触发处理，无需依赖CV回推
     private final PassengerFlowProcessor passengerFlowProcessor = new PassengerFlowProcessor();
@@ -71,6 +75,42 @@ public class KafkaConsumerService {
         try {
             // 先尝试直接toString
             return jsonObject.toString();
+        } catch (StackOverflowError soe) {
+            if (Config.LOG_ERROR) {
+                System.err.println("[KafkaConsumerService] 检测到JSON循环引用，尝试清理: " + soe.getMessage());
+            }
+            
+            try {
+                // 如果检测到循环引用，尝试手动构建安全的消息
+                JSONObject safeMessage = new JSONObject();
+                safeMessage.put("event", jsonObject.optString("event", "unknown"));
+                
+                if (jsonObject.has("data")) {
+                    try {
+                        JSONObject data = jsonObject.getJSONObject("data");
+                        JSONObject safeData = new JSONObject();
+                        safeData.put("bus_no", data.optString("bus_no", ""));
+                        safeData.put("camera_no", data.optString("camera_no", ""));
+                        safeData.put("action", data.optString("action", ""));
+                        safeData.put("timestamp", data.optString("timestamp", ""));
+                        safeMessage.put("data", safeData);
+                    } catch (Exception dataEx) {
+                        if (Config.LOG_ERROR) {
+                            System.err.println("[KafkaConsumerService] 清理data字段失败: " + dataEx.getMessage());
+                        }
+                        // 如果data字段有问题，创建一个空的data
+                        safeMessage.put("data", new JSONObject());
+                    }
+                }
+                
+                return safeMessage.toString();
+            } catch (Exception cleanEx) {
+                if (Config.LOG_ERROR) {
+                    System.err.println("[KafkaConsumerService] 清理JSON失败: " + cleanEx.getMessage());
+                }
+                // 最后返回一个基本的错误消息
+                return "{\"error\":\"JSON循环引用\",\"event\":\"unknown\"}";
+            }
         } catch (Exception e) {
             if (Config.LOG_ERROR) {
                 System.err.println("[KafkaConsumerService] JSON序列化失败，尝试使用Jackson: " + e.getMessage());
@@ -607,7 +647,13 @@ public class KafkaConsumerService {
         String openTimeStrForClose = jedis.get("open_time:" + busNo);
         if (openTimeStrForClose != null) {
             try {
-                LocalDateTime openTimeParsed = LocalDateTime.parse(openTimeStrForClose, formatter);
+                LocalDateTime openTimeParsed;
+                // 兼容两种时间格式：yyyy-MM-dd HH:mm:ss 和 yyyy-MM-ddTHH:mm:ss
+                if (openTimeStrForClose.contains("T")) {
+                    openTimeParsed = LocalDateTime.parse(openTimeStrForClose);
+                } else {
+                    openTimeParsed = LocalDateTime.parse(openTimeStrForClose, formatter);
+                }
                 long openMs = java.time.Duration.between(openTimeParsed, now).toMillis();
                 
                 // 关门条件判断
@@ -777,6 +823,25 @@ public class KafkaConsumerService {
      */
     private void sendDoorSignalToCV(String busNo, String action, LocalDateTime timestamp) {
         try {
+            // 检查是否在冷却期内重复发送相同信号
+            String signalKey = busNo + ":" + action;
+            String lastSignal = lastDoorSignalByBus.get(signalKey);
+            long currentTime = System.currentTimeMillis();
+            
+            if (lastSignal != null) {
+                long lastTime = Long.parseLong(lastSignal);
+                if (currentTime - lastTime < DOOR_SIGNAL_COOLDOWN_MS) {
+                    if (Config.LOG_INFO) {
+                        System.out.println("[KafkaConsumerService] 跳过重复发送开关门信号: busNo=" + busNo + 
+                            ", action=" + action + ", 距离上次发送=" + (currentTime - lastTime) + "ms");
+                    }
+                    return;
+                }
+            }
+            
+            // 记录本次发送时间
+            lastDoorSignalByBus.put(signalKey, String.valueOf(currentTime));
+            
             // 获取对应的车牌号
             String plateNumber = BusPlateMappingUtil.getPlateNumber(busNo);
             
@@ -799,11 +864,7 @@ public class KafkaConsumerService {
             WebSocketEndpoint.sendToAll(messageJson);
 
             if (Config.LOG_INFO) {
-                System.out.println("[KafkaConsumerService] 发送开关门信号到CV系统:");
-                System.out.println("   原始bus_no: " + busNo);
-                System.out.println("   推送车牌号: " + plateNumber);
-                System.out.println("   动作: " + action);
-                System.out.println("   时间: " + timestamp.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+                System.out.println("[KafkaConsumerService] 发送" + (action.equals("open") ? "开门" : "关门") + "信号到CV系统: busNo=" + busNo + ", 车牌号=" + plateNumber);
                 System.out.println("   完整消息: " + messageJson);
             }
 

@@ -112,13 +112,10 @@ public class PassengerFlowProcessor {
 		List<BusOdRecord> odRecords = new ArrayList<>();
 		int upCount = 0, downCount = 0;
 		
-		// 打印CV推送的详细数据，用于开关门timestamp校验
-		System.out.println("[CV数据接收] downup事件数据详情:");
-		System.out.println("   bus_no: " + busNo);
-		System.out.println("   camera_no: " + cameraNo);
-		System.out.println("   timestamp: " + data.optString("timestamp"));
-		System.out.println("   事件数量: " + (events != null ? events.length() : 0));
-		System.out.println("   ================================================================================");
+		// 精简CV数据接收日志，避免重复输出
+		if (Config.PILOT_ROUTE_LOG_ENABLED) {
+			System.out.println("[CV数据接收] downup事件: bus_no=" + busNo + ", 事件数=" + (events != null ? events.length() : 0));
+		}
 		
 		// 缓存 camera 与 bus 的映射，便于反查
 		if (cameraNo != null && !cameraNo.isEmpty() && !"default".equalsIgnoreCase(cameraNo)) {

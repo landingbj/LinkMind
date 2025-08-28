@@ -61,14 +61,6 @@ public class KafkaConsumerService {
     // 判门未触发原因日志的节流：每辆车每分钟最多打印一次
     private static final Map<String, Long> lastDoorSkipLogMsByBus = new ConcurrentHashMap<>();
     
-    // 防重复发送开关门信号：每辆车在指定时间内只能发送一次相同信号
-    private static final Map<String, String> lastDoorSignalByBus = new ConcurrentHashMap<>();
-    private static final long DOOR_SIGNAL_COOLDOWN_MS = 5000; // 5秒内不重复发送相同信号
-    
-    // 开关门间隔控制：避免频繁开关门
-    private static final Map<String, Long> lastDoorActionTimeByBus = new ConcurrentHashMap<>();
-    private static final long MIN_DOOR_ACTION_INTERVAL_MS = 30000; // 30秒内不能重复开关门
-
     // 本地乘客流处理器：用于在判定开/关门后直接触发处理，无需依赖CV回推
     private final PassengerFlowProcessor passengerFlowProcessor = new PassengerFlowProcessor();
 
@@ -498,9 +490,9 @@ public class KafkaConsumerService {
         String direction2 = "4".equals(trafficType2) ? "up" : "down";
         String routeNo = message.optString("routeNo");
 
-        // 专门打印车辆到离站信号的Kafka原始数据（可通过配置控制）
-        if (Config.ARRIVE_LEAVE_LOG_ENABLED) {
-            System.out.println("[车辆到离站信号] pktType=4 的Kafka原始数据:");
+        // 对白名单中的车辆打印完整的到离站Kafka原始数据
+        if (isDoorSignalWhitelisted(busNo)) {
+            System.out.println("[白名单车辆到离站信号] pktType=4 的Kafka原始数据:");
             System.out.println("   busNo=" + busNo);
             System.out.println("   isArriveOrLeft=" + isArriveOrLeft);
             System.out.println("   stationId=" + stationId);
@@ -605,24 +597,10 @@ public class KafkaConsumerService {
         boolean shouldOpen = false;
         String openReason = "";
         
-        // 检查开关门间隔控制
-        long currentTime = System.currentTimeMillis();
-        Long lastActionTime = lastDoorActionTimeByBus.get(busNo);
-        if (lastActionTime != null && (currentTime - lastActionTime) < MIN_DOOR_ACTION_INTERVAL_MS) {
-            if (Config.LOG_INFO) {
-                System.out.println("[KafkaConsumerService] 跳过开关门判断: busNo=" + busNo + 
-                    ", 距离上次操作=" + (currentTime - lastActionTime) + "ms, 需要间隔=" + MIN_DOOR_ACTION_INTERVAL_MS + "ms");
-            }
-            return;
-        }
-        
         if ("1".equals(arriveLeave.optString("isArriveOrLeft"))) {
-            // 防重复开门：若已存在开门窗口则不重复
-            String openTimeExisting = jedis.get("open_time:" + busNo);
-            if (openTimeExisting == null) {
-                shouldOpen = true;
-                openReason = "报站到站信号";
-            }
+            // 到站信号：直接开门
+            shouldOpen = true;
+            openReason = "报站到站信号";
         }
 
         // 判断关门（加入去抖与最小开门时长约束）
@@ -721,9 +699,6 @@ public class KafkaConsumerService {
             // 记录最近一次到离站标志
             jedis.set("last_arrive_leave_flag:" + busNo, arriveLeave.optString("isArriveOrLeft", ""));
             jedis.expire("last_arrive_leave_flag:" + busNo, Config.REDIS_TTL_ARRIVE_LEAVE);
-            
-            // 更新最后操作时间
-            lastDoorActionTimeByBus.put(busNo, currentTime);
         } else if (shouldClose) {
             String openTimeStr = jedis.get("open_time:" + busNo);
             if (openTimeStr != null) {
@@ -769,9 +744,6 @@ public class KafkaConsumerService {
                 // 记录最近一次到离站标志
                 jedis.set("last_arrive_leave_flag:" + busNo, arriveLeave.optString("isArriveOrLeft", ""));
                 jedis.expire("last_arrive_leave_flag:" + busNo, Config.REDIS_TTL_ARRIVE_LEAVE);
-                
-                // 更新最后操作时间
-                lastDoorActionTimeByBus.put(busNo, currentTime);
             } else {
                 logDoorSkipThrottled(busNo, "未找到open_time窗口");
             }
@@ -829,25 +801,6 @@ public class KafkaConsumerService {
      */
     private void sendDoorSignalToCV(String busNo, String action, LocalDateTime timestamp) {
         try {
-            // 检查是否在冷却期内重复发送相同信号
-            String signalKey = busNo + ":" + action;
-            String lastSignal = lastDoorSignalByBus.get(signalKey);
-            long currentTime = System.currentTimeMillis();
-            
-            if (lastSignal != null) {
-                long lastTime = Long.parseLong(lastSignal);
-                if (currentTime - lastTime < DOOR_SIGNAL_COOLDOWN_MS) {
-                    if (Config.LOG_INFO) {
-                        System.out.println("[KafkaConsumerService] 跳过重复发送开关门信号: busNo=" + busNo + 
-                            ", action=" + action + ", 距离上次发送=" + (currentTime - lastTime) + "ms");
-                    }
-                    return;
-                }
-            }
-            
-            // 记录本次发送时间
-            lastDoorSignalByBus.put(signalKey, String.valueOf(currentTime));
-            
             // 获取对应的车牌号
             String plateNumber = BusPlateMappingUtil.getPlateNumber(busNo);
             
@@ -869,9 +822,9 @@ public class KafkaConsumerService {
             // 通过WebSocket发送给CV
             WebSocketEndpoint.sendToAll(messageJson);
 
+            // 移除重复的日志，只保留一条关键信息
             if (Config.LOG_INFO) {
                 System.out.println("[KafkaConsumerService] 发送" + (action.equals("open") ? "开门" : "关门") + "信号到CV系统: busNo=" + busNo + ", 车牌号=" + plateNumber);
-                System.out.println("   完整消息: " + messageJson);
             }
 
             // 本地自回推：直接触发 PassengerFlowProcessor 处理开/关门事件

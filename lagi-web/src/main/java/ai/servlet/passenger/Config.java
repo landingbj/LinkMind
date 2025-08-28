@@ -43,7 +43,7 @@ public class Config {
     public static final boolean LOG_ERROR = true;                // 是否打印错误日志
 
     // 试点线路专用日志配置
-    public static final boolean PILOT_ROUTE_LOG_ENABLED = true;  // 是否启用试点线路流程日志
+    public static final boolean PILOT_ROUTE_LOG_ENABLED = false;  // 是否启用试点线路流程日志（关闭以减少重复）
     public static final boolean ARRIVE_LEAVE_LOG_ENABLED = false; // 是否启用车辆到离站信号日志
     public static final boolean ARRIVE_LEAVE_LOG_NON_PILOT_ENABLED = false; // 白名单外线路是否也打印到离站日志
 

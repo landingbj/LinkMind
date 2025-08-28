@@ -120,7 +120,8 @@ def load_predictions_cache(max_age_seconds=180):
         mtime = os.path.getmtime(PRED_CACHE_FILE)
         age = time.time() - mtime
         if age > max_age_seconds:
-            logger.warning("预测缓存已过期(%.1fs)，文件: %s", age, PRED_CACHE_FILE)
+            logger.warning("预测缓存已过期(%.1fs)，丢弃缓存: %s", age, PRED_CACHE_FILE)
+            return None
         with open(PRED_CACHE_FILE, 'r', encoding='utf-8') as f:
             payload = json.load(f)
         return payload.get('data')
@@ -601,7 +602,7 @@ def build_channel_service_windows(route_service_times):
                     merged.append(list(interval))
         channel_windows[ch] = [(s, e) for s, e in merged]
         if not channel_windows[ch]:
-            logger.warning("通道 %s 当天未解析到服务时间窗口，默认视为全时段服务", ch)
+            logger.warning("通道 %s 当天未解析到服务时间窗口，默认视为不服务", ch)
         else:
             logger.info("通道 %s 最终服务时间窗口: %s", ch, 
                        [(s.strftime('%H:%M'), e.strftime('%H:%M')) for s, e in channel_windows[ch]])
@@ -612,11 +613,11 @@ def build_channel_service_windows(route_service_times):
 
 def is_active_at(dt_point, windows, buffer_minutes):
     """判断时间点是否处于任一服务窗口内，或在窗口结束后 buffer_minutes 内。
-    若 windows 为空，则默认返回 True（兜底）。
+    若 windows 为空，则默认返回 False（兜底改为非活跃）。
     """
     if not windows:
-        logger.debug("无服务时间窗口，默认返回活跃状态")
-        return True
+        logger.debug("无服务时间窗口，默认返回非活跃")
+        return False
     for start_dt, end_dt in windows:
         if start_dt <= dt_point <= (end_dt + timedelta(minutes=buffer_minutes)):
             logger.debug("时间点 %s 在服务窗口内: %s - %s (缓冲: %d分钟)", 
@@ -1313,8 +1314,35 @@ def get_passenger_forecast():
         # 先读缓存，避免每次请求查库
         cached = load_predictions_cache(max_age_seconds=300)
         if cached is not None:
-            predictions = cached
-            logger.info("命中预测缓存，直接返回")
+            logger.info("命中预测缓存，进入二次遮罩处理")
+            # 命中缓存后，基于当前服务窗口进行二次遮罩
+            # 1) 构建当天服务时间窗口
+            all_route_ids = set()
+            for routes in CHANNEL_MAPPING.values():
+                all_route_ids.update(routes)
+            route_service_times = fetch_route_service_times(list(all_route_ids))
+            channel_windows = build_channel_service_windows(route_service_times)
+
+            # 2) 参考当前时间点活跃性决定是否置零
+            now_dt = datetime.now()
+            def channel_active(ch):
+                return is_active_at(now_dt, channel_windows.get(ch, []), CONFIG.get('service_end_buffer_minutes', 15))
+
+            # 3) 将缓存结构中的对应通道在非服务时段置零
+            predictions = []
+            name_to_channel = {v: k for k, v in CHANNEL_NAME_MAPPING.items()}
+            for item in cached:
+                ch = name_to_channel.get(item.get('passengewayName'))
+                if ch and not channel_active(ch):
+                    predictions.append({
+                        'passengewayIndex': item.get('passengewayIndex'),
+                        'passengewayName': item.get('passengewayName'),
+                        'instationMin15': 0,
+                        'instationMin30': 0,
+                        'instationMin60': 0
+                    })
+                else:
+                    predictions.append(item)
         else:
             logger.warning("预测缓存缺失，执行一次计算(可能较慢)")
             predictions = compute_and_cache_predictions()

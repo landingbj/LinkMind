@@ -656,10 +656,37 @@ public class KafkaConsumerService {
 
         if (shouldOpen) {
             String openTimeKey = "open_time:" + busNo;
+            String lastOpenStr = jedis.get(openTimeKey);
+            // 开门防抖：同一车辆在指定秒内不重复开门且不重置窗口
+            if (lastOpenStr != null && !lastOpenStr.isEmpty()) {
+                try {
+                    LocalDateTime lastOpen = lastOpenStr.contains("T") ? LocalDateTime.parse(lastOpenStr) : LocalDateTime.parse(lastOpenStr, formatter);
+                    long sinceLastOpenSec = java.time.Duration.between(lastOpen, now).getSeconds();
+                    if (sinceLastOpenSec < Config.OPEN_DEBOUNCE_SECONDS) {
+                        logDoorSkipThrottled(busNo, "开门防抖(" + sinceLastOpenSec + "s<" + Config.OPEN_DEBOUNCE_SECONDS + ")，忽略重复");
+                        // 仅刷新到离站态标记有效期
+                        jedis.expire("arrive_leave:" + busNo, Config.REDIS_TTL_ARRIVE_LEAVE);
+                        return;
+                    }
+                    // 若同一站内重复到站，保持首次窗口，不重置
+                    String openedStation = jedis.get("open_station:" + busNo);
+                    if (openedStation != null && openedStation.equals(stationId)) {
+                        logDoorSkipThrottled(busNo, "同站重复到站，保持首开门窗口，不重置");
+                        jedis.expire(openTimeKey, Config.REDIS_TTL_OPEN_TIME);
+                        jedis.expire("open_station:" + busNo, Config.REDIS_TTL_OPEN_TIME);
+                        return;
+                    }
+                } catch (Exception ignore) {}
+            }
+
             String ticketCountKey = "ticket_count_window:" + busNo;
             jedis.set(openTimeKey, now.format(formatter));
-            // 改为按窗口计数，不在bus维度单独维护
             jedis.expire(openTimeKey, Config.REDIS_TTL_OPEN_TIME);
+            // 记录开门站点，便于同站重复开门忽略
+            if (stationId != null && !stationId.isEmpty()) {
+                jedis.set("open_station:" + busNo, stationId);
+                jedis.expire("open_station:" + busNo, Config.REDIS_TTL_OPEN_TIME);
+            }
 
             // 维护车牌到bus的映射，便于CV以车牌推送时反查窗口
             try {
@@ -689,7 +716,7 @@ public class KafkaConsumerService {
                     ", 原因=" + openReason + ", 时间=" + now.format(formatter));
             }
 
-            // 发送开门信号到CV
+            // 发送开门信号到CV（bus_no为车牌号由sendDoorSignalToCV内部映射）
             sendDoorSignalToCV(busNo, "open", now);
 
             if (Config.LOG_INFO) {

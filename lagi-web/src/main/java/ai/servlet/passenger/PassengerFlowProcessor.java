@@ -626,8 +626,9 @@ public class PassengerFlowProcessor {
 				// 创建关门记录
 				BusOdRecord record = createBaseRecord(busNo, cameraNo, eventTime, jedis);
 				// 从windowId恢复开门时间，避免begin与end相同
+				LocalDateTime beginTime = null;
 				try {
-					LocalDateTime beginTime = LocalDateTime.parse(normalizedWindowId, formatter);
+					beginTime = LocalDateTime.parse(normalizedWindowId, formatter);
 					record.setTimestampBegin(beginTime);
 				} catch (Exception e) {
 					// 兜底：如果解析失败，保持空
@@ -642,9 +643,11 @@ public class PassengerFlowProcessor {
 				// 设置乘客特征集合
 				setPassengerFeatures(record, jedis, busNo, normalizedWindowId);
 
-				// 并行处理图片：AI分析和视频转换
+				// 并行处理图片：使用容忍时间窗口 [open-30s, close+30s]
 				try {
-					processImagesParallel(record, jedis, busNo, normalizedWindowId, eventTime);
+					List<String> rangedImages = getImagesByTimeRange(jedis, busNo, beginTime, eventTime,
+						Config.IMAGE_TIME_TOLERANCE_BEFORE_SECONDS, Config.IMAGE_TIME_TOLERANCE_AFTER_SECONDS);
+					processImagesParallelWithList(record, jedis, busNo, normalizedWindowId, eventTime, rangedImages);
 				} catch (Exception e) {
 					if (Config.LOG_ERROR) {
 						System.err.println("[PassengerFlowProcessor] Error in parallel image processing: " + e.getMessage());
@@ -858,6 +861,59 @@ public class PassengerFlowProcessor {
 		}
 		
 		return imageUrls;
+	}
+
+	/**
+	 * 基于时间区间的图片收集：从 [openTime - beforeSec, closeTime + afterSec] 聚合
+	 */
+	private List<String> getImagesByTimeRange(Jedis jedis, String busNo, LocalDateTime openTime,
+			LocalDateTime closeTime, int beforeSec, int afterSec) {
+		List<String> imageUrls = new ArrayList<>();
+		if (openTime == null || closeTime == null) return imageUrls;
+		try {
+			LocalDateTime from = openTime.minusSeconds(Math.max(0, beforeSec));
+			LocalDateTime to = closeTime.plusSeconds(Math.max(0, afterSec));
+			System.out.println("[图片收集] 区间聚合: bus=" + busNo + ", from=" + from.format(formatter) + ", to=" + to.format(formatter));
+			LocalDateTime cursor = from;
+			while (!cursor.isAfter(to)) {
+				String win = cursor.format(formatter);
+				// 上车
+				Set<String> up = jedis.smembers("image_urls:" + busNo + ":" + win + ":up");
+				if (up != null && !up.isEmpty()) imageUrls.addAll(up);
+				// 下车
+				Set<String> down = jedis.smembers("image_urls:" + busNo + ":" + win + ":down");
+				if (down != null && !down.isEmpty()) imageUrls.addAll(down);
+				cursor = cursor.plusSeconds(1); // 秒级扫描
+			}
+			System.out.println("[图片收集] 区间聚合共收集到图片 " + imageUrls.size() + " 张");
+		} catch (Exception e) {
+			System.err.println("[图片收集] 区间聚合异常: " + e.getMessage());
+		}
+		return imageUrls;
+	}
+
+	/**
+	 * 使用外部提供的图片列表执行并行处理
+	 */
+	private void processImagesParallelWithList(BusOdRecord record, Jedis jedis, String busNo, String windowId,
+			LocalDateTime eventTime, List<String> imageUrls) throws IOException, SQLException {
+		System.out.println("[并行处理] 开始为车辆 " + busNo + " 并行处理图片(区间聚合)，时间窗口: " + windowId);
+		if (imageUrls == null || imageUrls.isEmpty()) {
+			System.out.println("[并行处理] 没有图片需要处理，跳过");
+			return;
+		}
+		JSONArray imageArray = new JSONArray();
+		for (String imageUrl : imageUrls) imageArray.put(imageUrl);
+		record.setPassengerImages(imageArray.toString());
+		try {
+			System.out.println("[并行处理] 开始AI图片分析");
+			analyzeImagesWithAI(jedis, busNo, eventTime, record, imageUrls);
+			System.out.println("[并行处理] 开始图片转视频");
+			processImagesToVideo(record, jedis, busNo, windowId, imageUrls);
+			System.out.println("[并行处理] 并行处理完成");
+		} catch (Exception e) {
+			System.err.println("[并行处理] 并行处理异常: " + e.getMessage());
+		}
 	}
 	
 	/**

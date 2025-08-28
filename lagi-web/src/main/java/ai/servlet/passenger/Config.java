@@ -67,6 +67,11 @@ public class Config {
     public static final double CLOSE_DISTANCE_THRESHOLD_M = 60.0;// 关门距离阈值60m（更宽松）
     public static final double CLOSE_SPEED_THRESHOLD_MS = 15.0/3.6; // 关门速度阈值15km/h
 
+    // 开门防抖与图片时间容忍窗口
+    public static final int OPEN_DEBOUNCE_SECONDS = 15;              // 同车开门防抖窗口（秒）
+    public static final int IMAGE_TIME_TOLERANCE_BEFORE_SECONDS = 30; // 图片时间容忍：开门前
+    public static final int IMAGE_TIME_TOLERANCE_AFTER_SECONDS = 30;  // 图片时间容忍：关门后
+
     /** 应用关闭超时时间（毫秒） */
     public static final int APP_SHUTDOWN_TIMEOUT_MS = 30000;
 

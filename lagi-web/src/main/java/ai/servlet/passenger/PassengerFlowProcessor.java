@@ -181,20 +181,25 @@ public class PassengerFlowProcessor {
 			int boxW = ev.optInt("box_w");
 			int boxH = ev.optInt("box_h");
 
-			// 处理base64图片：解码并上传到OSS
+			// 处理图片：支持直接URL与base64两种形式
 			String imageUrl = null;
-			if (image != null && !image.isEmpty() && Config.ENABLE_IMAGE_PROCESSING) {
-				try {
-					if (Config.PILOT_ROUTE_LOG_ENABLED) {
-						System.out.println("[流程] 开始处理图片(base64->文件->OSS): busNo=" + busNo + ", cameraNo=" + cameraNo);
-					}
-					imageUrl = processBase64Image(image, canonicalBusNo, cameraNo, eventTime);
-					if (Config.PILOT_ROUTE_LOG_ENABLED) {
-						System.out.println("[流程] 图片上传完成，得到URL");
-					}
-				} catch (Exception e) {
-					if (Config.LOG_ERROR) {
-						System.err.println("[PassengerFlowProcessor] Error processing base64 image: " + e.getMessage());
+			if (image != null && !image.isEmpty()) {
+				if (image.startsWith("http://") || image.startsWith("https://")) {
+					// 直接使用URL并缓存
+					imageUrl = image;
+				} else if (Config.ENABLE_IMAGE_PROCESSING) {
+					try {
+						if (Config.PILOT_ROUTE_LOG_ENABLED) {
+							System.out.println("[流程] 开始处理图片(base64->文件->OSS): busNo=" + busNo + ", cameraNo=" + cameraNo);
+						}
+						imageUrl = processBase64Image(image, canonicalBusNo, cameraNo, eventTime);
+						if (Config.PILOT_ROUTE_LOG_ENABLED) {
+							System.out.println("[流程] 图片上传完成，得到URL");
+						}
+					} catch (Exception e) {
+						if (Config.LOG_ERROR) {
+							System.err.println("[PassengerFlowProcessor] Error processing base64 image: " + e.getMessage());
+						}
 					}
 				}
 			}
@@ -1241,8 +1246,19 @@ public class PassengerFlowProcessor {
 		if (windowId == null) return 0;
 		String v = jedis.get("cv_down_count:" + busNo + ":" + windowId);
 		int count = v != null ? Integer.parseInt(v) : 0;
+		if (count == 0) {
+			// 回退：基于特征方向进行统计
+			try {
+				Set<String> features = jedis.smembers("features_set:" + busNo + ":" + windowId);
+				if (features != null) {
+					for (String f : features) {
+						try { if ("down".equals(new JSONObject(f).optString("direction"))) count++; } catch (Exception ignore) {}
+					}
+				}
+			} catch (Exception ignore) {}
+		}
 		if (Config.LOG_DEBUG) {
-			System.out.println("[CV计数获取] 下车计数: cv_down_count:" + busNo + ":" + windowId + " = " + count);
+			System.out.println("[CV计数获取] 下车计数(含回退): cv_down_count:" + busNo + ":" + windowId + " = " + count);
 		}
 		return count;
 	}
@@ -1250,8 +1266,19 @@ public class PassengerFlowProcessor {
 	private int getCachedUpCount(Jedis jedis, String busNo, String windowId) {
 		String v = jedis.get("cv_up_count:" + busNo + ":" + windowId);
 		int count = v != null ? Integer.parseInt(v) : 0;
+		if (count == 0) {
+			// 回退：基于特征方向进行统计
+			try {
+				Set<String> features = jedis.smembers("features_set:" + busNo + ":" + windowId);
+				if (features != null) {
+					for (String f : features) {
+						try { if ("up".equals(new JSONObject(f).optString("direction"))) count++; } catch (Exception ignore) {}
+					}
+				}
+			} catch (Exception ignore) {}
+		}
 		if (Config.LOG_DEBUG) {
-			System.out.println("[CV计数获取] 上车计数: cv_up_count:" + busNo + ":" + windowId + " = " + count);
+			System.out.println("[CV计数获取] 上车计数(含回退): cv_up_count:" + busNo + ":" + windowId + " = " + count);
 		}
 		return count;
 	}
@@ -1457,6 +1484,12 @@ public class PassengerFlowProcessor {
         // 检查是否启用AI图片分析
         if (!Config.ENABLE_AI_IMAGE_ANALYSIS) {
             System.out.println("[大模型分析] AI图片分析功能已禁用，跳过分析");
+            // 兜底：用图片数量作为AI总人数的保守估计
+            try {
+                int size = imageUrls != null ? imageUrls.size() : 0;
+                Integer cur = record.getAiTotalCount();
+                record.setAiTotalCount(Math.max(cur == null ? 0 : cur, size));
+            } catch (Exception ignore) {}
             return;
         }
 
@@ -1493,8 +1526,18 @@ public class PassengerFlowProcessor {
         System.out.println("[大模型分析] 开始调用大模型API，图片数量: " + imageUrls.size() + "，提示词: " + Config.PASSENGER_PROMPT);
         
         // 调用大模型分析图片 - 直接传入图片列表，不使用视频路径
-        JSONObject modelResponse = callMediaApi(imageUrls, null, Config.PASSENGER_PROMPT);
-        System.out.println("[大模型分析] 大模型API调用完成，响应: " + modelResponse.toString());
+        JSONObject modelResponse;
+        try {
+            modelResponse = callMediaApi(imageUrls, null, Config.PASSENGER_PROMPT);
+            System.out.println("[大模型分析] 大模型API调用完成，响应: " + modelResponse.toString());
+        } catch (Exception e) {
+            System.err.println("[大模型分析] 调用失败: " + e.getMessage());
+            // 兜底：用图片数量作为AI总人数的保守估计
+            int size = imageUrls != null ? imageUrls.size() : 0;
+            Integer cur = record.getAiTotalCount();
+            record.setAiTotalCount(Math.max(cur == null ? 0 : cur, size));
+            return;
+        }
         
         JSONObject responseObj = modelResponse.optJSONObject("response");
         JSONArray passengerFeatures = responseObj != null ? responseObj.optJSONArray("passenger_features") : new JSONArray();
@@ -1569,10 +1612,52 @@ public class PassengerFlowProcessor {
 					Set<String> relatedKeys = jedis.keys("features_set:" + busNo + ":*");
 					System.out.println("[PassengerFlowProcessor] Related feature keys: " + relatedKeys);
 				}
-				
-				// 设置默认值，避免字段为null
-				record.setPassengerFeatures("[]");
-				record.setPassengerPosition("[]");
+				// 回退：按开关门时间区间聚合 features 与 position
+				try {
+					LocalDateTime begin = record.getTimestampBegin();
+					LocalDateTime end = record.getTimestampEnd();
+					if (begin != null && end != null) {
+						JSONArray featuresArray = new JSONArray();
+						JSONArray positionArray = new JSONArray();
+						LocalDateTime cursor = begin.minusSeconds(Math.max(0, Config.IMAGE_TIME_TOLERANCE_BEFORE_SECONDS));
+						LocalDateTime to = end.plusSeconds(Math.max(0, Config.IMAGE_TIME_TOLERANCE_AFTER_SECONDS));
+						while (!cursor.isAfter(to)) {
+							String win = cursor.format(formatter);
+							Set<String> fset = jedis.smembers("features_set:" + busNo + ":" + win);
+							if (fset != null && !fset.isEmpty()) {
+								for (String f : fset) {
+									try {
+										JSONObject obj = new JSONObject(f);
+										featuresArray.put(obj);
+										if (obj.has("position")) {
+											positionArray.put(obj.getJSONObject("position"));
+										}
+									} catch (Exception ignore) {}
+								}
+							}
+							cursor = cursor.plusSeconds(1);
+						}
+						if (featuresArray.length() > 0) {
+							record.setPassengerFeatures(featuresArray.toString());
+							if (positionArray.length() > 0) {
+								record.setPassengerPosition(positionArray.toString());
+							}
+							if (Config.PILOT_ROUTE_LOG_ENABLED) {
+								System.out.println("[流程][回退] 乘客特征集合按时间区间聚合成功，特征数: " + featuresArray.length());
+							}
+						} else {
+							// 设置默认值，避免字段为null
+							record.setPassengerFeatures("[]");
+							record.setPassengerPosition("[]");
+						}
+					} else {
+						record.setPassengerFeatures("[]");
+						record.setPassengerPosition("[]");
+					}
+				} catch (Exception ignore) {
+					record.setPassengerFeatures("[]");
+					record.setPassengerPosition("[]");
+				}
 			}
 		} catch (Exception e) {
 			if (Config.LOG_ERROR) {

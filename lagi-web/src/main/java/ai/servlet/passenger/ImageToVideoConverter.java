@@ -48,7 +48,8 @@ public class ImageToVideoConverter {
             System.out.println("[FFmpeg转换] 临时图片目录创建完成: " + tempDir.getAbsolutePath());
             
             ProcessBuilder processBuilder = new ProcessBuilder();
-            processBuilder.command("ffmpeg", "-y", "-framerate", String.valueOf(frameRate), 
+            // 优先使用可配置的FFmpeg路径
+            processBuilder.command(Config.FFMPEG_PATH, "-y", "-framerate", String.valueOf(frameRate), 
                                  "-i", "%d.jpg", "-c:v", "libx264", "-pix_fmt", "yuv420p", 
                                  outputFile.getAbsolutePath());
             
@@ -56,6 +57,8 @@ public class ImageToVideoConverter {
             processBuilder.directory(tempDir);
             
             System.out.println("[FFmpeg转换] 开始执行FFmpeg命令，工作目录: " + tempDir.getAbsolutePath());
+            // 启动前输出实际命令，便于排错
+            System.out.println("[FFmpeg转换] 执行命令: " + String.join(" ", processBuilder.command()));
             Process process = processBuilder.start();
             int exitCode = process.waitFor();
             

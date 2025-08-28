@@ -800,11 +800,25 @@ public class PassengerFlowProcessor {
 				} catch (Exception e) {
 					System.err.println("[图片转视频] 转换失败: " + e.getMessage());
 					e.printStackTrace();
+					
+					// 设置默认值，避免字段为null
+					record.setPassengerVideoUrl("");
+					System.out.println("[图片转视频] 转换失败，已设置默认值");
 				}
+			} else {
+				// 没有图片时设置默认值
+				record.setPassengerImages("[]");
+				record.setPassengerVideoUrl("");
+				System.out.println("[图片转视频] 没有图片需要处理，已设置默认值");
 			}
 		} catch (Exception e) {
 			System.err.println("[图片转视频] 处理过程发生异常: " + e.getMessage());
 			e.printStackTrace();
+			
+			// 异常情况下设置默认值
+			record.setPassengerImages("[]");
+			record.setPassengerVideoUrl("");
+			System.out.println("[图片转视频] 异常处理，已设置默认值");
 		}
 	}
 
@@ -970,23 +984,27 @@ public class PassengerFlowProcessor {
 	}
 
 	private String getRouteDirectionFromBusNo(String busNo, Jedis jedis) {
-		// 优先从gps:trafficType判定
+		// 优先从到离站缓存中直接读取direction；若无则按trafficType映射
 		try {
-			String gpsStr = jedis.get("gps:" + busNo);
-			if (gpsStr != null) {
-				String trafficType = new JSONObject(gpsStr).optString("trafficType");
-				String v = mapTrafficTypeToDirection(trafficType);
-				if (!"unknown".equals(v)) return v;
-			}
-			// 其次从arrive_leave:trafficType判定
 			String arriveLeaveStr = jedis.get("arrive_leave:" + busNo);
 			if (arriveLeaveStr != null) {
-				String trafficType = new JSONObject(arriveLeaveStr).optString("trafficType");
-				String v = mapTrafficTypeToDirection(trafficType);
-				if (!"unknown".equals(v)) return v;
+				JSONObject arriveLeave = new JSONObject(arriveLeaveStr);
+				String direct = arriveLeave.optString("direction");
+				if ("up".equals(direct) || "down".equals(direct)) return direct;
+				String t = arriveLeave.optString("trafficType");
+				String v = mapTrafficTypeToDirection(t);
+				if ("up".equals(v) || "down".equals(v)) return v;
+			}
+			// 次选从gps:trafficType判定
+			String gpsStr = jedis.get("gps:" + busNo);
+			if (gpsStr != null) {
+				String t = new JSONObject(gpsStr).optString("trafficType");
+				String v = mapTrafficTypeToDirection(t);
+				if ("up".equals(v) || "down".equals(v)) return v;
 			}
 		} catch (Exception ignore) {}
-		return "unknown";
+		// 默认回退为上行
+		return "up";
 	}
 
 	private String mapTrafficTypeToDirection(String trafficType) {
@@ -994,7 +1012,6 @@ public class PassengerFlowProcessor {
 		switch (trafficType) {
 			case "4": return "up";
 			case "5": return "down";
-			case "6": return "circular";
 			default: return "unknown";
 		}
 	}
@@ -1167,12 +1184,20 @@ public class PassengerFlowProcessor {
 	private int getCachedDownCount(Jedis jedis, String busNo, String windowId) {
 		if (windowId == null) return 0;
 		String v = jedis.get("cv_down_count:" + busNo + ":" + windowId);
-		return v != null ? Integer.parseInt(v) : 0;
+		int count = v != null ? Integer.parseInt(v) : 0;
+		if (Config.LOG_DEBUG) {
+			System.out.println("[CV计数获取] 下车计数: cv_down_count:" + busNo + ":" + windowId + " = " + count);
+		}
+		return count;
 	}
 
 	private int getCachedUpCount(Jedis jedis, String busNo, String windowId) {
 		String v = jedis.get("cv_up_count:" + busNo + ":" + windowId);
-		return v != null ? Integer.parseInt(v) : 0;
+		int count = v != null ? Integer.parseInt(v) : 0;
+		if (Config.LOG_DEBUG) {
+			System.out.println("[CV计数获取] 上车计数: cv_up_count:" + busNo + ":" + windowId + " = " + count);
+		}
+		return count;
 	}
 
 	private Long getBusIdFromRedis(Jedis jedis, String busNo) {
@@ -1450,20 +1475,57 @@ public class PassengerFlowProcessor {
 			
 			if (features != null && !features.isEmpty()) {
 				JSONArray featuresArray = new JSONArray();
+				JSONArray positionArray = new JSONArray();
+				
 				for (String featureStr : features) {
-					featuresArray.put(new JSONObject(featureStr));
+					try {
+						JSONObject featureObj = new JSONObject(featureStr);
+						featuresArray.put(featureObj);
+						
+						// 提取位置信息到单独的数组
+						if (featureObj.has("position")) {
+							JSONObject position = featureObj.getJSONObject("position");
+							positionArray.put(position);
+						}
+					} catch (Exception e) {
+						if (Config.LOG_DEBUG) {
+							System.out.println("[PassengerFlowProcessor] Failed to parse feature JSON: " + featureStr);
+						}
+					}
 				}
 				
 				record.setPassengerFeatures(featuresArray.toString());
 				
-				if (Config.PILOT_ROUTE_LOG_ENABLED) {
-					System.out.println("[流程] 乘客特征集合设置完成，特征数: " + featuresArray.length());
+				// 设置乘客图像坐标
+				if (positionArray.length() > 0) {
+					record.setPassengerPosition(positionArray.toString());
 				}
+				
+				if (Config.PILOT_ROUTE_LOG_ENABLED) {
+					System.out.println("[流程] 乘客特征集合设置完成，特征数: " + featuresArray.length() + ", 位置数: " + positionArray.length());
+				}
+			} else {
+				if (Config.LOG_DEBUG) {
+					System.out.println("[PassengerFlowProcessor] No features found for busNo=" + busNo + ", windowId=" + windowId);
+					System.out.println("[PassengerFlowProcessor] Redis key: " + featuresKey);
+					
+					// 尝试查找相关的Redis键
+					Set<String> relatedKeys = jedis.keys("features_set:" + busNo + ":*");
+					System.out.println("[PassengerFlowProcessor] Related feature keys: " + relatedKeys);
+				}
+				
+				// 设置默认值，避免字段为null
+				record.setPassengerFeatures("[]");
+				record.setPassengerPosition("[]");
 			}
 		} catch (Exception e) {
 			if (Config.LOG_ERROR) {
 				System.err.println("[PassengerFlowProcessor] Error setting passenger features: " + e.getMessage());
 			}
+			
+			// 异常情况下设置默认值
+			record.setPassengerFeatures("[]");
+			record.setPassengerPosition("[]");
 		}
 	}
 
@@ -1473,6 +1535,13 @@ public class PassengerFlowProcessor {
         int lastUp = getCachedUpCount(jedis, busNo, windowId);
         int lastDown = getCachedDownCount(jedis, busNo, windowId);
         int lastImageCount = getAllImageUrls(jedis, busNo, windowId).size();
+
+        if (Config.LOG_DEBUG) {
+            System.out.println("[CV结果等待] 初始状态 - 上车: " + lastUp + ", 下车: " + lastDown + ", 图片: " + lastImageCount);
+            System.out.println("[CV结果等待] 查询的Redis键:");
+            System.out.println("  cv_up_count:" + busNo + ":" + windowId);
+            System.out.println("  cv_down_count:" + busNo + ":" + windowId);
+        }
 
         while (System.currentTimeMillis() - start < Config.CV_RESULT_GRACE_MS) {
             try {
@@ -1486,15 +1555,28 @@ public class PassengerFlowProcessor {
             int img = getAllImageUrls(jedis, busNo, windowId).size();
 
             if (up != lastUp || down != lastDown || img != lastImageCount) {
+                if (Config.LOG_DEBUG) {
+                    System.out.println("[CV结果等待] 检测到变化 - 上车: " + lastUp + "->" + up + 
+                        ", 下车: " + lastDown + "->" + down + ", 图片: " + lastImageCount + "->" + img);
+                }
                 lastUp = up;
                 lastDown = down;
                 lastImageCount = img;
                 lastChange = System.currentTimeMillis();
             }
             if (System.currentTimeMillis() - lastChange >= Config.CV_RESULT_STABLE_MS) {
+                if (Config.LOG_DEBUG) {
+                    System.out.println("[CV结果等待] 结果稳定，停止等待");
+                }
                 break; // 在稳定窗口内无变化
             }
         }
+        
+        if (Config.LOG_DEBUG) {
+            System.out.println("[CV结果等待] 最终结果 - 上车: " + lastUp + ", 下车: " + lastDown + 
+                ", 等待时间: " + (System.currentTimeMillis() - start) + "ms");
+        }
+        
         return new int[]{lastUp, lastDown};
     }
 }

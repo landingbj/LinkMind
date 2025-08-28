@@ -23,6 +23,9 @@ public class Config {
     public static final String MEDIA_API = "http://20.17.127.20:8010/keliushibie-media";
     public static final String PASSENGER_PROMPT = "请分析车门区域的下车乘客特征";
 
+    // FFmpeg 可执行文件路径；默认从 PATH 中查找，如部署机未配置可填绝对路径，如 "/usr/bin/ffmpeg"
+    public static final String FFMPEG_PATH = "ffmpeg";
+
     // 图片处理配置
     public static final boolean ENABLE_IMAGE_PROCESSING = true;        // 是否启用图片处理
     public static final boolean ENABLE_AI_IMAGE_ANALYSIS = true;       // 是否启用AI图片分析

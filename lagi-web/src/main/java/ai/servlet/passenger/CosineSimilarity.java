@@ -58,20 +58,43 @@ public final class CosineSimilarity {
 		if (featureStr == null || featureStr.trim().isEmpty()) {
 			return new double[0];
 		}
-		
-		try {
-			// 假设特征向量是逗号分隔的数值字符串
-			String[] parts = featureStr.split(",");
-			double[] result = new double[parts.length];
-			
-			for (int i = 0; i < parts.length; i++) {
-				result[i] = Double.parseDouble(parts[i].trim());
-			}
-			
-			return result;
-		} catch (NumberFormatException e) {
-			// 如果解析失败，返回空数组
-			return new double[0];
+
+		// 1) 逗号/JSON数组形式
+		if (featureStr.contains(",") || featureStr.startsWith("[") ) {
+			try {
+				String cleaned = featureStr.replace("[", "").replace("]", "").trim();
+				if (cleaned.isEmpty()) return new double[0];
+				String[] parts = cleaned.split(",");
+				double[] result = new double[parts.length];
+				for (int i = 0; i < parts.length; i++) {
+					result[i] = Double.parseDouble(parts[i].trim());
+				}
+				return result;
+			} catch (Exception ignore) { /* fallback to base64 */ }
 		}
+
+		// 2) base64 的 float32 向量（小端序）
+		try {
+			byte[] bytes = java.util.Base64.getDecoder().decode(featureStr.trim());
+			if (bytes.length % 4 != 0 || bytes.length == 0) {
+				return new double[0];
+			}
+			int n = bytes.length / 4;
+			double[] vec = new double[n];
+			// 默认按小端序解释 float32
+			for (int i = 0; i < n; i++) {
+				int base = i * 4;
+				int asInt = (bytes[base] & 0xFF) |
+							   ((bytes[base + 1] & 0xFF) << 8) |
+							   ((bytes[base + 2] & 0xFF) << 16) |
+							   ((bytes[base + 3] & 0xFF) << 24);
+				float f = java.lang.Float.intBitsToFloat(asInt);
+				vec[i] = (double) f;
+			}
+			return vec;
+		} catch (Exception ignore) { }
+
+		// 3) 解析失败返回空数组
+		return new double[0];
 	}
 }

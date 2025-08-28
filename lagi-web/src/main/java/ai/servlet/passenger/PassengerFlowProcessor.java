@@ -748,8 +748,21 @@ public class PassengerFlowProcessor {
 			analyzeImagesWithAI(jedis, busNo, eventTime, record, imageUrls);
 			
 			// 3.2 视频转换（同步执行，因为需要结果）
-			System.out.println("[并行处理] 开始图片转视频");
-			processImagesToVideo(record, jedis, busNo, windowId, imageUrls);
+			System.out.println("[并行处理] 开始分别按方向图片转视频");
+			LocalDateTime begin = record.getTimestampBegin();
+			LocalDateTime end = record.getTimestampEnd();
+			if (begin != null && end != null) {
+				Map<String, List<String>> imagesByDir = getImagesByTimeRangeSeparated(jedis, busNo, begin, end,
+					Config.IMAGE_TIME_TOLERANCE_BEFORE_SECONDS, Config.IMAGE_TIME_TOLERANCE_AFTER_SECONDS);
+				List<String> upImages = imagesByDir.getOrDefault("up", new ArrayList<>());
+				List<String> downImages = imagesByDir.getOrDefault("down", new ArrayList<>());
+				processImagesToVideoByDirection(record, jedis, busNo, windowId, upImages, downImages);
+			} else {
+				Map<String, List<String>> imagesByDir = getImagesByExactWindowSeparated(jedis, busNo, windowId);
+				List<String> upImages = imagesByDir.getOrDefault("up", new ArrayList<>());
+				List<String> downImages = imagesByDir.getOrDefault("down", new ArrayList<>());
+				processImagesToVideoByDirection(record, jedis, busNo, windowId, upImages, downImages);
+			}
 			
 			System.out.println("[并行处理] 并行处理完成，AI分析和视频转换都已成功");
 			
@@ -913,8 +926,21 @@ public class PassengerFlowProcessor {
 		try {
 			System.out.println("[并行处理] 开始AI图片分析");
 			analyzeImagesWithAI(jedis, busNo, eventTime, record, imageUrls);
-			System.out.println("[并行处理] 开始图片转视频");
-			processImagesToVideo(record, jedis, busNo, windowId, imageUrls);
+			System.out.println("[并行处理] 开始分别按方向图片转视频");
+			LocalDateTime begin = record.getTimestampBegin();
+			LocalDateTime end = record.getTimestampEnd();
+			if (begin != null && end != null) {
+				Map<String, List<String>> imagesByDir = getImagesByTimeRangeSeparated(jedis, busNo, begin, end,
+					Config.IMAGE_TIME_TOLERANCE_BEFORE_SECONDS, Config.IMAGE_TIME_TOLERANCE_AFTER_SECONDS);
+				List<String> upImages = imagesByDir.getOrDefault("up", new ArrayList<>());
+				List<String> downImages = imagesByDir.getOrDefault("down", new ArrayList<>());
+				processImagesToVideoByDirection(record, jedis, busNo, windowId, upImages, downImages);
+			} else {
+				Map<String, List<String>> imagesByDir = getImagesByExactWindowSeparated(jedis, busNo, windowId);
+				List<String> upImages = imagesByDir.getOrDefault("up", new ArrayList<>());
+				List<String> downImages = imagesByDir.getOrDefault("down", new ArrayList<>());
+				processImagesToVideoByDirection(record, jedis, busNo, windowId, upImages, downImages);
+			}
 			System.out.println("[并行处理] 并行处理完成");
 		} catch (Exception e) {
 			System.err.println("[并行处理] 并行处理异常: " + e.getMessage());
@@ -1720,4 +1746,104 @@ public class PassengerFlowProcessor {
         
         return new int[]{lastUp, lastDown};
     }
+
+	/**
+	 * 区间分方向图片
+	 */
+	private Map<String, List<String>> getImagesByTimeRangeSeparated(Jedis jedis, String busNo, LocalDateTime openTime,
+			LocalDateTime closeTime, int beforeSec, int afterSec) {
+		Map<String, List<String>> result = new HashMap<>();
+		result.put("up", new ArrayList<>());
+		result.put("down", new ArrayList<>());
+		if (openTime == null || closeTime == null) return result;
+		try {
+			LocalDateTime from = openTime.minusSeconds(Math.max(0, beforeSec));
+			LocalDateTime to = closeTime.plusSeconds(Math.max(0, afterSec));
+			System.out.println("[图片收集] (按方向) 区间聚合: bus=" + busNo + ", from=" + from.format(formatter) + ", to=" + to.format(formatter));
+			LocalDateTime cursor = from;
+			while (!cursor.isAfter(to)) {
+				String win = cursor.format(formatter);
+				Set<String> up = jedis.smembers("image_urls:" + busNo + ":" + win + ":up");
+				if (up != null && !up.isEmpty()) result.get("up").addAll(up);
+				Set<String> down = jedis.smembers("image_urls:" + busNo + ":" + win + ":down");
+				if (down != null && !down.isEmpty()) result.get("down").addAll(down);
+				cursor = cursor.plusSeconds(1);
+			}
+			System.out.println("[图片收集] (按方向) 区间聚合共收集到 上车=" + result.get("up").size() + ", 下车=" + result.get("down").size());
+		} catch (Exception e) {
+			System.err.println("[图片收集] (按方向) 区间聚合异常: " + e.getMessage());
+		}
+		return result;
+	}
+
+	/**
+	 * 按方向生成视频，设置JSON数组到 passengerVideoUrl
+	 */
+	private void processImagesToVideoByDirection(BusOdRecord record, Jedis jedis, String busNo, String windowId,
+			List<String> upImages, List<String> downImages) {
+		System.out.println("[图片转视频-按方向] 开始处理，bus=" + busNo + ", windowId=" + windowId);
+		JSONArray results = new JSONArray();
+		try {
+			String dynamicDir = "PassengerFlowRecognition/" + windowId;
+			String tempDir = System.getProperty("java.io.tmpdir");
+			if (upImages != null && !upImages.isEmpty()) {
+				try {
+					File upVideo = ImageToVideoConverter.convertImagesToVideo(upImages, tempDir);
+					String upUrl = OssUtil.uploadVideoFile(upVideo, UUID.randomUUID().toString() + ".mp4", dynamicDir);
+					JSONObject upObj = new JSONObject();
+					upObj.put("location", "up");
+					upObj.put("videoUrl", upUrl);
+					results.put(upObj);
+					upVideo.delete();
+					System.out.println("[图片转视频-按方向] 上车视频上传成功: " + upUrl);
+				} catch (Exception e) {
+					System.err.println("[图片转视频-按方向] 上车转换失败: " + e.getMessage());
+				}
+			}
+			if (downImages != null && !downImages.isEmpty()) {
+				try {
+					File downVideo = ImageToVideoConverter.convertImagesToVideo(downImages, tempDir);
+					String downUrl = OssUtil.uploadVideoFile(downVideo, UUID.randomUUID().toString() + ".mp4", dynamicDir);
+					JSONObject downObj = new JSONObject();
+					downObj.put("location", "down");
+					downObj.put("videoUrl", downUrl);
+					results.put(downObj);
+					downVideo.delete();
+					System.out.println("[图片转视频-按方向] 下车视频上传成功: " + downUrl);
+				} catch (Exception e) {
+					System.err.println("[图片转视频-按方向] 下车转换失败: " + e.getMessage());
+				}
+			}
+		} catch (Exception e) {
+			System.err.println("[图片转视频-按方向] 处理过程异常: " + e.getMessage());
+		}
+		record.setPassengerVideoUrl(results.toString());
+	}
+
+	/**
+	 * 精确窗口分方向图片
+	 */
+	private Map<String, List<String>> getImagesByExactWindowSeparated(Jedis jedis, String busNo, String windowId) {
+		Map<String, List<String>> result = new HashMap<>();
+		result.put("up", new ArrayList<>());
+		result.put("down", new ArrayList<>());
+		try {
+			String upImagesKey = "image_urls:" + busNo + ":" + windowId + ":up";
+			Set<String> upImages = jedis.smembers(upImagesKey);
+			if (upImages != null && !upImages.isEmpty()) {
+				result.get("up").addAll(upImages);
+				System.out.println("[图片收集] (按方向) 收集到上车图片 " + upImages.size() + " 张");
+			}
+			String downImagesKey = "image_urls:" + busNo + ":" + windowId + ":down";
+			Set<String> downImages = jedis.smembers(downImagesKey);
+			if (downImages != null && !downImages.isEmpty()) {
+				result.get("down").addAll(downImages);
+				System.out.println("[图片收集] (按方向) 收集到下车图片 " + downImages.size() + " 张");
+			}
+		} catch (Exception e) {
+			System.err.println("[图片收集] (按方向) 精确匹配异常: " + e.getMessage());
+		}
+		return result;
+	}
+
 }

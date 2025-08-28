@@ -57,10 +57,10 @@ public class BusOdRecord {
      */
     private String passengerFeatures;
 
-    /** 本站上车人数（CV系统识别） */
+    /** 本站上车人数 */
     private Integer upCount;
 
-    /** 本站下车人数（CV系统识别） */
+    /** 本站下车人数 */
     private Integer downCount;
 
     /** 车辆经度 */
@@ -72,7 +72,10 @@ public class BusOdRecord {
     /** 乘客图片URL集合（JSON数组格式，OSS URL） */
     private String passengerImages;
 
-    /** 乘客视频URL（OSS URL，由图片集合转换生成） */
+    /**
+     * 乘客视频URL（JSON数组字符串），按上下车方向分别生成
+     * 形如：[{"location":"up","videoUrl":"..."},{"location":"down","videoUrl":"..."}]
+     */
     private String passengerVideoUrl;
 
     /**

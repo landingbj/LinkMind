@@ -361,6 +361,9 @@ public class PassengerFlowProcessor {
 			double[] downFeatureVec = CosineSimilarity.parseFeatureVector(downFeature);
 			if (downFeatureVec.length == 0) return;
 
+			// 去重：同一上车特征仅允许匹配一次
+			String matchedUpKey = "matched_up_features:" + busNo + ":" + windowId;
+
 			// 遍历上车特征，寻找匹配
 			for (String featureStr : features) {
 				try {
@@ -371,6 +374,29 @@ public class PassengerFlowProcessor {
 					if (!"up".equals(direction)) continue;
 					
 					String upFeature = featureObj.optString("feature");
+
+					// 已匹配过的上车特征跳过，避免重复计数
+					try {
+						if (upFeature != null && !upFeature.isEmpty() && jedis.sismember(matchedUpKey, upFeature)) {
+							continue;
+						}
+					} catch (Exception ignore) {}
+
+					// 时间顺序校验：上车时间需早于当前下车事件，且至少间隔1秒
+					LocalDateTime upTime = null;
+					try {
+						String upTs = featureObj.optString("timestamp");
+						if (upTs != null && !upTs.isEmpty()) {
+							String normalized = upTs.contains("T") ? upTs.replace("T", " ") : upTs;
+							upTime = LocalDateTime.parse(normalized, formatter);
+						}
+					} catch (Exception ignore) {}
+					if (upTime != null) {
+						if (!upTime.isBefore(eventTime.minusSeconds(1))) {
+							continue;
+						}
+					}
+
 					double[] upFeatureVec = CosineSimilarity.parseFeatureVector(upFeature);
 					
 					if (upFeatureVec.length > 0) {
@@ -386,12 +412,29 @@ public class PassengerFlowProcessor {
 								String currentStationId = getCurrentStationId(busNo, jedis);
 								String currentStationName = getCurrentStationName(busNo, jedis);
 								
+								// 同站过滤：同站上/下视为无效区间，跳过
+								if (onStation.optString("stationId").equals(currentStationId)) {
+									if (Config.LOG_INFO) {
+										System.out.println("[PassengerFlowProcessor] 跳过同站OD: station=" + currentStationName + 
+											", featureHashLen=" + (upFeature != null ? upFeature.length() : 0));
+									}
+									continue;
+								}
+								
 								// 更新区间客流统计
 								updateSectionPassengerFlow(jedis, busNo, windowId, 
 									onStation.optString("stationId"), 
 									onStation.optString("stationName"),
 									currentStationId, 
 									currentStationName);
+
+								// 记录已匹配的上车特征，避免后续重复匹配
+								try {
+									if (upFeature != null && !upFeature.isEmpty()) {
+										jedis.sadd(matchedUpKey, upFeature);
+										jedis.expire(matchedUpKey, Config.REDIS_TTL_OPEN_TIME);
+									}
+								} catch (Exception ignore) {}
 							}
 							break; // 找到匹配后跳出循环
 						}

@@ -49,7 +49,7 @@ public class BusOdRecord {
      * [
      *   {
      *     "stationNameOn": "清河坊",
-     *     "stationNameOff": "清河坊",
+     *     "stationNameOff": "和平路站",
      *     "stationIdOff": "3301000101243477",
      *     "stationIdOn": "3301000101243477",
      *     "passengerFlowCount": 2,
@@ -59,14 +59,14 @@ public class BusOdRecord {
      *         "stationIdOn": "3301000101243477",
      *         "stationNameOn": "清河坊",
      *         "stationIdOff": "3301000101243477",
-     *         "stationNameOff": "清河坊"
+     *         "stationNameOff": "和平路站"
      *       },
      *       {
      *         "featureVector": [-0.1435, 0.0721, 0.5104, -0.0129],
      *         "stationIdOn": "3301000101243477",
      *         "stationNameOn": "清河坊",
      *         "stationIdOff": "3301000101243477",
-     *         "stationNameOff": "清河坊"
+     *         "stationNameOff": "和平路站"
      *       }
      *     ]
      *   }

@@ -8,13 +8,13 @@ import java.util.Map;
  * 提供bus_no和车牌号之间的双向转换功能
  */
 public class BusPlateMappingUtil {
-    
+
     // bus_no到车牌号的映射关系
     private static final Map<String, String> BUS_NO_TO_PLATE_MAP = new HashMap<>();
-    
+
     // 车牌号到bus_no的映射关系（反向映射）
     private static final Map<String, String> PLATE_TO_BUS_NO_MAP = new HashMap<>();
-    
+
     static {
         // 初始化映射关系
         BUS_NO_TO_PLATE_MAP.put("2-8091", "浙A05705D");
@@ -29,13 +29,13 @@ public class BusPlateMappingUtil {
         BUS_NO_TO_PLATE_MAP.put("8-6172", "浙A30125D");
         BUS_NO_TO_PLATE_MAP.put("8-8065", "浙A00150D");
         BUS_NO_TO_PLATE_MAP.put("8-8062", "浙A01788D");
-        
+
         // 建立反向映射
         for (Map.Entry<String, String> entry : BUS_NO_TO_PLATE_MAP.entrySet()) {
             PLATE_TO_BUS_NO_MAP.put(entry.getValue(), entry.getKey());
         }
     }
-    
+
     /**
      * 根据bus_no获取对应的车牌号
      * @param busNo 车辆编号
@@ -47,7 +47,7 @@ public class BusPlateMappingUtil {
         }
         return BUS_NO_TO_PLATE_MAP.getOrDefault(busNo.trim(), busNo);
     }
-    
+
     /**
      * 根据车牌号获取对应的bus_no
      * @param plateNumber 车牌号
@@ -59,7 +59,7 @@ public class BusPlateMappingUtil {
         }
         return PLATE_TO_BUS_NO_MAP.get(plateNumber.trim());
     }
-    
+
     /**
      * 检查给定的bus_no是否在白名单中
      * @param busNo 车辆编号
@@ -71,7 +71,7 @@ public class BusPlateMappingUtil {
         }
         return BUS_NO_TO_PLATE_MAP.containsKey(busNo.trim());
     }
-    
+
     /**
      * 检查给定的车牌号是否在白名单中
      * @param plateNumber 车牌号
@@ -83,7 +83,7 @@ public class BusPlateMappingUtil {
         }
         return PLATE_TO_BUS_NO_MAP.containsKey(plateNumber.trim());
     }
-    
+
     /**
      * 获取所有白名单车辆信息
      * @return 包含所有映射关系的Map副本
@@ -91,7 +91,7 @@ public class BusPlateMappingUtil {
     public static Map<String, String> getAllMappings() {
         return new HashMap<>(BUS_NO_TO_PLATE_MAP);
     }
-    
+
     /**
      * 获取白名单车辆数量
      * @return 白名单车辆总数
@@ -99,7 +99,7 @@ public class BusPlateMappingUtil {
     public static int getWhitelistSize() {
         return BUS_NO_TO_PLATE_MAP.size();
     }
-    
+
     /**
      * 打印所有映射关系（用于调试）
      */

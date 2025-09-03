@@ -27,7 +27,7 @@ CONFIG = {
     'time_granularity': '15min',
     'window_days': 60,
     'db_config': {
-        'host': '20.17.39.23',
+        'host': '20.17.39.40',
         'port': 5432,
         'user': 'gj_dw_r1',
         'password': 'gj_dw_r1',

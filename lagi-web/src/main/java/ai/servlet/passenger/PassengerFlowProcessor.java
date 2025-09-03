@@ -34,6 +34,10 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.FloatBuffer;
+import java.util.Base64;
 
 /**
  * 乘客流量处理器，处理CV WebSocket推送的事件
@@ -358,7 +362,7 @@ public class PassengerFlowProcessor {
 			
 			if (features == null || features.isEmpty()) return;
 
-			double[] downFeatureVec = CosineSimilarity.parseFeatureVector(downFeature);
+			double[] downFeatureVec = parseFeatureVectorFlexible(downFeature);
 			if (downFeatureVec.length == 0) return;
 
 			// 去重：同一上车特征仅允许匹配一次
@@ -397,7 +401,7 @@ public class PassengerFlowProcessor {
 						}
 					}
 
-					double[] upFeatureVec = CosineSimilarity.parseFeatureVector(upFeature);
+					double[] upFeatureVec = parseFeatureVectorFlexible(upFeature);
 					
 					if (upFeatureVec.length > 0) {
 						// 使用余弦相似度计算匹配度
@@ -421,12 +425,21 @@ public class PassengerFlowProcessor {
 									continue;
 								}
 								
-								// 更新区间客流统计
+								// 组装乘客明细：写入解码后的向量数组与上下车站名
+								JSONObject passengerDetail = new JSONObject();
+								passengerDetail.put("featureVector", toJsonArraySafe(upFeatureVec.length > 0 ? upFeatureVec : downFeatureVec));
+								passengerDetail.put("stationIdOn", onStation.optString("stationId"));
+								passengerDetail.put("stationNameOn", onStation.optString("stationName"));
+								passengerDetail.put("stationIdOff", currentStationId);
+								passengerDetail.put("stationNameOff", currentStationName);
+
+								// 更新区间客流统计并追加明细
 								updateSectionPassengerFlow(jedis, busNo, windowId, 
 									onStation.optString("stationId"), 
 									onStation.optString("stationName"),
 									currentStationId, 
-									currentStationName);
+									currentStationName,
+									passengerDetail);
 
 								// 记录已匹配的上车特征，避免后续重复匹配
 								try {
@@ -464,7 +477,8 @@ public class PassengerFlowProcessor {
 	 */
 	private void updateSectionPassengerFlow(Jedis jedis, String busNo, String windowId, 
 										  String stationIdOn, String stationNameOn,
-										  String stationIdOff, String stationNameOff) {
+										  String stationIdOff, String stationNameOff,
+										  JSONObject passengerDetail) {
 		try {
 			String flowKey = "section_flow:" + busNo + ":" + windowId;
 			
@@ -484,11 +498,24 @@ public class PassengerFlowProcessor {
 				sectionFlow.put("stationIdOff", stationIdOff);
 				sectionFlow.put("stationNameOff", stationNameOff);
 				sectionFlow.put("passengerFlowCount", 0);
+				sectionFlow.put("detail", new JSONArray());
 			}
 			
 			// 增加客流数
 			int currentCount = sectionFlow.optInt("passengerFlowCount", 0);
 			sectionFlow.put("passengerFlowCount", currentCount + 1);
+			
+			// 追加乘客明细
+			try {
+				JSONArray detailArray = sectionFlow.optJSONArray("detail");
+				if (detailArray == null) {
+					detailArray = new JSONArray();
+				}
+				if (passengerDetail != null) {
+					detailArray.put(passengerDetail);
+				}
+				sectionFlow.put("detail", detailArray);
+			} catch (Exception ignore) {}
 			
 			// 更新Redis
 			jedis.hset(flowKey, sectionKey, sectionFlow.toString());
@@ -1889,4 +1916,38 @@ public class PassengerFlowProcessor {
 		return result;
 	}
 
+    /**
+     * 通用特征解析：
+     * 1) 若是逗号分隔的字符串，沿用原有解析；
+     * 2) 若是Base64字符串，尝试以float32小端序解析；
+     * 3) 失败则返回空数组。
+     */
+    private static double[] parseFeatureVectorFlexible(String feature) {
+        if (feature == null || feature.isEmpty()) return new double[0];
+        // 优先尝试逗号分隔解析
+        double[] commaParsed = CosineSimilarity.parseFeatureVector(feature);
+        if (commaParsed != null && commaParsed.length > 0) return commaParsed;
+        // 尝试Base64解析
+        try {
+            byte[] raw = Base64.getDecoder().decode(feature);
+            if (raw.length % 4 != 0) return new double[0];
+            FloatBuffer fb = ByteBuffer.wrap(raw).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer();
+            float[] floats = new float[fb.remaining()];
+            fb.get(floats);
+            double[] result = new double[floats.length];
+            for (int i = 0; i < floats.length; i++) result[i] = floats[i];
+            return result;
+        } catch (Exception ignore) {}
+        return new double[0];
+    }
+
+    /**
+     * 将double数组转为JSONArray（安全）
+     */
+    private static org.json.JSONArray toJsonArraySafe(double[] vec) {
+        org.json.JSONArray arr = new org.json.JSONArray();
+        if (vec == null) return arr;
+        for (double v : vec) arr.put(v);
+        return arr;
+    }
 }

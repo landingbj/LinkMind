@@ -43,8 +43,34 @@ public class BusOdRecord {
     private String routeDirection;
 
     /** 
-     * 区间客流数集合（JSON数组格式）
-     * 格式：[{"stationIdOn":"xxx","stationNameOn":"xxx","stationIdOff":"xxx","stationNameOff":"xxx","passengerFlowCount":5}]
+     * 区间客流数集合（JSON数组字符串）
+     * 结构：数组中每个元素表示一个上/下车区间，包含区间统计与乘客明细
+     * 示例：
+     * [
+     *   {
+     *     "stationNameOn": "清河坊",
+     *     "stationNameOff": "清河坊",
+     *     "stationIdOff": "3301000101243477",
+     *     "stationIdOn": "3301000101243477",
+     *     "passengerFlowCount": 2,
+     *     "detail": [
+     *       {
+     *         "featureVector": [0.0312, -0.1023, 0.4551, 0.0007],
+     *         "stationIdOn": "3301000101243477",
+     *         "stationNameOn": "清河坊",
+     *         "stationIdOff": "3301000101243477",
+     *         "stationNameOff": "清河坊"
+     *       },
+     *       {
+     *         "featureVector": [-0.1435, 0.0721, 0.5104, -0.0129],
+     *         "stationIdOn": "3301000101243477",
+     *         "stationNameOn": "清河坊",
+     *         "stationIdOff": "3301000101243477",
+     *         "stationNameOff": "清河坊"
+     *       }
+     *     ]
+     *   }
+     * ]
      */
     private String sectionPassengerFlowCount;
 

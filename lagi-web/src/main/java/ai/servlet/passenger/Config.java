@@ -7,17 +7,17 @@ public class Config {
     public static final String REDIS_HOST = "20.17.39.68";
     public static final String REDIS_PASSWORD = ")xNPm1OKZMgB";
     public static final int REDIS_PORT = 6379;
-    public static final String OSS_UPLOAD_URL = "http://20.17.39.66:8089/api/admin/sys-file/upload";
-    public static final String OSS_FILE_BASE_URL = "http://20.17.39.66:8089/api";
-    
+    public static final String OSS_UPLOAD_URL = "http://20.17.39.75:30080/admin/sys-file/upload";
+    public static final String OSS_FILE_BASE_URL = "https://gateway-busfusion.ibuscloud.com";
+
     // OSS配置 - 图片文件
     public static final String OSS_GROUP_ID_IMAGE = "307";
     public static final String OSS_TYPE_IMAGE = "10";
-    
+
     // OSS配置 - 视频文件
     public static final String OSS_GROUP_ID_VIDEO = "305";
     public static final String OSS_TYPE_VIDEO = "20";
-    
+
     // 大模型API配置 - 支持图片列表和视频两种输入方式
     // 优先使用image_path_list参数，fallback到video_path参数
     public static final String MEDIA_API = "http://20.17.127.20:8010/keliushibie-media";

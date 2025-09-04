@@ -180,6 +180,11 @@ public class PassengerFlowProcessor {
 			String direction = ev.optString("direction");
 			String feature = ev.optString("feature");
 			String image = ev.optString("image");
+			
+			// 添加feature字段调试日志
+			if (Config.PILOT_ROUTE_LOG_ENABLED) {
+				System.out.println("[特征调试] 收到feature字段: " + (feature != null ? "长度=" + feature.length() + ", 前100字符=" + feature.substring(0, Math.min(100, feature.length())) : "null"));
+			}
 			int boxX = ev.optInt("box_x");
 			int boxY = ev.optInt("box_y");
 			int boxW = ev.optInt("box_w");
@@ -187,6 +192,10 @@ public class PassengerFlowProcessor {
 
 			// 处理图片：支持直接URL与base64两种形式
 			String imageUrl = null;
+			// 添加图片字段调试日志
+			if (Config.PILOT_ROUTE_LOG_ENABLED) {
+				System.out.println("[图片调试] 收到image字段: " + (image != null ? "长度=" + image.length() + ", 前100字符=" + image.substring(0, Math.min(100, image.length())) : "null"));
+			}
 			if (image != null && !image.isEmpty()) {
 				if (image.startsWith("http://") || image.startsWith("https://")) {
 					// 直接使用URL并缓存
@@ -206,6 +215,11 @@ public class PassengerFlowProcessor {
 						}
 					}
 				}
+			}
+			
+			// 添加图片处理结果调试日志
+			if (Config.PILOT_ROUTE_LOG_ENABLED) {
+				System.out.println("[图片调试] 图片处理结果: imageUrl=" + (imageUrl != null ? "长度=" + imageUrl.length() : "null"));
 			}
 
 			// 获取当前开门时间窗口ID

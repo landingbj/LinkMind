@@ -15,11 +15,11 @@ public class ImageToVideoConverter {
      * 将图片URL列表转换为视频文件
      * @param imageUrls 图片URL列表
      * @param outputDir 输出目录
-     * @param frameRate 帧率，默认1fps
+     * @param frameRate 帧率
      * @return 生成的视频文件
      * @throws IOException 转换异常
      */
-    public static File convertImagesToVideo(List<String> imageUrls, String outputDir, int frameRate) throws IOException {
+    public static File convertImagesToVideo(List<String> imageUrls, String outputDir, double frameRate) throws IOException {
         System.out.println("[FFmpeg转换] 开始转换图片为视频，图片数量: " + imageUrls.size() + ", 输出目录: " + outputDir + ", 帧率: " + frameRate);
         
         if (imageUrls == null || imageUrls.isEmpty()) {
@@ -81,14 +81,17 @@ public class ImageToVideoConverter {
     }
     
     /**
-     * 将图片URL列表转换为视频文件（使用默认帧率1fps）
+     * 将图片URL列表转换为视频文件（使用配置的图片播放时长）
      * @param imageUrls 图片URL列表
      * @param outputDir 输出目录
      * @return 生成的视频文件
      * @throws IOException 转换异常
      */
     public static File convertImagesToVideo(List<String> imageUrls, String outputDir) throws IOException {
-        return convertImagesToVideo(imageUrls, outputDir, 1);
+        // 使用配置的图片播放时长计算帧率
+        // 帧率 = 1 / 每张图片播放时长
+        double frameRate = 1.0 / Config.IMAGE_DURATION_SECONDS;
+        return convertImagesToVideo(imageUrls, outputDir, frameRate);
     }
     
     /**
@@ -98,7 +101,7 @@ public class ImageToVideoConverter {
      * @param frameRate 帧率
      * @return FFmpeg命令字符串
      */
-    private static String buildFFmpegCommand(List<String> imageUrls, String outputPath, int frameRate) {
+    private static String buildFFmpegCommand(List<String> imageUrls, String outputPath, double frameRate) {
         StringBuilder command = new StringBuilder();
         command.append("ffmpeg -y -framerate ").append(frameRate);
         command.append(" -i %d.jpg -c:v libx264 -pix_fmt yuv420p ");

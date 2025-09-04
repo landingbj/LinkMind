@@ -30,6 +30,7 @@ public class Config {
     public static final boolean ENABLE_IMAGE_PROCESSING = true;        // 是否启用图片处理
     public static final boolean ENABLE_AI_IMAGE_ANALYSIS = true;       // 是否启用AI图片分析
     public static final int MAX_IMAGES_PER_ANALYSIS = 40;              // 每次AI分析的最大图片数量
+    public static final int IMAGE_DURATION_SECONDS = 2;                // 每张图片在视频中的播放时长（秒）
 
     // Redis TTL配置（秒）
     public static final int REDIS_TTL_DOOR_STATUS = 3600;        // 门状态缓存1小时

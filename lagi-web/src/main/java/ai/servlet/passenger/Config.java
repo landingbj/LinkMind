@@ -22,6 +22,8 @@ public class Config {
     // 优先使用image_path_list参数，fallback到video_path参数
     public static final String MEDIA_API = "http://20.17.127.20:8010/keliushibie-media";
     public static final String PASSENGER_PROMPT = "请分析车门区域的下车乘客特征";
+    public static final int MEDIA_MAX_RETRY = 2;                 // 当返回空特征时的最大重试次数
+    public static final int MEDIA_RETRY_BACKOFF_MS = 500;        // 重试退避时间（基础毫秒）
 
     // FFmpeg 可执行文件路径；默认从 PATH 中查找，如部署机未配置可填绝对路径，如 "/usr/bin/ffmpeg"
     public static final String FFMPEG_PATH = "ffmpeg";

@@ -1099,6 +1099,8 @@ public class PassengerFlowProcessor {
 	}
 
 	private BusOdRecord createBaseRecord(String busNo, String cameraNo, LocalDateTime time, Jedis jedis) {
+		System.out.println("[OD记录创建] 开始创建车辆 " + busNo + " 的OD记录");
+		
 		BusOdRecord record = new BusOdRecord();
 		record.setDate(time != null ? time.toLocalDate() : LocalDate.now());
 		record.setBusNo(busNo);
@@ -1109,12 +1111,40 @@ public class PassengerFlowProcessor {
 		record.setGpsLat(getGpsLat(busNo, jedis));
 		record.setGpsLng(getGpsLng(busNo, jedis));
 		record.setFullLoadRate(getFullLoadRateFromRedis(jedis, busNo));
-		record.setTicketCount(getTicketCountWindowFromRedis(jedis, busNo));
+		
+		// 设置刷卡人数（JSON格式）
+		String ticketCountJson = getTicketCountWindowFromRedis(jedis, busNo);
+		record.setTicketJson(ticketCountJson);
+		
+		// 从JSON中提取上下车刷卡人数并设置到独立字段
+		try {
+			JSONObject ticketCountObj = new JSONObject(ticketCountJson);
+			int upCount = ticketCountObj.optInt("upCount", 0);
+			int downCount = ticketCountObj.optInt("downCount", 0);
+			record.setTicketUpCount(upCount);
+			record.setTicketDownCount(downCount);
+			System.out.println("[OD记录创建] 设置ticketUpCount: " + upCount + ", ticketDownCount: " + downCount);
+		} catch (Exception e) {
+			// 如果JSON解析失败，设置默认值
+			record.setTicketUpCount(0);
+			record.setTicketDownCount(0);
+			System.err.println("[OD记录创建] 解析ticketJson JSON失败，设置默认值: " + e.getMessage());
+		}
+		
+		System.out.println("[OD记录创建] 设置ticketJson: " + ticketCountJson);
+		
 		record.setCurrentStationName(getCurrentStationName(busNo, jedis));
 		// 设置车辆总人数（来自CV系统满载率推送）
 		record.setVehicleTotalCount(getVehicleTotalCountFromRedis(jedis, busNo));
 		Long busId = getBusIdFromRedis(jedis, busNo);
 		if (busId != null) record.setBusId(busId);
+		
+		System.out.println("[OD记录创建] OD记录创建完成:");
+		System.out.println("   ticketJson=" + ticketCountJson);
+		System.out.println("   ticketUpCount=" + record.getTicketUpCount());
+		System.out.println("   ticketDownCount=" + record.getTicketDownCount());
+		System.out.println("   ================================================================================");
+		
 		return record;
 	}
 
@@ -1205,13 +1235,72 @@ public class PassengerFlowProcessor {
 		return BigDecimal.ZERO;
 	}
 
-	private int getTicketCountWindowFromRedis(Jedis jedis, String busNo) {
+	private String getTicketCountWindowFromRedis(Jedis jedis, String busNo) {
 		String windowId = jedis.get("open_time:" + busNo);
+		System.out.println("[票务计数获取] 获取车辆 " + busNo + " 的刷卡计数:");
+		System.out.println("   开门窗口ID: " + windowId);
+		
 		if (windowId == null) {
-			return 0;
+			System.out.println("   [票务计数获取] 未找到开门窗口，返回空JSON");
+			return "{\"upCount\":0,\"downCount\":0,\"totalCount\":0,\"detail\":[]}";
 		}
-		String count = jedis.get("ticket_count_window:" + busNo + ":" + windowId);
-		return count != null ? Integer.parseInt(count) : 0;
+		
+		// 获取上下车计数
+		String upCountKey = "ticket_count:" + busNo + ":" + windowId + ":up";
+		String downCountKey = "ticket_count:" + busNo + ":" + windowId + ":down";
+		String upCountStr = jedis.get(upCountKey);
+		String downCountStr = jedis.get(downCountKey);
+		
+		int upCount = upCountStr != null ? Integer.parseInt(upCountStr) : 0;
+		int downCount = downCountStr != null ? Integer.parseInt(downCountStr) : 0;
+		int totalCount = upCount + downCount;
+		
+		// 获取上下车详情
+		JSONArray detailArray = new JSONArray();
+		
+		// 获取上车详情
+		String upDetailKey = "ticket_detail:" + busNo + ":" + windowId + ":up";
+		Set<String> upDetails = jedis.smembers(upDetailKey);
+		if (upDetails != null) {
+			for (String detail : upDetails) {
+				try {
+					detailArray.put(new JSONObject(detail));
+				} catch (Exception e) {
+					System.err.println("[票务计数获取] 解析上车详情失败: " + detail);
+				}
+			}
+		}
+		
+		// 获取下车详情
+		String downDetailKey = "ticket_detail:" + busNo + ":" + windowId + ":down";
+		Set<String> downDetails = jedis.smembers(downDetailKey);
+		if (downDetails != null) {
+			for (String detail : downDetails) {
+				try {
+					detailArray.put(new JSONObject(detail));
+				} catch (Exception e) {
+					System.err.println("[票务计数获取] 解析下车详情失败: " + detail);
+				}
+			}
+		}
+		
+		// 构建JSON结果
+		JSONObject result = new JSONObject();
+		result.put("upCount", upCount);
+		result.put("downCount", downCount);
+		result.put("totalCount", totalCount);
+		result.put("detail", detailArray);
+		
+		String resultJson = result.toString();
+		
+		System.out.println("   [票务计数获取] 上车计数: " + upCount + " (Redis键: " + upCountKey + ")");
+		System.out.println("   [票务计数获取] 下车计数: " + downCount + " (Redis键: " + downCountKey + ")");
+		System.out.println("   [票务计数获取] 总计数: " + totalCount);
+		System.out.println("   [票务计数获取] 详情数量: " + detailArray.length());
+		System.out.println("   [票务计数获取] JSON结果: " + resultJson);
+		System.out.println("   ================================================================================");
+		
+		return resultJson;
 	}
 
 	private int getVehicleTotalCountFromRedis(Jedis jedis, String busNo) {

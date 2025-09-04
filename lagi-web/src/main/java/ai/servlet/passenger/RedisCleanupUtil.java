@@ -63,6 +63,7 @@ public class RedisCleanupUtil {
             
             // 清理过期的计数数据（只清理已过期的）
             cleanupExpiredKeys(jedis, "ticket_count_*", "票务计数数据");
+            cleanupExpiredKeys(jedis, "ticket_detail_*", "票务详情数据");
             cleanupExpiredKeys(jedis, "cv_*_count:*", "CV计数数据");
             
             // 清理过期的OD记录缓存
@@ -156,6 +157,7 @@ public class RedisCleanupUtil {
         } else if (key.startsWith("image_urls:")) {
             return Config.REDIS_TTL_OPEN_TIME; // 假设图像URL数据也与开放时间同TTL
         } else if (key.startsWith("open_time:") || key.startsWith("ticket_count_window:") || 
+                   key.startsWith("ticket_count:") || key.startsWith("ticket_detail:") ||
                    key.startsWith("cv_up_count:") || key.startsWith("cv_down_count:")) {
             return Config.REDIS_TTL_OPEN_TIME;
         } else if (key.startsWith("ticket_count_total:") || key.startsWith("total_count:") || 

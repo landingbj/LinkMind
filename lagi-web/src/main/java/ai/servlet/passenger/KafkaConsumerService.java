@@ -52,8 +52,12 @@ public class KafkaConsumerService {
 
     // 开关门白名单车辆
     private static final String[] DOOR_SIGNAL_WHITELIST = {
-            "2-8091", "2-8089", "2-8117", "2-8116", "2-9050", "2-9059",
-            "8-6161", "8-6162", "8-6173", "8-6172", "8-8065", "8-8062"
+            "2-6764", "2-8087", "2-8110", "2-8091", "2-8089", "2-6796", "2-9181", "2-8198", "2-8119", "2-8118",
+            "2-8117", "2-8116", "2-8115", "2-6769", "2-6761", "2-6766", "2-6763", "2-6765", "2-6713", "2-9049",
+            "2-9050", "2-8241sy", "2-8249sy", "2-9059", "2-9058", "2-9057", "2-8113", "2-8114", "2-8107", "2-8112",
+            "8-9116", "8-9117", "8-6161", "8-6162", "8-6163", "8-6164", "8-9118", "8-6178", "8-6177", "8-6176",
+            "8-6175", "8-6174", "8-6173", "8-6172", "8-6171", "8-6170", "8-6169", "8-6168", "8-6062", "8-9081",
+            "8-6053", "8-9070", "8-8065", "8-8062", "8-8060", "8-6195", "8-6194", "8-6193", "8-6192", "8-6191"
     };
 
     // 站点GPS映射
@@ -300,7 +304,18 @@ public class KafkaConsumerService {
                         String busNo = message.optString("busSelfNo", message.optString("busNo"));
                         if (busNo.isEmpty()) continue;
 
-                        // 过滤试点线路
+                        // 票务数据不进行试点线路过滤，直接处理
+                        if (topic.equals(KafkaConfig.TICKET_TOPIC)) {
+                            System.out.println("[票务数据接收] 收到票务Kafka原始数据:");
+                            System.out.println("   topic=" + topic);
+                            System.out.println("   busNo=" + busNo);
+                            System.out.println("   完整消息: " + message.toString());
+                            System.out.println("   ================================================================================");
+                            processMessage(topic, message, busNo);
+                            continue;
+                        }
+
+                        // 过滤试点线路（仅对GPS和到离站数据）
                         String routeId = extractRouteId(message, topic);
                         // 对未命中白名单但为到/离站的消息，按开关打印原始Kafka数据
                         if (!isPilotRoute(routeId)) {
@@ -416,6 +431,12 @@ public class KafkaConsumerService {
                     }
                     break;
                 case KafkaConfig.TICKET_TOPIC:
+                    // 票务数据不进行试点线路过滤，直接处理
+                    System.out.println("[票务数据处理] 收到票务Kafka数据:");
+                    System.out.println("   topic=" + topic);
+                    System.out.println("   busNo=" + busNo);
+                    System.out.println("   完整消息: " + message.toString());
+                    System.out.println("   ================================================================================");
                     handleTicket(message, busNo, jedis);
                     break;
             }
@@ -542,13 +563,59 @@ public class KafkaConsumerService {
         // 刷卡数据按窗口累计
         String busSelfNo = message.optString("busSelfNo", busNo);
         String tradeTime = message.optString("tradeTime");
+        String cardNo = message.optString("cardNo");
+        String cardType = message.optString("cardType");
+        String childCardType = message.optString("childCardType");
+        String onOff = message.optString("onOff");
+
+        System.out.println("[票务数据处理] 开始处理票务数据:");
+        System.out.println("   busNo=" + busNo);
+        System.out.println("   busSelfNo=" + busSelfNo);
+        System.out.println("   tradeTime=" + tradeTime);
+        System.out.println("   cardNo=" + cardNo);
+        System.out.println("   cardType=" + cardType);
+        System.out.println("   childCardType=" + childCardType);
+        System.out.println("   onOff=" + onOff);
 
         // 只在存在已开启窗口时累计
         String windowId = jedis.get("open_time:" + busNo);
+        System.out.println("   检查开门窗口: open_time:" + busNo + " = " + windowId);
+        
         if (windowId != null && !windowId.isEmpty()) {
-            String key = "ticket_count_window:" + busNo + ":" + windowId;
-            jedis.incr(key);
-            jedis.expire(key, Config.REDIS_TTL_OPEN_TIME);
+            // 判断上下车方向
+            String direction = "up"; // 默认为上车
+            if (onOff != null && ("down".equalsIgnoreCase(onOff) || "DOWN".equalsIgnoreCase(onOff))) {
+                direction = "down";
+            } else if (onOff == null) {
+                // onOff为null时，根据业务规则默认为上车
+                System.out.println("   [上下车判断] onOff为null，默认为上车");
+            }
+            
+            // 创建刷卡记录详情
+            JSONObject ticketDetail = new JSONObject();
+            ticketDetail.put("busSelfNo", busSelfNo);
+            ticketDetail.put("cardNo", cardNo);
+            ticketDetail.put("cardType", cardType);
+            ticketDetail.put("childCardType", childCardType);
+            ticketDetail.put("tradeTime", tradeTime);
+            // 处理onOff字段：null值转换为"unknown"，便于下游系统处理
+            ticketDetail.put("onOff", onOff != null ? onOff : "unknown");
+            ticketDetail.put("direction", direction.equals("up") ? "上车" : "下车");
+            
+            // 存储到对应的上下车集合中
+            String detailKey = "ticket_detail:" + busNo + ":" + windowId + ":" + direction;
+            jedis.sadd(detailKey, ticketDetail.toString());
+            jedis.expire(detailKey, Config.REDIS_TTL_OPEN_TIME);
+            
+            // 更新上下车计数
+            String countKey = "ticket_count:" + busNo + ":" + windowId + ":" + direction;
+            long count = jedis.incr(countKey);
+            jedis.expire(countKey, Config.REDIS_TTL_OPEN_TIME);
+            
+            System.out.println("   [票务计数] " + (direction.equals("up") ? "上车" : "下车") + "刷卡计数已更新: " + countKey + " = " + count);
+            System.out.println("   [票务详情] 刷卡详情已存储: " + detailKey);
+        } else {
+            System.out.println("   [票务计数] 未找到开门窗口，跳过刷卡计数累计");
         }
 
         // 为兼容原有逻辑，仍维护到离站最近信息（若字段提供）
@@ -564,7 +631,11 @@ public class KafkaConsumerService {
             String arriveLeaveKey = "arrive_leave:" + busNo;
             jedis.set(arriveLeaveKey, arriveLeaveJson.toString());
             jedis.expire(arriveLeaveKey, Config.REDIS_TTL_ARRIVE_LEAVE);
+            System.out.println("   [到离站信息] 已更新到离站信息: " + arriveLeaveKey);
         }
+        
+        System.out.println("   [票务数据处理] 处理完成");
+        System.out.println("   ================================================================================");
     }
 
     private void judgeAndSendDoorSignal(String busNo, Jedis jedis) throws JsonProcessingException {

@@ -1,7 +1,7 @@
 package ai.servlet.passenger;
 
 public class Config {
-    public static final String DB_URL = "jdbc:postgresql://20.17.39.23:5432/GJ_DW";
+    public static final String DB_URL = "jdbc:postgresql://20.17.39.40:5432/GJ_DW";
     public static final String DB_USER = "gj_dw_r1";
     public static final String DB_PASSWORD = ")xNPm1OKZMgB";
     public static final String REDIS_HOST = "20.17.39.68";

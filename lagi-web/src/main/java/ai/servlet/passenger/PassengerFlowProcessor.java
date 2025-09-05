@@ -67,6 +67,7 @@ public class PassengerFlowProcessor {
 		}
 
 		String busNo = data.optString("bus_no");
+		String busId = data.optString("bus_id");
 		String cameraNo = data.optString("camera_no");
 
 		// 降低参数解析日志噪音
@@ -76,15 +77,15 @@ public class PassengerFlowProcessor {
 
 			switch (event) {
 				case "downup":
-					handleDownUpEvent(data, busNo, cameraNo, jedis);
+					handleDownUpEvent(data, busNo, busId, cameraNo, jedis);
 					break;
 				case "load_factor":
 					// 高频事件，移除过程性日志
-					handleLoadFactorEvent(data, busNo, jedis);
+					handleLoadFactorEvent(data, busNo, busId, jedis);
 					break;
 				case "open_close_door":
 					// 关键事件在KafkaConsumerService侧已有明确日志
-					handleOpenCloseDoorEvent(data, busNo, cameraNo, jedis);
+					handleOpenCloseDoorEvent(data, busNo, busId, cameraNo, jedis);
 					break;
 				default:
 					if (Config.LOG_ERROR) {
@@ -98,7 +99,7 @@ public class PassengerFlowProcessor {
 		}
 	}
 
-	private void handleDownUpEvent(JSONObject data, String busNo, String cameraNo, Jedis jedis) throws IOException, SQLException {
+	private void handleDownUpEvent(JSONObject data, String busNo, String busId, String cameraNo, Jedis jedis) throws IOException, SQLException {
 		LocalDateTime eventTime = LocalDateTime.parse(data.optString("timestamp").replace(" ", "T"));
 		JSONArray events = data.optJSONArray("events");
 
@@ -109,64 +110,21 @@ public class PassengerFlowProcessor {
 		List<BusOdRecord> odRecords = new ArrayList<>();
 		int upCount = 0, downCount = 0;
 
+		// 获取新的数据结构中的字段
+		String stationId = data.optString("stationId");
+		String stationName = data.optString("stationName");
+
 		// 精简CV数据接收日志，避免重复输出
 		if (Config.PILOT_ROUTE_LOG_ENABLED) {
-			System.out.println("[CV数据接收] downup事件: bus_no=" + busNo + ", 事件数=" + (events != null ? events.length() : 0));
-		}
-
-		// 缓存 camera 与 bus 的映射，便于反查
-		if (cameraNo != null && !cameraNo.isEmpty() && !"default".equalsIgnoreCase(cameraNo)) {
-			jedis.set("bus_alias_by_camera:" + cameraNo, BusPlateMappingUtil.getBusNoByPlate(busNo) != null ? BusPlateMappingUtil.getBusNoByPlate(busNo) : busNo);
-			jedis.expire("bus_alias_by_camera:" + cameraNo, Config.REDIS_TTL_OPEN_TIME);
+			System.out.println("[CV数据接收] downup事件: bus_id=" + busId + ", bus_no=" + busNo + ", stationId=" + stationId + ", stationName=" + stationName + ", 事件数=" + (events != null ? events.length() : 0));
 		}
 
 		if (Config.PILOT_ROUTE_LOG_ENABLED) {
-			System.out.println("[流程] downup事件开始: busNo=" + busNo + ", 事件数=" + (events != null ? events.length() : 0));
+			System.out.println("[流程] downup事件开始: busId=" + busId + ", busNo=" + busNo + ", 事件数=" + (events != null ? events.length() : 0));
 		}
 
-		// 优化bus_no映射逻辑：CV推送的是车牌号，需要转换为对应的bus_no
-		String canonicalBusNo = busNo;
-
-		// 1. 首先尝试通过车牌号查找对应的bus_no
-		String mappedBusNo = BusPlateMappingUtil.getBusNoByPlate(busNo);
-		if (mappedBusNo != null) {
-			canonicalBusNo = mappedBusNo;
-			System.out.println("[CV数据映射] 车牌号 " + busNo + " 映射到bus_no: " + mappedBusNo);
-		} else {
-			// 2. 如果车牌号映射失败，尝试通过camera映射
-			String cameraMappedBusNo = jedis.get("bus_alias_by_camera:" + cameraNo);
-			if (cameraMappedBusNo != null && !cameraMappedBusNo.isEmpty()) {
-				canonicalBusNo = cameraMappedBusNo;
-				System.out.println("[CV数据映射] 通过camera映射到bus_no: " + cameraMappedBusNo);
-			} else {
-				// 3. 最后尝试通过timestamp反查开门窗口索引
-				String resolvedWindowId = null;
-				for (int delta = 0; delta <= 10 && resolvedWindowId == null; delta++) {
-					LocalDateTime t0 = eventTime.minusSeconds(delta);
-					LocalDateTime t1 = delta == 0 ? null : eventTime.plusSeconds(delta);
-					String k0 = t0.format(formatter);
-					String bus0 = jedis.get("open_time_index:" + k0);
-					if (bus0 != null && !bus0.isEmpty()) {
-						canonicalBusNo = bus0;
-						resolvedWindowId = k0;
-						System.out.println("[CV数据映射] 通过timestamp反查找到bus_no: " + bus0 + ", 时间窗口: " + k0);
-						break;
-					}
-					if (t1 != null) {
-						String k1 = t1.format(formatter);
-						String bus1 = jedis.get("open_time_index:" + k1);
-						if (bus1 != null && !bus1.isEmpty()) {
-							canonicalBusNo = bus1;
-							resolvedWindowId = k1;
-							System.out.println("[CV数据映射] 通过timestamp反查找到bus_no: " + bus1 + ", 时间窗口: " + k1);
-							break;
-						}
-					}
-				}
-			}
-		}
-
-		System.out.println("[CV数据映射] 最终使用的bus_no: " + canonicalBusNo);
+		// 现在直接使用bus_id作为canonicalBusNo，不再需要映射
+		String canonicalBusNo = busId != null && !busId.isEmpty() ? busId : busNo;
 
 		for (int i = 0; i < events.length(); i++) {
 			JSONObject ev = events.getJSONObject(i);
@@ -215,51 +173,75 @@ public class PassengerFlowProcessor {
 				System.out.println("[图片调试] 图片处理结果: imageUrl=" + (imageUrl != null ? "长度=" + imageUrl.length() : "null"));
 			}
 
-			// 获取当前开门时间窗口ID
-			String windowId = jedis.get("open_time:" + canonicalBusNo);
-			if (windowId == null) {
-				windowId = jedis.get("open_time_by_camera:" + cameraNo);
-			}
-			if (windowId == null) {
-				// 尝试通过车牌号查找
-				String plateMappedBusNo = jedis.get("plate_to_bus:" + busNo);
-				if (plateMappedBusNo != null && !plateMappedBusNo.isEmpty()) {
-					windowId = jedis.get("open_time:" + plateMappedBusNo);
-					if (windowId != null) {
-						canonicalBusNo = plateMappedBusNo;
-						System.out.println("[CV数据映射] 通过车牌号映射找到时间窗口: " + windowId + " for bus: " + canonicalBusNo);
+			// 获取当前开门时间窗口ID - 优先使用stationId、stationName、bus_id三个值做匹配
+			String windowId = null;
+			
+			// 1. 优先通过stationId、stationName、bus_id匹配
+			if (stationId != null && !stationId.isEmpty() && stationName != null && !stationName.isEmpty() && busId != null && !busId.isEmpty()) {
+				windowId = jedis.get("open_time_by_station:" + stationId + ":" + stationName + ":" + busId);
+				if (windowId != null) {
+					if (Config.PILOT_ROUTE_LOG_ENABLED) {
+						System.out.println("[CV数据匹配] 通过stationId、stationName、bus_id找到时间窗口: " + windowId);
 					}
 				}
 			}
+			
+			// 2. 如果上述匹配失败，尝试通过bus_id匹配
+			if (windowId == null && busId != null && !busId.isEmpty()) {
+				windowId = jedis.get("open_time:" + busId);
+				if (windowId != null) {
+					if (Config.PILOT_ROUTE_LOG_ENABLED) {
+						System.out.println("[CV数据匹配] 通过bus_id找到时间窗口: " + windowId);
+					}
+				}
+			}
+			
+			// 3. 兜底方案：通过时间窗口匹配（保持原有逻辑作为兜底）
 			if (windowId == null) {
-				// 添加调试信息，帮助诊断为什么找不到时间窗口
-				if (Config.LOG_DEBUG) {
-					System.out.println("[CV数据映射] 未找到时间窗口，尝试通过车牌号查找:");
-					System.out.println("   canonicalBusNo: " + canonicalBusNo);
-					System.out.println("   cameraNo: " + cameraNo);
-					System.out.println("   originalBusNo: " + busNo);
-
-					// 检查Redis中的相关键
-					Set<String> openTimeKeys = jedis.keys("open_time:*");
-					Set<String> openTimeByCameraKeys = jedis.keys("open_time_by_camera:*");
-					Set<String> plateToBusKeys = jedis.keys("plate_to_bus:*");
-
-					System.out.println("   open_time keys: " + openTimeKeys);
-					System.out.println("   open_time_by_camera keys: " + openTimeByCameraKeys);
-					System.out.println("   plate_to_bus keys: " + plateToBusKeys);
+				for (int delta = 0; delta <= 10 && windowId == null; delta++) {
+					LocalDateTime t0 = eventTime.minusSeconds(delta);
+					LocalDateTime t1 = delta == 0 ? null : eventTime.plusSeconds(delta);
+					String k0 = t0.format(formatter);
+					String bus0 = jedis.get("open_time_index:" + k0);
+					if (bus0 != null && !bus0.isEmpty()) {
+						windowId = k0;
+						canonicalBusNo = bus0;
+						if (Config.PILOT_ROUTE_LOG_ENABLED) {
+							System.out.println("[CV数据匹配] 通过时间窗口兜底找到: " + windowId + " for bus: " + canonicalBusNo);
+						}
+						break;
+					}
+					if (t1 != null) {
+						String k1 = t1.format(formatter);
+						String bus1 = jedis.get("open_time_index:" + k1);
+						if (bus1 != null && !bus1.isEmpty()) {
+							windowId = k1;
+							canonicalBusNo = bus1;
+							if (Config.PILOT_ROUTE_LOG_ENABLED) {
+								System.out.println("[CV数据匹配] 通过时间窗口兜底找到: " + windowId + " for bus: " + canonicalBusNo);
+							}
+							break;
+						}
+					}
+				}
+			}
+			
+			if (windowId == null) {
+				if (Config.PILOT_ROUTE_LOG_ENABLED) {
+					System.out.println("[CV数据匹配] 未找到时间窗口，跳过处理: busId=" + busId + ", stationId=" + stationId + ", stationName=" + stationName);
 				}
 				continue;
 			}
 
-			if (Config.LOG_DEBUG) {
-				System.out.println("[CV数据映射] 找到时间窗口: " + windowId + " for bus: " + canonicalBusNo);
+			if (Config.PILOT_ROUTE_LOG_ENABLED) {
+				System.out.println("[CV数据匹配] 找到时间窗口: " + windowId + " for bus: " + canonicalBusNo);
 			}
 
 			if ("up".equals(direction)) {
 				upCount++;
 
-				// 缓存上车特征和站点信息
-				cacheFeatureStationMapping(jedis, feature, getCurrentStationId(canonicalBusNo, jedis), getCurrentStationName(canonicalBusNo, jedis), "up");
+				// 缓存上车特征和站点信息 - 使用CV推送的stationId和stationName
+				cacheFeatureStationMapping(jedis, feature, stationId, stationName, "up");
 
 				// 更新上车计数
 				String cvUpCountKey = "cv_up_count:" + canonicalBusNo + ":" + windowId;
@@ -273,11 +255,9 @@ public class PassengerFlowProcessor {
 				featureInfo.put("direction", "up");
 				featureInfo.put("timestamp", eventTime.format(formatter));
 				featureInfo.put("image", imageUrl);
-				// 冗余上车站点信息
-				String stationIdOn = getCurrentStationId(canonicalBusNo, jedis);
-				String stationNameOn = getCurrentStationName(canonicalBusNo, jedis);
-				featureInfo.put("stationId", stationIdOn);
-				featureInfo.put("stationName", stationNameOn);
+				// 使用CV推送的站点信息
+				featureInfo.put("stationId", stationId);
+				featureInfo.put("stationName", stationName);
 				JSONObject position = new JSONObject();
 				position.put("xLeftUp", boxX);
 				position.put("yLeftUp", boxY);
@@ -306,8 +286,8 @@ public class PassengerFlowProcessor {
 			} else if ("down".equals(direction)) {
 				downCount++;
 
-				// 尝试匹配上车特征，计算区间客流
-				processPassengerMatching(feature, canonicalBusNo, jedis, eventTime);
+				// 尝试匹配上车特征，计算区间客流 - 使用CV推送的站点信息
+				processPassengerMatching(feature, canonicalBusNo, jedis, eventTime, stationId, stationName);
 
 				// 更新下车计数
 				String cvDownCountKey = "cv_down_count:" + canonicalBusNo + ":" + windowId;
@@ -321,11 +301,9 @@ public class PassengerFlowProcessor {
 				featureInfo.put("direction", "down");
 				featureInfo.put("timestamp", eventTime.format(formatter));
 				featureInfo.put("image", imageUrl);
-				// 冗余当前站点信息（下车时刻）
-				String stationIdOffCur = getCurrentStationId(canonicalBusNo, jedis);
-				String stationNameOffCur = getCurrentStationName(canonicalBusNo, jedis);
-				featureInfo.put("stationId", stationIdOffCur);
-				featureInfo.put("stationName", stationNameOffCur);
+				// 使用CV推送的站点信息（下车时刻）
+				featureInfo.put("stationId", stationId);
+				featureInfo.put("stationName", stationName);
 				JSONObject positionInfo = new JSONObject();
 				positionInfo.put("xLeftUp", boxX);
 				positionInfo.put("yLeftUp", boxY);
@@ -414,8 +392,10 @@ public class PassengerFlowProcessor {
 	 * @param busNo 公交车编号
 	 * @param jedis Redis连接
 	 * @param eventTime 事件时间
+	 * @param currentStationId 当前站点ID（下车站点）
+	 * @param currentStationName 当前站点名称（下车站点）
 	 */
-	private void processPassengerMatching(String downFeature, String busNo, Jedis jedis, LocalDateTime eventTime) {
+	private void processPassengerMatching(String downFeature, String busNo, Jedis jedis, LocalDateTime eventTime, String currentStationId, String currentStationName) {
 		try {
 			String windowId = jedis.get("open_time:" + busNo);
 			if (windowId == null) {
@@ -502,7 +482,7 @@ public class PassengerFlowProcessor {
 							if (Config.LOG_DEBUG || Config.PILOT_ROUTE_LOG_ENABLED) {
 								System.out.println("[PassengerFlowProcessor] 找到匹配乘客，相似度: " + similarity);
 							}
-							// 优先使用上车特征对象内的站点信息，失败再兜底feature_station
+							// 获取上车特征对象内的站点信息
 							String stationIdOn2 = featureObj.optString("stationId");
 							String stationNameOn2 = featureObj.optString("stationName");
 							
@@ -513,6 +493,7 @@ public class PassengerFlowProcessor {
 								System.out.println("  upFeature: " + (upFeature != null ? upFeature.substring(0, Math.min(20, upFeature.length())) + "..." : "null"));
 							}
 							
+							// 如果特征对象中没有站点信息，尝试从缓存获取
 							if (stationIdOn2 == null || stationIdOn2.isEmpty() || "UNKNOWN".equals(stationIdOn2)
 								|| stationNameOn2 == null || stationNameOn2.isEmpty() || "Unknown Station".equals(stationNameOn2)) {
 								
@@ -533,11 +514,8 @@ public class PassengerFlowProcessor {
 									}
 								}
 							}
+							
 							if (stationIdOn2 != null && !stationIdOn2.isEmpty()) {
-								// 获取当前下车站点信息
-								String currentStationId = getCurrentStationId(busNo, jedis);
-								String currentStationName = getCurrentStationName(busNo, jedis);
-								
 								if (Config.PILOT_ROUTE_LOG_ENABLED) {
 									System.out.println("[乘客匹配] 站点信息: 上车站点=" + stationNameOn2 + 
 										"(" + stationIdOn2 + "), 下车站点=" + currentStationName + 
@@ -669,7 +647,7 @@ public class PassengerFlowProcessor {
 		}
 	}
 
-	private void handleLoadFactorEvent(JSONObject data, String busNo, Jedis jedis) {
+	private void handleLoadFactorEvent(JSONObject data, String busNo, String busId, Jedis jedis) {
 		int count = data.optInt("count");
 		double factor = data.optDouble("factor");
 		String cameraNo = data.optString("camera_no");
@@ -679,15 +657,8 @@ public class PassengerFlowProcessor {
 			System.out.println("[CV满载率数据] 收到车牌号" + busNo + "的满载率数据，开始收集");
 		}
 
-		// 优化bus_no映射逻辑：CV推送的是车牌号，需要转换为对应的bus_no
-		String canonicalBusNo = busNo;
-		String mappedBusNo = BusPlateMappingUtil.getBusNoByPlate(busNo);
-		if (mappedBusNo != null) {
-			canonicalBusNo = mappedBusNo;
-			System.out.println("[CV数据映射] 车牌号 " + busNo + " 映射到bus_no: " + mappedBusNo);
-		} else {
-			System.out.println("[CV数据映射] 车牌号 " + busNo + " 未找到对应bus_no，使用原值");
-		}
+		// 现在直接使用bus_id作为canonicalBusNo，不再需要映射
+		String canonicalBusNo = busId != null && !busId.isEmpty() ? busId : busNo;
 
 		// 缓存 camera 与 bus 的映射，便于反查
 		if (cameraNo != null && !cameraNo.isEmpty() && !"default".equalsIgnoreCase(cameraNo)) {
@@ -706,7 +677,7 @@ public class PassengerFlowProcessor {
 		System.out.println("[CV数据映射] 最终使用的bus_no: " + canonicalBusNo + ", 已缓存满载率数据");
 	}
 
-	private void handleOpenCloseDoorEvent(JSONObject data, String busNo, String cameraNo, Jedis jedis) throws IOException, SQLException {
+	private void handleOpenCloseDoorEvent(JSONObject data, String busNo, String busId, String cameraNo, Jedis jedis) throws IOException, SQLException {
 		String action = data.optString("action");
 		LocalDateTime eventTime = LocalDateTime.parse(data.optString("timestamp").replace(" ", "T"));
 		String stationId = data.optString("stationId", "UNKNOWN");
@@ -715,6 +686,7 @@ public class PassengerFlowProcessor {
 		// 打印CV推送的开关门事件数据，用于timestamp校验
 		System.out.println("[CV数据接收] open_close_door事件数据详情:");
 		System.out.println("   bus_no: " + busNo);
+		System.out.println("   bus_id: " + busId);
 		System.out.println("   camera_no: " + cameraNo);
 		System.out.println("   action: " + action);
 		System.out.println("   timestamp: " + data.optString("timestamp"));
@@ -722,15 +694,8 @@ public class PassengerFlowProcessor {
 		System.out.println("   stationName: " + stationName);
 		System.out.println("   ================================================================================");
 
-		// 优化bus_no映射逻辑：CV推送的是车牌号，需要转换为对应的bus_no
-		String canonicalBusNo = busNo;
-		String mappedBusNo = BusPlateMappingUtil.getBusNoByPlate(busNo);
-		if (mappedBusNo != null) {
-			canonicalBusNo = mappedBusNo;
-			System.out.println("[CV数据映射] 车牌号 " + busNo + " 映射到bus_no: " + mappedBusNo);
-		} else {
-			System.out.println("[CV数据映射] 车牌号 " + busNo + " 未找到对应bus_no，使用原值");
-		}
+		// 现在直接使用bus_id作为canonicalBusNo，不再需要映射
+		String canonicalBusNo = busId != null && !busId.isEmpty() ? busId : busNo;
 
 		if ("open".equals(action)) {
 			// 试点线路CV开门流程日志（可通过配置控制）
@@ -750,6 +715,15 @@ public class PassengerFlowProcessor {
 			// 记录时间到bus的索引，便于downup仅凭timestamp反查
 			jedis.set("open_time_index:" + windowId, canonicalBusNo);
 			jedis.expire("open_time_index:" + windowId, Config.REDIS_TTL_OPEN_TIME);
+
+			// 建立新的映射关系：优先使用stationId、stationName、bus_id三个值做匹配
+			if (stationId != null && !stationId.isEmpty() && stationName != null && !stationName.isEmpty() && busId != null && !busId.isEmpty()) {
+				jedis.set("open_time_by_station:" + stationId + ":" + stationName + ":" + busId, windowId);
+				jedis.expire("open_time_by_station:" + stationId + ":" + stationName + ":" + busId, Config.REDIS_TTL_OPEN_TIME);
+				if (Config.PILOT_ROUTE_LOG_ENABLED) {
+					System.out.println("[CV开门流程] 建立站点映射: stationId=" + stationId + ", stationName=" + stationName + ", busId=" + busId + ", windowId=" + windowId);
+				}
+			}
 
 			// 建立camera与bus/window的映射，便于CV用车牌号推送时反查
 			if (cameraNo != null && !cameraNo.isEmpty()) {

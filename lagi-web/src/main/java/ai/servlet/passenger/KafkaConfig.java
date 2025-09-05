@@ -30,21 +30,21 @@ public class KafkaConfig {
 
 
     /**
-     * 根据bus_no获取对应的车牌号
+     * 映射关系已删除，现在直接使用bus_id
      * @param busNo 车辆编号
-     * @return 车牌号，如果未找到则返回原bus_no
+     * @return 直接返回busNo
      */
     public static String getPlateNumber(String busNo) {
-        return BusPlateMappingUtil.getPlateNumber(busNo);
+        return busNo; // 现在直接返回busNo，不再需要映射
     }
 
     /**
-     * 根据车牌号获取对应的bus_no
+     * 映射关系已删除，现在直接使用bus_id
      * @param plateNumber 车牌号
-     * @return bus_no，如果未找到则返回null
+     * @return 直接返回plateNumber
      */
     public static String getBusNoByPlate(String plateNumber) {
-        return BusPlateMappingUtil.getBusNoByPlate(plateNumber);
+        return plateNumber; // 现在直接返回plateNumber，不再需要映射
     }
 
     /**

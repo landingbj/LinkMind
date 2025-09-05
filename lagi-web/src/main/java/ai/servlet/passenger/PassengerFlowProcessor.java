@@ -366,7 +366,7 @@ public class PassengerFlowProcessor {
 
 			if (features == null || features.isEmpty()) return;
 
-			double[] downFeatureVec = CosineSimilarity.parseFeatureVector(downFeature);
+			float[] downFeatureVec = CosineSimilarity.parseFeatureVector(downFeature);
 			if (downFeatureVec.length == 0) return;
 
 			// 去重：同一上车特征仅允许匹配一次
@@ -405,7 +405,7 @@ public class PassengerFlowProcessor {
 						}
 					}
 
-					double[] upFeatureVec = CosineSimilarity.parseFeatureVector(upFeature);
+					float[] upFeatureVec = CosineSimilarity.parseFeatureVector(upFeature);
 
 					if (upFeatureVec.length > 0) {
 						// 使用余弦相似度计算匹配度
@@ -1326,7 +1326,7 @@ public class PassengerFlowProcessor {
 			if (windowId == null) return 0.0f;
 			String key = "features_set:" + busNo + ":" + windowId;
 			Set<String> features = jedis.smembers(key);
-			double[] probe = CosineSimilarity.parseFeatureVector(feature);
+			float[] probe = CosineSimilarity.parseFeatureVector(feature);
 			double best = 0.0;
 			for (String cand : features) {
 				try {
@@ -1334,7 +1334,7 @@ public class PassengerFlowProcessor {
 					JSONObject featureObj = new JSONObject(cand);
 					String featureValue = featureObj.optString("feature");
 					if (featureValue != null && !featureValue.isEmpty()) {
-						double[] vec = CosineSimilarity.parseFeatureVector(featureValue);
+						float[] vec = CosineSimilarity.parseFeatureVector(featureValue);
 						if (probe.length > 0 && vec.length == probe.length) {
 							double sim = CosineSimilarity.cosine(probe, vec);
 							if (sim > best) best = sim;
@@ -1378,16 +1378,42 @@ public class PassengerFlowProcessor {
 
 			try (CloseableHttpResponse response = client.execute(post)) {
 				String responseString = EntityUtils.toString(response.getEntity());
-				System.out.println("[大模型API] 收到响应，状态码: " + response.getStatusLine().getStatusCode() +
-					", 响应大小: " + responseString.length());
+				int statusCode = response.getStatusLine().getStatusCode();
+				System.out.println("[大模型API] 收到响应，状态码: " + statusCode + ", 响应大小: " + responseString.length());
 
-				// 屏蔽模型API原始响应日志，只显示关键信息
-				JSONObject responseJson = new JSONObject(responseString);
-				if (responseJson.has("response")) {
-					System.out.println("[大模型API] 响应包含response字段，解析成功");
-				} else {
-					System.out.println("[大模型API] 响应格式异常，缺少response字段");
+				// 检查HTTP状态码
+				if (statusCode != 200) {
+					System.err.println("[大模型API] HTTP错误，状态码: " + statusCode + ", 响应内容: " + responseString);
+					throw new IOException("大模型API返回HTTP错误: " + statusCode);
 				}
+
+				// 解析响应JSON
+				JSONObject responseJson = new JSONObject(responseString);
+				
+				// 检查API响应格式
+				boolean success = responseJson.optBoolean("success", false);
+				String error = responseJson.optString("error", null);
+				
+				if (!success) {
+					System.err.println("[大模型API] API调用失败，success=false, error=" + error);
+					System.err.println("[大模型API] 完整响应: " + responseString);
+					throw new IOException("大模型API调用失败: " + (error != null ? error : "未知错误"));
+				}
+
+				// 检查response字段
+				if (!responseJson.has("response")) {
+					System.err.println("[大模型API] 响应格式异常，缺少response字段");
+					System.err.println("[大模型API] 完整响应: " + responseString);
+					throw new IOException("大模型API响应格式异常，缺少response字段");
+				}
+
+				JSONObject responseObj = responseJson.getJSONObject("response");
+				JSONArray passengerFeatures = responseObj.optJSONArray("passenger_features");
+				int totalCount = responseObj.optInt("total_count", 0);
+				
+				System.out.println("[大模型API] 解析成功 - success=true, 特征数量: " + 
+					(passengerFeatures != null ? passengerFeatures.length() : 0) + 
+					", 总人数: " + totalCount);
 
 				return responseJson;
 			}
@@ -1720,53 +1746,84 @@ public class PassengerFlowProcessor {
         while (true) {
             try {
                 attempts++;
+                System.out.println("[大模型分析] 开始第" + attempts + "次调用大模型API...");
                 modelResponse = callMediaApi(imageUrls, Config.PASSENGER_PROMPT);
-                System.out.println("[大模型分析] 第" + attempts + "次调用完成，响应: " + modelResponse.toString());
+                
+                // 解析响应
                 JSONObject responseObj = modelResponse.optJSONObject("response");
                 passengerFeatures = responseObj != null ? responseObj.optJSONArray("passenger_features") : new JSONArray();
                 aiTotalCount = responseObj != null ? responseObj.optInt("total_count", 0) : 0;
+                
+                System.out.println("[大模型分析] 第" + attempts + "次调用完成 - 特征数量: " + 
+                    (passengerFeatures != null ? passengerFeatures.length() : 0) + 
+                    ", 总人数: " + aiTotalCount);
+                
+                // 检查是否成功获取到特征
                 if (passengerFeatures != null && passengerFeatures.length() > 0) {
+                    System.out.println("[大模型分析] 成功获取到乘客特征，停止重试");
                     break; // 成功拿到非空特征
                 }
-                if (attempts > maxRetry) {
+                
+                // 检查是否达到最大重试次数
+                if (attempts >= maxRetry) {
                     System.out.println("[大模型分析] 特征仍为空且已达最大重试次数(" + maxRetry + ")，停止重试");
                     break;
                 }
+                
+                // 等待后重试
+                int backoffMs = Config.MEDIA_RETRY_BACKOFF_MS * attempts;
+                System.out.println("[大模型分析] 特征为空，等待 " + backoffMs + "ms 后进行第" + (attempts + 1) + "次重试...");
                 try {
-                    Thread.sleep(Config.MEDIA_RETRY_BACKOFF_MS * attempts);
+                    Thread.sleep(backoffMs);
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
+                    System.out.println("[大模型分析] 重试被中断，停止重试");
                     break;
                 }
-                System.out.println("[大模型分析] 特征为空，准备进行第" + (attempts + 1) + "次重试...");
+                
             } catch (Exception e) {
-                System.err.println("[大模型分析] 调用失败(第" + attempts + "次): " + e.getMessage());
-                if (attempts > maxRetry) {
+                System.err.println("[大模型分析] 第" + attempts + "次调用失败: " + e.getMessage());
+                e.printStackTrace(); // 打印完整堆栈信息
+                
+                // 检查是否达到最大重试次数
+                if (attempts >= maxRetry) {
+                    System.err.println("[大模型分析] 已达最大重试次数(" + maxRetry + ")，停止重试");
                     // 兜底：用图片数量作为AI总人数的保守估计
                     int size = imageUrls != null ? imageUrls.size() : 0;
                     Integer cur = record.getAiTotalCount();
                     record.setAiTotalCount(Math.max(cur == null ? 0 : cur, size));
+                    record.setFeatureDescription("[]"); // 设置空的特征描述
+                    System.out.println("[大模型分析] 设置兜底值 - AI总人数: " + record.getAiTotalCount() + ", 特征描述: []");
                     return;
                 }
+                
+                // 等待后重试
+                int backoffMs = Config.MEDIA_RETRY_BACKOFF_MS * attempts;
+                System.out.println("[大模型分析] 等待 " + backoffMs + "ms 后进行第" + (attempts + 1) + "次重试...");
                 try {
-                    Thread.sleep(Config.MEDIA_RETRY_BACKOFF_MS * attempts);
+                    Thread.sleep(backoffMs);
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
+                    System.out.println("[大模型分析] 重试被中断，停止重试");
                     return;
                 }
-                System.out.println("[大模型分析] 异常后准备重试第" + (attempts + 1) + "次...");
             }
         }
 
 
         System.out.println("[大模型分析] AI分析结果 - 总人数: " + aiTotalCount +
-            ", 特征数量: " + passengerFeatures.length());
+            ", 特征数量: " + (passengerFeatures != null ? passengerFeatures.length() : 0));
 
         // 增强现有记录，设置大模型识别的总人数
-        record.setFeatureDescription(passengerFeatures != null ? passengerFeatures.toString() : "[]");
+        String featureDescription = (passengerFeatures != null && passengerFeatures.length() > 0) ? 
+            passengerFeatures.toString() : "[]";
+        record.setFeatureDescription(featureDescription);
         record.setAiTotalCount(aiTotalCount);
 
-        System.out.println("[大模型分析] 成功增强OD记录，车辆: " + busNo + "，AI总人数: " + aiTotalCount);
+        System.out.println("[大模型分析] 成功增强OD记录，车辆: " + busNo + 
+            "，AI总人数: " + aiTotalCount + 
+            "，特征描述: " + (featureDescription.length() > 100 ? 
+                featureDescription.substring(0, 100) + "..." : featureDescription));
 
         // 注意：不再在这里发送到Kafka，由调用方统一处理
     }
@@ -2032,12 +2089,12 @@ public class PassengerFlowProcessor {
 	}
 
 	/**
-     * 将double数组转为JSONArray（安全）
+     * 将float数组转为JSONArray（安全）
      */
-    private static org.json.JSONArray toJsonArraySafe(double[] vec) {
+    private static org.json.JSONArray toJsonArraySafe(float[] vec) {
         org.json.JSONArray arr = new org.json.JSONArray();
         if (vec == null) return arr;
-        for (double v : vec) arr.put(v);
+        for (float v : vec) arr.put(v);
         return arr;
     }
 }

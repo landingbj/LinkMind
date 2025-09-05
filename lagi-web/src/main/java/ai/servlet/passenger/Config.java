@@ -20,7 +20,7 @@ public class Config {
 
     // 大模型API配置 - 支持图片列表和视频两种输入方式
     // 优先使用image_path_list参数，fallback到video_path参数
-    public static final String MEDIA_API = "http://20.17.127.20:8010/keliushibie-media";
+    public static final String MEDIA_API = "http://20.17.127.55:8010/keliushibie-media";
     public static final String PASSENGER_PROMPT = "请分析车门区域的下车乘客特征";
     public static final int MEDIA_MAX_RETRY = 2;                 // 当返回空特征时的最大重试次数
     public static final int MEDIA_RETRY_BACKOFF_MS = 500;        // 重试退避时间（基础毫秒）

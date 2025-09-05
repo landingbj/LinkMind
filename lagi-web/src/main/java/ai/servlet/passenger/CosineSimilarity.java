@@ -1,6 +1,8 @@
 package ai.servlet.passenger;
 
-import java.nio.charset.StandardCharsets;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.FloatBuffer;
 import java.util.Base64;
 
 public final class CosineSimilarity {
@@ -12,7 +14,7 @@ public final class CosineSimilarity {
      * @param b 向量b
      * @return 余弦相似度值，范围[-1,1]，值越大表示越相似
      */
-    public static double cosine(double[] a, double[] b) {
+    public static double cosine(float[] a, float[] b) {
         if (a == null || b == null) throw new IllegalArgumentException("Vectors must not be null.");
         if (a.length != b.length) throw new IllegalArgumentException("Vectors must have same length.");
 
@@ -32,35 +34,37 @@ public final class CosineSimilarity {
     }
 
     /**
-     * 从字符串特征向量解析为double数组
+     * 从字符串特征向量解析为float数组
      *
      * @param featureStr 特征向量字符串
-     * @return double数组
+     * @return float数组
      */
-    public static double[] parseFeatureVector(String featureStr) {
+    public static float[] parseFeatureVector(String featureStr) {
+        // base64 转换
         try {
             byte[] bytes = Base64.getDecoder().decode(featureStr.trim());
-            String s = new String(bytes, StandardCharsets.UTF_8);
-            s = s.replaceAll("[\\[\\]]", "");
-            String[] parts = s.split(",");
-            double[] vec = new double[parts.length];
-            for (int i = 0; i < parts.length; i++) {
-                vec[i] = Double.parseDouble(parts[i]);
-            }
+
+            FloatBuffer floatBuffer = ByteBuffer.wrap(bytes)
+                    .order(ByteOrder.LITTLE_ENDIAN)
+                    .asFloatBuffer();
+
+            float[] features = new float[floatBuffer.remaining()];
+            floatBuffer.get(features);
+            
             if (Config.LOG_DEBUG || Config.PILOT_ROUTE_LOG_ENABLED) {
-                System.out.println("[CosineSimilarity] 特征向量解码: length=" + vec.length + ", values=" + formatVector(vec));
+                System.out.println("[CosineSimilarity] 特征向量解码: length=" + features.length + ", values=" + formatVector(features));
             }
-            return vec;
+            return features;
         } catch (Exception ignore) {
         }
         // 解析失败返回空数组
         if (Config.LOG_DEBUG || Config.PILOT_ROUTE_LOG_ENABLED) {
             System.out.println("[CosineSimilarity] 特征向量解码失败，返回空数组");
         }
-        return new double[0];
+        return new float[0];
     }
 
-    private static String formatVector(double[] vec) {
+    private static String formatVector(float[] vec) {
         if (vec == null) return "null";
         int n = vec.length;
         StringBuilder sb = new StringBuilder();

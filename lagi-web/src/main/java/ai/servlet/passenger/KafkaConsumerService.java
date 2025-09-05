@@ -329,7 +329,9 @@ public class KafkaConsumerService {
                                     String stationName = message.optString("stationName");
                                     String nextStationSeqNum = message.optString("nextStationSeqNum");
                                     String trafficType2 = String.valueOf(message.opt("trafficType"));
-                                    String direction2 = "4".equals(trafficType2) ? "up" : "down";
+                                    // 修复direction映射逻辑：4=上行，5=下行，其他=原始trafficType值
+                                    String direction2 = "4".equals(trafficType2) ? "up" : 
+                                                       "5".equals(trafficType2) ? "down" : trafficType2;
                                     String routeNo = message.optString("routeNo");
 
                                     System.out.println("[车辆到离站信号-非白名单] pktType=4 的Kafka原始数据:");
@@ -515,7 +517,9 @@ public class KafkaConsumerService {
         String stationName = message.optString("stationName");
         String nextStationSeqNum = message.optString("nextStationSeqNum");
         String trafficType2 = String.valueOf(message.opt("trafficType"));
-        String direction2 = "4".equals(trafficType2) ? "up" : "down";
+        // 修复direction映射逻辑：4=上行，5=下行，其他=原始trafficType值
+        String direction2 = "4".equals(trafficType2) ? "up" : 
+                           "5".equals(trafficType2) ? "down" : trafficType2;
         String routeNo = message.optString("routeNo");
 
         // 对白名单中的车辆打印完整的到离站Kafka原始数据 - 已注释，只保留试点线路
@@ -542,6 +546,10 @@ public class KafkaConsumerService {
         arriveLeave.put("stationName", stationName);
         arriveLeave.put("nextStationSeqNum", nextStationSeqNum);
         arriveLeave.put("direction", direction2);
+        // 增加时间戳信息，便于调试和时序分析
+        arriveLeave.put("timestamp", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+        arriveLeave.put("updateTime", System.currentTimeMillis());
+        arriveLeave.put("trafficType", trafficType2);
         // 使用routeNo作为线路ID
         if (routeNo != null && !routeNo.isEmpty()) {
             arriveLeave.put("routeNo", routeNo);
@@ -563,9 +571,16 @@ public class KafkaConsumerService {
         jedis.set(arriveLeaveKey, arriveLeave.toString());
         jedis.expire(arriveLeaveKey, Config.REDIS_TTL_ARRIVE_LEAVE);
 
-        // 移除到离站缓存调试日志
-
-        // 移除到站/离站信息日志
+        // 增加到离站信号调试日志
+        if (Config.PILOT_ROUTE_LOG_ENABLED) {
+            System.out.println("[到离站信号] 收到信号: busNo=" + busNo + 
+                ", isArriveOrLeft=" + isArriveOrLeft + 
+                ", stationId=" + stationId + 
+                ", stationName=" + stationName +
+                ", trafficType=" + trafficType2 +
+                ", direction=" + direction2 +
+                ", timestamp=" + arriveLeave.optString("timestamp"));
+        }
     }
 
     private void handleTicket(JSONObject message, String busNo, Jedis jedis) {

@@ -69,9 +69,9 @@ public class BusPlateMappingUtil {
         BUS_NO_TO_PLATE_MAP.put("8-9081", "浙A01890D");
         BUS_NO_TO_PLATE_MAP.put("8-6053", "浙A09943D");
         BUS_NO_TO_PLATE_MAP.put("8-9070", "浙A09167D");
-        BUS_NO_TO_PLATE_MAP.put("8-8065", "浙A00150D");
-        BUS_NO_TO_PLATE_MAP.put("8-8062", "浙A01788D");
-        BUS_NO_TO_PLATE_MAP.put("8-8060", "浙A00159D");
+        BUS_NO_TO_PLATE_MAP.put("8-8065h", "浙A00150D");
+        BUS_NO_TO_PLATE_MAP.put("8-8062h", "浙A01788D");
+        BUS_NO_TO_PLATE_MAP.put("8-8060h", "浙A00159D");
         BUS_NO_TO_PLATE_MAP.put("8-6195", "浙A06802D");
         BUS_NO_TO_PLATE_MAP.put("8-6194", "浙A05651D");
         BUS_NO_TO_PLATE_MAP.put("8-6193", "浙A00269D");

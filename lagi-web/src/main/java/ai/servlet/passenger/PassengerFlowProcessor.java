@@ -358,13 +358,28 @@ public class PassengerFlowProcessor {
 	private void processPassengerMatching(String downFeature, String busNo, Jedis jedis, LocalDateTime eventTime) {
 		try {
 			String windowId = jedis.get("open_time:" + busNo);
-			if (windowId == null) return;
+			if (windowId == null) {
+				if (Config.PILOT_ROUTE_LOG_ENABLED) {
+					System.out.println("[乘客匹配] 未找到开门时间窗口，跳过匹配: busNo=" + busNo);
+				}
+				return;
+			}
 
 			// 获取上车特征集合
 			String featuresKey = "features_set:" + busNo + ":" + windowId;
 			Set<String> features = jedis.smembers(featuresKey);
 
-			if (features == null || features.isEmpty()) return;
+			if (features == null || features.isEmpty()) {
+				if (Config.PILOT_ROUTE_LOG_ENABLED) {
+					System.out.println("[乘客匹配] 未找到上车特征，跳过匹配: busNo=" + busNo + ", windowId=" + windowId);
+				}
+				return;
+			}
+
+			if (Config.PILOT_ROUTE_LOG_ENABLED) {
+				System.out.println("[乘客匹配] 开始匹配: busNo=" + busNo + ", windowId=" + windowId + 
+					", 上车特征数=" + features.size());
+			}
 
 			float[] downFeatureVec = CosineSimilarity.parseFeatureVector(downFeature);
 			if (downFeatureVec.length == 0) return;
@@ -423,9 +438,10 @@ public class PassengerFlowProcessor {
 								String currentStationId = getCurrentStationId(busNo, jedis);
 								String currentStationName = getCurrentStationName(busNo, jedis);
 								
-								if (Config.LOG_DEBUG || Config.PILOT_ROUTE_LOG_ENABLED) {
-									System.out.println("[PassengerFlowProcessor] 上车站点: " + onStation.optString("stationName") + 
-										", 下车站点: " + currentStationName);
+								if (Config.PILOT_ROUTE_LOG_ENABLED) {
+									System.out.println("[乘客匹配] 站点信息: 上车站点=" + onStation.optString("stationName") + 
+										"(" + onStation.optString("stationId") + "), 下车站点=" + currentStationName + 
+										"(" + currentStationId + ")");
 								}
 
 								// 同站过滤：同站上/下视为无效区间，跳过
@@ -461,8 +477,9 @@ public class PassengerFlowProcessor {
 									}
 								} catch (Exception ignore) {}
 							} else {
-								if (Config.LOG_DEBUG || Config.PILOT_ROUTE_LOG_ENABLED) {
-									System.out.println("[PassengerFlowProcessor] 上车站点信息为空，无法匹配");
+								if (Config.PILOT_ROUTE_LOG_ENABLED) {
+									System.out.println("[乘客匹配] 上车站点信息为空，无法匹配: upFeature=" + 
+										(upFeature != null ? upFeature.substring(0, Math.min(20, upFeature.length())) + "..." : "null"));
 								}
 							}
 							break; // 找到匹配后跳出循环
@@ -1200,17 +1217,17 @@ public class PassengerFlowProcessor {
 			if (arriveLeaveStr != null) {
 				JSONObject arriveLeave = new JSONObject(arriveLeaveStr);
 				String direct = arriveLeave.optString("direction");
-				if ("up".equals(direct) || "down".equals(direct)) return direct;
+				if (direct != null && !direct.isEmpty()) return direct;
 				String t = arriveLeave.optString("trafficType");
 				String v = mapTrafficTypeToDirection(t);
-				if ("up".equals(v) || "down".equals(v)) return v;
+				if (v != null && !v.isEmpty()) return v;
 			}
 			// 次选从gps:trafficType判定
 			String gpsStr = jedis.get("gps:" + busNo);
 			if (gpsStr != null) {
 				String t = new JSONObject(gpsStr).optString("trafficType");
 				String v = mapTrafficTypeToDirection(t);
-				if ("up".equals(v) || "down".equals(v)) return v;
+				if (v != null && !v.isEmpty()) return v;
 			}
 		} catch (Exception ignore) {}
 		// 默认回退为上行
@@ -1222,14 +1239,22 @@ public class PassengerFlowProcessor {
 		switch (trafficType) {
 			case "4": return "up";
 			case "5": return "down";
-			default: return "unknown";
+			default: return trafficType; // 返回原始trafficType值
 		}
 	}
 
 	private String getCurrentStationId(String busNo, Jedis jedis) {
 		String arriveLeaveStr = jedis.get("arrive_leave:" + busNo);
 		if (arriveLeaveStr != null) {
-			return new JSONObject(arriveLeaveStr).optString("stationId");
+			JSONObject arriveLeave = new JSONObject(arriveLeaveStr);
+			String stationId = arriveLeave.optString("stationId");
+			if (Config.PILOT_ROUTE_LOG_ENABLED && "UNKNOWN".equals(stationId)) {
+				System.out.println("[站点信息] 获取到UNKNOWN站点ID: busNo=" + busNo + ", arriveLeave=" + arriveLeaveStr);
+			}
+			return stationId;
+		}
+		if (Config.PILOT_ROUTE_LOG_ENABLED) {
+			System.out.println("[站点信息] 未找到到离站信息: busNo=" + busNo);
 		}
 		return "UNKNOWN";
 	}
@@ -1237,7 +1262,15 @@ public class PassengerFlowProcessor {
 	private String getCurrentStationName(String busNo, Jedis jedis) {
 		String arriveLeaveStr = jedis.get("arrive_leave:" + busNo);
 		if (arriveLeaveStr != null) {
-			return new JSONObject(arriveLeaveStr).optString("stationName");
+			JSONObject arriveLeave = new JSONObject(arriveLeaveStr);
+			String stationName = arriveLeave.optString("stationName");
+			if (Config.PILOT_ROUTE_LOG_ENABLED && "Unknown Station".equals(stationName)) {
+				System.out.println("[站点信息] 获取到Unknown Station: busNo=" + busNo + ", arriveLeave=" + arriveLeaveStr);
+			}
+			return stationName;
+		}
+		if (Config.PILOT_ROUTE_LOG_ENABLED) {
+			System.out.println("[站点信息] 未找到到离站信息: busNo=" + busNo);
 		}
 		return "Unknown Station";
 	}
@@ -1453,15 +1486,26 @@ public class PassengerFlowProcessor {
 
 
 	private void cacheFeatureStationMapping(Jedis jedis, String feature, String stationId, String stationName, String direction) {
+		// 检查站点信息有效性
+		if ("UNKNOWN".equals(stationId) || "Unknown Station".equals(stationName)) {
+			if (Config.PILOT_ROUTE_LOG_ENABLED) {
+				System.out.println("[站点缓存] 警告：缓存无效站点信息: stationId=" + stationId + 
+					", stationName=" + stationName + ", direction=" + direction);
+			}
+		}
+		
 		JSONObject mapping = new JSONObject();
 		mapping.put("stationId", stationId);
 		mapping.put("stationName", stationName);
 		mapping.put("direction", direction); // 添加方向信息
+		mapping.put("timestamp", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
 		String key = "feature_station:" + feature;
 		jedis.set(key, mapping.toString());
 		jedis.expire(key, Config.REDIS_TTL_FEATURES);
-		if (Config.LOG_DEBUG) {
-			System.out.println("[PassengerFlowProcessor] Cache feature_station for feature hashLen=" + feature.length());
+		
+		if (Config.PILOT_ROUTE_LOG_ENABLED) {
+			System.out.println("[站点缓存] 缓存特征站点映射: feature=" + feature.substring(0, Math.min(20, feature.length())) + 
+				"..., stationId=" + stationId + ", stationName=" + stationName + ", direction=" + direction);
 		}
 	}
 

@@ -33,6 +33,12 @@ public class Config {
     public static final boolean ENABLE_AI_IMAGE_ANALYSIS = true;       // 是否启用AI图片分析
     public static final int MAX_IMAGES_PER_ANALYSIS = 40;              // 每次AI分析的最大图片数量
     public static final int IMAGE_DURATION_SECONDS = 2;                // 每张图片在视频中的播放时长（秒）
+    
+    // 特征数据配置
+    public static final int MAX_FEATURE_SIZE_BYTES = 50000;            // 单个特征数据最大字节数（50KB，支持约10000维特征向量）
+    public static final int MAX_FEATURES_PER_WINDOW = 50;              // 每个时间窗口最大特征数量
+    public static final int FEATURE_CLEANUP_THRESHOLD = 30;            // 特征清理阈值
+    public static final int MAX_FEATURE_VECTOR_DIMENSIONS = 10000;     // 最大特征向量维度数
 
     // Redis TTL配置（秒）
     public static final int REDIS_TTL_DOOR_STATUS = 3600;        // 门状态缓存1小时

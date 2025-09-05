@@ -21,6 +21,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.net.URL;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.channels.Channels;
 import java.nio.channels.ReadableByteChannel;
 import java.sql.SQLException;
@@ -28,6 +30,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.Base64;
 
 /**
  * 乘客流量处理器，处理CV WebSocket推送的事件
@@ -319,8 +322,55 @@ public class PassengerFlowProcessor {
 				positionInfo.put("xRightBottom", boxX + boxW);
 				positionInfo.put("yRightBottom", boxY + boxH);
 				featureInfo.put("position", positionInfo);
-				jedis.sadd(featuresKey, featureInfo.toString());
+				
+				// 限制特征数据大小，避免Redis存储过大
+				String featureStr = featureInfo.toString();
+				if (featureStr.length() > Config.MAX_FEATURE_SIZE_BYTES) {
+					if (Config.LOG_DEBUG) {
+						System.out.println("[PassengerFlowProcessor] 特征数据过大，智能截断处理: " + featureStr.length() + " bytes");
+					}
+					
+					// 智能截断：确保截断后的特征向量仍能正确解码
+					String truncatedFeature = smartTruncateFeature(feature);
+					featureInfo.put("feature", truncatedFeature);
+					featureStr = featureInfo.toString();
+					
+					if (Config.LOG_DEBUG) {
+						System.out.println("[PassengerFlowProcessor] 截断后大小: " + featureStr.length() + " bytes");
+					}
+				}
+				
+				jedis.sadd(featuresKey, featureStr);
 				jedis.expire(featuresKey, Config.REDIS_TTL_FEATURES);
+				
+				// 限制每个时间窗口的特征数量，避免数据过大
+				long featureCount = jedis.scard(featuresKey);
+				if (featureCount > Config.MAX_FEATURES_PER_WINDOW) {
+					if (Config.LOG_DEBUG) {
+						System.out.println("[PassengerFlowProcessor] 特征数量过多，清理旧特征: " + featureCount);
+					}
+					// 随机删除一些旧特征，保留最新的
+					Set<String> allFeatures = jedis.smembers(featuresKey);
+					if (allFeatures != null && allFeatures.size() > Config.FEATURE_CLEANUP_THRESHOLD) {
+						List<String> featureList = new ArrayList<>(allFeatures);
+						// 按时间戳排序，删除最旧的
+						featureList.sort((a, b) -> {
+							try {
+								JSONObject objA = new JSONObject(a);
+								JSONObject objB = new JSONObject(b);
+								String timeA = objA.optString("timestamp", "");
+								String timeB = objB.optString("timestamp", "");
+								return timeA.compareTo(timeB);
+							} catch (Exception e) {
+								return 0;
+							}
+						});
+						// 删除最旧的20个特征
+						for (int j = 0; j < 20 && j < featureList.size(); j++) {
+							jedis.srem(featuresKey, featureList.get(j));
+						}
+					}
+				}
 
 				// 缓存图片URL
 				if (imageUrl != null) {
@@ -1408,6 +1458,14 @@ public class PassengerFlowProcessor {
 		System.out.println("[大模型API] 请求参数 - 图片数量: " + (imageList != null ? imageList.size() : 0) +
 			", 提示词: " + prompt);
 
+		// 打印图片URL列表用于调试
+		if (imageList != null && !imageList.isEmpty()) {
+			System.out.println("[大模型API] 图片URL列表:");
+			for (int i = 0; i < imageList.size(); i++) {
+				System.out.println("  [" + (i + 1) + "] " + imageList.get(i));
+			}
+		}
+
 		try (CloseableHttpClient client = HttpClients.createDefault()) {
 			HttpPost post = new HttpPost(Config.MEDIA_API);
 			post.setHeader("Content-Type", "application/json");
@@ -1436,6 +1494,12 @@ public class PassengerFlowProcessor {
 				// 检查HTTP状态码
 				if (statusCode != 200) {
 					System.err.println("[大模型API] HTTP错误，状态码: " + statusCode + ", 响应内容: " + responseString);
+					System.err.println("[大模型API] 请求的图片URL列表:");
+					if (imageList != null) {
+						for (int i = 0; i < imageList.size(); i++) {
+							System.err.println("  [" + (i + 1) + "] " + imageList.get(i));
+						}
+					}
 					throw new IOException("大模型API返回HTTP错误: " + statusCode);
 				}
 
@@ -1449,6 +1513,12 @@ public class PassengerFlowProcessor {
 				if (!success) {
 					System.err.println("[大模型API] API调用失败，success=false, error=" + error);
 					System.err.println("[大模型API] 完整响应: " + responseString);
+					System.err.println("[大模型API] 请求的图片URL列表:");
+					if (imageList != null) {
+						for (int i = 0; i < imageList.size(); i++) {
+							System.err.println("  [" + (i + 1) + "] " + imageList.get(i));
+						}
+					}
 					throw new IOException("大模型API调用失败: " + (error != null ? error : "未知错误"));
 				}
 
@@ -1456,6 +1526,12 @@ public class PassengerFlowProcessor {
 				if (!responseJson.has("response")) {
 					System.err.println("[大模型API] 响应格式异常，缺少response字段");
 					System.err.println("[大模型API] 完整响应: " + responseString);
+					System.err.println("[大模型API] 请求的图片URL列表:");
+					if (imageList != null) {
+						for (int i = 0; i < imageList.size(); i++) {
+							System.err.println("  [" + (i + 1) + "] " + imageList.get(i));
+						}
+					}
 					throw new IOException("大模型API响应格式异常，缺少response字段");
 				}
 
@@ -1469,6 +1545,16 @@ public class PassengerFlowProcessor {
 
 				return responseJson;
 			}
+		} catch (Exception e) {
+			// 在异常时也打印URL列表用于调试
+			System.err.println("[大模型API] 调用异常: " + e.getMessage());
+			System.err.println("[大模型API] 请求的图片URL列表:");
+			if (imageList != null) {
+				for (int i = 0; i < imageList.size(); i++) {
+					System.err.println("  [" + (i + 1) + "] " + imageList.get(i));
+				}
+			}
+			throw e;
 		}
 	}
 
@@ -1892,6 +1978,99 @@ public class PassengerFlowProcessor {
     }
 
 	/**
+	 * 标准化时间窗口ID格式，确保与存储时一致
+	 * @param windowId 原始时间窗口ID
+	 * @return 标准化后的时间窗口ID
+	 */
+	private String normalizeWindowId(String windowId) {
+		if (windowId == null) return null;
+		// 统一时间格式，将T替换为空格
+		return windowId.replace("T", " ");
+	}
+
+	/**
+	 * 智能截断特征向量，确保截断后仍能正确解码
+	 * @param feature 原始特征向量字符串
+	 * @return 截断后的特征向量字符串
+	 */
+	private String smartTruncateFeature(String feature) {
+		if (feature == null || feature.isEmpty()) {
+			return feature;
+		}
+		
+		try {
+			// 先尝试解码原始特征向量，获取维度数
+			float[] originalFeatures = CosineSimilarity.parseFeatureVector(feature);
+			if (originalFeatures.length == 0) {
+				// 如果解码失败，直接截断到安全长度
+				return feature.substring(0, Math.min(Config.MAX_FEATURE_SIZE_BYTES / 2, feature.length()));
+			}
+			
+			// 计算目标维度数（基于配置的最大字节数）
+			// 每个float 4字节，Base64编码后约5.33字节，加上JSON开销，按6字节计算
+			int maxDimensions = Config.MAX_FEATURE_SIZE_BYTES / 6;
+			maxDimensions = Math.min(maxDimensions, Config.MAX_FEATURE_VECTOR_DIMENSIONS);
+			
+			if (originalFeatures.length <= maxDimensions) {
+				return feature; // 不需要截断
+			}
+			
+			// 截断到目标维度数
+			float[] truncatedFeatures = new float[maxDimensions];
+			System.arraycopy(originalFeatures, 0, truncatedFeatures, 0, maxDimensions);
+			
+			// 重新编码为Base64
+			ByteBuffer buffer = ByteBuffer.allocate(maxDimensions * 4);
+			buffer.order(ByteOrder.LITTLE_ENDIAN);
+			for (float f : truncatedFeatures) {
+				buffer.putFloat(f);
+			}
+			
+			return Base64.getEncoder().encodeToString(buffer.array());
+			
+		} catch (Exception e) {
+			if (Config.LOG_DEBUG) {
+				System.out.println("[PassengerFlowProcessor] 智能截断失败，使用简单截断: " + e.getMessage());
+			}
+			// 如果智能截断失败，使用简单截断
+			return feature.substring(0, Math.min(Config.MAX_FEATURE_SIZE_BYTES / 2, feature.length()));
+		}
+	}
+
+	/**
+	 * 在时间范围内查找特征数据
+	 * @param jedis Redis连接
+	 * @param busNo 公交车编号
+	 * @param begin 开始时间
+	 * @param end 结束时间
+	 * @return 特征数据集合
+	 */
+	private Set<String> findFeaturesInTimeRange(Jedis jedis, String busNo, LocalDateTime begin, LocalDateTime end) {
+		Set<String> allFeatures = new HashSet<>();
+		if (begin == null || end == null) return allFeatures;
+		
+		try {
+			LocalDateTime cursor = begin.minusSeconds(Math.max(0, Config.IMAGE_TIME_TOLERANCE_BEFORE_SECONDS));
+			LocalDateTime to = end.plusSeconds(Math.max(0, Config.IMAGE_TIME_TOLERANCE_AFTER_SECONDS));
+			
+			while (!cursor.isAfter(to)) {
+				String win = cursor.format(formatter);
+				Set<String> fset = jedis.smembers("features_set:" + busNo + ":" + win);
+				if (fset != null && !fset.isEmpty()) {
+					allFeatures.addAll(fset);
+				}
+				cursor = cursor.plusSeconds(1);
+			}
+		} catch (Exception e) {
+			if (Config.LOG_DEBUG) {
+				System.out.println("[PassengerFlowProcessor] Error finding features in time range: " + e.getMessage());
+			}
+		}
+		
+		return allFeatures;
+	}
+
+	/**
 	 * 设置乘客特征集合信息
 	 * @param record BusOdRecord记录
 	 * @param jedis Redis连接
@@ -1900,7 +2079,9 @@ public class PassengerFlowProcessor {
 	 */
 	private void setPassengerFeatures(BusOdRecord record, Jedis jedis, String busNo, String windowId) {
 		try {
-			String featuresKey = "features_set:" + busNo + ":" + windowId;
+			// 标准化时间窗口ID格式，确保与存储时一致
+			String normalizedWindowId = normalizeWindowId(windowId);
+			String featuresKey = "features_set:" + busNo + ":" + normalizedWindowId;
 			Set<String> features = jedis.smembers(featuresKey);
 
 			if (features != null && !features.isEmpty()) {
@@ -1936,56 +2117,50 @@ public class PassengerFlowProcessor {
 				}
 			} else {
 				if (Config.LOG_DEBUG) {
-					System.out.println("[PassengerFlowProcessor] No features found for busNo=" + busNo + ", windowId=" + windowId);
+					System.out.println("[PassengerFlowProcessor] No features found for busNo=" + busNo + ", windowId=" + normalizedWindowId);
 					System.out.println("[PassengerFlowProcessor] Redis key: " + featuresKey);
 
 					// 尝试查找相关的Redis键
 					Set<String> relatedKeys = jedis.keys("features_set:" + busNo + ":*");
 					System.out.println("[PassengerFlowProcessor] Related feature keys: " + relatedKeys);
 				}
+				
 				// 回退：按开关门时间区间聚合 features 与 position
-				try {
-					LocalDateTime begin = record.getTimestampBegin();
-					LocalDateTime end = record.getTimestampEnd();
-					if (begin != null && end != null) {
-						JSONArray featuresArray = new JSONArray();
-						JSONArray positionArray = new JSONArray();
-						LocalDateTime cursor = begin.minusSeconds(Math.max(0, Config.IMAGE_TIME_TOLERANCE_BEFORE_SECONDS));
-						LocalDateTime to = end.plusSeconds(Math.max(0, Config.IMAGE_TIME_TOLERANCE_AFTER_SECONDS));
-						while (!cursor.isAfter(to)) {
-							String win = cursor.format(formatter);
-							Set<String> fset = jedis.smembers("features_set:" + busNo + ":" + win);
-							if (fset != null && !fset.isEmpty()) {
-								for (String f : fset) {
-									try {
-										JSONObject obj = new JSONObject(f);
-										featuresArray.put(obj);
-										if (obj.has("position")) {
-											positionArray.put(obj.getJSONObject("position"));
-										}
-									} catch (Exception ignore) {}
-								}
+				features = findFeaturesInTimeRange(jedis, busNo, record.getTimestampBegin(), record.getTimestampEnd());
+				if (features != null && !features.isEmpty()) {
+					JSONArray featuresArray = new JSONArray();
+					JSONArray positionArray = new JSONArray();
+					
+					for (String featureStr : features) {
+						try {
+							JSONObject featureObj = new JSONObject(featureStr);
+							featuresArray.put(featureObj);
+							if (featureObj.has("position")) {
+								JSONObject position = featureObj.getJSONObject("position");
+								positionArray.put(position);
 							}
-							cursor = cursor.plusSeconds(1);
+						} catch (Exception e) {
+							if (Config.LOG_DEBUG) {
+								System.out.println("[PassengerFlowProcessor] Failed to parse feature JSON in time range: " + featureStr);
+							}
 						}
-						if (featuresArray.length() > 0) {
-							record.setPassengerFeatures(featuresArray.toString());
-							if (positionArray.length() > 0) {
-								record.setPassengerPosition(positionArray.toString());
-							}
-							if (Config.PILOT_ROUTE_LOG_ENABLED) {
-								System.out.println("[流程][回退] 乘客特征集合按时间区间聚合成功，特征数: " + featuresArray.length());
-							}
-						} else {
-							// 设置默认值，避免字段为null
-							record.setPassengerFeatures("[]");
-							record.setPassengerPosition("[]");
+					}
+					
+					if (featuresArray.length() > 0) {
+						record.setPassengerFeatures(featuresArray.toString());
+						if (positionArray.length() > 0) {
+							record.setPassengerPosition(positionArray.toString());
+						}
+						if (Config.PILOT_ROUTE_LOG_ENABLED) {
+							System.out.println("[流程][回退] 乘客特征集合按时间区间聚合成功，特征数: " + featuresArray.length());
 						}
 					} else {
+						// 设置默认值，避免字段为null
 						record.setPassengerFeatures("[]");
 						record.setPassengerPosition("[]");
 					}
-				} catch (Exception ignore) {
+				} else {
+					// 设置默认值，避免字段为null
 					record.setPassengerFeatures("[]");
 					record.setPassengerPosition("[]");
 				}

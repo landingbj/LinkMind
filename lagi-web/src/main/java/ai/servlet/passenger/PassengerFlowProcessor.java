@@ -266,13 +266,18 @@ public class PassengerFlowProcessor {
 				jedis.incr(cvUpCountKey);
 				jedis.expire(cvUpCountKey, Config.REDIS_TTL_OPEN_TIME);
 
-				// 缓存特征集合（包含方向信息）
+				// 缓存特征集合（包含方向信息与站点信息）
 				String featuresKey = "features_set:" + canonicalBusNo + ":" + windowId;
 				JSONObject featureInfo = new JSONObject();
 				featureInfo.put("feature", feature);
 				featureInfo.put("direction", "up");
 				featureInfo.put("timestamp", eventTime.format(formatter));
 				featureInfo.put("image", imageUrl);
+				// 冗余上车站点信息
+				String stationIdOn = getCurrentStationId(canonicalBusNo, jedis);
+				String stationNameOn = getCurrentStationName(canonicalBusNo, jedis);
+				featureInfo.put("stationId", stationIdOn);
+				featureInfo.put("stationName", stationNameOn);
 				JSONObject position = new JSONObject();
 				position.put("xLeftUp", boxX);
 				position.put("yLeftUp", boxY);
@@ -309,13 +314,18 @@ public class PassengerFlowProcessor {
 				jedis.incr(cvDownCountKey);
 				jedis.expire(cvDownCountKey, Config.REDIS_TTL_OPEN_TIME);
 
-				// 缓存下车特征到特征集合（包含方向信息）
+				// 缓存下车特征到特征集合（包含方向信息与站点信息）
 				String featuresKey = "features_set:" + canonicalBusNo + ":" + windowId;
 				JSONObject featureInfo = new JSONObject();
 				featureInfo.put("feature", feature);
 				featureInfo.put("direction", "down");
 				featureInfo.put("timestamp", eventTime.format(formatter));
 				featureInfo.put("image", imageUrl);
+				// 冗余当前站点信息（下车时刻）
+				String stationIdOffCur = getCurrentStationId(canonicalBusNo, jedis);
+				String stationNameOffCur = getCurrentStationName(canonicalBusNo, jedis);
+				featureInfo.put("stationId", stationIdOffCur);
+				featureInfo.put("stationName", stationNameOffCur);
 				JSONObject positionInfo = new JSONObject();
 				positionInfo.put("xLeftUp", boxX);
 				positionInfo.put("yLeftUp", boxY);
@@ -491,21 +501,30 @@ public class PassengerFlowProcessor {
 							if (Config.LOG_DEBUG || Config.PILOT_ROUTE_LOG_ENABLED) {
 								System.out.println("[PassengerFlowProcessor] 找到匹配乘客，相似度: " + similarity);
 							}
-							// 获取上车站点信息
-							JSONObject onStation = getOnStationFromCache(jedis, upFeature);
-							if (onStation != null) {
+							// 优先使用上车特征对象内的站点信息，失败再兜底feature_station
+							String stationIdOn2 = featureObj.optString("stationId");
+							String stationNameOn2 = featureObj.optString("stationName");
+							if (stationIdOn2 == null || stationIdOn2.isEmpty() || "UNKNOWN".equals(stationIdOn2)
+								|| stationNameOn2 == null || stationNameOn2.isEmpty() || "Unknown Station".equals(stationNameOn2)) {
+								JSONObject onStation = getOnStationFromCache(jedis, upFeature);
+								if (onStation != null) {
+									stationIdOn2 = onStation.optString("stationId");
+									stationNameOn2 = onStation.optString("stationName");
+								}
+							}
+							if (stationIdOn2 != null && !stationIdOn2.isEmpty()) {
 								// 获取当前下车站点信息
 								String currentStationId = getCurrentStationId(busNo, jedis);
 								String currentStationName = getCurrentStationName(busNo, jedis);
 								
 								if (Config.PILOT_ROUTE_LOG_ENABLED) {
-									System.out.println("[乘客匹配] 站点信息: 上车站点=" + onStation.optString("stationName") + 
-										"(" + onStation.optString("stationId") + "), 下车站点=" + currentStationName + 
+									System.out.println("[乘客匹配] 站点信息: 上车站点=" + stationNameOn2 + 
+										"(" + stationIdOn2 + "), 下车站点=" + currentStationName + 
 										"(" + currentStationId + ")");
 								}
 
 								// 同站过滤：同站上/下视为无效区间，跳过
-								if (onStation.optString("stationId").equals(currentStationId)) {
+								if (stationIdOn2.equals(currentStationId)) {
 									if (Config.LOG_INFO) {
 										System.out.println("[PassengerFlowProcessor] 跳过同站OD: station=" + currentStationName +
 											", featureHashLen=" + (upFeature != null ? upFeature.length() : 0));
@@ -516,15 +535,15 @@ public class PassengerFlowProcessor {
 								// 组装乘客明细：写入解码后的向量数组与上下车站名
 								JSONObject passengerDetail = new JSONObject();
 								passengerDetail.put("featureVector", toJsonArraySafe(upFeatureVec.length > 0 ? upFeatureVec : downFeatureVec));
-								passengerDetail.put("stationIdOn", onStation.optString("stationId"));
-								passengerDetail.put("stationNameOn", onStation.optString("stationName"));
+								passengerDetail.put("stationIdOn", stationIdOn2);
+								passengerDetail.put("stationNameOn", stationNameOn2);
 								passengerDetail.put("stationIdOff", currentStationId);
 								passengerDetail.put("stationNameOff", currentStationName);
 
 								// 更新区间客流统计并追加明细
 								updateSectionPassengerFlow(jedis, busNo, windowId,
-									onStation.optString("stationId"),
-									onStation.optString("stationName"),
+									stationIdOn2,
+									stationNameOn2,
 									currentStationId,
 									currentStationName,
 									passengerDetail);

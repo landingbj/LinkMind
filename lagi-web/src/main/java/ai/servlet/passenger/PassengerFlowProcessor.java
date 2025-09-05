@@ -413,12 +413,20 @@ public class PassengerFlowProcessor {
 
 						// 相似度大于0.5认为是同一乘客
 						if (similarity > 0.5) {
+							if (Config.LOG_DEBUG || Config.PILOT_ROUTE_LOG_ENABLED) {
+								System.out.println("[PassengerFlowProcessor] 找到匹配乘客，相似度: " + similarity);
+							}
 							// 获取上车站点信息
 							JSONObject onStation = getOnStationFromCache(jedis, upFeature);
 							if (onStation != null) {
 								// 获取当前下车站点信息
 								String currentStationId = getCurrentStationId(busNo, jedis);
 								String currentStationName = getCurrentStationName(busNo, jedis);
+								
+								if (Config.LOG_DEBUG || Config.PILOT_ROUTE_LOG_ENABLED) {
+									System.out.println("[PassengerFlowProcessor] 上车站点: " + onStation.optString("stationName") + 
+										", 下车站点: " + currentStationName);
+								}
 
 								// 同站过滤：同站上/下视为无效区间，跳过
 								if (onStation.optString("stationId").equals(currentStationId)) {
@@ -452,6 +460,10 @@ public class PassengerFlowProcessor {
 										jedis.expire(matchedUpKey, Config.REDIS_TTL_OPEN_TIME);
 									}
 								} catch (Exception ignore) {}
+							} else {
+								if (Config.LOG_DEBUG || Config.PILOT_ROUTE_LOG_ENABLED) {
+									System.out.println("[PassengerFlowProcessor] 上车站点信息为空，无法匹配");
+								}
 							}
 							break; // 找到匹配后跳出循环
 						}
@@ -484,6 +496,9 @@ public class PassengerFlowProcessor {
 										  String stationIdOff, String stationNameOff,
 										  JSONObject passengerDetail) {
 		try {
+			if (Config.LOG_DEBUG || Config.PILOT_ROUTE_LOG_ENABLED) {
+				System.out.println("[PassengerFlowProcessor] 更新区间客流: " + stationNameOn + " -> " + stationNameOff);
+			}
 			String flowKey = "section_flow:" + busNo + ":" + windowId;
 
 			// 构建区间标识
@@ -524,6 +539,10 @@ public class PassengerFlowProcessor {
 			// 更新Redis
 			jedis.hset(flowKey, sectionKey, sectionFlow.toString());
 			jedis.expire(flowKey, Config.REDIS_TTL_OPEN_TIME);
+			
+			if (Config.LOG_DEBUG || Config.PILOT_ROUTE_LOG_ENABLED) {
+				System.out.println("[PassengerFlowProcessor] 区间客流更新完成，当前客流数: " + sectionFlow.optInt("passengerFlowCount", 0));
+			}
 
 		} catch (Exception e) {
 			if (Config.LOG_ERROR) {

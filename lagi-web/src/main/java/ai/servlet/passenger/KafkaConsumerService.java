@@ -50,7 +50,8 @@ public class KafkaConsumerService {
             "3301000100116310"    // 522M路
     };
 
-    // 开关门白名单车辆
+    // 开关门白名单车辆 - 已注释，只保留试点线路
+    /*
     private static final String[] DOOR_SIGNAL_WHITELIST = {
             "2-6764", "2-8087", "2-8110", "2-8091", "2-8089", "2-6796", "2-9181", "2-8198", "2-8119", "2-8118",
             "2-8117", "2-8116", "2-8115", "2-6769", "2-6761", "2-6766", "2-6763", "2-6765", "2-6713", "2-9049",
@@ -59,6 +60,7 @@ public class KafkaConsumerService {
             "8-6175", "8-6174", "8-6173", "8-6172", "8-6171", "8-6170", "8-6169", "8-6168", "8-6062", "8-9081",
             "8-6053", "8-9070", "8-8065", "8-8062", "8-8060", "8-6195", "8-6194", "8-6193", "8-6192", "8-6191"
     };
+    */
 
     // 站点GPS映射
     private final Map<String, double[]> stationGpsMap = new HashMap<>();
@@ -132,7 +134,7 @@ public class KafkaConsumerService {
     public KafkaConsumerService() {
         System.out.println("[KafkaConsumerService] 构造函数开始执行");
         System.out.println("[KafkaConsumerService] 试点线路配置: " + Arrays.toString(PILOT_ROUTES));
-        System.out.println("[KafkaConsumerService] 开关门白名单车辆: " + Arrays.toString(DOOR_SIGNAL_WHITELIST));
+        // System.out.println("[KafkaConsumerService] 开关门白名单车辆: " + Arrays.toString(DOOR_SIGNAL_WHITELIST)); // 已注释，只保留试点线路
         System.out.println("[KafkaConsumerService] 正在加载站点GPS数据...");
         loadStationGpsFromDb();
         
@@ -200,7 +202,7 @@ public class KafkaConsumerService {
                         String.join(", ", KafkaConfig.BUS_GPS_TOPIC, KafkaConfig.TICKET_TOPIC) + "]");
                 System.out.println("[KafkaConsumerService] 试点线路配置: " + Arrays.toString(PILOT_ROUTES));
                 System.out.println("[KafkaConsumerService] 试点线路说明: 8路(1001000021), 36路(1001000055), 316路(1001000248), 55路(1001000721), 522M路(3301000100116310)");
-                System.out.println("[KafkaConsumerService] 开关门白名单车辆: " + Arrays.toString(DOOR_SIGNAL_WHITELIST));
+                // System.out.println("[KafkaConsumerService] 开关门白名单车辆: " + Arrays.toString(DOOR_SIGNAL_WHITELIST)); // 已注释，只保留试点线路
             }
             Properties props = KafkaConfig.getConsumerProperties();
             consumer = new KafkaConsumer<>(props);
@@ -348,6 +350,9 @@ public class KafkaConsumerService {
                         }
                         
                         // 试点线路匹配成功，但不打印日志，避免刷屏
+                        if (Config.PILOT_ROUTE_LOG_ENABLED) {
+                            System.out.println("[试点线路匹配] 车辆 " + busNo + " 匹配试点线路 " + routeId + "，开始处理消息");
+                        }
 
                         processMessage(topic, message, busNo);
                     } catch (Exception e) {
@@ -396,10 +401,11 @@ public class KafkaConsumerService {
     }
 
     /**
-     * 检查车辆是否在开关门白名单中
+     * 检查车辆是否在开关门白名单中 - 已注释，只保留试点线路
      * @param busNo 车辆编号
      * @return 是否在白名单中
      */
+    /*
     private boolean isDoorSignalWhitelisted(String busNo) {
         for (String whitelistedBus : DOOR_SIGNAL_WHITELIST) {
             if (whitelistedBus.equals(busNo)) {
@@ -408,6 +414,7 @@ public class KafkaConsumerService {
         }
         return false;
     }
+    */
 
     private void processMessage(String topic, JSONObject message, String busNo) {
         try (Jedis jedis = jedisPool.getResource()) {
@@ -511,7 +518,8 @@ public class KafkaConsumerService {
         String direction2 = "4".equals(trafficType2) ? "up" : "down";
         String routeNo = message.optString("routeNo");
 
-        // 对白名单中的车辆打印完整的到离站Kafka原始数据
+        // 对白名单中的车辆打印完整的到离站Kafka原始数据 - 已注释，只保留试点线路
+        /*
         if (isDoorSignalWhitelisted(busNo)) {
             System.out.println("[白名单车辆到离站信号] pktType=4 的Kafka原始数据:");
             System.out.println("   busNo=" + busNo);
@@ -525,6 +533,7 @@ public class KafkaConsumerService {
             System.out.println("   完整消息: " + message.toString());
             System.out.println("   ================================================================================");
         }
+        */
 
         // 缓存到离站，设置过期时间
         JSONObject arriveLeave = new JSONObject();
@@ -639,11 +648,13 @@ public class KafkaConsumerService {
     }
 
     private void judgeAndSendDoorSignal(String busNo, Jedis jedis) throws JsonProcessingException {
-        // 白名单检查：只有白名单内的车辆才能触发开关门信号
+        // 白名单检查：只有白名单内的车辆才能触发开关门信号 - 已注释，只保留试点线路
+        /*
         if (!isDoorSignalWhitelisted(busNo)) {
             // 移除日志，避免刷屏
             return;
         }
+        */
 
         // 获取缓存数据（仅到离站）
         String arriveLeaveStr = jedis.get("arrive_leave:" + busNo);

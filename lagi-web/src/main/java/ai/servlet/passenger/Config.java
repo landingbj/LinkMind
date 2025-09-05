@@ -43,7 +43,7 @@ public class Config {
     // Redis TTL配置（秒）
     public static final int REDIS_TTL_DOOR_STATUS = 3600;        // 门状态缓存1小时
     public static final int REDIS_TTL_GPS = 1800;                // GPS缓存30分钟
-    public static final int REDIS_TTL_ARRIVE_LEAVE = 3600;       // 到离站缓存1小时
+    public static final int REDIS_TTL_ARRIVE_LEAVE = 7200;       // 到离站缓存2小时（与特征数据保持一致）
     public static final int REDIS_TTL_FEATURES = 7200;           // 特征向量缓存2小时
     public static final int REDIS_TTL_OPEN_TIME = 7200;          // 开门时间窗口2小时
     public static final int REDIS_TTL_COUNTS = 86400;            // 计数缓存1天

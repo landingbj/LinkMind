@@ -928,6 +928,23 @@ public class KafkaConsumerService {
             // 获取对应的车牌号
             String plateNumber = BusPlateMappingUtil.getPlateNumber(busNo);
             
+            // 获取当前站点信息
+            String stationId = "UNKNOWN";
+            String stationName = "Unknown Station";
+            try (Jedis jedis = jedisPool.getResource()) {
+                jedis.auth(Config.REDIS_PASSWORD);
+                String arriveLeaveStr = jedis.get("arrive_leave:" + busNo);
+                if (arriveLeaveStr != null) {
+                    JSONObject arriveLeave = new JSONObject(arriveLeaveStr);
+                    stationId = arriveLeave.optString("stationId", "UNKNOWN");
+                    stationName = arriveLeave.optString("stationName", "Unknown Station");
+                }
+            } catch (Exception e) {
+                if (Config.LOG_ERROR) {
+                    System.err.println("[KafkaConsumerService] 获取站点信息失败: " + e.getMessage());
+                }
+            }
+            
             // 严格按照约定格式构建消息
             JSONObject doorSignal = new JSONObject();
             doorSignal.put("event", "open_close_door");
@@ -937,6 +954,8 @@ public class KafkaConsumerService {
             data.put("camera_no", "default"); // 摄像头编号
             data.put("action", action); // open 或 close
             data.put("timestamp", timestamp.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+            data.put("stationId", stationId); // 站点ID
+            data.put("stationName", stationName); // 站点名称
 
             doorSignal.put("data", data);
 

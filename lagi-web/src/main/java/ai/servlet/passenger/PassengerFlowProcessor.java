@@ -449,6 +449,7 @@ public class PassengerFlowProcessor {
 			if (Config.PILOT_ROUTE_LOG_ENABLED) {
 				System.out.println("[乘客匹配] 开始匹配: busNo=" + busNo + ", windowId=" + windowId + 
 					", 上车特征数=" + features.size());
+				System.out.println("[乘客匹配] 下车特征向量长度: " + (downFeature != null ? downFeature.length() : 0));
 			}
 
 			float[] downFeatureVec = CosineSimilarity.parseFeatureVector(downFeature);
@@ -504,12 +505,32 @@ public class PassengerFlowProcessor {
 							// 优先使用上车特征对象内的站点信息，失败再兜底feature_station
 							String stationIdOn2 = featureObj.optString("stationId");
 							String stationNameOn2 = featureObj.optString("stationName");
+							
+							if (Config.PILOT_ROUTE_LOG_ENABLED) {
+								System.out.println("[乘客匹配] 检查上车站点信息:");
+								System.out.println("  featureObj中的stationId: " + stationIdOn2);
+								System.out.println("  featureObj中的stationName: " + stationNameOn2);
+								System.out.println("  upFeature: " + (upFeature != null ? upFeature.substring(0, Math.min(20, upFeature.length())) + "..." : "null"));
+							}
+							
 							if (stationIdOn2 == null || stationIdOn2.isEmpty() || "UNKNOWN".equals(stationIdOn2)
 								|| stationNameOn2 == null || stationNameOn2.isEmpty() || "Unknown Station".equals(stationNameOn2)) {
+								
+								if (Config.PILOT_ROUTE_LOG_ENABLED) {
+									System.out.println("[乘客匹配] 特征对象中站点信息无效，尝试从缓存获取");
+								}
+								
 								JSONObject onStation = getOnStationFromCache(jedis, upFeature);
 								if (onStation != null) {
 									stationIdOn2 = onStation.optString("stationId");
 									stationNameOn2 = onStation.optString("stationName");
+									if (Config.PILOT_ROUTE_LOG_ENABLED) {
+										System.out.println("[乘客匹配] 从缓存获取到站点信息: " + stationNameOn2 + "(" + stationIdOn2 + ")");
+									}
+								} else {
+									if (Config.PILOT_ROUTE_LOG_ENABLED) {
+										System.out.println("[乘客匹配] 缓存中也没有找到站点信息");
+									}
 								}
 							}
 							if (stationIdOn2 != null && !stationIdOn2.isEmpty()) {
@@ -593,7 +614,8 @@ public class PassengerFlowProcessor {
 										  JSONObject passengerDetail) {
 		try {
 			if (Config.LOG_DEBUG || Config.PILOT_ROUTE_LOG_ENABLED) {
-				System.out.println("[PassengerFlowProcessor] 更新区间客流: " + stationNameOn + " -> " + stationNameOff);
+				System.out.println("[PassengerFlowProcessor] 更新区间客流: " + stationNameOn + "(" + stationIdOn + ") -> " + stationNameOff + "(" + stationIdOff + ")");
+				System.out.println("[PassengerFlowProcessor] 区间客流更新 - busNo=" + busNo + ", windowId=" + windowId);
 			}
 			String flowKey = "section_flow:" + busNo + ":" + windowId;
 
@@ -687,6 +709,8 @@ public class PassengerFlowProcessor {
 	private void handleOpenCloseDoorEvent(JSONObject data, String busNo, String cameraNo, Jedis jedis) throws IOException, SQLException {
 		String action = data.optString("action");
 		LocalDateTime eventTime = LocalDateTime.parse(data.optString("timestamp").replace(" ", "T"));
+		String stationId = data.optString("stationId", "UNKNOWN");
+		String stationName = data.optString("stationName", "Unknown Station");
 
 		// 打印CV推送的开关门事件数据，用于timestamp校验
 		System.out.println("[CV数据接收] open_close_door事件数据详情:");
@@ -694,6 +718,8 @@ public class PassengerFlowProcessor {
 		System.out.println("   camera_no: " + cameraNo);
 		System.out.println("   action: " + action);
 		System.out.println("   timestamp: " + data.optString("timestamp"));
+		System.out.println("   stationId: " + stationId);
+		System.out.println("   stationName: " + stationName);
 		System.out.println("   ================================================================================");
 
 		// 优化bus_no映射逻辑：CV推送的是车牌号，需要转换为对应的bus_no
@@ -880,6 +906,12 @@ public class PassengerFlowProcessor {
 			String flowKey = "section_flow:" + busNo + ":" + windowId;
 			Map<String, String> sectionFlows = jedis.hgetAll(flowKey);
 
+			if (Config.PILOT_ROUTE_LOG_ENABLED) {
+				System.out.println("[流程] 开始设置区间客流统计: busNo=" + busNo + ", windowId=" + windowId);
+				System.out.println("[流程] Redis键: " + flowKey);
+				System.out.println("[流程] 获取到的区间数据数量: " + (sectionFlows != null ? sectionFlows.size() : 0));
+			}
+
 			if (sectionFlows != null && !sectionFlows.isEmpty()) {
 				JSONArray sectionFlowArray = new JSONArray();
 
@@ -887,12 +919,22 @@ public class PassengerFlowProcessor {
 					String flowJson = sectionFlows.get(sectionKey);
 					JSONObject flowObj = new JSONObject(flowJson);
 					sectionFlowArray.put(flowObj);
+					
+					if (Config.PILOT_ROUTE_LOG_ENABLED) {
+						System.out.println("[流程] 处理区间: " + sectionKey + " -> " + flowObj.optString("stationNameOn") + " -> " + flowObj.optString("stationNameOff") + 
+							", 客流数: " + flowObj.optInt("passengerFlowCount", 0));
+					}
 				}
 
 				record.setSectionPassengerFlowCount(sectionFlowArray.toString());
 
 				if (Config.PILOT_ROUTE_LOG_ENABLED) {
 					System.out.println("[流程] 区间客流统计设置完成，区间数: " + sectionFlowArray.length());
+					System.out.println("[流程] 最终JSON长度: " + sectionFlowArray.toString().length());
+				}
+			} else {
+				if (Config.PILOT_ROUTE_LOG_ENABLED) {
+					System.out.println("[流程] 警告：未找到区间客流数据，sectionPassengerFlowCount将保持为null");
 				}
 			}
 		} catch (Exception e) {
@@ -1327,8 +1369,17 @@ public class PassengerFlowProcessor {
 		if (arriveLeaveStr != null) {
 			JSONObject arriveLeave = new JSONObject(arriveLeaveStr);
 			String stationId = arriveLeave.optString("stationId");
-			if (Config.PILOT_ROUTE_LOG_ENABLED && "UNKNOWN".equals(stationId)) {
-				System.out.println("[站点信息] 获取到UNKNOWN站点ID: busNo=" + busNo + ", arriveLeave=" + arriveLeaveStr);
+			
+			if (Config.PILOT_ROUTE_LOG_ENABLED) {
+				System.out.println("[站点信息] 获取站点ID: busNo=" + busNo + 
+					", stationId=" + stationId + 
+					", arriveLeave数据=" + arriveLeaveStr);
+			}
+			
+			if ("UNKNOWN".equals(stationId)) {
+				if (Config.PILOT_ROUTE_LOG_ENABLED) {
+					System.out.println("[站点信息] 警告：获取到UNKNOWN站点ID: busNo=" + busNo + ", arriveLeave=" + arriveLeaveStr);
+				}
 			}
 			return stationId;
 		}
@@ -1343,8 +1394,17 @@ public class PassengerFlowProcessor {
 		if (arriveLeaveStr != null) {
 			JSONObject arriveLeave = new JSONObject(arriveLeaveStr);
 			String stationName = arriveLeave.optString("stationName");
-			if (Config.PILOT_ROUTE_LOG_ENABLED && "Unknown Station".equals(stationName)) {
-				System.out.println("[站点信息] 获取到Unknown Station: busNo=" + busNo + ", arriveLeave=" + arriveLeaveStr);
+			
+			if (Config.PILOT_ROUTE_LOG_ENABLED) {
+				System.out.println("[站点信息] 获取站点名称: busNo=" + busNo + 
+					", stationName=" + stationName + 
+					", arriveLeave数据=" + arriveLeaveStr);
+			}
+			
+			if ("Unknown Station".equals(stationName)) {
+				if (Config.PILOT_ROUTE_LOG_ENABLED) {
+					System.out.println("[站点信息] 警告：获取到Unknown Station: busNo=" + busNo + ", arriveLeave=" + arriveLeaveStr);
+				}
 			}
 			return stationName;
 		}

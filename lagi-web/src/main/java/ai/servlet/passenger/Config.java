@@ -81,6 +81,11 @@ public class Config {
     public static final int IMAGE_TIME_TOLERANCE_BEFORE_SECONDS = 30; // 图片时间容忍：开门前
     public static final int IMAGE_TIME_TOLERANCE_AFTER_SECONDS = 30;  // 图片时间容忍：关门后
 
+    // 特征查询回退与重试配置
+    public static final int FEATURE_FALLBACK_WINDOW_MINUTES = 5;     // 特征最近窗口回退范围（±分钟）
+    public static final int REDIS_FEATURE_FETCH_RETRY = 3;            // Redis特征获取最大重试次数
+    public static final int REDIS_FEATURE_FETCH_BACKOFF_MS = 200;     // Redis特征获取重试退避（基础毫秒）
+
     /** 应用关闭超时时间（毫秒） */
     public static final int APP_SHUTDOWN_TIMEOUT_MS = 30000;
 

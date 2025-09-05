@@ -415,9 +415,19 @@ public class PassengerFlowProcessor {
 				return;
 			}
 
-			// 获取上车特征集合
+			// 获取上车特征集合（带重试）；若为空再做最近窗口回退
 			String featuresKey = "features_set:" + busNo + ":" + windowId;
-			Set<String> features = jedis.smembers(featuresKey);
+			Set<String> features = fetchFeaturesWithRetry(jedis, featuresKey);
+			if (features == null || features.isEmpty()) {
+				String nearestWindow = findNearestFeatureWindow(jedis, busNo, normalizeWindowId(windowId), Config.FEATURE_FALLBACK_WINDOW_MINUTES);
+				if (nearestWindow != null) {
+					String fallbackKey = "features_set:" + busNo + ":" + nearestWindow;
+					features = fetchFeaturesWithRetry(jedis, fallbackKey);
+					if (Config.PILOT_ROUTE_LOG_ENABLED) {
+						System.out.println("[乘客匹配][回退] 使用最近窗口特征: from=" + windowId + " -> " + nearestWindow + ", size=" + (features != null ? features.size() : 0));
+					}
+				}
+			}
 
 			if (features == null || features.isEmpty()) {
 				if (Config.PILOT_ROUTE_LOG_ENABLED) {
@@ -2082,7 +2092,7 @@ public class PassengerFlowProcessor {
 			// 标准化时间窗口ID格式，确保与存储时一致
 			String normalizedWindowId = normalizeWindowId(windowId);
 			String featuresKey = "features_set:" + busNo + ":" + normalizedWindowId;
-			Set<String> features = jedis.smembers(featuresKey);
+			Set<String> features = fetchFeaturesWithRetry(jedis, featuresKey);
 
 			if (features != null && !features.isEmpty()) {
 				JSONArray featuresArray = new JSONArray();
@@ -2119,10 +2129,19 @@ public class PassengerFlowProcessor {
 				if (Config.LOG_DEBUG) {
 					System.out.println("[PassengerFlowProcessor] No features found for busNo=" + busNo + ", windowId=" + normalizedWindowId);
 					System.out.println("[PassengerFlowProcessor] Redis key: " + featuresKey);
+				}
 
-					// 尝试查找相关的Redis键
-					Set<String> relatedKeys = jedis.keys("features_set:" + busNo + ":*");
-					System.out.println("[PassengerFlowProcessor] Related feature keys: " + relatedKeys);
+				// 最近窗口回退：在±N分钟内搜索最近存在特征的窗口
+				String nearestWindow = findNearestFeatureWindow(jedis, busNo, normalizedWindowId, Config.FEATURE_FALLBACK_WINDOW_MINUTES);
+				if (nearestWindow != null && !nearestWindow.equals(normalizedWindowId)) {
+					String fallbackKey = "features_set:" + busNo + ":" + nearestWindow;
+					features = fetchFeaturesWithRetry(jedis, fallbackKey);
+					if (features != null && !features.isEmpty()) {
+						if (Config.PILOT_ROUTE_LOG_ENABLED) {
+							System.out.println("[流程][回退] 使用最近窗口特征: from=" + normalizedWindowId + " -> " + nearestWindow + ", size=" + features.size());
+						}
+						// 更新record中的窗口特征来源信息（不改变windowId字段，用于溯源）
+					}
 				}
 				
 				// 回退：按开关门时间区间聚合 features 与 position
@@ -2173,6 +2192,56 @@ public class PassengerFlowProcessor {
 			// 异常情况下设置默认值
 			record.setPassengerFeatures("[]");
 			record.setPassengerPosition("[]");
+		}
+	}
+
+	/**
+	 * 带重试地获取特征集合
+	 */
+	private Set<String> fetchFeaturesWithRetry(Jedis jedis, String featuresKey) {
+		Set<String> features = null;
+		int attempts = 0;
+		int maxRetry = Math.max(0, Config.REDIS_FEATURE_FETCH_RETRY);
+		while (true) {
+			attempts++;
+			features = jedis.smembers(featuresKey);
+			if (features != null && !features.isEmpty()) return features;
+			if (attempts >= maxRetry) return features;
+			int backoff = Config.REDIS_FEATURE_FETCH_BACKOFF_MS * attempts;
+			try { Thread.sleep(backoff); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); return features; }
+		}
+	}
+
+	/**
+	 * 在±minutes范围内，按秒查找最近存在features_set的窗口，返回最近的windowId
+	 */
+	private String findNearestFeatureWindow(Jedis jedis, String busNo, String baseWindowId, int minutes) {
+		try {
+			LocalDateTime base = LocalDateTime.parse(baseWindowId, formatter);
+			int maxSec = Math.max(0, minutes) * 60;
+			String bestWin = null;
+			long bestDist = Long.MAX_VALUE;
+			for (int delta = 1; delta <= maxSec; delta++) {
+				LocalDateTime before = base.minusSeconds(delta);
+				LocalDateTime after = base.plusSeconds(delta);
+				String wb = before.format(formatter);
+				String wa = after.format(formatter);
+				if (jedis.exists("features_set:" + busNo + ":" + wb)) {
+					bestWin = wb; bestDist = delta; break;
+				}
+				if (jedis.exists("features_set:" + busNo + ":" + wa)) {
+					bestWin = wa; bestDist = delta; break;
+				}
+			}
+			if (bestWin != null && Config.LOG_DEBUG) {
+				System.out.println("[PassengerFlowProcessor] 最近特征窗口: base=" + baseWindowId + ", nearest=" + bestWin + ", |Δ|秒=" + bestDist);
+			}
+			return bestWin;
+		} catch (Exception e) {
+			if (Config.LOG_DEBUG) {
+				System.out.println("[PassengerFlowProcessor] findNearestFeatureWindow异常: " + e.getMessage());
+			}
+			return null;
 		}
 	}
 

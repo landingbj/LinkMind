@@ -1844,13 +1844,22 @@ public class PassengerFlowProcessor {
 	 */
 	private void collectDownupMsg(String busNo, JSONObject data, Jedis jedis) {
 		try {
+			String stationId = data.optString("stationId");
+			String stationName = data.optString("stationName");
+			
 			// 构建完整的downup事件JSON对象
 			JSONObject downupEvent = new JSONObject();
 			downupEvent.put("event", "downup");
 			downupEvent.put("data", data);
+			downupEvent.put("stationId", stationId);
+			downupEvent.put("stationName", stationName);
+			downupEvent.put("timestamp", data.optString("timestamp"));
 			
-			// 获取现有的数据数组
-			String existingDataStr = jedis.get("downup_msg:" + busNo);
+			// 按站点分组存储，避免不同站点的数据混在一起
+			String key = "downup_msg:" + busNo + ":" + stationId;
+			
+			// 获取该站点的现有数据数组
+			String existingDataStr = jedis.get(key);
 			JSONArray downupMsgArray;
 			if (existingDataStr != null && !existingDataStr.isEmpty()) {
 				downupMsgArray = new JSONArray(existingDataStr);
@@ -1862,11 +1871,11 @@ public class PassengerFlowProcessor {
 			downupMsgArray.put(downupEvent);
 			
 			// 存储到Redis，设置过期时间
-			jedis.set("downup_msg:" + busNo, downupMsgArray.toString());
-			jedis.expire("downup_msg:" + busNo, Config.REDIS_TTL_OPEN_TIME);
+			jedis.set(key, downupMsgArray.toString());
+			jedis.expire(key, Config.REDIS_TTL_OPEN_TIME);
 			
 			if (Config.LOG_DEBUG) {
-				System.out.println("[PassengerFlowProcessor] 收集downup事件原始数据: busNo=" + busNo + ", events=" + data.optJSONArray("events").length());
+				System.out.println("[PassengerFlowProcessor] 收集downup事件原始数据: busNo=" + busNo + ", stationId=" + stationId + ", stationName=" + stationName + ", events=" + data.optJSONArray("events").length());
 			}
 		} catch (Exception e) {
 			if (Config.LOG_ERROR) {
@@ -1883,8 +1892,28 @@ public class PassengerFlowProcessor {
 	 */
 	private String getBusGpsMsgFromRedis(Jedis jedis, String busNo) {
 		try {
-			String data = jedis.get("bus_gps_msg:" + busNo);
-			return data != null ? data : "[]";
+			// 获取当前站点的开关门数据
+			String currentStationId = getCurrentStationId(busNo, jedis);
+			if (currentStationId != null && !currentStationId.isEmpty()) {
+				String data = jedis.get("bus_gps_msg:" + busNo + ":" + currentStationId);
+				if (data != null && !data.isEmpty()) {
+					return data;
+				}
+			}
+			
+			// 如果当前站点没有数据，尝试获取所有站点的数据（兜底方案）
+			Set<String> keys = jedis.keys("bus_gps_msg:" + busNo + ":*");
+			JSONArray allData = new JSONArray();
+			for (String key : keys) {
+				String data = jedis.get(key);
+				if (data != null && !data.isEmpty()) {
+					JSONArray stationData = new JSONArray(data);
+					for (int i = 0; i < stationData.length(); i++) {
+						allData.put(stationData.get(i));
+					}
+				}
+			}
+			return allData.length() > 0 ? allData.toString() : "[]";
 		} catch (Exception e) {
 			if (Config.LOG_ERROR) {
 				System.err.println("[PassengerFlowProcessor] 获取车辆到离站信号原始数据失败: " + e.getMessage());
@@ -1892,6 +1921,7 @@ public class PassengerFlowProcessor {
 			return "[]";
 		}
 	}
+
 
 	/**
 	 * 从Redis获取downup事件原始数据
@@ -1901,8 +1931,28 @@ public class PassengerFlowProcessor {
 	 */
 	private String getDownupMsgFromRedis(Jedis jedis, String busNo) {
 		try {
-			String data = jedis.get("downup_msg:" + busNo);
-			return data != null ? data : "[]";
+			// 获取当前站点的downup数据
+			String currentStationId = getCurrentStationId(busNo, jedis);
+			if (currentStationId != null && !currentStationId.isEmpty()) {
+				String data = jedis.get("downup_msg:" + busNo + ":" + currentStationId);
+				if (data != null && !data.isEmpty()) {
+					return data;
+				}
+			}
+			
+			// 如果当前站点没有数据，尝试获取所有站点的数据（兜底方案）
+			Set<String> keys = jedis.keys("downup_msg:" + busNo + ":*");
+			JSONArray allData = new JSONArray();
+			for (String key : keys) {
+				String data = jedis.get(key);
+				if (data != null && !data.isEmpty()) {
+					JSONArray stationData = new JSONArray(data);
+					for (int i = 0; i < stationData.length(); i++) {
+						allData.put(stationData.get(i));
+					}
+				}
+			}
+			return allData.length() > 0 ? allData.toString() : "[]";
 		} catch (Exception e) {
 			if (Config.LOG_ERROR) {
 				System.err.println("[PassengerFlowProcessor] 获取downup事件原始数据失败: " + e.getMessage());

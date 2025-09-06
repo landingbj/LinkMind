@@ -175,7 +175,7 @@ public class PassengerFlowProcessor {
 
 			// 获取当前开门时间窗口ID - 优先使用stationId、stationName、bus_id三个值做匹配
 			String windowId = null;
-			
+
 			// 1. 优先通过stationId、stationName、bus_id匹配
 			if (stationId != null && !stationId.isEmpty() && stationName != null && !stationName.isEmpty() && busId != null && !busId.isEmpty()) {
 				windowId = jedis.get("open_time_by_station:" + stationId + ":" + stationName + ":" + busId);
@@ -185,7 +185,7 @@ public class PassengerFlowProcessor {
 					}
 				}
 			}
-			
+
 			// 2. 如果上述匹配失败，尝试通过bus_id匹配
 			if (windowId == null && busId != null && !busId.isEmpty()) {
 				windowId = jedis.get("open_time:" + busId);
@@ -195,7 +195,7 @@ public class PassengerFlowProcessor {
 					}
 				}
 			}
-			
+
 			// 3. 兜底方案：通过时间窗口匹配（保持原有逻辑作为兜底）
 			if (windowId == null) {
 				for (int delta = 0; delta <= 10 && windowId == null; delta++) {
@@ -225,7 +225,7 @@ public class PassengerFlowProcessor {
 					}
 				}
 			}
-			
+
 			if (windowId == null) {
 				if (Config.PILOT_ROUTE_LOG_ENABLED) {
 					System.out.println("[CV数据匹配] 未找到时间窗口，跳过处理: busId=" + busId + ", stationId=" + stationId + ", stationName=" + stationName);
@@ -310,27 +310,27 @@ public class PassengerFlowProcessor {
 				positionInfo.put("xRightBottom", boxX + boxW);
 				positionInfo.put("yRightBottom", boxY + boxH);
 				featureInfo.put("position", positionInfo);
-				
+
 				// 限制特征数据大小，避免Redis存储过大
 				String featureStr = featureInfo.toString();
 				if (featureStr.length() > Config.MAX_FEATURE_SIZE_BYTES) {
 					if (Config.LOG_DEBUG) {
 						System.out.println("[PassengerFlowProcessor] 特征数据过大，智能截断处理: " + featureStr.length() + " bytes");
 					}
-					
+
 					// 智能截断：确保截断后的特征向量仍能正确解码
 					String truncatedFeature = smartTruncateFeature(feature);
 					featureInfo.put("feature", truncatedFeature);
 					featureStr = featureInfo.toString();
-					
+
 					if (Config.LOG_DEBUG) {
 						System.out.println("[PassengerFlowProcessor] 截断后大小: " + featureStr.length() + " bytes");
 					}
 				}
-				
+
 				jedis.sadd(featuresKey, featureStr);
 				jedis.expire(featuresKey, Config.REDIS_TTL_FEATURES);
-				
+
 				// 限制每个时间窗口的特征数量，避免数据过大
 				long featureCount = jedis.scard(featuresKey);
 				if (featureCount > Config.MAX_FEATURES_PER_WINDOW) {
@@ -427,7 +427,7 @@ public class PassengerFlowProcessor {
 			}
 
 			if (Config.PILOT_ROUTE_LOG_ENABLED) {
-				System.out.println("[乘客匹配] 开始匹配: busNo=" + busNo + ", windowId=" + windowId + 
+				System.out.println("[乘客匹配] 开始匹配: busNo=" + busNo + ", windowId=" + windowId +
 					", 上车特征数=" + features.size());
 				System.out.println("[乘客匹配] 下车特征向量长度: " + (downFeature != null ? downFeature.length() : 0));
 			}
@@ -485,22 +485,22 @@ public class PassengerFlowProcessor {
 							// 获取上车特征对象内的站点信息
 							String stationIdOn2 = featureObj.optString("stationId");
 							String stationNameOn2 = featureObj.optString("stationName");
-							
+
 							if (Config.PILOT_ROUTE_LOG_ENABLED) {
 								System.out.println("[乘客匹配] 检查上车站点信息:");
 								System.out.println("  featureObj中的stationId: " + stationIdOn2);
 								System.out.println("  featureObj中的stationName: " + stationNameOn2);
 								System.out.println("  upFeature: " + (upFeature != null ? upFeature.substring(0, Math.min(20, upFeature.length())) + "..." : "null"));
 							}
-							
+
 							// 如果特征对象中没有站点信息，尝试从缓存获取
 							if (stationIdOn2 == null || stationIdOn2.isEmpty() || "UNKNOWN".equals(stationIdOn2)
 								|| stationNameOn2 == null || stationNameOn2.isEmpty() || "Unknown Station".equals(stationNameOn2)) {
-								
+
 								if (Config.PILOT_ROUTE_LOG_ENABLED) {
 									System.out.println("[乘客匹配] 特征对象中站点信息无效，尝试从缓存获取");
 								}
-								
+
 								JSONObject onStation = getOnStationFromCache(jedis, upFeature);
 								if (onStation != null) {
 									stationIdOn2 = onStation.optString("stationId");
@@ -514,11 +514,11 @@ public class PassengerFlowProcessor {
 									}
 								}
 							}
-							
+
 							if (stationIdOn2 != null && !stationIdOn2.isEmpty()) {
 								if (Config.PILOT_ROUTE_LOG_ENABLED) {
-									System.out.println("[乘客匹配] 站点信息: 上车站点=" + stationNameOn2 + 
-										"(" + stationIdOn2 + "), 下车站点=" + currentStationName + 
+									System.out.println("[乘客匹配] 站点信息: 上车站点=" + stationNameOn2 +
+										"(" + stationIdOn2 + "), 下车站点=" + currentStationName +
 										"(" + currentStationId + ")");
 								}
 
@@ -556,7 +556,7 @@ public class PassengerFlowProcessor {
 								} catch (Exception ignore) {}
 							} else {
 								if (Config.PILOT_ROUTE_LOG_ENABLED) {
-									System.out.println("[乘客匹配] 上车站点信息为空，无法匹配: upFeature=" + 
+									System.out.println("[乘客匹配] 上车站点信息为空，无法匹配: upFeature=" +
 										(upFeature != null ? upFeature.substring(0, Math.min(20, upFeature.length())) + "..." : "null"));
 								}
 							}
@@ -635,7 +635,7 @@ public class PassengerFlowProcessor {
 			// 更新Redis
 			jedis.hset(flowKey, sectionKey, sectionFlow.toString());
 			jedis.expire(flowKey, Config.REDIS_TTL_OPEN_TIME);
-			
+
 			if (Config.LOG_DEBUG || Config.PILOT_ROUTE_LOG_ENABLED) {
 				System.out.println("[PassengerFlowProcessor] 区间客流更新完成，当前客流数: " + sectionFlow.optInt("passengerFlowCount", 0));
 			}
@@ -852,7 +852,7 @@ public class PassengerFlowProcessor {
 				record.setVehicleTotalCount(getVehicleTotalCountFromRedis(jedis, busNo));
 
 				if (Config.PILOT_ROUTE_LOG_ENABLED) {
-					System.out.println("[流程] 关门事件OD记录构建完成，准备发送Kafka");
+					System.out.println("[流程]准备落库，发送kafka:busNo=" + busNo);
 				}
 				sendToKafka(record);
 				// 设置OD发送幂等标记
@@ -893,9 +893,9 @@ public class PassengerFlowProcessor {
 					String flowJson = sectionFlows.get(sectionKey);
 					JSONObject flowObj = new JSONObject(flowJson);
 					sectionFlowArray.put(flowObj);
-					
+
 					if (Config.PILOT_ROUTE_LOG_ENABLED) {
-						System.out.println("[流程] 处理区间: " + sectionKey + " -> " + flowObj.optString("stationNameOn") + " -> " + flowObj.optString("stationNameOff") + 
+						System.out.println("[流程] 处理区间: " + sectionKey + " -> " + flowObj.optString("stationNameOn") + " -> " + flowObj.optString("stationNameOff") +
 							", 客流数: " + flowObj.optInt("passengerFlowCount", 0));
 					}
 				}
@@ -1343,13 +1343,13 @@ public class PassengerFlowProcessor {
 		if (arriveLeaveStr != null) {
 			JSONObject arriveLeave = new JSONObject(arriveLeaveStr);
 			String stationId = arriveLeave.optString("stationId");
-			
+
 			if (Config.PILOT_ROUTE_LOG_ENABLED) {
-				System.out.println("[站点信息] 获取站点ID: busNo=" + busNo + 
-					", stationId=" + stationId + 
+				System.out.println("[站点信息] 获取站点ID: busNo=" + busNo +
+					", stationId=" + stationId +
 					", arriveLeave数据=" + arriveLeaveStr);
 			}
-			
+
 			if ("UNKNOWN".equals(stationId)) {
 				if (Config.PILOT_ROUTE_LOG_ENABLED) {
 					System.out.println("[站点信息] 警告：获取到UNKNOWN站点ID: busNo=" + busNo + ", arriveLeave=" + arriveLeaveStr);
@@ -1368,13 +1368,13 @@ public class PassengerFlowProcessor {
 		if (arriveLeaveStr != null) {
 			JSONObject arriveLeave = new JSONObject(arriveLeaveStr);
 			String stationName = arriveLeave.optString("stationName");
-			
+
 			if (Config.PILOT_ROUTE_LOG_ENABLED) {
-				System.out.println("[站点信息] 获取站点名称: busNo=" + busNo + 
-					", stationName=" + stationName + 
+				System.out.println("[站点信息] 获取站点名称: busNo=" + busNo +
+					", stationName=" + stationName +
 					", arriveLeave数据=" + arriveLeaveStr);
 			}
-			
+
 			if ("Unknown Station".equals(stationName)) {
 				if (Config.PILOT_ROUTE_LOG_ENABLED) {
 					System.out.println("[站点信息] 警告：获取到Unknown Station: busNo=" + busNo + ", arriveLeave=" + arriveLeaveStr);
@@ -1568,11 +1568,11 @@ public class PassengerFlowProcessor {
 
 				// 解析响应JSON
 				JSONObject responseJson = new JSONObject(responseString);
-				
+
 				// 检查API响应格式
 				boolean success = responseJson.optBoolean("success", false);
 				String error = responseJson.optString("error", null);
-				
+
 				if (!success) {
 					System.err.println("[大模型API] API调用失败，success=false, error=" + error);
 					System.err.println("[大模型API] 完整响应: " + responseString);
@@ -1601,9 +1601,9 @@ public class PassengerFlowProcessor {
 				JSONObject responseObj = responseJson.getJSONObject("response");
 				JSONArray passengerFeatures = responseObj.optJSONArray("passenger_features");
 				int totalCount = responseObj.optInt("total_count", 0);
-				
-				System.out.println("[大模型API] 解析成功 - success=true, 特征数量: " + 
-					(passengerFeatures != null ? passengerFeatures.length() : 0) + 
+
+				System.out.println("[大模型API] 解析成功 - success=true, 特征数量: " +
+					(passengerFeatures != null ? passengerFeatures.length() : 0) +
 					", 总人数: " + totalCount);
 
 				return responseJson;
@@ -1638,11 +1638,11 @@ public class PassengerFlowProcessor {
 		// 检查站点信息有效性
 		if ("UNKNOWN".equals(stationId) || "Unknown Station".equals(stationName)) {
 			if (Config.PILOT_ROUTE_LOG_ENABLED) {
-				System.out.println("[站点缓存] 警告：缓存无效站点信息: stationId=" + stationId + 
+				System.out.println("[站点缓存] 警告：缓存无效站点信息: stationId=" + stationId +
 					", stationName=" + stationName + ", direction=" + direction);
 			}
 		}
-		
+
 		JSONObject mapping = new JSONObject();
 		mapping.put("stationId", stationId);
 		mapping.put("stationName", stationName);
@@ -1651,9 +1651,9 @@ public class PassengerFlowProcessor {
 		String key = "feature_station:" + feature;
 		jedis.set(key, mapping.toString());
 		jedis.expire(key, Config.REDIS_TTL_FEATURES);
-		
+
 		if (Config.PILOT_ROUTE_LOG_ENABLED) {
-			System.out.println("[站点缓存] 缓存特征站点映射: feature=" + feature.substring(0, Math.min(20, feature.length())) + 
+			System.out.println("[站点缓存] 缓存特征站点映射: feature=" + feature.substring(0, Math.min(20, feature.length())) +
 				"..., stationId=" + stationId + ", stationName=" + stationName + ", direction=" + direction);
 		}
 	}
@@ -1960,28 +1960,28 @@ public class PassengerFlowProcessor {
                 attempts++;
                 System.out.println("[大模型分析] 开始第" + attempts + "次调用大模型API...");
                 modelResponse = callMediaApi(imageUrls, Config.PASSENGER_PROMPT);
-                
+
                 // 解析响应
                 JSONObject responseObj = modelResponse.optJSONObject("response");
                 passengerFeatures = responseObj != null ? responseObj.optJSONArray("passenger_features") : new JSONArray();
                 aiTotalCount = responseObj != null ? responseObj.optInt("total_count", 0) : 0;
-                
-                System.out.println("[大模型分析] 第" + attempts + "次调用完成 - 特征数量: " + 
-                    (passengerFeatures != null ? passengerFeatures.length() : 0) + 
+
+                System.out.println("[大模型分析] 第" + attempts + "次调用完成 - 特征数量: " +
+                    (passengerFeatures != null ? passengerFeatures.length() : 0) +
                     ", 总人数: " + aiTotalCount);
-                
+
                 // 检查是否成功获取到特征
                 if (passengerFeatures != null && passengerFeatures.length() > 0) {
                     System.out.println("[大模型分析] 成功获取到乘客特征，停止重试");
                     break; // 成功拿到非空特征
                 }
-                
+
                 // 检查是否达到最大重试次数
                 if (attempts >= maxRetry) {
                     System.out.println("[大模型分析] 特征仍为空且已达最大重试次数(" + maxRetry + ")，停止重试");
                     break;
                 }
-                
+
                 // 等待后重试
                 int backoffMs = Config.MEDIA_RETRY_BACKOFF_MS * attempts;
                 System.out.println("[大模型分析] 特征为空，等待 " + backoffMs + "ms 后进行第" + (attempts + 1) + "次重试...");
@@ -1992,11 +1992,11 @@ public class PassengerFlowProcessor {
                     System.out.println("[大模型分析] 重试被中断，停止重试");
                     break;
                 }
-                
+
             } catch (Exception e) {
                 System.err.println("[大模型分析] 第" + attempts + "次调用失败: " + e.getMessage());
                 e.printStackTrace(); // 打印完整堆栈信息
-                
+
                 // 检查是否达到最大重试次数
                 if (attempts >= maxRetry) {
                     System.err.println("[大模型分析] 已达最大重试次数(" + maxRetry + ")，停止重试");
@@ -2008,7 +2008,7 @@ public class PassengerFlowProcessor {
                     System.out.println("[大模型分析] 设置兜底值 - AI总人数: " + record.getAiTotalCount() + ", 特征描述: []");
                     return;
                 }
-                
+
                 // 等待后重试
                 int backoffMs = Config.MEDIA_RETRY_BACKOFF_MS * attempts;
                 System.out.println("[大模型分析] 等待 " + backoffMs + "ms 后进行第" + (attempts + 1) + "次重试...");
@@ -2027,14 +2027,14 @@ public class PassengerFlowProcessor {
             ", 特征数量: " + (passengerFeatures != null ? passengerFeatures.length() : 0));
 
         // 增强现有记录，设置大模型识别的总人数
-        String featureDescription = (passengerFeatures != null && passengerFeatures.length() > 0) ? 
+        String featureDescription = (passengerFeatures != null && passengerFeatures.length() > 0) ?
             passengerFeatures.toString() : "[]";
         record.setFeatureDescription(featureDescription);
         record.setAiTotalCount(aiTotalCount);
 
-        System.out.println("[大模型分析] 成功增强OD记录，车辆: " + busNo + 
-            "，AI总人数: " + aiTotalCount + 
-            "，特征描述: " + (featureDescription.length() > 100 ? 
+        System.out.println("[大模型分析] 成功增强OD记录，车辆: " + busNo +
+            "，AI总人数: " + aiTotalCount +
+            "，特征描述: " + (featureDescription.length() > 100 ?
                 featureDescription.substring(0, 100) + "..." : featureDescription));
 
         // 注意：不再在这里发送到Kafka，由调用方统一处理
@@ -2060,7 +2060,7 @@ public class PassengerFlowProcessor {
 		if (feature == null || feature.isEmpty()) {
 			return feature;
 		}
-		
+
 		try {
 			// 先尝试解码原始特征向量，获取维度数
 			float[] originalFeatures = CosineSimilarity.parseFeatureVector(feature);
@@ -2068,29 +2068,29 @@ public class PassengerFlowProcessor {
 				// 如果解码失败，直接截断到安全长度
 				return feature.substring(0, Math.min(Config.MAX_FEATURE_SIZE_BYTES / 2, feature.length()));
 			}
-			
+
 			// 计算目标维度数（基于配置的最大字节数）
 			// 每个float 4字节，Base64编码后约5.33字节，加上JSON开销，按6字节计算
 			int maxDimensions = Config.MAX_FEATURE_SIZE_BYTES / 6;
 			maxDimensions = Math.min(maxDimensions, Config.MAX_FEATURE_VECTOR_DIMENSIONS);
-			
+
 			if (originalFeatures.length <= maxDimensions) {
 				return feature; // 不需要截断
 			}
-			
+
 			// 截断到目标维度数
 			float[] truncatedFeatures = new float[maxDimensions];
 			System.arraycopy(originalFeatures, 0, truncatedFeatures, 0, maxDimensions);
-			
+
 			// 重新编码为Base64
 			ByteBuffer buffer = ByteBuffer.allocate(maxDimensions * 4);
 			buffer.order(ByteOrder.LITTLE_ENDIAN);
 			for (float f : truncatedFeatures) {
 				buffer.putFloat(f);
 			}
-			
+
 			return Base64.getEncoder().encodeToString(buffer.array());
-			
+
 		} catch (Exception e) {
 			if (Config.LOG_DEBUG) {
 				System.out.println("[PassengerFlowProcessor] 智能截断失败，使用简单截断: " + e.getMessage());
@@ -2111,11 +2111,11 @@ public class PassengerFlowProcessor {
 	private Set<String> findFeaturesInTimeRange(Jedis jedis, String busNo, LocalDateTime begin, LocalDateTime end) {
 		Set<String> allFeatures = new HashSet<>();
 		if (begin == null || end == null) return allFeatures;
-		
+
 		try {
 			LocalDateTime cursor = begin.minusSeconds(Math.max(0, Config.IMAGE_TIME_TOLERANCE_BEFORE_SECONDS));
 			LocalDateTime to = end.plusSeconds(Math.max(0, Config.IMAGE_TIME_TOLERANCE_AFTER_SECONDS));
-			
+
 			while (!cursor.isAfter(to)) {
 				String win = cursor.format(formatter);
 				Set<String> fset = jedis.smembers("features_set:" + busNo + ":" + win);
@@ -2129,7 +2129,7 @@ public class PassengerFlowProcessor {
 				System.out.println("[PassengerFlowProcessor] Error finding features in time range: " + e.getMessage());
 			}
 		}
-		
+
 		return allFeatures;
 	}
 
@@ -2196,13 +2196,13 @@ public class PassengerFlowProcessor {
 						// 更新record中的窗口特征来源信息（不改变windowId字段，用于溯源）
 					}
 				}
-				
+
 				// 回退：按开关门时间区间聚合 features 与 position
 				features = findFeaturesInTimeRange(jedis, busNo, record.getTimestampBegin(), record.getTimestampEnd());
 				if (features != null && !features.isEmpty()) {
 					JSONArray featuresArray = new JSONArray();
 					JSONArray positionArray = new JSONArray();
-					
+
 					for (String featureStr : features) {
 						try {
 							JSONObject featureObj = new JSONObject(featureStr);
@@ -2217,7 +2217,7 @@ public class PassengerFlowProcessor {
 							}
 						}
 					}
-					
+
 					if (featuresArray.length() > 0) {
 						record.setPassengerFeatures(featuresArray.toString());
 						if (positionArray.length() > 0) {

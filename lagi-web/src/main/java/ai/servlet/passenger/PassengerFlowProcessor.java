@@ -108,6 +108,9 @@ public class PassengerFlowProcessor {
 		}
 
 		// 收集原始downup事件数据用于校验
+		if (Config.LOG_DEBUG) {
+			System.out.println("[PassengerFlowProcessor] 开始收集downup事件: busNo=" + busNo + ", busId=" + busId + ", stationId=" + data.optString("stationId") + ", events=" + (events != null ? events.length() : 0));
+		}
 		collectDownupMsg(busNo, data, jedis);
 
 		List<BusOdRecord> odRecords = new ArrayList<>();
@@ -1931,33 +1934,144 @@ public class PassengerFlowProcessor {
 	 */
 	private String getDownupMsgFromRedis(Jedis jedis, String busNo) {
 		try {
-			// 获取当前站点的downup数据
-			String currentStationId = getCurrentStationId(busNo, jedis);
-			if (currentStationId != null && !currentStationId.isEmpty()) {
-				String data = jedis.get("downup_msg:" + busNo + ":" + currentStationId);
-				if (data != null && !data.isEmpty()) {
-					return data;
+			// 参考图片收集逻辑，使用相同的匹配策略
+			JSONArray allData = new JSONArray();
+			
+			// 1. 获取当前站点信息（从arrive_leave数据中获取）
+			String arriveLeaveStr = jedis.get("arrive_leave:" + busNo);
+			if (arriveLeaveStr == null) {
+				if (Config.LOG_DEBUG) {
+					System.out.println("[PassengerFlowProcessor] 未找到到离站信息: busNo=" + busNo);
 				}
+				return "[]";
 			}
 			
-			// 如果当前站点没有数据，尝试获取所有站点的数据（兜底方案）
-			Set<String> keys = jedis.keys("downup_msg:" + busNo + ":*");
-			JSONArray allData = new JSONArray();
-			for (String key : keys) {
+			JSONObject arriveLeave = new JSONObject(arriveLeaveStr);
+			String stationId = arriveLeave.optString("stationId");
+			String stationName = arriveLeave.optString("stationName");
+			String busId = arriveLeave.optString("busId");
+			
+			if (Config.LOG_DEBUG) {
+				System.out.println("[PassengerFlowProcessor] 获取站点信息: busNo=" + busNo + ", stationId=" + stationId + ", stationName=" + stationName + ", busId=" + busId);
+			}
+			
+			// 2. 优先通过stationId、stationName、bus_id三个值匹配（与图片收集逻辑一致）
+			if (stationId != null && !stationId.isEmpty() && stationName != null && !stationName.isEmpty() && busId != null && !busId.isEmpty()) {
+				String key = "downup_msg:" + busNo + ":" + stationId;
 				String data = jedis.get(key);
 				if (data != null && !data.isEmpty()) {
 					JSONArray stationData = new JSONArray(data);
 					for (int i = 0; i < stationData.length(); i++) {
 						allData.put(stationData.get(i));
 					}
+					if (Config.LOG_DEBUG) {
+						System.out.println("[PassengerFlowProcessor] 通过stationId、stationName、bus_id匹配到downup数据: key=" + key + ", 数据量=" + stationData.length());
+					}
 				}
 			}
-			return allData.length() > 0 ? allData.toString() : "[]";
+			
+			// 3. 如果上述匹配失败，尝试通过bus_id匹配
+			if (allData.length() == 0 && busId != null && !busId.isEmpty()) {
+				Set<String> keys = jedis.keys("downup_msg:" + busNo + ":*");
+				for (String key : keys) {
+					String data = jedis.get(key);
+					if (data != null && !data.isEmpty()) {
+						JSONArray stationData = new JSONArray(data);
+						for (int i = 0; i < stationData.length(); i++) {
+							allData.put(stationData.get(i));
+						}
+					}
+				}
+				if (Config.LOG_DEBUG) {
+					System.out.println("[PassengerFlowProcessor] 通过bus_id匹配到downup数据: 数据量=" + allData.length());
+				}
+			}
+			
+			// 4. 兜底方案：通过时间窗口匹配（与图片收集逻辑一致）
+			if (allData.length() == 0) {
+				String windowId = jedis.get("open_time:" + busNo);
+				if (windowId != null && !windowId.isEmpty()) {
+					// 解析时间窗口，搜索前后时间范围的数据
+					LocalDateTime windowTime;
+					String normalized = windowId;
+					if (normalized != null && normalized.contains("T")) {
+						normalized = normalized.replace("T", " ");
+					}
+					try {
+						windowTime = LocalDateTime.parse(normalized, formatter);
+					} catch (Exception e) {
+						windowTime = LocalDateTime.parse(windowId);
+					}
+					
+					// 搜索前后5分钟的时间窗口
+					for (int delta = -5; delta <= 5; delta++) {
+						LocalDateTime searchTime = windowTime.plusMinutes(delta);
+						
+						// 查找该时间窗口的downup数据
+						Set<String> keys = jedis.keys("downup_msg:" + busNo + ":*");
+						for (String key : keys) {
+							String data = jedis.get(key);
+							if (data != null && !data.isEmpty()) {
+								JSONArray stationData = new JSONArray(data);
+								for (int i = 0; i < stationData.length(); i++) {
+									JSONObject downupEvent = stationData.getJSONObject(i);
+									String eventTimestamp = downupEvent.optString("timestamp");
+									
+									// 检查时间是否在搜索范围内
+									if (isTimeInRange(eventTimestamp, searchTime, 60)) { // 前后1分钟容差
+										allData.put(downupEvent);
+									}
+								}
+							}
+						}
+					}
+					if (Config.LOG_DEBUG) {
+						System.out.println("[PassengerFlowProcessor] 通过时间窗口兜底匹配到downup数据: 数据量=" + allData.length());
+					}
+				}
+			}
+			
+			String result = allData.length() > 0 ? allData.toString() : "[]";
+			if (Config.LOG_DEBUG) {
+				System.out.println("[PassengerFlowProcessor] 返回downup数据: 总数据量=" + allData.length() + ", 结果长度=" + result.length());
+			}
+			return result;
 		} catch (Exception e) {
 			if (Config.LOG_ERROR) {
 				System.err.println("[PassengerFlowProcessor] 获取downup事件原始数据失败: " + e.getMessage());
 			}
 			return "[]";
+		}
+	}
+	
+	/**
+	 * 检查时间是否在指定范围内
+	 * @param eventTimestamp 事件时间戳
+	 * @param targetTime 目标时间
+	 * @param toleranceSeconds 容差秒数
+	 * @return 是否在范围内
+	 */
+	private boolean isTimeInRange(String eventTimestamp, LocalDateTime targetTime, int toleranceSeconds) {
+		try {
+			if (eventTimestamp == null || eventTimestamp.isEmpty()) {
+				return false;
+			}
+			
+			// 解析事件时间戳
+			LocalDateTime eventTime;
+			if (eventTimestamp.contains("T")) {
+				eventTime = LocalDateTime.parse(eventTimestamp.replace(" ", "T"));
+			} else {
+				eventTime = LocalDateTime.parse(eventTimestamp, formatter);
+			}
+			
+			// 检查是否在容差范围内
+			LocalDateTime start = targetTime.minusSeconds(toleranceSeconds);
+			LocalDateTime end = targetTime.plusSeconds(toleranceSeconds);
+			
+			return !eventTime.isBefore(start) && !eventTime.isAfter(end);
+		} catch (Exception e) {
+			return false;
 		}
 	}
 

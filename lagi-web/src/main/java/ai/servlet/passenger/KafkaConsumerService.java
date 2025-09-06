@@ -328,8 +328,8 @@ public class KafkaConsumerService {
                                     String stationName = message.optString("stationName");
                                     String nextStationSeqNum = message.optString("nextStationSeqNum");
                                     String trafficType2 = String.valueOf(message.opt("trafficType"));
-                                    // direction映射逻辑：4=上行，5=下行，其他=原始trafficType值
-                                    String direction2 = "4".equals(trafficType2) ? "up" :
+                                    // direction映射逻辑：4=上行，5=下行，6=上行，其他=原始trafficType值
+                                    String direction2 = "4".equals(trafficType2) || "6".equals(trafficType2) ? "up" :
                                                        "5".equals(trafficType2) ? "down" : trafficType2;
                                     String routeNo = message.optString("routeNo");
 
@@ -516,8 +516,8 @@ public class KafkaConsumerService {
         String stationName = message.optString("stationName");
         String nextStationSeqNum = message.optString("nextStationSeqNum");
         String trafficType2 = String.valueOf(message.opt("trafficType"));
-        // 修复direction映射逻辑：4=上行，5=下行，其他=原始trafficType值
-        String direction2 = "4".equals(trafficType2) ? "up" :
+        // direction映射逻辑：4=上行，5=下行，6=上行，其他=原始trafficType值
+        String direction2 = "4".equals(trafficType2) || "6".equals(trafficType2) ? "up" :
                            "5".equals(trafficType2) ? "down" : trafficType2;
         String routeNo = message.optString("routeNo");
 

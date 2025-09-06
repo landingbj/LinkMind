@@ -1334,6 +1334,7 @@ public class PassengerFlowProcessor {
 		switch (trafficType) {
 			case "4": return "up";
 			case "5": return "down";
+			case "6": return "up";
 			default: return trafficType; // 返回原始trafficType值
 		}
 	}

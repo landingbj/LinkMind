@@ -683,8 +683,8 @@ public class PassengerFlowProcessor {
 		String stationId = data.optString("stationId", "UNKNOWN");
 		String stationName = data.optString("stationName", "Unknown Station");
 
-		// 打印CV推送的开关门事件数据，用于timestamp校验
-		System.out.println("[CV数据接收] open_close_door事件数据详情:");
+		// 打印本地生成的开关门事件数据，用于timestamp校验
+		System.out.println("[本地开关门事件] open_close_door事件数据详情:");
 		System.out.println("   bus_no: " + busNo);
 		System.out.println("   bus_id: " + busId);
 		System.out.println("   camera_no: " + cameraNo);
@@ -698,9 +698,9 @@ public class PassengerFlowProcessor {
 		String canonicalBusNo = busId != null && !busId.isEmpty() ? busId : busNo;
 
 		if ("open".equals(action)) {
-			// 试点线路CV开门流程日志（可通过配置控制）
+			// 试点线路本地开门流程日志（可通过配置控制）
 			if (Config.PILOT_ROUTE_LOG_ENABLED) {
-				System.out.println("[CV开门流程] 收到车牌号" + busNo + "的开门信号，开始收集");
+				System.out.println("[本地开门流程] 生成车牌号" + busNo + "的开门信号，开始收集");
 			}
 
 			// 开门时创建记录并缓存（不再设置单独的站点字段，使用区间客流统计）
@@ -721,7 +721,7 @@ public class PassengerFlowProcessor {
 				jedis.set("open_time_by_station:" + stationId + ":" + stationName + ":" + busId, windowId);
 				jedis.expire("open_time_by_station:" + stationId + ":" + stationName + ":" + busId, Config.REDIS_TTL_OPEN_TIME);
 				if (Config.PILOT_ROUTE_LOG_ENABLED) {
-					System.out.println("[CV开门流程] 建立站点映射: stationId=" + stationId + ", stationName=" + stationName + ", busId=" + busId + ", windowId=" + windowId);
+					System.out.println("[本地开门流程] 建立站点映射: stationId=" + stationId + ", stationName=" + stationName + ", busId=" + busId + ", windowId=" + windowId);
 				}
 			}
 
@@ -744,7 +744,7 @@ public class PassengerFlowProcessor {
 			jedis.expire("cv_down_count:" + canonicalBusNo + ":" + windowId, Config.REDIS_TTL_OPEN_TIME);
 
 			if (Config.PILOT_ROUTE_LOG_ENABLED) {
-				System.out.println("[试点线路CV开门流程] 开门时间窗口已创建:");
+				System.out.println("[试点线路本地开门流程] 开门时间窗口已创建:");
 				System.out.println("   windowId=" + windowId);
 				System.out.println("   上车计数已初始化");
 				System.out.println("   下车计数已初始化");
@@ -755,9 +755,9 @@ public class PassengerFlowProcessor {
 				System.out.println("[PassengerFlowProcessor] Door OPEN event processed for plate=" + busNo + ", busNo=" + canonicalBusNo + ", windowId=" + windowId);
 			}
 		} else if ("close".equals(action)) {
-			// 试点线路CV关门流程日志（可通过配置控制）
+			// 试点线路本地关门流程日志（可通过配置控制）
 			if (Config.PILOT_ROUTE_LOG_ENABLED) {
-				System.out.println("[CV关门流程] 收到车牌号" + busNo + "的关门信号，开始处理OD数据");
+				System.out.println("[本地关门流程] 生成车牌号" + busNo + "的关门信号，开始处理OD数据");
 			}
 
 			// 关门时处理OD数据并发送到Kafka
@@ -776,7 +776,7 @@ public class PassengerFlowProcessor {
 
 		if ("close".equals(action)) {
 			if (Config.PILOT_ROUTE_LOG_ENABLED) {
-				System.out.println("[试点线路CV关门流程] 开始处理关门事件:");
+				System.out.println("[试点线路本地关门流程] 开始处理关门事件:");
 				System.out.println("   busNo=" + busNo);
 				System.out.println("   cameraNo=" + cameraNo);
 				System.out.println("   关门时间=" + eventTime.format(formatter));
@@ -800,7 +800,7 @@ public class PassengerFlowProcessor {
 					return;
 				}
 				if (Config.PILOT_ROUTE_LOG_ENABLED) {
-					System.out.println("[试点线路CV关门流程] 找到开门时间窗口:");
+					System.out.println("[试点线路本地关门流程] 找到开门时间窗口:");
 					System.out.println("   windowId=" + normalizedWindowId);
 					System.out.println("   ================================================================================");
 				}
@@ -811,7 +811,7 @@ public class PassengerFlowProcessor {
 				int cvDownCount = cvCounts[1];
 
 				if (Config.PILOT_ROUTE_LOG_ENABLED) {
-					System.out.println("[试点线路CV关门流程] CV计数统计完成:");
+					System.out.println("[试点线路本地关门流程] CV计数统计完成:");
 					System.out.println("   上车人数=" + cvUpCount);
 					System.out.println("   下车人数=" + cvDownCount);
 					System.out.println("   ==============================================================================");
@@ -862,7 +862,7 @@ public class PassengerFlowProcessor {
 				// 注意：不再手动清理Redis缓存，让Redis的TTL机制和RedisCleanupUtil自动管理
 				// 这样可以确保乘客特征向量、区间客流数据等关键信息在需要时仍然可用
 				if (Config.PILOT_ROUTE_LOG_ENABLED) {
-					System.out.println("[CV关门流程] 车牌号" + busNo + "的OD数据处理完成，已发送至Kafka");
+					System.out.println("[本地关门流程] 车牌号" + busNo + "的OD数据处理完成，已发送至Kafka");
 				}
 			}
 		}

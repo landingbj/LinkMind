@@ -684,6 +684,22 @@ public class KafkaConsumerService {
 
         JSONObject arriveLeave = new JSONObject(arriveLeaveStr);
         String stationId = arriveLeave.optString("stationId");
+        
+        // 检查是否处理过相同的到离站信号（基于seqNum和timestamp）
+        String isArriveOrLeft = arriveLeave.optString("isArriveOrLeft");
+        String seqNum = arriveLeave.optString("seqNum");
+        String timestamp = arriveLeave.optString("timestamp");
+        
+        if (seqNum != null && !seqNum.isEmpty() && timestamp != null && !timestamp.isEmpty()) {
+            String processedKey = "processed_signal:" + busNo + ":" + seqNum + ":" + timestamp;
+            if (jedis.get(processedKey) != null) {
+                logDoorSkipThrottled(busNo, "已处理过相同信号，跳过: seqNum=" + seqNum + ", timestamp=" + timestamp);
+                return;
+            }
+            // 标记该信号已处理，设置较短的过期时间（避免Redis内存过多）
+            jedis.set(processedKey, "1");
+            jedis.expire(processedKey, 300); // 5分钟过期
+        }
 
         // 移除判门输入调试日志
 
@@ -1051,13 +1067,45 @@ public class KafkaConsumerService {
                                 String existingSeqNum = existingKafkaData.optString("seqNum");
                                 String newSeqNum = newKafkaData.optString("seqNum");
                                 
-                                if (existingSeqNum.equals(newSeqNum)) {
+                                // 检查sendType是否相同（发送类型）
+                                String existingSendType = existingKafkaData.optString("sendType");
+                                String newSendType = newKafkaData.optString("sendType");
+                                
+                                // 检查pktSeq是否相同（包序列号）
+                                String existingPktSeq = existingKafkaData.optString("pktSeq");
+                                String newPktSeq = newKafkaData.optString("pktSeq");
+                                
+                                // 更严格的去重条件：时间戳相同且（seqNum相同 或 sendType相同 或 pktSeq相同）
+                                if (existingSeqNum.equals(newSeqNum) || 
+                                    existingSendType.equals(newSendType) || 
+                                    existingPktSeq.equals(newPktSeq)) {
                                     // 完全相同的信号，去重
                                     isDuplicate = true;
                                     if (Config.LOG_DEBUG) {
-                                        System.out.println("[KafkaConsumerService] 发现重复信号，去重: busNo=" + busNo + ", stationId=" + stationId + ", eventType=" + eventType + ", timestamp=" + newTime + ", seqNum=" + newSeqNum);
+                                        System.out.println("[KafkaConsumerService] 发现重复信号，去重: busNo=" + busNo + ", stationId=" + stationId + ", eventType=" + eventType + ", timestamp=" + newTime + ", seqNum=" + newSeqNum + ", sendType=" + newSendType + ", pktSeq=" + newPktSeq);
                                     }
                                     break;
+                                }
+                            }
+                        } else {
+                            // 时间戳不同，检查是否在时间窗口内（5秒内）且类型相同
+                            try {
+                                java.time.LocalDateTime existingDateTime = java.time.LocalDateTime.parse(existingTime.replace(" ", "T"));
+                                java.time.LocalDateTime newDateTime = java.time.LocalDateTime.parse(newTime.replace(" ", "T"));
+                                long timeDiffSeconds = java.time.Duration.between(existingDateTime, newDateTime).getSeconds();
+                                
+                                // 如果时间差在5秒内且类型相同，认为是重复信号
+                                if (Math.abs(timeDiffSeconds) <= 5) {
+                                    isDuplicate = true;
+                                    if (Config.LOG_DEBUG) {
+                                        System.out.println("[KafkaConsumerService] 发现时间窗口内重复信号，去重: busNo=" + busNo + ", stationId=" + stationId + ", eventType=" + eventType + ", 时间差=" + timeDiffSeconds + "秒");
+                                    }
+                                    break;
+                                }
+                            } catch (Exception e) {
+                                // 时间解析失败，跳过时间窗口检查
+                                if (Config.LOG_DEBUG) {
+                                    System.out.println("[KafkaConsumerService] 时间解析失败，跳过时间窗口检查: " + e.getMessage());
                                 }
                             }
                         }

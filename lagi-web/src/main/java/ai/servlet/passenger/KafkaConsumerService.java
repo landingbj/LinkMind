@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.json.JSONArray;
 import org.json.JSONObject;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
@@ -521,6 +522,9 @@ public class KafkaConsumerService {
                            "5".equals(trafficType2) ? "down" : trafficType2;
         String routeNo = message.optString("routeNo");
 
+        // 收集原始Kafka数据用于校验
+        collectBusGpsMsg(busNo, message, jedis);
+
         // 对白名单中的车辆打印完整的到离站Kafka原始数据 - 已注释，只保留试点线路
         /*
         if (isDoorSignalWhitelisted(busNo)) {
@@ -990,5 +994,47 @@ public class KafkaConsumerService {
 
     private boolean isValidGpsCoordinate(double lat, double lng) {
         return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+    }
+
+    /**
+     * 收集车辆到离站信号的原始Kafka数据
+     * @param busNo 车辆编号
+     * @param message 原始Kafka消息
+     * @param jedis Redis连接
+     */
+    private void collectBusGpsMsg(String busNo, JSONObject message, Jedis jedis) {
+        try {
+            String isArriveOrLeft = String.valueOf(message.opt("isArriveOrLeft"));
+            String eventType = "1".equals(isArriveOrLeft) ? "door_open" : "door_close";
+
+            // 构建包含事件类型和原始Kafka数据的JSON对象
+            JSONObject gpsMsg = new JSONObject();
+            gpsMsg.put("eventType", eventType);
+            gpsMsg.put("kafkaData", message);
+
+            // 获取现有的数据数组
+            String existingDataStr = jedis.get("bus_gps_msg:" + busNo);
+            JSONArray gpsMsgArray;
+            if (existingDataStr != null && !existingDataStr.isEmpty()) {
+                gpsMsgArray = new JSONArray(existingDataStr);
+            } else {
+                gpsMsgArray = new JSONArray();
+            }
+
+            // 添加新的数据
+            gpsMsgArray.put(gpsMsg);
+
+            // 存储到Redis，设置过期时间
+            jedis.set("bus_gps_msg:" + busNo, gpsMsgArray.toString());
+            jedis.expire("bus_gps_msg:" + busNo, Config.REDIS_TTL_OPEN_TIME);
+
+            if (Config.LOG_DEBUG) {
+                System.out.println("[KafkaConsumerService] 收集到离站信号原始数据: busNo=" + busNo + ", eventType=" + eventType);
+            }
+        } catch (Exception e) {
+            if (Config.LOG_ERROR) {
+                System.err.println("[KafkaConsumerService] 收集到离站信号原始数据失败: " + e.getMessage());
+            }
+        }
     }
 }

@@ -107,6 +107,9 @@ public class PassengerFlowProcessor {
 			return;
 		}
 
+		// 收集原始downup事件数据用于校验
+		collectDownupMsg(busNo, data, jedis);
+
 		List<BusOdRecord> odRecords = new ArrayList<>();
 		int upCount = 0, downCount = 0;
 
@@ -851,6 +854,10 @@ public class PassengerFlowProcessor {
 				// 设置车辆总人数（从CV系统获取）
 				record.setVehicleTotalCount(getVehicleTotalCountFromRedis(jedis, busNo));
 
+				// 设置原始数据字段用于校验
+				record.setRetrieveBusGpsMsg(getBusGpsMsgFromRedis(jedis, busNo));
+				record.setRetrieveDownupMsg(getDownupMsgFromRedis(jedis, busNo));
+
 				if (Config.PILOT_ROUTE_LOG_ENABLED) {
 					System.out.println("[流程]准备落库，发送kafka:busNo=" + busNo);
 				}
@@ -1273,6 +1280,10 @@ public class PassengerFlowProcessor {
 		record.setVehicleTotalCount(getVehicleTotalCountFromRedis(jedis, busNo));
 		Long busId = getBusIdFromRedis(jedis, busNo);
 		if (busId != null) record.setBusId(busId);
+
+		// 设置原始数据字段用于校验
+		record.setRetrieveBusGpsMsg(getBusGpsMsgFromRedis(jedis, busNo));
+		record.setRetrieveDownupMsg(getDownupMsgFromRedis(jedis, busNo));
 
 		System.out.println("[OD记录创建] OD记录创建完成:");
 		System.out.println("   ticketJson=" + ticketCountJson);
@@ -1823,6 +1834,81 @@ public class PassengerFlowProcessor {
 
 	public void close() {
 		if (producer != null) producer.close();
+	}
+
+	/**
+	 * 收集CV推送的原始downup事件数据
+	 * @param busNo 车辆编号
+	 * @param data 原始downup事件数据
+	 * @param jedis Redis连接
+	 */
+	private void collectDownupMsg(String busNo, JSONObject data, Jedis jedis) {
+		try {
+			// 构建完整的downup事件JSON对象
+			JSONObject downupEvent = new JSONObject();
+			downupEvent.put("event", "downup");
+			downupEvent.put("data", data);
+			
+			// 获取现有的数据数组
+			String existingDataStr = jedis.get("downup_msg:" + busNo);
+			JSONArray downupMsgArray;
+			if (existingDataStr != null && !existingDataStr.isEmpty()) {
+				downupMsgArray = new JSONArray(existingDataStr);
+			} else {
+				downupMsgArray = new JSONArray();
+			}
+			
+			// 添加新的数据
+			downupMsgArray.put(downupEvent);
+			
+			// 存储到Redis，设置过期时间
+			jedis.set("downup_msg:" + busNo, downupMsgArray.toString());
+			jedis.expire("downup_msg:" + busNo, Config.REDIS_TTL_OPEN_TIME);
+			
+			if (Config.LOG_DEBUG) {
+				System.out.println("[PassengerFlowProcessor] 收集downup事件原始数据: busNo=" + busNo + ", events=" + data.optJSONArray("events").length());
+			}
+		} catch (Exception e) {
+			if (Config.LOG_ERROR) {
+				System.err.println("[PassengerFlowProcessor] 收集downup事件原始数据失败: " + e.getMessage());
+			}
+		}
+	}
+
+	/**
+	 * 从Redis获取车辆到离站信号原始数据
+	 * @param jedis Redis连接
+	 * @param busNo 车辆编号
+	 * @return JSON字符串
+	 */
+	private String getBusGpsMsgFromRedis(Jedis jedis, String busNo) {
+		try {
+			String data = jedis.get("bus_gps_msg:" + busNo);
+			return data != null ? data : "[]";
+		} catch (Exception e) {
+			if (Config.LOG_ERROR) {
+				System.err.println("[PassengerFlowProcessor] 获取车辆到离站信号原始数据失败: " + e.getMessage());
+			}
+			return "[]";
+		}
+	}
+
+	/**
+	 * 从Redis获取downup事件原始数据
+	 * @param jedis Redis连接
+	 * @param busNo 车辆编号
+	 * @return JSON字符串
+	 */
+	private String getDownupMsgFromRedis(Jedis jedis, String busNo) {
+		try {
+			String data = jedis.get("downup_msg:" + busNo);
+			return data != null ? data : "[]";
+		} catch (Exception e) {
+			if (Config.LOG_ERROR) {
+				System.err.println("[PassengerFlowProcessor] 获取downup事件原始数据失败: " + e.getMessage());
+			}
+			return "[]";
+		}
 	}
 
 	/**

@@ -162,4 +162,18 @@ public class BusOdRecord {
     /** 数据入库时间 */
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "Asia/Shanghai")
     private LocalDateTime createdAt;
+
+    /**
+     * 车辆到离站信号原始数据JSON数组
+     * 存储用于判断开门和关门信号的原始Kafka数据
+     * 格式：[{"eventType":"door_open","kafkaData":{...}},{"eventType":"door_close","kafkaData":{...}}]
+     */
+    private String retrieveBusGpsMsg;
+
+    /**
+     * CV推送的原始downup事件数据JSON数组
+     * 存储开门和关门过程中收集到的所有downup事件
+     * 格式：[{"event":"downup","data":{...}}, ...]
+     */
+    private String retrieveDownupMsg;
 }

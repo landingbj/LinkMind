@@ -164,6 +164,14 @@ public class BusOdRecord {
     private LocalDateTime createdAt;
 
     /**
+     * 开关门唯一批次号
+     * 格式：{busId}_{timestamp}_{uuid8位}
+     * 示例：8-203_20250106142300_a1b2c3d4
+     * 用于关联同一开关门事件的所有相关数据
+     */
+    private String sqeNo;
+
+    /**
      * 车辆到离站信号原始数据JSON数组
      * 存储用于判断开门和关门信号的原始Kafka数据
      * 格式：[{"eventType":"door_open","kafkaData":{...}},{"eventType":"door_close","kafkaData":{...}}]

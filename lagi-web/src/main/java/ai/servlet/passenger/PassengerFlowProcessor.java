@@ -1231,6 +1231,79 @@ public class PassengerFlowProcessor {
 	}
 
 	/**
+	 * 🔥 增强图片收集：多种方式尝试收集图片URL
+	 * @param jedis Redis连接
+	 * @param busNo 公交车编号
+	 * @param windowId 时间窗口ID
+	 * @param sqeNo 开关门唯一批次号
+	 * @param beginTime 开始时间
+	 * @param endTime 结束时间
+	 * @return 图片URL列表
+	 */
+	private List<String> enhancedImageCollection(Jedis jedis, String busNo, String windowId, String sqeNo,
+			LocalDateTime beginTime, LocalDateTime endTime) {
+		List<String> imageUrls = new ArrayList<>();
+
+		System.out.println("[增强图片收集] 开始多种方式收集图片: busNo=" + busNo + ", windowId=" + windowId + ", sqeNo=" + sqeNo);
+
+		try {
+			// 方式1：基于sqe_no收集
+			if (sqeNo != null && !sqeNo.isEmpty()) {
+				Set<String> upImages = jedis.smembers("image_urls:" + sqeNo + ":up");
+				Set<String> downImages = jedis.smembers("image_urls:" + sqeNo + ":down");
+				if (upImages != null) imageUrls.addAll(upImages);
+				if (downImages != null) imageUrls.addAll(downImages);
+				System.out.println("[增强图片收集] 方式1(sqe_no): 收集到 " + imageUrls.size() + " 张图片");
+			}
+
+			// 方式2：基于时间窗口收集
+			if (imageUrls.isEmpty() && windowId != null) {
+				List<String> windowImages = getImagesByExactWindow(jedis, busNo, windowId);
+				imageUrls.addAll(windowImages);
+				System.out.println("[增强图片收集] 方式2(时间窗口): 收集到 " + windowImages.size() + " 张图片");
+			}
+
+			// 方式3：基于时间范围收集
+			if (imageUrls.isEmpty() && beginTime != null && endTime != null) {
+				List<String> rangeImages = getImagesByTimeRange(jedis, busNo, beginTime, endTime,
+					Config.IMAGE_TIME_TOLERANCE_BEFORE_SECONDS, Config.IMAGE_TIME_TOLERANCE_AFTER_SECONDS, sqeNo);
+				imageUrls.addAll(rangeImages);
+				System.out.println("[增强图片收集] 方式3(时间范围): 收集到 " + rangeImages.size() + " 张图片");
+			}
+
+			// 方式4：模糊匹配收集
+			if (imageUrls.isEmpty() && windowId != null) {
+				List<String> fuzzyImages = getImagesByFuzzyWindow(jedis, busNo, windowId);
+				imageUrls.addAll(fuzzyImages);
+				System.out.println("[增强图片收集] 方式4(模糊匹配): 收集到 " + fuzzyImages.size() + " 张图片");
+			}
+
+			// 方式5：扫描所有相关Redis键
+			if (imageUrls.isEmpty()) {
+				Set<String> allImageKeys = jedis.keys("image_urls:*" + busNo + "*");
+				if (allImageKeys != null) {
+					for (String key : allImageKeys) {
+						Set<String> images = jedis.smembers(key);
+						if (images != null) imageUrls.addAll(images);
+					}
+					System.out.println("[增强图片收集] 方式5(全扫描): 扫描到 " + allImageKeys.size() + " 个键，收集到 " + imageUrls.size() + " 张图片");
+				}
+			}
+
+			// 去重
+			imageUrls = new ArrayList<>(new HashSet<>(imageUrls));
+			System.out.println("[增强图片收集] 最终收集到 " + imageUrls.size() + " 张不重复图片");
+
+		} catch (Exception e) {
+			System.err.println("[增强图片收集] 收集过程异常: " + e.getMessage());
+		}
+
+		return imageUrls;
+	}
+
+	// 已合并：模糊匹配方法仅保留基于前后5分钟搜索的实现，避免重复定义
+
+	/**
 	 * 获取所有图片URL
 	 * @param jedis Redis连接
 	 * @param busNo 公交车编号
@@ -1326,13 +1399,24 @@ public class PassengerFlowProcessor {
 	private void processImagesParallelWithList(BusOdRecord record, Jedis jedis, String busNo, String windowId,
 			LocalDateTime eventTime, List<String> imageUrls, String sqeNo) throws IOException, SQLException {
 		System.out.println("[并行处理] 开始为车辆 " + busNo + " 并行处理图片(区间聚合)，时间窗口: " + windowId);
+
+		// 🔥 增强图片收集：如果传入的图片列表为空，尝试多种方式收集
 		if (imageUrls == null || imageUrls.isEmpty()) {
-			System.out.println("[并行处理] 没有图片需要处理，跳过");
+			System.out.println("[并行处理] 传入图片列表为空，尝试增强收集...");
+			imageUrls = enhancedImageCollection(jedis, busNo, windowId, sqeNo, record.getTimestampBegin(), record.getTimestampEnd());
+		}
+
+		if (imageUrls == null || imageUrls.isEmpty()) {
+			System.out.println("[并行处理] 增强收集后仍无图片，设置默认值");
+			record.setPassengerImages("[]");
 			return;
 		}
+
 		JSONArray imageArray = new JSONArray();
 		for (String imageUrl : imageUrls) imageArray.put(imageUrl);
 		record.setPassengerImages(imageArray.toString());
+
+		System.out.println("[并行处理] 成功设置passengerImages字段，图片数量: " + imageUrls.size());
 		try {
 			System.out.println("[并行处理] 开始AI图片分析");
 			analyzeImagesWithAI(jedis, busNo, eventTime, record, imageUrls);
@@ -1446,6 +1530,8 @@ public class PassengerFlowProcessor {
 		BusOdRecord record = new BusOdRecord();
 		record.setDate(time != null ? time.toLocalDate() : LocalDate.now());
 		record.setBusNo(busNo);
+		// 🔥 设置开关门唯一批次号
+		record.setSqeNo(sqeNo);
 		// 优先使用CV传入的cameraNo；若为空或为default，则尝试从到离站/GPS中推导
 		record.setCameraNo(resolveCameraNo(cameraNo, busNo, jedis));
 		record.setLineId(getLineIdFromBusNo(busNo, jedis));
@@ -1486,6 +1572,7 @@ public class PassengerFlowProcessor {
 		record.setRetrieveDownupMsg(getDownupMsgFromRedis(jedis, busNo));
 
 		System.out.println("[OD记录创建] OD记录创建完成:");
+		System.out.println("   sqeNo=" + record.getSqeNo());
 		System.out.println("   ticketJson=" + ticketCountJson);
 		System.out.println("   ticketUpCount=" + record.getTicketUpCount());
 		System.out.println("   ticketDownCount=" + record.getTicketDownCount());
@@ -2103,6 +2190,7 @@ public class PassengerFlowProcessor {
 		try {
 			String stationId = data.optString("stationId");
 			String stationName = data.optString("stationName");
+			String sqeNo = data.optString("sqe_no"); // 🔥 获取sqe_no
 
 			// 构建完整的downup事件JSON对象
 			JSONObject downupEvent = new JSONObject();
@@ -2111,28 +2199,61 @@ public class PassengerFlowProcessor {
 			downupEvent.put("stationId", stationId);
 			downupEvent.put("stationName", stationName);
 			downupEvent.put("timestamp", data.optString("timestamp"));
+			downupEvent.put("sqe_no", sqeNo); // 🔥 添加sqe_no字段
 
-			// 按站点分组存储，避免不同站点的数据混在一起
-			String key = "downup_msg:" + busNo + ":" + stationId;
+			// 🔥 增强存储策略：同时使用多种key存储，提高检索成功率
+			List<String> keys = new ArrayList<>();
 
-			// 获取该站点的现有数据数组
-			String existingDataStr = jedis.get(key);
-			JSONArray downupMsgArray;
-			if (existingDataStr != null && !existingDataStr.isEmpty()) {
-				downupMsgArray = new JSONArray(existingDataStr);
-			} else {
-				downupMsgArray = new JSONArray();
+			// 方式1：按站点分组存储（原有逻辑）
+			if (stationId != null && !stationId.isEmpty()) {
+				keys.add("downup_msg:" + busNo + ":" + stationId);
 			}
 
-			// 添加新的数据
-			downupMsgArray.put(downupEvent);
+			// 方式2：按sqe_no存储（新增逻辑）
+			if (sqeNo != null && !sqeNo.isEmpty()) {
+				keys.add("downup_msg:" + sqeNo);
+			}
 
-			// 存储到Redis，设置过期时间
-			jedis.set(key, downupMsgArray.toString());
-			jedis.expire(key, Config.REDIS_TTL_OPEN_TIME);
+			// 方式3：按车辆+时间窗口存储（兜底逻辑）
+			String windowId = jedis.get("open_time:" + busNo);
+			if (windowId != null && !windowId.isEmpty()) {
+				keys.add("downup_msg:" + busNo + ":" + windowId);
+			}
+
+			// 为每个key存储数据
+			for (String key : keys) {
+				// 获取现有数据数组
+				String existingDataStr = jedis.get(key);
+				JSONArray downupMsgArray;
+				if (existingDataStr != null && !existingDataStr.isEmpty()) {
+					downupMsgArray = new JSONArray(existingDataStr);
+				} else {
+					downupMsgArray = new JSONArray();
+				}
+
+				// 检查是否已存在相同的数据（避免重复）
+				boolean exists = false;
+				for (int i = 0; i < downupMsgArray.length(); i++) {
+					JSONObject existingEvent = downupMsgArray.getJSONObject(i);
+					if (existingEvent.optString("timestamp").equals(downupEvent.optString("timestamp")) &&
+						existingEvent.optString("stationId").equals(downupEvent.optString("stationId"))) {
+						exists = true;
+						break;
+					}
+				}
+
+				// 如果不存在，则添加新数据
+				if (!exists) {
+					downupMsgArray.put(downupEvent);
+				}
+
+				// 存储到Redis，设置过期时间
+				jedis.set(key, downupMsgArray.toString());
+				jedis.expire(key, Config.REDIS_TTL_OPEN_TIME);
+			}
 
 			if (Config.LOG_DEBUG) {
-				System.out.println("[PassengerFlowProcessor] 收集downup事件原始数据: busNo=" + busNo + ", stationId=" + stationId + ", stationName=" + stationName + ", events=" + data.optJSONArray("events").length());
+				System.out.println("[PassengerFlowProcessor] 🔥 增强收集downup事件: busNo=" + busNo + ", stationId=" + stationId + ", sqeNo=" + sqeNo + ", 存储keys=" + keys.size() + ", events=" + data.optJSONArray("events").length());
 			}
 		} catch (Exception e) {
 			if (Config.LOG_ERROR) {
@@ -2188,46 +2309,76 @@ public class PassengerFlowProcessor {
 	 */
 	private String getDownupMsgFromRedis(Jedis jedis, String busNo) {
 		try {
-			// 参考图片收集逻辑，使用相同的匹配策略
+			// 🔥 增强检索策略：多种方式尝试获取downup数据
 			JSONArray allData = new JSONArray();
 
-			// 1. 获取当前站点信息（从arrive_leave数据中获取）
-			String arriveLeaveStr = jedis.get("arrive_leave:" + busNo);
-			if (arriveLeaveStr == null) {
-				if (Config.LOG_DEBUG) {
-					System.out.println("[PassengerFlowProcessor] 未找到到离站信息: busNo=" + busNo);
-				}
-				return "[]";
-			}
-
-			JSONObject arriveLeave = new JSONObject(arriveLeaveStr);
-			String stationId = arriveLeave.optString("stationId");
-			String stationName = arriveLeave.optString("stationName");
-			String busId = arriveLeave.optString("busId");
-
-			if (Config.LOG_DEBUG) {
-				System.out.println("[PassengerFlowProcessor] 获取站点信息: busNo=" + busNo + ", stationId=" + stationId + ", stationName=" + stationName + ", busId=" + busId);
-			}
-
-			// 2. 优先通过stationId、stationName、bus_id三个值匹配（与图片收集逻辑一致）
-			if (stationId != null && !stationId.isEmpty() && stationName != null && !stationName.isEmpty() && busId != null && !busId.isEmpty()) {
-				String key = "downup_msg:" + busNo + ":" + stationId;
-				String data = jedis.get(key);
-				if (data != null && !data.isEmpty()) {
-					JSONArray stationData = new JSONArray(data);
-					for (int i = 0; i < stationData.length(); i++) {
-						allData.put(stationData.get(i));
+			// 方式1：🔥 优先通过sqe_no检索（新增逻辑）
+			String sqeNo = getCurrentSqeNo(busNo, jedis);
+			if (sqeNo != null && !sqeNo.isEmpty()) {
+				String sqeKey = "downup_msg:" + sqeNo;
+				String sqeData = jedis.get(sqeKey);
+				if (sqeData != null && !sqeData.isEmpty()) {
+					JSONArray sqeDataArray = new JSONArray(sqeData);
+					for (int i = 0; i < sqeDataArray.length(); i++) {
+						allData.put(sqeDataArray.get(i));
 					}
 					if (Config.LOG_DEBUG) {
-						System.out.println("[PassengerFlowProcessor] 通过stationId、stationName、bus_id匹配到downup数据: key=" + key + ", 数据量=" + stationData.length());
+						System.out.println("[PassengerFlowProcessor] 🔥 通过sqe_no匹配到downup数据: sqeNo=" + sqeNo + ", 数据量=" + sqeDataArray.length());
 					}
 				}
 			}
 
-			// 3. 如果上述匹配失败，尝试通过bus_id匹配
-			if (allData.length() == 0 && busId != null && !busId.isEmpty()) {
-				Set<String> keys = jedis.keys("downup_msg:" + busNo + ":*");
-				for (String key : keys) {
+			// 方式2：通过站点信息匹配（原有逻辑）
+			if (allData.length() == 0) {
+				String arriveLeaveStr = jedis.get("arrive_leave:" + busNo);
+				if (arriveLeaveStr != null) {
+					JSONObject arriveLeave = new JSONObject(arriveLeaveStr);
+					String stationId = arriveLeave.optString("stationId");
+					String stationName = arriveLeave.optString("stationName");
+					String busId = arriveLeave.optString("busId");
+
+					if (Config.LOG_DEBUG) {
+						System.out.println("[PassengerFlowProcessor] 获取站点信息: busNo=" + busNo + ", stationId=" + stationId + ", stationName=" + stationName + ", busId=" + busId);
+					}
+
+					if (stationId != null && !stationId.isEmpty()) {
+						String key = "downup_msg:" + busNo + ":" + stationId;
+						String data = jedis.get(key);
+						if (data != null && !data.isEmpty()) {
+							JSONArray stationData = new JSONArray(data);
+							for (int i = 0; i < stationData.length(); i++) {
+								allData.put(stationData.get(i));
+							}
+							if (Config.LOG_DEBUG) {
+								System.out.println("[PassengerFlowProcessor] 通过stationId匹配到downup数据: key=" + key + ", 数据量=" + stationData.length());
+							}
+						}
+					}
+				}
+			}
+
+			// 方式3：🔥 通过车辆+时间窗口匹配（增强逻辑）
+			if (allData.length() == 0) {
+				String windowId = jedis.get("open_time:" + busNo);
+				if (windowId != null && !windowId.isEmpty()) {
+					String windowKey = "downup_msg:" + busNo + ":" + windowId;
+					String windowData = jedis.get(windowKey);
+					if (windowData != null && !windowData.isEmpty()) {
+						JSONArray windowDataArray = new JSONArray(windowData);
+						for (int i = 0; i < windowDataArray.length(); i++) {
+							allData.put(windowDataArray.get(i));
+						}
+						if (Config.LOG_DEBUG) {
+							System.out.println("[PassengerFlowProcessor] 🔥 通过时间窗口匹配到downup数据: windowId=" + windowId + ", 数据量=" + windowDataArray.length());
+						}
+					}
+				}
+			}
+
+			// 方式4：🔥 全扫描匹配（兜底逻辑）
+			if (allData.length() == 0) {
+				Set<String> allKeys = jedis.keys("downup_msg:" + busNo + ":*");
+				for (String key : allKeys) {
 					String data = jedis.get(key);
 					if (data != null && !data.isEmpty()) {
 						JSONArray stationData = new JSONArray(data);
@@ -2237,11 +2388,11 @@ public class PassengerFlowProcessor {
 					}
 				}
 				if (Config.LOG_DEBUG) {
-					System.out.println("[PassengerFlowProcessor] 通过bus_id匹配到downup数据: 数据量=" + allData.length());
+					System.out.println("[PassengerFlowProcessor] 🔥 通过全扫描匹配到downup数据: 扫描keys=" + allKeys.size() + ", 数据量=" + allData.length());
 				}
 			}
 
-			// 4. 兜底方案：通过时间窗口匹配（与图片收集逻辑一致）
+			// 方式5：🔥 时间范围兜底匹配（原有逻辑增强）
 			if (allData.length() == 0) {
 				String windowId = jedis.get("open_time:" + busNo);
 				if (windowId != null && !windowId.isEmpty()) {
@@ -2280,14 +2431,14 @@ public class PassengerFlowProcessor {
 						}
 					}
 					if (Config.LOG_DEBUG) {
-						System.out.println("[PassengerFlowProcessor] 通过时间窗口兜底匹配到downup数据: 数据量=" + allData.length());
+						System.out.println("[PassengerFlowProcessor] 🔥 通过时间范围兜底匹配到downup数据: 数据量=" + allData.length());
 					}
 				}
 			}
 
 			String result = allData.length() > 0 ? allData.toString() : "[]";
 			if (Config.LOG_DEBUG) {
-				System.out.println("[PassengerFlowProcessor] 返回downup数据: 总数据量=" + allData.length() + ", 结果长度=" + result.length());
+				System.out.println("[PassengerFlowProcessor] 🔥 返回downup数据: 总数据量=" + allData.length() + ", 结果长度=" + result.length());
 			}
 			return result;
 		} catch (Exception e) {
@@ -2350,6 +2501,139 @@ public class PassengerFlowProcessor {
 		imageFile.delete();
 
 		return imageUrl;
+	}
+
+	/**
+	 * 🔥 数据修复工具：为缺失passengerImages的记录补充图片数据
+	 * @param record BusOdRecord记录
+	 * @param jedis Redis连接
+	 */
+	public void repairPassengerImages(BusOdRecord record, Jedis jedis) {
+		if (record == null || jedis == null) return;
+
+		String passengerImages = record.getPassengerImages();
+		if (passengerImages != null && !passengerImages.isEmpty() && !passengerImages.equals("[]")) {
+			System.out.println("[数据修复] 记录已有passengerImages数据，跳过修复");
+			return;
+		}
+
+		System.out.println("[数据修复] 开始修复记录ID=" + record.getId() + " 的passengerImages字段");
+
+		try {
+			String busNo = record.getBusNo();
+			String sqeNo = record.getSqeNo();
+			LocalDateTime beginTime = record.getTimestampBegin();
+			LocalDateTime endTime = record.getTimestampEnd();
+
+			// 尝试多种方式收集图片
+			List<String> imageUrls = enhancedImageCollection(jedis, busNo, null, sqeNo, beginTime, endTime);
+
+			if (!imageUrls.isEmpty()) {
+				JSONArray imageArray = new JSONArray();
+				for (String imageUrl : imageUrls) {
+					imageArray.put(imageUrl);
+				}
+				record.setPassengerImages(imageArray.toString());
+				System.out.println("[数据修复] 成功修复passengerImages字段，图片数量: " + imageUrls.size());
+			} else {
+				System.out.println("[数据修复] 未找到相关图片，保持原状");
+			}
+
+		} catch (Exception e) {
+			System.err.println("[数据修复] 修复过程异常: " + e.getMessage());
+		}
+	}
+
+	/**
+	 * 🔥 数据修复工具：为缺失retrieveDownupMsg的记录补充downup数据
+	 * @param record BusOdRecord记录
+	 * @param jedis Redis连接
+	 */
+	public void repairRetrieveDownupMsg(BusOdRecord record, Jedis jedis) {
+		if (record == null || jedis == null) return;
+
+		String retrieveDownupMsg = record.getRetrieveDownupMsg();
+		if (retrieveDownupMsg != null && !retrieveDownupMsg.isEmpty() && !retrieveDownupMsg.equals("[]")) {
+			System.out.println("[数据修复] 记录已有retrieveDownupMsg数据，跳过修复");
+			return;
+		}
+
+		System.out.println("[数据修复] 开始修复记录ID=" + record.getId() + " 的retrieveDownupMsg字段");
+
+		try {
+			String busNo = record.getBusNo();
+			String sqeNo = record.getSqeNo();
+
+			// 🔥 使用增强的downup数据收集逻辑
+			String downupData = getDownupMsgFromRedis(jedis, busNo);
+
+			if (downupData != null && !downupData.isEmpty() && !downupData.equals("[]")) {
+				record.setRetrieveDownupMsg(downupData);
+				System.out.println("[数据修复] 成功修复retrieveDownupMsg字段，数据长度: " + downupData.length());
+
+				// 解析并显示downup事件数量
+				try {
+					JSONArray downupArray = new JSONArray(downupData);
+					System.out.println("[数据修复] downup事件数量: " + downupArray.length());
+				} catch (Exception e) {
+					System.out.println("[数据修复] 无法解析downup数据格式");
+				}
+			} else {
+				System.out.println("[数据修复] 未找到相关downup数据，保持原状");
+			}
+
+		} catch (Exception e) {
+			System.err.println("[数据修复] 修复retrieveDownupMsg过程异常: " + e.getMessage());
+		}
+	}
+
+	/**
+	 * 🔥 获取当前开关门唯一批次号
+	 * @param busNo 公交车编号
+	 * @param jedis Redis连接
+	 * @return sqe_no
+	 */
+	private String getCurrentSqeNo(String busNo, Jedis jedis) {
+		try {
+			// 方式1：从开门时间缓存中获取
+			String sqeNo = jedis.get("sqe_no:" + busNo);
+			if (sqeNo != null && !sqeNo.isEmpty()) {
+				return sqeNo;
+			}
+
+			// 方式2：从开关门消息中获取
+			String doorMsg = jedis.get("open_close_door_msg:" + busNo);
+			if (doorMsg != null && !doorMsg.isEmpty()) {
+				JSONObject doorData = new JSONObject(doorMsg);
+				sqeNo = doorData.optString("sqe_no");
+				if (sqeNo != null && !sqeNo.isEmpty()) {
+					return sqeNo;
+				}
+			}
+
+			// 方式3：从最近的downup事件中获取
+			Set<String> downupKeys = jedis.keys("downup_msg:" + busNo + ":*");
+			for (String key : downupKeys) {
+				String data = jedis.get(key);
+				if (data != null && !data.isEmpty()) {
+					JSONArray downupArray = new JSONArray(data);
+					for (int i = 0; i < downupArray.length(); i++) {
+						JSONObject downupEvent = downupArray.getJSONObject(i);
+						sqeNo = downupEvent.optString("sqe_no");
+						if (sqeNo != null && !sqeNo.isEmpty()) {
+							return sqeNo;
+						}
+					}
+				}
+			}
+
+			return null;
+		} catch (Exception e) {
+			if (Config.LOG_ERROR) {
+				System.err.println("[PassengerFlowProcessor] 获取当前sqe_no失败: " + e.getMessage());
+			}
+			return null;
+		}
 	}
 
 	/**
@@ -3045,6 +3329,9 @@ public class PassengerFlowProcessor {
             downUpMsg.setBusId(busId); // 设置bus_id字段
             downUpMsg.setCameraNo(cameraNo);
             downUpMsg.setTimestamp(data.optString("timestamp"));
+            // 🔥 提取并设置sqe_no字段
+            String sqeNo = data.optString("sqe_no");
+            downUpMsg.setSqeNo(sqeNo);
             // downUpMsg.setStationId(data.optString("stationId"));
             // downUpMsg.setStationName(data.optString("stationName"));
             downUpMsg.setEvent("downup");
@@ -3084,16 +3371,16 @@ public class PassengerFlowProcessor {
             downUpMsg.setOriginalMessage(optimizedFullMessage.toString());
 
             if (Config.LOG_INFO) {
-                System.out.println(String.format("[WebSocket消息保存] 开始保存downup消息: 车辆=%s, 车辆ID=%s, 事件数=%d",
-                    busNo, busId, eventsArray != null ? eventsArray.length() : 0));
+                System.out.println(String.format("[WebSocket消息保存] 🔥 开始保存downup消息: 车辆=%s, 车辆ID=%s, sqe_no=%s, 事件数=%d",
+                    busNo, busId, sqeNo, eventsArray != null ? eventsArray.length() : 0));
             }
 
             // 异步保存到数据库
             asyncDbServiceManager.saveDownUpMsgAsync(downUpMsg);
 
             if (Config.LOG_INFO) {
-                System.out.println(String.format("[WebSocket消息保存] downup消息记录完成: 车辆=%s, 车辆ID=%s, 时间=%s",
-                    busNo, busId, downUpMsg.getTimestamp()));
+                System.out.println(String.format("[WebSocket消息保存] 🔥 downup消息记录完成: 车辆=%s, 车辆ID=%s, sqe_no=%s, 时间=%s",
+                    busNo, busId, sqeNo, downUpMsg.getTimestamp()));
             }
 
         } catch (Exception e) {
@@ -3123,20 +3410,23 @@ public class PassengerFlowProcessor {
             // 处理满载率，确保转换为BigDecimal
             double factorValue = data.optDouble("factor", 0.0);
             loadFactorMsg.setFactor(java.math.BigDecimal.valueOf(factorValue));
+            // 🔥 提取并设置sqe_no字段
+            String sqeNo = data.optString("sqe_no");
+            loadFactorMsg.setSqeNo(sqeNo);
             loadFactorMsg.setEvent("load_factor");
             loadFactorMsg.setOriginalMessage(fullMessage.toString());
 
             if (Config.LOG_INFO) {
-                System.out.println(String.format("[WebSocket消息保存] 开始保存load_factor消息: 车辆=%s, 人数=%d, 满载率=%.2f",
-                    busNo, loadFactorMsg.getCount(), loadFactorMsg.getFactor()));
+                System.out.println(String.format("[WebSocket消息保存] 🔥 开始保存load_factor消息: 车辆=%s, sqe_no=%s, 人数=%d, 满载率=%.2f",
+                    busNo, sqeNo, loadFactorMsg.getCount(), loadFactorMsg.getFactor()));
             }
 
             // 异步保存到数据库
             asyncDbServiceManager.saveLoadFactorMsgAsync(loadFactorMsg);
 
             if (Config.LOG_INFO) {
-                System.out.println(String.format("[WebSocket消息保存] load_factor消息记录完成: 车辆=%s, 时间=%s",
-                    busNo, loadFactorMsg.getTimestamp()));
+                System.out.println(String.format("[WebSocket消息保存] 🔥 load_factor消息记录完成: 车辆=%s, sqe_no=%s, 时间=%s",
+                    busNo, sqeNo, loadFactorMsg.getTimestamp()));
             }
 
         } catch (Exception e) {
@@ -3195,6 +3485,9 @@ public class PassengerFlowProcessor {
             allWs.setCameraNo(data.optString("camera_no"));
             allWs.setStationId(data.optString("stationId"));
             allWs.setStationName(data.optString("stationName"));
+            // 🔥 提取并设置sqe_no字段
+            String sqeNo = data.optString("sqe_no");
+            allWs.setSqeNo(sqeNo);
 
             // 解析时间戳
             String timestamp = data.optString("timestamp");
@@ -3217,8 +3510,8 @@ public class PassengerFlowProcessor {
             }
 
             if (Config.LOG_DEBUG) {
-                System.out.println(String.format("[第一时间保存] WebSocket消息到retrieve_all_ws: 事件=%s, 车辆=%s",
-                    event, busNo));
+                System.out.println(String.format("[第一时间保存] 🔥 WebSocket消息到retrieve_all_ws: 事件=%s, 车辆=%s, sqe_no=%s",
+                    event, busNo, sqeNo));
             }
 
             // 异步保存到retrieve_all_ws表

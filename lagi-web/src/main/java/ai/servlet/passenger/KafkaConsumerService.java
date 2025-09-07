@@ -99,10 +99,15 @@ public class KafkaConsumerService {
                     try {
                         JSONObject data = jsonObject.getJSONObject("data");
                         JSONObject safeData = new JSONObject();
+                        // 保留所有对CV至关重要的字段，避免兜底时丢失
+                        safeData.put("sqe_no", data.optString("sqe_no", ""));
+                        safeData.put("bus_id", data.optString("bus_id", ""));
                         safeData.put("bus_no", data.optString("bus_no", ""));
                         safeData.put("camera_no", data.optString("camera_no", ""));
                         safeData.put("action", data.optString("action", ""));
                         safeData.put("timestamp", data.optString("timestamp", ""));
+                        safeData.put("stationId", data.optString("stationId", ""));
+                        safeData.put("stationName", data.optString("stationName", ""));
                         safeMessage.put("data", safeData);
                     } catch (Exception dataEx) {
                         if (Config.LOG_ERROR) {
@@ -1227,6 +1232,10 @@ public class KafkaConsumerService {
             doorMsg.setCameraNo(cameraNo);
             doorMsg.setAction(action);
             doorMsg.setTimestamp(timestamp);
+            // 传递sqe_no用于数据库存档
+            if (originalData != null) {
+                doorMsg.setSqeNo(originalData.optString("sqe_no"));
+            }
 
             // 解析时间戳
             if (timestamp != null && !timestamp.trim().isEmpty()) {
@@ -1248,13 +1257,16 @@ public class KafkaConsumerService {
 
             doorMsg.setStationId(stationId);
             doorMsg.setStationName(stationName);
+            // 🔥 提取并设置sqe_no字段
+            String sqeNo = originalData.optString("sqe_no");
+            doorMsg.setSqeNo(sqeNo);
             doorMsg.setEvent("open_close_door");
             doorMsg.setOriginalMessage(fullMessage.toString());
 
             if (Config.LOG_INFO) {
                 String actionDesc = "open".equals(action) ? "开门" : "关门";
-                System.out.println(String.format("[WebSocket消息保存] 开始保存%s消息: 车辆=%s, 车辆ID=%s, 站点=%s",
-                    actionDesc, busNo, busId, stationName));
+                System.out.println(String.format("[WebSocket消息保存] 🔥 开始保存%s消息: 车辆=%s, 车辆ID=%s, sqe_no=%s, 站点=%s",
+                    actionDesc, busNo, busId, sqeNo, stationName));
             }
 
             // 异步保存到数据库
@@ -1262,8 +1274,8 @@ public class KafkaConsumerService {
 
             if (Config.LOG_INFO) {
                 String actionDesc = "open".equals(action) ? "开门" : "关门";
-                System.out.println(String.format("[WebSocket消息保存] %s消息记录完成: 车辆=%s, 车辆ID=%s, 站点=%s, 时间=%s",
-                    actionDesc, busNo, busId, stationName, timestamp));
+                System.out.println(String.format("[WebSocket消息保存] 🔥 %s消息记录完成: 车辆=%s, 车辆ID=%s, sqe_no=%s, 站点=%s, 时间=%s",
+                    actionDesc, busNo, busId, sqeNo, stationName, timestamp));
             }
 
         } catch (Exception e) {

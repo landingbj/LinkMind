@@ -54,7 +54,7 @@ public class OpenCloseDoorMsg {
     private LocalDateTime createdAt;
 
     /** 开关门唯一批次号 */
-    @JsonProperty("sqeNo")
+    @JsonProperty("sqe_no")
     private String sqeNo;
 
     // 手动添加getter方法以确保兼容性

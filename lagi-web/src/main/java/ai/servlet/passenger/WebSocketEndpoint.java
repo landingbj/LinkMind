@@ -88,6 +88,14 @@ public class WebSocketEndpoint {
 			// 兼容CV协议：存在event字段则转处理器
 			if (jsonMessage.has("event")) {
 				String eventType = jsonMessage.optString("event");
+				// 提取并打印sqe_no
+				if (Config.LOG_INFO) {
+					try {
+						JSONObject data = jsonMessage.optJSONObject("data");
+						String sqeNo = data != null ? data.optString("sqe_no", "") : "";
+						System.out.println("[WebSocket] 收到事件: event=" + eventType + ", sqe_no=" + sqeNo + ", sessionId=" + session.getId());
+					} catch (Exception ignore) {}
+				}
 				// 移除CV事件转发日志
 
 				// 添加JSON循环引用检查
@@ -281,6 +289,17 @@ public class WebSocketEndpoint {
 	 * 发送消息给所有客户端（供其他类调用）
 	 */
 	public static void sendToAll(String message) {
+		// 打印下发消息的event与sqe_no，便于链路核查
+		if (Config.LOG_INFO) {
+			try {
+				JSONObject obj = new JSONObject(message);
+				String event = obj.optString("event");
+				JSONObject data = obj.optJSONObject("data");
+				String sqeNo = data != null ? data.optString("sqe_no", "") : "";
+				String action = data != null ? data.optString("action", "") : "";
+				System.out.println("[WebSocket] 下发消息: event=" + event + ", action=" + action + ", sqe_no=" + sqeNo + ", 连接数=" + sessions.size());
+			} catch (Exception ignore) {}
+		}
 		synchronized (sessions) {
 			for (Session session : sessions) {
 				if (session.isOpen()) {

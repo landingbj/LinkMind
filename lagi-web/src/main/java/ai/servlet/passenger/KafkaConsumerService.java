@@ -1050,9 +1050,10 @@ public class KafkaConsumerService {
             // 通过WebSocket发送给CV
             WebSocketEndpoint.sendToAll(messageJson);
 
-            // 移除重复的日志，只保留一条关键信息
+            // 关键日志：发送开/关门时打印sqe_no
             if (Config.LOG_INFO) {
-                System.out.println("[KafkaConsumerService] 发送" + (action.equals("open") ? "开门" : "关门") + "信号到CV系统: busNo=" + busNo + ", busId=" + busId);
+                System.out.println("[KafkaConsumerService] 发送" + (action.equals("open") ? "开门" : "关门") +
+                    "信号到CV系统: busNo=" + busNo + ", busId=" + busId + ", sqe_no=" + sqeNo);
             }
 
             // 保存WebSocket消息到数据库

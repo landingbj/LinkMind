@@ -42,6 +42,9 @@ public class PassengerFlowProcessor {
 	private final JedisPool jedisPool = new JedisPool(Config.REDIS_HOST, Config.REDIS_PORT);
 	private KafkaProducer<String, String> producer;
 
+	// 异步数据库服务管理器
+	private final AsyncDbServiceManager asyncDbServiceManager = AsyncDbServiceManager.getInstance();
+
 	public PassengerFlowProcessor() {
 		Properties props = KafkaConfig.getProducerProperties();
 		producer = new KafkaProducer<>(props);
@@ -53,6 +56,9 @@ public class PassengerFlowProcessor {
 	public void processEvent(JSONObject eventJson) {
 		String event = eventJson.optString("event");
 		JSONObject data = eventJson.optJSONObject("data");
+
+		// 第一时间保存WebSocket消息到数据库
+		saveWebSocketMessage(eventJson, event, data);
 
 		// 关闭CV事件详细日志，避免大payload(如base64)刷屏
 		if (Config.PILOT_ROUTE_LOG_ENABLED) {
@@ -77,15 +83,25 @@ public class PassengerFlowProcessor {
 
 			switch (event) {
 				case "downup":
+					// 第一时间保存downup消息到数据库
+					saveDownUpMessage(data, busNo, busId, cameraNo);
 					handleDownUpEvent(data, busNo, busId, cameraNo, jedis);
 					break;
 				case "load_factor":
+					// 第一时间保存load_factor消息到数据库
+					saveLoadFactorMessage(data, busNo, cameraNo);
 					// 高频事件，移除过程性日志
 					handleLoadFactorEvent(data, busNo, busId, jedis);
 					break;
 				case "open_close_door":
 					// 关键事件在KafkaConsumerService侧已有明确日志
-					handleOpenCloseDoorEvent(data, busNo, busId, cameraNo, jedis);
+					// 只处理open，开始缓存
+					handleOpenDoorEvent(data, busNo, busId, cameraNo, jedis);
+					break;
+				case "notify_complete":
+					// 关键事件在KafkaConsumerService侧已有明确日志
+					// 收到cv的公交分析业务处理结束，开始发kafa落库
+					handleCloseDoorAndCVComplateEvent(data, busNo, busId, cameraNo, jedis);
 					break;
 				default:
 					if (Config.LOG_ERROR) {
@@ -100,6 +116,7 @@ public class PassengerFlowProcessor {
 	}
 
 	private void handleDownUpEvent(JSONObject data, String busNo, String busId, String cameraNo, Jedis jedis) throws IOException, SQLException {
+		String sqeNo = data.optString("sqe_no");  // 新增：获取开关门唯一批次号
 		LocalDateTime eventTime = LocalDateTime.parse(data.optString("timestamp").replace(" ", "T"));
 		JSONArray events = data.optJSONArray("events");
 
@@ -109,9 +126,10 @@ public class PassengerFlowProcessor {
 
 		// 收集原始downup事件数据用于校验
 		if (Config.LOG_DEBUG) {
-			System.out.println("[PassengerFlowProcessor] 开始收集downup事件: busNo=" + busNo + ", busId=" + busId + ", stationId=" + data.optString("stationId") + ", events=" + (events != null ? events.length() : 0));
+			System.out.println("[PassengerFlowProcessor] 开始收集downup事件: busNo=" + busNo + ", busId=" + busId + ", sqeNo=" + sqeNo + ", stationId=" + data.optString("stationId") + ", events=" + (events != null ? events.length() : 0));
 		}
 		collectDownupMsg(busNo, data, jedis);
+
 
 		List<BusOdRecord> odRecords = new ArrayList<>();
 		int upCount = 0, downCount = 0;
@@ -122,11 +140,11 @@ public class PassengerFlowProcessor {
 
 		// 精简CV数据接收日志，避免重复输出
 		if (Config.PILOT_ROUTE_LOG_ENABLED) {
-			System.out.println("[CV数据接收] downup事件: bus_id=" + busId + ", bus_no=" + busNo + ", stationId=" + stationId + ", stationName=" + stationName + ", 事件数=" + (events != null ? events.length() : 0));
+			System.out.println("[CV数据接收] downup事件: bus_id=" + busId + ", bus_no=" + busNo + ", sqe_no=" + sqeNo + ", stationId=" + stationId + ", stationName=" + stationName + ", 事件数=" + (events != null ? events.length() : 0));
 		}
 
 		if (Config.PILOT_ROUTE_LOG_ENABLED) {
-			System.out.println("[流程] downup事件开始: busId=" + busId + ", busNo=" + busNo + ", 事件数=" + (events != null ? events.length() : 0));
+			System.out.println("[流程] downup事件开始: busId=" + busId + ", busNo=" + busNo + ", sqe_no=" + sqeNo + ", 事件数=" + (events != null ? events.length() : 0));
 		}
 
 		// 现在直接使用bus_id作为canonicalBusNo，不再需要映射
@@ -179,11 +197,22 @@ public class PassengerFlowProcessor {
 				System.out.println("[图片调试] 图片处理结果: imageUrl=" + (imageUrl != null ? "长度=" + imageUrl.length() : "null"));
 			}
 
-			// 获取当前开门时间窗口ID - 优先使用stationId、stationName、bus_id三个值做匹配
+			// 🔥 获取当前开门时间窗口ID - 优先使用sqe_no匹配
 			String windowId = null;
 
-			// 1. 优先通过stationId、stationName、bus_id匹配
-			if (stationId != null && !stationId.isEmpty() && stationName != null && !stationName.isEmpty() && busId != null && !busId.isEmpty()) {
+			// 1. 优先通过sqe_no匹配（新的主要匹配方式）
+			if (sqeNo != null && !sqeNo.isEmpty()) {
+				windowId = jedis.get("open_time:" + sqeNo);
+				canonicalBusNo = jedis.get("canonical_bus:" + sqeNo);
+				if (windowId != null && canonicalBusNo != null) {
+					if (Config.PILOT_ROUTE_LOG_ENABLED) {
+						System.out.println("[CV数据匹配] 🔥 通过sqe_no找到时间窗口: " + windowId + " for bus: " + canonicalBusNo);
+					}
+				}
+			}
+
+			// 2. 如果sqe_no匹配失败，尝试通过stationId、stationName、bus_id匹配（兼容性）
+			if (windowId == null && stationId != null && !stationId.isEmpty() && stationName != null && !stationName.isEmpty() && busId != null && !busId.isEmpty()) {
 				windowId = jedis.get("open_time_by_station:" + stationId + ":" + stationName + ":" + busId);
 				if (windowId != null) {
 					if (Config.PILOT_ROUTE_LOG_ENABLED) {
@@ -192,12 +221,12 @@ public class PassengerFlowProcessor {
 				}
 			}
 
-			// 2. 如果上述匹配失败，尝试通过bus_id匹配
-			if (windowId == null && busId != null && !busId.isEmpty()) {
-				windowId = jedis.get("open_time:" + busId);
+			// 3. 如果上述匹配失败，尝试通过canonicalBusNo匹配（兼容性）
+			if (windowId == null) {
+				windowId = jedis.get("open_time:" + canonicalBusNo);
 				if (windowId != null) {
 					if (Config.PILOT_ROUTE_LOG_ENABLED) {
-						System.out.println("[CV数据匹配] 通过bus_id找到时间窗口: " + windowId);
+						System.out.println("[CV数据匹配] 通过canonicalBusNo找到时间窗口: " + windowId);
 					}
 				}
 			}
@@ -249,33 +278,55 @@ public class PassengerFlowProcessor {
 				// 缓存上车特征和站点信息 - 使用CV推送的stationId和stationName
 				cacheFeatureStationMapping(jedis, feature, stationId, stationName, "up");
 
-				// 更新上车计数
-				String cvUpCountKey = "cv_up_count:" + canonicalBusNo + ":" + windowId;
-				jedis.incr(cvUpCountKey);
-				jedis.expire(cvUpCountKey, Config.REDIS_TTL_OPEN_TIME);
+				// 🔥 使用Redis事务保证上车计数和特征缓存的原子性
+				Transaction txUp = jedis.multi();
+				try {
+					// 更新上车计数：优先使用sqe_no
+					if (sqeNo != null && !sqeNo.isEmpty()) {
+						String cvUpCountKey = "cv_up_count:" + sqeNo;
+						txUp.incr(cvUpCountKey);
+						txUp.expire(cvUpCountKey, Config.REDIS_TTL_OPEN_TIME);
+					}
 
-				// 缓存特征集合（包含方向信息与站点信息）
-				String featuresKey = "features_set:" + canonicalBusNo + ":" + windowId;
-				JSONObject featureInfo = new JSONObject();
-				featureInfo.put("feature", feature);
-				featureInfo.put("direction", "up");
-				featureInfo.put("timestamp", eventTime.format(formatter));
-				featureInfo.put("image", imageUrl);
-				// 使用CV推送的站点信息
-				featureInfo.put("stationId", stationId);
-				featureInfo.put("stationName", stationName);
-				JSONObject position = new JSONObject();
-				position.put("xLeftUp", boxX);
-				position.put("yLeftUp", boxY);
-				position.put("xRightBottom", boxX + boxW);
-				position.put("yRightBottom", boxY + boxH);
-				featureInfo.put("position", position);
-				jedis.sadd(featuresKey, featureInfo.toString());
-				jedis.expire(featuresKey, Config.REDIS_TTL_FEATURES);
+					// 兼容性计数：保持原有逻辑
+					String cvUpCountKeyLegacy = "cv_up_count:" + canonicalBusNo + ":" + windowId;
+					txUp.incr(cvUpCountKeyLegacy);
+					txUp.expire(cvUpCountKeyLegacy, Config.REDIS_TTL_OPEN_TIME);
 
-				// 缓存图片URL
+					// 缓存特征集合：优先使用sqe_no
+					String featuresKey = sqeNo != null && !sqeNo.isEmpty() ?
+						"features_set:" + sqeNo :
+						"features_set:" + canonicalBusNo + ":" + windowId;
+					JSONObject featureInfo = new JSONObject();
+					featureInfo.put("feature", feature);
+					featureInfo.put("direction", "up");
+					featureInfo.put("timestamp", eventTime.format(formatter));
+					featureInfo.put("image", imageUrl);
+					// 使用CV推送的站点信息
+					featureInfo.put("stationId", stationId);
+					featureInfo.put("stationName", stationName);
+					JSONObject position = new JSONObject();
+					position.put("xLeftUp", boxX);
+					position.put("yLeftUp", boxY);
+					position.put("xRightBottom", boxX + boxW);
+					position.put("yRightBottom", boxY + boxH);
+					featureInfo.put("position", position);
+					txUp.sadd(featuresKey, featureInfo.toString());
+					txUp.expire(featuresKey, Config.REDIS_TTL_FEATURES);
+
+					// 执行上车事务
+					txUp.exec();
+				} catch (Exception e) {
+					txUp.discard();
+					if (Config.LOG_ERROR) {
+						System.err.println("[Redis事务] 上车数据事务执行失败: " + e.getMessage());
+					}
+					throw e;
+				}
+
+				// 🔥 缓存图片URL：传递sqeNo
 				if (imageUrl != null) {
-					cacheImageUrl(jedis, canonicalBusNo, windowId, imageUrl, "up");
+					cacheImageUrl(jedis, canonicalBusNo, windowId, imageUrl, "up", sqeNo);
 				}
 
 				// 缓存乘客位置信息（特征向量 -> 位置信息的映射）
@@ -292,50 +343,72 @@ public class PassengerFlowProcessor {
 			} else if ("down".equals(direction)) {
 				downCount++;
 
-				// 尝试匹配上车特征，计算区间客流 - 使用CV推送的站点信息
-				processPassengerMatching(feature, canonicalBusNo, jedis, eventTime, stationId, stationName);
+				// 🔥 尝试匹配上车特征，计算区间客流 - 传递sqeNo参数
+				processPassengerMatching(feature, canonicalBusNo, jedis, eventTime, stationId, stationName, sqeNo, windowId);
 
-				// 更新下车计数
-				String cvDownCountKey = "cv_down_count:" + canonicalBusNo + ":" + windowId;
-				jedis.incr(cvDownCountKey);
-				jedis.expire(cvDownCountKey, Config.REDIS_TTL_OPEN_TIME);
-
-				// 缓存下车特征到特征集合（包含方向信息与站点信息）
-				String featuresKey = "features_set:" + canonicalBusNo + ":" + windowId;
-				JSONObject featureInfo = new JSONObject();
-				featureInfo.put("feature", feature);
-				featureInfo.put("direction", "down");
-				featureInfo.put("timestamp", eventTime.format(formatter));
-				featureInfo.put("image", imageUrl);
-				// 使用CV推送的站点信息（下车时刻）
-				featureInfo.put("stationId", stationId);
-				featureInfo.put("stationName", stationName);
-				JSONObject positionInfo = new JSONObject();
-				positionInfo.put("xLeftUp", boxX);
-				positionInfo.put("yLeftUp", boxY);
-				positionInfo.put("xRightBottom", boxX + boxW);
-				positionInfo.put("yRightBottom", boxY + boxH);
-				featureInfo.put("position", positionInfo);
-
-				// 限制特征数据大小，避免Redis存储过大
-				String featureStr = featureInfo.toString();
-				if (featureStr.length() > Config.MAX_FEATURE_SIZE_BYTES) {
-					if (Config.LOG_DEBUG) {
-						System.out.println("[PassengerFlowProcessor] 特征数据过大，智能截断处理: " + featureStr.length() + " bytes");
+				// 🔥 使用Redis事务保证下车计数和特征缓存的原子性
+				Transaction txDown = jedis.multi();
+				try {
+					// 更新下车计数：优先使用sqe_no
+					if (sqeNo != null && !sqeNo.isEmpty()) {
+						String cvDownCountKey = "cv_down_count:" + sqeNo;
+						txDown.incr(cvDownCountKey);
+						txDown.expire(cvDownCountKey, Config.REDIS_TTL_OPEN_TIME);
 					}
 
-					// 智能截断：确保截断后的特征向量仍能正确解码
-					String truncatedFeature = smartTruncateFeature(feature);
-					featureInfo.put("feature", truncatedFeature);
-					featureStr = featureInfo.toString();
+					// 兼容性计数：保持原有逻辑
+					String cvDownCountKeyLegacy = "cv_down_count:" + canonicalBusNo + ":" + windowId;
+					txDown.incr(cvDownCountKeyLegacy);
+					txDown.expire(cvDownCountKeyLegacy, Config.REDIS_TTL_OPEN_TIME);
 
-					if (Config.LOG_DEBUG) {
-						System.out.println("[PassengerFlowProcessor] 截断后大小: " + featureStr.length() + " bytes");
+					// 缓存下车特征到特征集合：优先使用sqe_no
+					String featuresKey = sqeNo != null && !sqeNo.isEmpty() ?
+						"features_set:" + sqeNo :
+						"features_set:" + canonicalBusNo + ":" + windowId;
+					JSONObject featureInfo = new JSONObject();
+					featureInfo.put("feature", feature);
+					featureInfo.put("direction", "down");
+					featureInfo.put("timestamp", eventTime.format(formatter));
+					featureInfo.put("image", imageUrl);
+					// 使用CV推送的站点信息（下车时刻）
+					featureInfo.put("stationId", stationId);
+					featureInfo.put("stationName", stationName);
+					JSONObject positionInfo = new JSONObject();
+					positionInfo.put("xLeftUp", boxX);
+					positionInfo.put("yLeftUp", boxY);
+					positionInfo.put("xRightBottom", boxX + boxW);
+					positionInfo.put("yRightBottom", boxY + boxH);
+					featureInfo.put("position", positionInfo);
+
+					// 限制特征数据大小，避免Redis存储过大
+					String featureStr = featureInfo.toString();
+					if (featureStr.length() > Config.MAX_FEATURE_SIZE_BYTES) {
+						if (Config.LOG_DEBUG) {
+							System.out.println("[PassengerFlowProcessor] 特征数据过大，智能截断处理: " + featureStr.length() + " bytes");
+						}
+
+						// 智能截断：确保截断后的特征向量仍能正确解码
+						String truncatedFeature = smartTruncateFeature(feature);
+						featureInfo.put("feature", truncatedFeature);
+						featureStr = featureInfo.toString();
+
+						if (Config.LOG_DEBUG) {
+							System.out.println("[PassengerFlowProcessor] 截断后大小: " + featureStr.length() + " bytes");
+						}
 					}
+
+					txDown.sadd(featuresKey, featureStr);
+					txDown.expire(featuresKey, Config.REDIS_TTL_FEATURES);
+
+					// 执行下车事务
+					txDown.exec();
+				} catch (Exception e) {
+					txDown.discard();
+					if (Config.LOG_ERROR) {
+						System.err.println("[Redis事务] 下车数据事务执行失败: " + e.getMessage());
+					}
+					throw e;
 				}
-
-				jedis.sadd(featuresKey, featureStr);
-				jedis.expire(featuresKey, Config.REDIS_TTL_FEATURES);
 
 				// 限制每个时间窗口的特征数量，避免数据过大
 				long featureCount = jedis.scard(featuresKey);
@@ -366,9 +439,9 @@ public class PassengerFlowProcessor {
 					}
 				}
 
-				// 缓存图片URL
+				// 🔥 缓存图片URL：传递sqeNo
 				if (imageUrl != null) {
-					cacheImageUrl(jedis, canonicalBusNo, windowId, imageUrl, "down");
+					cacheImageUrl(jedis, canonicalBusNo, windowId, imageUrl, "down", sqeNo);
 				}
 
 				// 缓存乘客位置信息（特征向量 -> 位置信息的映射）
@@ -400,19 +473,23 @@ public class PassengerFlowProcessor {
 	 * @param eventTime 事件时间
 	 * @param currentStationId 当前站点ID（下车站点）
 	 * @param currentStationName 当前站点名称（下车站点）
+	 * @param sqeNo 开关门唯一批次号
+	 * @param windowId 时间窗口ID
 	 */
-	private void processPassengerMatching(String downFeature, String busNo, Jedis jedis, LocalDateTime eventTime, String currentStationId, String currentStationName) {
+	private void processPassengerMatching(String downFeature, String busNo, Jedis jedis, LocalDateTime eventTime, String currentStationId, String currentStationName, String sqeNo, String windowId) {
 		try {
-			String windowId = jedis.get("open_time:" + busNo);
+			// 🔥 windowId现在已经从调用方传入，无需再查询Redis
 			if (windowId == null) {
 				if (Config.PILOT_ROUTE_LOG_ENABLED) {
-					System.out.println("[乘客匹配] 未找到开门时间窗口，跳过匹配: busNo=" + busNo);
+					System.out.println("[乘客匹配] 时间窗口为空，跳过匹配: busNo=" + busNo + ", sqeNo=" + sqeNo);
 				}
 				return;
 			}
 
-			// 获取上车特征集合（带重试）；若为空再做最近窗口回退
-			String featuresKey = "features_set:" + busNo + ":" + windowId;
+			// 🔥 获取上车特征集合：优先使用sqeNo
+			String featuresKey = sqeNo != null && !sqeNo.isEmpty() ?
+				"features_set:" + sqeNo :
+				"features_set:" + busNo + ":" + windowId;
 			Set<String> features = fetchFeaturesWithRetry(jedis, featuresKey);
 			if (features == null || features.isEmpty()) {
 				String nearestWindow = findNearestFeatureWindow(jedis, busNo, normalizeWindowId(windowId), Config.FEATURE_FALLBACK_WINDOW_MINUTES);
@@ -441,8 +518,10 @@ public class PassengerFlowProcessor {
 			float[] downFeatureVec = CosineSimilarity.parseFeatureVector(downFeature);
 			if (downFeatureVec.length == 0) return;
 
-			// 去重：同一上车特征仅允许匹配一次
-			String matchedUpKey = "matched_up_features:" + busNo + ":" + windowId;
+			// 🔥 去重：同一上车特征仅允许匹配一次，优先使用sqeNo
+			String matchedUpKey = sqeNo != null && !sqeNo.isEmpty() ?
+				"matched_up_features:" + sqeNo :
+				"matched_up_features:" + busNo + ":" + windowId;
 
 			// 遍历上车特征，寻找匹配
 			for (String featureStr : features) {
@@ -545,13 +624,14 @@ public class PassengerFlowProcessor {
 								passengerDetail.put("stationIdOff", currentStationId);
 								passengerDetail.put("stationNameOff", currentStationName);
 
-								// 更新区间客流统计并追加明细
+								// 🔥 更新区间客流统计并追加明细，传递sqeNo
 								updateSectionPassengerFlow(jedis, busNo, windowId,
 									stationIdOn2,
 									stationNameOn2,
 									currentStationId,
 									currentStationName,
-									passengerDetail);
+									passengerDetail,
+									sqeNo);
 
 								// 记录已匹配的上车特征，避免后续重复匹配
 								try {
@@ -591,17 +671,22 @@ public class PassengerFlowProcessor {
 	 * @param stationNameOn 上车站点名称
 	 * @param stationIdOff 下车站点ID
 	 * @param stationNameOff 下车站点名称
+	 * @param passengerDetail 乘客详情
+	 * @param sqeNo 开关门唯一批次号
 	 */
 	private void updateSectionPassengerFlow(Jedis jedis, String busNo, String windowId,
 										  String stationIdOn, String stationNameOn,
 										  String stationIdOff, String stationNameOff,
-										  JSONObject passengerDetail) {
+										  JSONObject passengerDetail, String sqeNo) {
 		try {
 			if (Config.LOG_DEBUG || Config.PILOT_ROUTE_LOG_ENABLED) {
 				System.out.println("[PassengerFlowProcessor] 更新区间客流: " + stationNameOn + "(" + stationIdOn + ") -> " + stationNameOff + "(" + stationIdOff + ")");
-				System.out.println("[PassengerFlowProcessor] 区间客流更新 - busNo=" + busNo + ", windowId=" + windowId);
+				System.out.println("[PassengerFlowProcessor] 区间客流更新 - busNo=" + busNo + ", windowId=" + windowId + ", sqeNo=" + sqeNo);
 			}
-			String flowKey = "section_flow:" + busNo + ":" + windowId;
+			// 🔥 优先使用sqeNo作为区间客流的key
+			String flowKey = sqeNo != null && !sqeNo.isEmpty() ?
+				"section_flow:" + sqeNo :
+				"section_flow:" + busNo + ":" + windowId;
 
 			// 构建区间标识
 			String sectionKey = stationIdOn + "_" + stationIdOff;
@@ -654,14 +739,16 @@ public class PassengerFlowProcessor {
 	}
 
 	private void handleLoadFactorEvent(JSONObject data, String busNo, String busId, Jedis jedis) {
+		String sqeNo = data.optString("sqe_no");  // 新增：获取开关门唯一批次号
 		int count = data.optInt("count");
 		double factor = data.optDouble("factor");
 		String cameraNo = data.optString("camera_no");
 
 		// 打印CV推送的满载率数据，用于开关门timestamp校验
 		if (Config.PILOT_ROUTE_LOG_ENABLED) {
-			System.out.println("[CV满载率数据] 收到车牌号" + busNo + "的满载率数据，开始收集");
+			System.out.println("[CV满载率数据] 收到车牌号" + busNo + "的满载率数据，sqe_no=" + sqeNo + "，开始收集");
 		}
+
 
 		// 现在直接使用bus_id作为canonicalBusNo，不再需要映射
 		String canonicalBusNo = busId != null && !busId.isEmpty() ? busId : busNo;
@@ -672,19 +759,30 @@ public class PassengerFlowProcessor {
 			jedis.expire("bus_alias_by_camera:" + cameraNo, Config.REDIS_TTL_OPEN_TIME);
 		}
 
-		// 缓存满载率和车辆总人数，设置过期时间
-		String loadFactorKey = "load_factor:" + canonicalBusNo;
-		String vehicleTotalCountKey = "vehicle_total_count:" + canonicalBusNo;
-		jedis.set(loadFactorKey, String.valueOf(factor));
-		jedis.set(vehicleTotalCountKey, String.valueOf(count));  // 存储CV系统的车辆总人数
-		jedis.expire(loadFactorKey, Config.REDIS_TTL_COUNTS);
-		jedis.expire(vehicleTotalCountKey, Config.REDIS_TTL_COUNTS);
+		// 🔥 缓存满载率和车辆总人数：优先使用sqe_no
+		if (sqeNo != null && !sqeNo.isEmpty()) {
+			String loadFactorKey = "load_factor:" + sqeNo;
+			String vehicleTotalCountKey = "vehicle_total_count:" + sqeNo;
+			jedis.set(loadFactorKey, String.valueOf(factor));
+			jedis.set(vehicleTotalCountKey, String.valueOf(count));
+			jedis.expire(loadFactorKey, Config.REDIS_TTL_COUNTS);
+			jedis.expire(vehicleTotalCountKey, Config.REDIS_TTL_COUNTS);
+		}
+
+		// 兼容性存储：保持原有逻辑
+		String loadFactorKeyLegacy = "load_factor:" + canonicalBusNo;
+		String vehicleTotalCountKeyLegacy = "vehicle_total_count:" + canonicalBusNo;
+		jedis.set(loadFactorKeyLegacy, String.valueOf(factor));
+		jedis.set(vehicleTotalCountKeyLegacy, String.valueOf(count));  // 存储CV系统的车辆总人数
+		jedis.expire(loadFactorKeyLegacy, Config.REDIS_TTL_COUNTS);
+		jedis.expire(vehicleTotalCountKeyLegacy, Config.REDIS_TTL_COUNTS);
 
 		System.out.println("[CV数据映射] 最终使用的bus_no: " + canonicalBusNo + ", 已缓存满载率数据");
 	}
 
-	private void handleOpenCloseDoorEvent(JSONObject data, String busNo, String busId, String cameraNo, Jedis jedis) throws IOException, SQLException {
+	private void handleOpenDoorEvent(JSONObject data, String busNo, String busId, String cameraNo, Jedis jedis) throws IOException, SQLException {
 		String action = data.optString("action");
+		String sqeNo = data.optString("sqe_no");  // 新增：获取开关门唯一批次号
 		LocalDateTime eventTime = LocalDateTime.parse(data.optString("timestamp").replace(" ", "T"));
 		String stationId = data.optString("stationId", "UNKNOWN");
 		String stationName = data.optString("stationName", "Unknown Station");
@@ -695,6 +793,7 @@ public class PassengerFlowProcessor {
 		System.out.println("   bus_id: " + busId);
 		System.out.println("   camera_no: " + cameraNo);
 		System.out.println("   action: " + action);
+		System.out.println("   sqe_no: " + sqeNo);  // 新增：打印sqe_no
 		System.out.println("   timestamp: " + data.optString("timestamp"));
 		System.out.println("   stationId: " + stationId);
 		System.out.println("   stationName: " + stationName);
@@ -704,50 +803,90 @@ public class PassengerFlowProcessor {
 		String canonicalBusNo = busId != null && !busId.isEmpty() ? busId : busNo;
 
 		if ("open".equals(action)) {
+			// 验证sqe_no必须存在
+			if (sqeNo == null || sqeNo.isEmpty()) {
+				if (Config.LOG_ERROR) {
+					System.err.println("[开门事件] sqe_no为空，无法处理开门事件: busNo=" + busNo);
+				}
+				return;
+			}
+
 			// 试点线路本地开门流程日志（可通过配置控制）
 			if (Config.PILOT_ROUTE_LOG_ENABLED) {
-				System.out.println("[本地开门流程] 生成车牌号" + busNo + "的开门信号，开始收集");
+				System.out.println("[本地开门流程] 生成车牌号" + busNo + "的开门信号，sqe_no=" + sqeNo + "，开始收集");
 			}
 
 			// 开门时创建记录并缓存（不再设置单独的站点字段，使用区间客流统计）
-			BusOdRecord record = createBaseRecord(canonicalBusNo, cameraNo, eventTime, jedis);
+			BusOdRecord record = createBaseRecord(canonicalBusNo, cameraNo, eventTime, jedis, sqeNo);
 			record.setTimestampBegin(eventTime);
 
 			// 生成开门时间窗口ID = 开门时间字符串（与Kafka侧一致）
 			String windowId = eventTime.format(formatter);
-			jedis.set("open_time:" + canonicalBusNo, windowId);
-			jedis.expire("open_time:" + canonicalBusNo, Config.REDIS_TTL_OPEN_TIME);
 
-			// 记录时间到bus的索引，便于downup仅凭timestamp反查
-			jedis.set("open_time_index:" + windowId, canonicalBusNo);
-			jedis.expire("open_time_index:" + windowId, Config.REDIS_TTL_OPEN_TIME);
+			// 🔥 使用Redis事务保证所有映射关系和计数器的原子性操作
+			Transaction tx = jedis.multi();
+			try {
+				// 主要存储：基于sqe_no的新映射关系
+				tx.set("open_time:" + sqeNo, windowId);
+				tx.set("open_time_index:" + windowId, sqeNo);
+				tx.set("canonical_bus:" + sqeNo, canonicalBusNo);
+				tx.expire("open_time:" + sqeNo, Config.REDIS_TTL_OPEN_TIME);
+				tx.expire("open_time_index:" + windowId, Config.REDIS_TTL_OPEN_TIME);
+				tx.expire("canonical_bus:" + sqeNo, Config.REDIS_TTL_OPEN_TIME);
 
-			// 建立新的映射关系：优先使用stationId、stationName、bus_id三个值做匹配
-			if (stationId != null && !stationId.isEmpty() && stationName != null && !stationName.isEmpty() && busId != null && !busId.isEmpty()) {
-				jedis.set("open_time_by_station:" + stationId + ":" + stationName + ":" + busId, windowId);
-				jedis.expire("open_time_by_station:" + stationId + ":" + stationName + ":" + busId, Config.REDIS_TTL_OPEN_TIME);
+				// 兼容性存储：保持原有逻辑作为兜底
+				tx.set("open_time:" + canonicalBusNo, windowId);
+				tx.expire("open_time:" + canonicalBusNo, Config.REDIS_TTL_OPEN_TIME);
+
+				// 记录时间到bus的索引，便于downup仅凭timestamp反查（兼容性）
+				tx.set("open_time_index:" + windowId + ":legacy", canonicalBusNo);
+				tx.expire("open_time_index:" + windowId + ":legacy", Config.REDIS_TTL_OPEN_TIME);
+
+				// 建立新的映射关系：优先使用stationId、stationName、bus_id三个值做匹配
+				if (stationId != null && !stationId.isEmpty() && stationName != null && !stationName.isEmpty() && busId != null && !busId.isEmpty()) {
+					tx.set("open_time_by_station:" + stationId + ":" + stationName + ":" + busId, windowId);
+					tx.expire("open_time_by_station:" + stationId + ":" + stationName + ":" + busId, Config.REDIS_TTL_OPEN_TIME);
+				}
+
+				// 建立camera与bus/window的映射，便于CV用车牌号推送时反查
+				if (cameraNo != null && !cameraNo.isEmpty()) {
+					tx.set("open_time_by_camera:" + cameraNo, windowId);
+					tx.expire("open_time_by_camera:" + cameraNo, Config.REDIS_TTL_OPEN_TIME);
+					tx.set("bus_alias_by_camera:" + cameraNo, canonicalBusNo);
+					tx.expire("bus_alias_by_camera:" + cameraNo, Config.REDIS_TTL_OPEN_TIME);
+				}
+
+				// 建立车牌号到bus_no的映射，便于后续CV数据反查
+				tx.set("plate_to_bus:" + busNo, canonicalBusNo);
+				tx.expire("plate_to_bus:" + busNo, Config.REDIS_TTL_OPEN_TIME);
+
+				// 主要计数：基于sqe_no
+				tx.set("cv_up_count:" + sqeNo, "0");
+				tx.set("cv_down_count:" + sqeNo, "0");
+				tx.expire("cv_up_count:" + sqeNo, Config.REDIS_TTL_OPEN_TIME);
+				tx.expire("cv_down_count:" + sqeNo, Config.REDIS_TTL_OPEN_TIME);
+
+				// 兼容性计数：保持原有逻辑作为兜底
+				tx.set("cv_up_count:" + canonicalBusNo + ":" + windowId, "0");
+				tx.set("cv_down_count:" + canonicalBusNo + ":" + windowId, "0");
+				tx.expire("cv_up_count:" + canonicalBusNo + ":" + windowId, Config.REDIS_TTL_OPEN_TIME);
+				tx.expire("cv_down_count:" + canonicalBusNo + ":" + windowId, Config.REDIS_TTL_OPEN_TIME);
+
+				// 执行事务
+				tx.exec();
+
 				if (Config.PILOT_ROUTE_LOG_ENABLED) {
 					System.out.println("[本地开门流程] 建立站点映射: stationId=" + stationId + ", stationName=" + stationName + ", busId=" + busId + ", windowId=" + windowId);
+					System.out.println("[Redis事务] 开门映射关系和计数器原子性操作完成: sqeNo=" + sqeNo);
 				}
+			} catch (Exception e) {
+				// 事务失败，回滚
+				tx.discard();
+				if (Config.LOG_ERROR) {
+					System.err.println("[Redis事务] 开门事务执行失败: " + e.getMessage());
+				}
+				throw e;
 			}
-
-			// 建立camera与bus/window的映射，便于CV用车牌号推送时反查
-			if (cameraNo != null && !cameraNo.isEmpty()) {
-				jedis.set("open_time_by_camera:" + cameraNo, windowId);
-				jedis.expire("open_time_by_camera:" + cameraNo, Config.REDIS_TTL_OPEN_TIME);
-				jedis.set("bus_alias_by_camera:" + cameraNo, canonicalBusNo);
-				jedis.expire("bus_alias_by_camera:" + cameraNo, Config.REDIS_TTL_OPEN_TIME);
-			}
-
-			// 建立车牌号到bus_no的映射，便于后续CV数据反查
-			jedis.set("plate_to_bus:" + busNo, canonicalBusNo);
-			jedis.expire("plate_to_bus:" + busNo, Config.REDIS_TTL_OPEN_TIME);
-
-			// 初始化计数
-			jedis.set("cv_up_count:" + canonicalBusNo + ":" + windowId, "0");
-			jedis.set("cv_down_count:" + canonicalBusNo + ":" + windowId, "0");
-			jedis.expire("cv_up_count:" + canonicalBusNo + ":" + windowId, Config.REDIS_TTL_OPEN_TIME);
-			jedis.expire("cv_down_count:" + canonicalBusNo + ":" + windowId, Config.REDIS_TTL_OPEN_TIME);
 
 			if (Config.PILOT_ROUTE_LOG_ENABLED) {
 				System.out.println("[试点线路本地开门流程] 开门时间窗口已创建:");
@@ -760,120 +899,130 @@ public class PassengerFlowProcessor {
 			if (Config.LOG_INFO) {
 				System.out.println("[PassengerFlowProcessor] Door OPEN event processed for plate=" + busNo + ", busNo=" + canonicalBusNo + ", windowId=" + windowId);
 			}
-		} else if ("close".equals(action)) {
-			// 试点线路本地关门流程日志（可通过配置控制）
-			if (Config.PILOT_ROUTE_LOG_ENABLED) {
-				System.out.println("[本地关门流程] 生成车牌号" + busNo + "的关门信号，开始处理OD数据");
-			}
-
-			// 关门时处理OD数据并发送到Kafka
-			if (Config.PILOT_ROUTE_LOG_ENABLED) {
-				System.out.println("[流程] 准备处理关门->生成并发送OD: 车牌号=" + busNo + ", bus_no=" + canonicalBusNo);
-			}
-			handleCloseDoorEvent(data, canonicalBusNo, cameraNo, jedis);
 		}
-
-		System.out.println("[CV数据映射] 最终使用的bus_no: " + canonicalBusNo);
 	}
 
-	private void handleCloseDoorEvent(JSONObject data, String busNo, String cameraNo, Jedis jedis) throws IOException, SQLException {
+	private void handleCloseDoorAndCVComplateEvent(JSONObject data, String busNo, String busId, String cameraNo, Jedis jedis) throws IOException, SQLException {
+		String sqeNo = data.optString("sqe_no");  // 新增：获取开关门唯一批次号
 		LocalDateTime eventTime = LocalDateTime.parse(data.optString("timestamp").replace(" ", "T"));
-		String action = data.optString("action");
 
-		if ("close".equals(action)) {
+		// notify_complete事件处理 - 收到CV的公交分析业务处理结束信号，开始发Kafka落库
+		if (Config.PILOT_ROUTE_LOG_ENABLED) {
+			System.out.println("[CV业务完成] 收到notify_complete事件:");
+			System.out.println("   busNo=" + busNo);
+			System.out.println("   busId=" + busId);
+			System.out.println("   sqe_no=" + sqeNo);  // 新增：打印sqe_no
+			System.out.println("   cameraNo=" + cameraNo);
+			System.out.println("   完成时间=" + eventTime.format(formatter));
+			System.out.println("   stationId=" + data.optString("stationId"));
+			System.out.println("   stationName=" + data.optString("stationName"));
+			System.out.println("   ================================================================================");
+		}
+
+		// 🔥 修复关键漏洞：优先通过sqe_no获取时间窗口
+		String windowId = null;
+		String canonicalBusNo = null;
+
+		if (sqeNo != null && !sqeNo.isEmpty()) {
+			windowId = jedis.get("open_time:" + sqeNo);
+			canonicalBusNo = jedis.get("canonical_bus:" + sqeNo);
 			if (Config.PILOT_ROUTE_LOG_ENABLED) {
-				System.out.println("[试点线路本地关门流程] 开始处理关门事件:");
-				System.out.println("   busNo=" + busNo);
-				System.out.println("   cameraNo=" + cameraNo);
-				System.out.println("   关门时间=" + eventTime.format(formatter));
+				System.out.println("[CV业务完成] 🔥 通过sqe_no找到: windowId=" + windowId + ", canonicalBusNo=" + canonicalBusNo);
+			}
+		}
+
+		// 兜底：如果sqe_no匹配失败，使用canonicalBusNo逻辑（修复原有漏洞）
+		if (windowId == null || canonicalBusNo == null) {
+			canonicalBusNo = busId != null && !busId.isEmpty() ? busId : busNo;
+			windowId = jedis.get("open_time:" + canonicalBusNo);
+			if (Config.PILOT_ROUTE_LOG_ENABLED) {
+				System.out.println("[CV业务完成] 兜底匹配: canonicalBusNo=" + canonicalBusNo + ", windowId=" + windowId);
+			}
+		}
+		// 标准化windowId格式，统一为空格分隔，避免后续解析和Redis Key不一致
+		String normalizedWindowId = windowId;
+		if (normalizedWindowId != null && normalizedWindowId.contains("T")) {
+			normalizedWindowId = normalizedWindowId.replace("T", " ");
+		}
+		if (windowId != null) {
+			// 🔥 幂等性检查：优先使用sqe_no
+			String odSentKey = sqeNo != null && !sqeNo.isEmpty() ?
+				"od_sent:" + sqeNo :
+				"od_sent:" + canonicalBusNo + ":" + normalizedWindowId;
+			if (jedis.get(odSentKey) != null) {
+				if (Config.PILOT_ROUTE_LOG_ENABLED) {
+					System.out.println("[CV业务完成] 已检测到OD已发送标记，跳过重复发送。key=" + odSentKey);
+				}
+				return;
+			}
+			if (Config.PILOT_ROUTE_LOG_ENABLED) {
+				System.out.println("[CV业务完成] 找到开门时间窗口:");
+				System.out.println("   windowId=" + normalizedWindowId);
 				System.out.println("   ================================================================================");
 			}
 
-			// 获取开门时间窗口ID
-			String windowId = jedis.get("open_time:" + busNo);
-			// 标准化windowId格式，统一为空格分隔，避免后续解析和Redis Key不一致
-			String normalizedWindowId = windowId;
-			if (normalizedWindowId != null && normalizedWindowId.contains("T")) {
-				normalizedWindowId = normalizedWindowId.replace("T", " ");
+			// 🔥 获取CV计数：优先使用sqe_no
+			int[] cvCounts = waitForCvResultsStable(jedis, canonicalBusNo, normalizedWindowId, sqeNo);
+			int cvUpCount = cvCounts[0];
+			int cvDownCount = cvCounts[1];
+
+			if (Config.PILOT_ROUTE_LOG_ENABLED) {
+				System.out.println("[CV业务完成] CV计数统计完成:");
+				System.out.println("   上车人数=" + cvUpCount);
+				System.out.println("   下车人数=" + cvDownCount);
+				System.out.println("   ==============================================================================");
 			}
-			if (windowId != null) {
-				// 幂等：若该窗口OD已发送过则跳过
-				String odSentKey = "od_sent:" + busNo + ":" + normalizedWindowId;
-				if (jedis.get(odSentKey) != null) {
-					if (Config.PILOT_ROUTE_LOG_ENABLED) {
-						System.out.println("[CV关门流程] 已检测到OD已发送标记，跳过重复发送。busNo=" + busNo + ", windowId=" + normalizedWindowId);
-					}
-					return;
+
+			// 创建关门记录
+			BusOdRecord record = createBaseRecord(canonicalBusNo, cameraNo, eventTime, jedis, sqeNo);
+			// 从windowId恢复开门时间，避免begin与end相同
+			LocalDateTime beginTime = null;
+			try {
+				beginTime = LocalDateTime.parse(normalizedWindowId, formatter);
+				record.setTimestampBegin(beginTime);
+			} catch (Exception e) {
+				// 兜底：如果解析失败，保持空
+			}
+			record.setTimestampEnd(eventTime);
+			record.setUpCount(cvUpCount);
+			record.setDownCount(cvDownCount);
+
+			// 🔥 设置区间客流统计：传递sqeNo
+			setSectionPassengerFlowCount(record, jedis, canonicalBusNo, normalizedWindowId, sqeNo);
+
+			// 🔥 设置乘客特征集合：传递sqeNo
+			setPassengerFeatures(record, jedis, busNo, normalizedWindowId, sqeNo);
+
+			// 🔥 并行处理图片：使用容忍时间窗口 [open-30s, close+30s]，传递sqeNo
+			try {
+				List<String> rangedImages = getImagesByTimeRange(jedis, busNo, beginTime, eventTime,
+					Config.IMAGE_TIME_TOLERANCE_BEFORE_SECONDS, Config.IMAGE_TIME_TOLERANCE_AFTER_SECONDS, sqeNo);
+				processImagesParallelWithList(record, jedis, busNo, normalizedWindowId, eventTime, rangedImages, sqeNo);
+			} catch (Exception e) {
+				if (Config.LOG_ERROR) {
+					System.err.println("[PassengerFlowProcessor] Error in parallel image processing: " + e.getMessage());
 				}
-				if (Config.PILOT_ROUTE_LOG_ENABLED) {
-					System.out.println("[试点线路本地关门流程] 找到开门时间窗口:");
-					System.out.println("   windowId=" + normalizedWindowId);
-					System.out.println("   ================================================================================");
-				}
+			}
 
-				// 获取CV计数
-				int[] cvCounts = waitForCvResultsStable(jedis, busNo, normalizedWindowId);
-				int cvUpCount = cvCounts[0];
-				int cvDownCount = cvCounts[1];
+			// 🔥 设置车辆总人数（从CV系统获取）：优先使用sqe_no
+			record.setVehicleTotalCount(getVehicleTotalCountFromRedis(jedis, canonicalBusNo, sqeNo));
 
-				if (Config.PILOT_ROUTE_LOG_ENABLED) {
-					System.out.println("[试点线路本地关门流程] CV计数统计完成:");
-					System.out.println("   上车人数=" + cvUpCount);
-					System.out.println("   下车人数=" + cvDownCount);
-					System.out.println("   ==============================================================================");
-				}
+			// 设置原始数据字段用于校验
+			record.setRetrieveBusGpsMsg(getBusGpsMsgFromRedis(jedis, busNo));
+			record.setRetrieveDownupMsg(getDownupMsgFromRedis(jedis, busNo));
 
-				// 创建关门记录
-				BusOdRecord record = createBaseRecord(busNo, cameraNo, eventTime, jedis);
-				// 从windowId恢复开门时间，避免begin与end相同
-				LocalDateTime beginTime = null;
-				try {
-					beginTime = LocalDateTime.parse(normalizedWindowId, formatter);
-					record.setTimestampBegin(beginTime);
-				} catch (Exception e) {
-					// 兜底：如果解析失败，保持空
-				}
-				record.setTimestampEnd(eventTime);
-				record.setUpCount(cvUpCount);
-				record.setDownCount(cvDownCount);
+			if (Config.PILOT_ROUTE_LOG_ENABLED) {
+				System.out.println("[CV业务完成] 准备落库，发送kafka:busNo=" + busNo);
+			}
+			sendToKafka(record);
+			// 设置OD发送幂等标记
+			jedis.set(odSentKey, "1");
+			jedis.expire(odSentKey, Config.REDIS_TTL_OPEN_TIME);
 
-				// 设置区间客流统计
-				setSectionPassengerFlowCount(record, jedis, busNo, normalizedWindowId);
-
-				// 设置乘客特征集合
-				setPassengerFeatures(record, jedis, busNo, normalizedWindowId);
-
-				// 并行处理图片：使用容忍时间窗口 [open-30s, close+30s]
-				try {
-					List<String> rangedImages = getImagesByTimeRange(jedis, busNo, beginTime, eventTime,
-						Config.IMAGE_TIME_TOLERANCE_BEFORE_SECONDS, Config.IMAGE_TIME_TOLERANCE_AFTER_SECONDS);
-					processImagesParallelWithList(record, jedis, busNo, normalizedWindowId, eventTime, rangedImages);
-				} catch (Exception e) {
-					if (Config.LOG_ERROR) {
-						System.err.println("[PassengerFlowProcessor] Error in parallel image processing: " + e.getMessage());
-					}
-				}
-
-				// 设置车辆总人数（从CV系统获取）
-				record.setVehicleTotalCount(getVehicleTotalCountFromRedis(jedis, busNo));
-
-				// 设置原始数据字段用于校验
-				record.setRetrieveBusGpsMsg(getBusGpsMsgFromRedis(jedis, busNo));
-				record.setRetrieveDownupMsg(getDownupMsgFromRedis(jedis, busNo));
-
-				if (Config.PILOT_ROUTE_LOG_ENABLED) {
-					System.out.println("[流程]准备落库，发送kafka:busNo=" + busNo);
-				}
-				sendToKafka(record);
-				// 设置OD发送幂等标记
-				jedis.set(odSentKey, "1");
-				jedis.expire(odSentKey, Config.REDIS_TTL_OPEN_TIME);
-
-				// 注意：不再手动清理Redis缓存，让Redis的TTL机制和RedisCleanupUtil自动管理
-				// 这样可以确保乘客特征向量、区间客流数据等关键信息在需要时仍然可用
-				if (Config.PILOT_ROUTE_LOG_ENABLED) {
-					System.out.println("[本地关门流程] 车牌号" + busNo + "的OD数据处理完成，已发送至Kafka");
-				}
+			// 注意：不再手动清理Redis缓存，让Redis的TTL机制和RedisCleanupUtil自动管理
+			// 这样可以确保乘客特征向量、区间客流数据等关键信息在需要时仍然可用
+			if (Config.PILOT_ROUTE_LOG_ENABLED) {
+				System.out.println("[CV业务完成] 车牌号" + busNo + "的OD数据处理完成，已发送至Kafka");
 			}
 		}
 	}
@@ -885,13 +1034,16 @@ public class PassengerFlowProcessor {
 	 * @param busNo 公交车编号
 	 * @param windowId 时间窗口ID
 	 */
-	private void setSectionPassengerFlowCount(BusOdRecord record, Jedis jedis, String busNo, String windowId) {
+	private void setSectionPassengerFlowCount(BusOdRecord record, Jedis jedis, String busNo, String windowId, String sqeNo) {
 		try {
-			String flowKey = "section_flow:" + busNo + ":" + windowId;
+			// 🔥 优先使用sqeNo获取区间客流数据
+			String flowKey = sqeNo != null && !sqeNo.isEmpty() ?
+				"section_flow:" + sqeNo :
+				"section_flow:" + busNo + ":" + windowId;
 			Map<String, String> sectionFlows = jedis.hgetAll(flowKey);
 
 			if (Config.PILOT_ROUTE_LOG_ENABLED) {
-				System.out.println("[流程] 开始设置区间客流统计: busNo=" + busNo + ", windowId=" + windowId);
+				System.out.println("[流程] 开始设置区间客流统计: busNo=" + busNo + ", windowId=" + windowId + ", sqeNo=" + sqeNo);
 				System.out.println("[流程] Redis键: " + flowKey);
 				System.out.println("[流程] 获取到的区间数据数量: " + (sectionFlows != null ? sectionFlows.size() : 0));
 			}
@@ -1098,25 +1250,47 @@ public class PassengerFlowProcessor {
 
 	/**
 	 * 基于时间区间的图片收集：从 [openTime - beforeSec, closeTime + afterSec] 聚合
+	 * @param sqeNo 开关门唯一批次号
 	 */
 	private List<String> getImagesByTimeRange(Jedis jedis, String busNo, LocalDateTime openTime,
-			LocalDateTime closeTime, int beforeSec, int afterSec) {
+			LocalDateTime closeTime, int beforeSec, int afterSec, String sqeNo) {
 		List<String> imageUrls = new ArrayList<>();
 		if (openTime == null || closeTime == null) return imageUrls;
 		try {
 			LocalDateTime from = openTime.minusSeconds(Math.max(0, beforeSec));
 			LocalDateTime to = closeTime.plusSeconds(Math.max(0, afterSec));
-			System.out.println("[图片收集] 区间聚合: bus=" + busNo + ", from=" + from.format(formatter) + ", to=" + to.format(formatter));
-			LocalDateTime cursor = from;
-			while (!cursor.isAfter(to)) {
-				String win = cursor.format(formatter);
-				// 上车
-				Set<String> up = jedis.smembers("image_urls:" + busNo + ":" + win + ":up");
-				if (up != null && !up.isEmpty()) imageUrls.addAll(up);
-				// 下车
-				Set<String> down = jedis.smembers("image_urls:" + busNo + ":" + win + ":down");
-				if (down != null && !down.isEmpty()) imageUrls.addAll(down);
-				cursor = cursor.plusSeconds(1); // 秒级扫描
+			System.out.println("[图片收集] 区间聚合: bus=" + busNo + ", from=" + from.format(formatter) + ", to=" + to.format(formatter) + ", sqeNo=" + sqeNo);
+
+			// 🔥 优先尝试基于sqeNo的图片收集
+			if (sqeNo != null && !sqeNo.isEmpty()) {
+				// 上车图片
+				Set<String> upImagesBySqe = jedis.smembers("image_urls:" + sqeNo + ":up");
+				if (upImagesBySqe != null && !upImagesBySqe.isEmpty()) {
+					imageUrls.addAll(upImagesBySqe);
+					System.out.println("[图片收集] 基于sqeNo收集到上车图片 " + upImagesBySqe.size() + " 张");
+				}
+				// 下车图片
+				Set<String> downImagesBySqe = jedis.smembers("image_urls:" + sqeNo + ":down");
+				if (downImagesBySqe != null && !downImagesBySqe.isEmpty()) {
+					imageUrls.addAll(downImagesBySqe);
+					System.out.println("[图片收集] 基于sqeNo收集到下车图片 " + downImagesBySqe.size() + " 张");
+				}
+			}
+
+			// 🔥 如果基于sqeNo没有找到图片，或作为兜底，按时间范围收集
+			if (imageUrls.isEmpty()) {
+				LocalDateTime cursor = from;
+				while (!cursor.isAfter(to)) {
+					String win = cursor.format(formatter);
+					// 上车
+					Set<String> up = jedis.smembers("image_urls:" + busNo + ":" + win + ":up");
+					if (up != null && !up.isEmpty()) imageUrls.addAll(up);
+					// 下车
+					Set<String> down = jedis.smembers("image_urls:" + busNo + ":" + win + ":down");
+					if (down != null && !down.isEmpty()) imageUrls.addAll(down);
+					cursor = cursor.plusSeconds(1); // 秒级扫描
+				}
+				System.out.println("[图片收集] 兜底按时间范围收集到图片 " + imageUrls.size() + " 张");
 			}
 			System.out.println("[图片收集] 区间聚合共收集到图片 " + imageUrls.size() + " 张");
 		} catch (Exception e) {
@@ -1127,9 +1301,10 @@ public class PassengerFlowProcessor {
 
 	/**
 	 * 使用外部提供的图片列表执行并行处理
+	 * @param sqeNo 开关门唯一批次号
 	 */
 	private void processImagesParallelWithList(BusOdRecord record, Jedis jedis, String busNo, String windowId,
-			LocalDateTime eventTime, List<String> imageUrls) throws IOException, SQLException {
+			LocalDateTime eventTime, List<String> imageUrls, String sqeNo) throws IOException, SQLException {
 		System.out.println("[并行处理] 开始为车辆 " + busNo + " 并行处理图片(区间聚合)，时间窗口: " + windowId);
 		if (imageUrls == null || imageUrls.isEmpty()) {
 			System.out.println("[并行处理] 没有图片需要处理，跳过");
@@ -1145,13 +1320,15 @@ public class PassengerFlowProcessor {
 			LocalDateTime begin = record.getTimestampBegin();
 			LocalDateTime end = record.getTimestampEnd();
 			if (begin != null && end != null) {
+				// 🔥 传递sqeNo参数
 				Map<String, List<String>> imagesByDir = getImagesByTimeRangeSeparated(jedis, busNo, begin, end,
-					Config.IMAGE_TIME_TOLERANCE_BEFORE_SECONDS, Config.IMAGE_TIME_TOLERANCE_AFTER_SECONDS);
+					Config.IMAGE_TIME_TOLERANCE_BEFORE_SECONDS, Config.IMAGE_TIME_TOLERANCE_AFTER_SECONDS, sqeNo);
 				List<String> upImages = imagesByDir.getOrDefault("up", new ArrayList<>());
 				List<String> downImages = imagesByDir.getOrDefault("down", new ArrayList<>());
 				processImagesToVideoByDirection(record, jedis, busNo, windowId, upImages, downImages);
 			} else {
-				Map<String, List<String>> imagesByDir = getImagesByExactWindowSeparated(jedis, busNo, windowId);
+				// 🔥 传递sqeNo参数
+				Map<String, List<String>> imagesByDir = getImagesByExactWindowSeparated(jedis, busNo, windowId, sqeNo);
 				List<String> upImages = imagesByDir.getOrDefault("up", new ArrayList<>());
 				List<String> downImages = imagesByDir.getOrDefault("down", new ArrayList<>());
 				processImagesToVideoByDirection(record, jedis, busNo, windowId, upImages, downImages);
@@ -1243,7 +1420,7 @@ public class PassengerFlowProcessor {
 		return imageUrls;
 	}
 
-	private BusOdRecord createBaseRecord(String busNo, String cameraNo, LocalDateTime time, Jedis jedis) {
+	private BusOdRecord createBaseRecord(String busNo, String cameraNo, LocalDateTime time, Jedis jedis, String sqeNo) {
 		System.out.println("[OD记录创建] 开始创建车辆 " + busNo + " 的OD记录");
 
 		BusOdRecord record = new BusOdRecord();
@@ -1255,7 +1432,7 @@ public class PassengerFlowProcessor {
 		record.setRouteDirection(getRouteDirectionFromBusNo(busNo, jedis));
 		record.setGpsLat(getGpsLat(busNo, jedis));
 		record.setGpsLng(getGpsLng(busNo, jedis));
-		record.setFullLoadRate(getFullLoadRateFromRedis(jedis, busNo));
+		record.setFullLoadRate(getFullLoadRateFromRedis(jedis, busNo, sqeNo));
 
 		// 设置刷卡人数（JSON格式）
 		String ticketCountJson = getTicketCountWindowFromRedis(jedis, busNo);
@@ -1487,15 +1664,37 @@ public class PassengerFlowProcessor {
 		return resultJson;
 	}
 
-	private int getVehicleTotalCountFromRedis(Jedis jedis, String busNo) {
-		String count = jedis.get("vehicle_total_count:" + busNo);
+	private int getVehicleTotalCountFromRedis(Jedis jedis, String busNo, String sqeNo) {
+		// 🔥 优先使用sqe_no获取车辆总人数
+		String count = null;
+
+		if (sqeNo != null && !sqeNo.isEmpty()) {
+			count = jedis.get("vehicle_total_count:" + sqeNo);
+		}
+
+		// 兜底：使用原有key格式
+		if (count == null) {
+			count = jedis.get("vehicle_total_count:" + busNo);
+		}
+
 		return count != null ? Integer.parseInt(count) : 0;
 	}
 
 
 
-	private BigDecimal getFullLoadRateFromRedis(Jedis jedis, String busNo) {
-		String factor = jedis.get("load_factor:" + busNo);
+	private BigDecimal getFullLoadRateFromRedis(Jedis jedis, String busNo, String sqeNo) {
+		// 🔥 优先使用sqe_no获取满载率
+		String factor = null;
+
+		if (sqeNo != null && !sqeNo.isEmpty()) {
+			factor = jedis.get("load_factor:" + sqeNo);
+		}
+
+		// 兜底：使用原有key格式
+		if (factor == null) {
+			factor = jedis.get("load_factor:" + busNo);
+		}
+
 		return factor != null ? new BigDecimal(factor) : BigDecimal.ZERO;
 	}
 
@@ -1681,14 +1880,32 @@ public class PassengerFlowProcessor {
 		return null;
 	}
 
-	private int getCachedDownCount(Jedis jedis, String busNo, String windowId) {
+	private int getCachedDownCount(Jedis jedis, String busNo, String windowId, String sqeNo) {
 		if (windowId == null) return 0;
-		String v = jedis.get("cv_down_count:" + busNo + ":" + windowId);
+
+		// 🔥 优先使用sqe_no获取计数
+		String v = null;
+		String keyUsed = "";
+
+		if (sqeNo != null && !sqeNo.isEmpty()) {
+			keyUsed = "cv_down_count:" + sqeNo;
+			v = jedis.get(keyUsed);
+		}
+
+		// 兜底：使用原有key格式
+		if (v == null) {
+			keyUsed = "cv_down_count:" + busNo + ":" + windowId;
+			v = jedis.get(keyUsed);
+		}
+
 		int count = v != null ? Integer.parseInt(v) : 0;
 		if (count == 0) {
 			// 回退：基于特征方向进行统计
 			try {
-				Set<String> features = jedis.smembers("features_set:" + busNo + ":" + windowId);
+				String featuresKey = sqeNo != null && !sqeNo.isEmpty() ?
+					"features_set:" + sqeNo :
+					"features_set:" + busNo + ":" + windowId;
+				Set<String> features = jedis.smembers(featuresKey);
 				if (features != null) {
 					for (String f : features) {
 						try { if ("down".equals(new JSONObject(f).optString("direction"))) count++; } catch (Exception ignore) {}
@@ -1697,18 +1914,35 @@ public class PassengerFlowProcessor {
 			} catch (Exception ignore) {}
 		}
 		if (Config.LOG_DEBUG) {
-			System.out.println("[CV计数获取] 下车计数(含回退): cv_down_count:" + busNo + ":" + windowId + " = " + count);
+			System.out.println("[CV计数获取] 下车计数(含回退): " + keyUsed + " = " + count);
 		}
 		return count;
 	}
 
-	private int getCachedUpCount(Jedis jedis, String busNo, String windowId) {
-		String v = jedis.get("cv_up_count:" + busNo + ":" + windowId);
+	private int getCachedUpCount(Jedis jedis, String busNo, String windowId, String sqeNo) {
+		// 🔥 优先使用sqe_no获取计数
+		String v = null;
+		String keyUsed = "";
+
+		if (sqeNo != null && !sqeNo.isEmpty()) {
+			keyUsed = "cv_up_count:" + sqeNo;
+			v = jedis.get(keyUsed);
+		}
+
+		// 兜底：使用原有key格式
+		if (v == null) {
+			keyUsed = "cv_up_count:" + busNo + ":" + windowId;
+			v = jedis.get(keyUsed);
+		}
+
 		int count = v != null ? Integer.parseInt(v) : 0;
 		if (count == 0) {
 			// 回退：基于特征方向进行统计
 			try {
-				Set<String> features = jedis.smembers("features_set:" + busNo + ":" + windowId);
+				String featuresKey = sqeNo != null && !sqeNo.isEmpty() ?
+					"features_set:" + sqeNo :
+					"features_set:" + busNo + ":" + windowId;
+				Set<String> features = jedis.smembers(featuresKey);
 				if (features != null) {
 					for (String f : features) {
 						try { if ("up".equals(new JSONObject(f).optString("direction"))) count++; } catch (Exception ignore) {}
@@ -1717,7 +1951,7 @@ public class PassengerFlowProcessor {
 			} catch (Exception ignore) {}
 		}
 		if (Config.LOG_DEBUG) {
-			System.out.println("[CV计数获取] 上车计数(含回退): cv_up_count:" + busNo + ":" + windowId + " = " + count);
+			System.out.println("[CV计数获取] 上车计数(含回退): " + keyUsed + " = " + count);
 		}
 		return count;
 	}
@@ -1849,7 +2083,7 @@ public class PassengerFlowProcessor {
 		try {
 			String stationId = data.optString("stationId");
 			String stationName = data.optString("stationName");
-			
+
 			// 构建完整的downup事件JSON对象
 			JSONObject downupEvent = new JSONObject();
 			downupEvent.put("event", "downup");
@@ -1857,10 +2091,10 @@ public class PassengerFlowProcessor {
 			downupEvent.put("stationId", stationId);
 			downupEvent.put("stationName", stationName);
 			downupEvent.put("timestamp", data.optString("timestamp"));
-			
+
 			// 按站点分组存储，避免不同站点的数据混在一起
 			String key = "downup_msg:" + busNo + ":" + stationId;
-			
+
 			// 获取该站点的现有数据数组
 			String existingDataStr = jedis.get(key);
 			JSONArray downupMsgArray;
@@ -1869,14 +2103,14 @@ public class PassengerFlowProcessor {
 			} else {
 				downupMsgArray = new JSONArray();
 			}
-			
+
 			// 添加新的数据
 			downupMsgArray.put(downupEvent);
-			
+
 			// 存储到Redis，设置过期时间
 			jedis.set(key, downupMsgArray.toString());
 			jedis.expire(key, Config.REDIS_TTL_OPEN_TIME);
-			
+
 			if (Config.LOG_DEBUG) {
 				System.out.println("[PassengerFlowProcessor] 收集downup事件原始数据: busNo=" + busNo + ", stationId=" + stationId + ", stationName=" + stationName + ", events=" + data.optJSONArray("events").length());
 			}
@@ -1903,7 +2137,7 @@ public class PassengerFlowProcessor {
 					return data;
 				}
 			}
-			
+
 			// 如果当前站点没有数据，尝试获取所有站点的数据（兜底方案）
 			Set<String> keys = jedis.keys("bus_gps_msg:" + busNo + ":*");
 			JSONArray allData = new JSONArray();
@@ -1936,7 +2170,7 @@ public class PassengerFlowProcessor {
 		try {
 			// 参考图片收集逻辑，使用相同的匹配策略
 			JSONArray allData = new JSONArray();
-			
+
 			// 1. 获取当前站点信息（从arrive_leave数据中获取）
 			String arriveLeaveStr = jedis.get("arrive_leave:" + busNo);
 			if (arriveLeaveStr == null) {
@@ -1945,16 +2179,16 @@ public class PassengerFlowProcessor {
 				}
 				return "[]";
 			}
-			
+
 			JSONObject arriveLeave = new JSONObject(arriveLeaveStr);
 			String stationId = arriveLeave.optString("stationId");
 			String stationName = arriveLeave.optString("stationName");
 			String busId = arriveLeave.optString("busId");
-			
+
 			if (Config.LOG_DEBUG) {
 				System.out.println("[PassengerFlowProcessor] 获取站点信息: busNo=" + busNo + ", stationId=" + stationId + ", stationName=" + stationName + ", busId=" + busId);
 			}
-			
+
 			// 2. 优先通过stationId、stationName、bus_id三个值匹配（与图片收集逻辑一致）
 			if (stationId != null && !stationId.isEmpty() && stationName != null && !stationName.isEmpty() && busId != null && !busId.isEmpty()) {
 				String key = "downup_msg:" + busNo + ":" + stationId;
@@ -1969,7 +2203,7 @@ public class PassengerFlowProcessor {
 					}
 				}
 			}
-			
+
 			// 3. 如果上述匹配失败，尝试通过bus_id匹配
 			if (allData.length() == 0 && busId != null && !busId.isEmpty()) {
 				Set<String> keys = jedis.keys("downup_msg:" + busNo + ":*");
@@ -1986,7 +2220,7 @@ public class PassengerFlowProcessor {
 					System.out.println("[PassengerFlowProcessor] 通过bus_id匹配到downup数据: 数据量=" + allData.length());
 				}
 			}
-			
+
 			// 4. 兜底方案：通过时间窗口匹配（与图片收集逻辑一致）
 			if (allData.length() == 0) {
 				String windowId = jedis.get("open_time:" + busNo);
@@ -2002,11 +2236,11 @@ public class PassengerFlowProcessor {
 					} catch (Exception e) {
 						windowTime = LocalDateTime.parse(windowId);
 					}
-					
+
 					// 搜索前后5分钟的时间窗口
 					for (int delta = -5; delta <= 5; delta++) {
 						LocalDateTime searchTime = windowTime.plusMinutes(delta);
-						
+
 						// 查找该时间窗口的downup数据
 						Set<String> keys = jedis.keys("downup_msg:" + busNo + ":*");
 						for (String key : keys) {
@@ -2016,7 +2250,7 @@ public class PassengerFlowProcessor {
 								for (int i = 0; i < stationData.length(); i++) {
 									JSONObject downupEvent = stationData.getJSONObject(i);
 									String eventTimestamp = downupEvent.optString("timestamp");
-									
+
 									// 检查时间是否在搜索范围内
 									if (isTimeInRange(eventTimestamp, searchTime, 60)) { // 前后1分钟容差
 										allData.put(downupEvent);
@@ -2030,7 +2264,7 @@ public class PassengerFlowProcessor {
 					}
 				}
 			}
-			
+
 			String result = allData.length() > 0 ? allData.toString() : "[]";
 			if (Config.LOG_DEBUG) {
 				System.out.println("[PassengerFlowProcessor] 返回downup数据: 总数据量=" + allData.length() + ", 结果长度=" + result.length());
@@ -2043,7 +2277,7 @@ public class PassengerFlowProcessor {
 			return "[]";
 		}
 	}
-	
+
 	/**
 	 * 检查时间是否在指定范围内
 	 * @param eventTimestamp 事件时间戳
@@ -2056,7 +2290,7 @@ public class PassengerFlowProcessor {
 			if (eventTimestamp == null || eventTimestamp.isEmpty()) {
 				return false;
 			}
-			
+
 			// 解析事件时间戳
 			LocalDateTime eventTime;
 			if (eventTimestamp.contains("T")) {
@@ -2064,11 +2298,11 @@ public class PassengerFlowProcessor {
 			} else {
 				eventTime = LocalDateTime.parse(eventTimestamp, formatter);
 			}
-			
+
 			// 检查是否在容差范围内
 			LocalDateTime start = targetTime.minusSeconds(toleranceSeconds);
 			LocalDateTime end = targetTime.plusSeconds(toleranceSeconds);
-			
+
 			return !eventTime.isBefore(start) && !eventTime.isAfter(end);
 		} catch (Exception e) {
 			return false;
@@ -2136,14 +2370,18 @@ public class PassengerFlowProcessor {
 
 	    /**
      * 缓存图片URL到Redis，用于后续AI分析
+     * @param sqeNo 开关门唯一批次号
      */
-    private void cacheImageUrl(Jedis jedis, String busNo, String windowId, String imageUrl, String direction) {
+    private void cacheImageUrl(Jedis jedis, String busNo, String windowId, String imageUrl, String direction, String sqeNo) {
         if (windowId != null) {
-            String imageUrlsKey = "image_urls:" + busNo + ":" + windowId + ":" + direction;
+            // 🔥 优先使用sqeNo作为图片缓存key
+            String imageUrlsKey = sqeNo != null && !sqeNo.isEmpty() ?
+                "image_urls:" + sqeNo + ":" + direction :
+                "image_urls:" + busNo + ":" + windowId + ":" + direction;
             jedis.sadd(imageUrlsKey, imageUrl);
             jedis.expire(imageUrlsKey, Config.REDIS_TTL_OPEN_TIME);
 
-            System.out.println("[图片缓存] 成功缓存图片URL: 车辆=" + busNo + ", 方向=" + direction + ", 时间窗口=" + windowId + ", URL长度=" + imageUrl.length());
+            System.out.println("[图片缓存] 成功缓存图片URL: 车辆=" + busNo + ", 方向=" + direction + ", 时间窗口=" + windowId + ", sqeNo=" + sqeNo + ", URL长度=" + imageUrl.length());
         }
     }
 
@@ -2390,12 +2628,14 @@ public class PassengerFlowProcessor {
 	 * @param jedis Redis连接
 	 * @param busNo 公交车编号
 	 * @param windowId 时间窗口ID
+	 * @param sqeNo 开关门唯一批次号
 	 */
-	private void setPassengerFeatures(BusOdRecord record, Jedis jedis, String busNo, String windowId) {
+	private void setPassengerFeatures(BusOdRecord record, Jedis jedis, String busNo, String windowId, String sqeNo) {
 		try {
-			// 标准化时间窗口ID格式，确保与存储时一致
-			String normalizedWindowId = normalizeWindowId(windowId);
-			String featuresKey = "features_set:" + busNo + ":" + normalizedWindowId;
+			// 🔥 优先使用sqeNo获取特征集合
+			String featuresKey = sqeNo != null && !sqeNo.isEmpty() ?
+				"features_set:" + sqeNo :
+				"features_set:" + busNo + ":" + normalizeWindowId(windowId);
 			Set<String> features = fetchFeaturesWithRetry(jedis, featuresKey);
 
 			if (features != null && !features.isEmpty()) {
@@ -2549,18 +2789,23 @@ public class PassengerFlowProcessor {
 		}
 	}
 
-    private int[] waitForCvResultsStable(Jedis jedis, String busNo, String windowId) {
+    private int[] waitForCvResultsStable(Jedis jedis, String busNo, String windowId, String sqeNo) {
         long start = System.currentTimeMillis();
         long lastChange = start;
-        int lastUp = getCachedUpCount(jedis, busNo, windowId);
-        int lastDown = getCachedDownCount(jedis, busNo, windowId);
+        int lastUp = getCachedUpCount(jedis, busNo, windowId, sqeNo);
+        int lastDown = getCachedDownCount(jedis, busNo, windowId, sqeNo);
         int lastImageCount = getAllImageUrls(jedis, busNo, windowId).size();
 
         if (Config.LOG_DEBUG) {
             System.out.println("[CV结果等待] 初始状态 - 上车: " + lastUp + ", 下车: " + lastDown + ", 图片: " + lastImageCount);
             System.out.println("[CV结果等待] 查询的Redis键:");
-            System.out.println("  cv_up_count:" + busNo + ":" + windowId);
-            System.out.println("  cv_down_count:" + busNo + ":" + windowId);
+            if (sqeNo != null && !sqeNo.isEmpty()) {
+                System.out.println("  🔥 cv_up_count:" + sqeNo);
+                System.out.println("  🔥 cv_down_count:" + sqeNo);
+            } else {
+                System.out.println("  cv_up_count:" + busNo + ":" + windowId);
+                System.out.println("  cv_down_count:" + busNo + ":" + windowId);
+            }
         }
 
         while (System.currentTimeMillis() - start < Config.CV_RESULT_GRACE_MS) {
@@ -2570,8 +2815,8 @@ public class PassengerFlowProcessor {
                 Thread.currentThread().interrupt();
                 break;
             }
-            int up = getCachedUpCount(jedis, busNo, windowId);
-            int down = getCachedDownCount(jedis, busNo, windowId);
+            int up = getCachedUpCount(jedis, busNo, windowId, sqeNo);
+            int down = getCachedDownCount(jedis, busNo, windowId, sqeNo);
             int img = getAllImageUrls(jedis, busNo, windowId).size();
 
             if (up != lastUp || down != lastDown || img != lastImageCount) {
@@ -2602,9 +2847,10 @@ public class PassengerFlowProcessor {
 
 	/**
 	 * 区间分方向图片
+	 * @param sqeNo 开关门唯一批次号
 	 */
 	private Map<String, List<String>> getImagesByTimeRangeSeparated(Jedis jedis, String busNo, LocalDateTime openTime,
-			LocalDateTime closeTime, int beforeSec, int afterSec) {
+			LocalDateTime closeTime, int beforeSec, int afterSec, String sqeNo) {
 		Map<String, List<String>> result = new HashMap<>();
 		result.put("up", new ArrayList<>());
 		result.put("down", new ArrayList<>());
@@ -2612,15 +2858,34 @@ public class PassengerFlowProcessor {
 		try {
 			LocalDateTime from = openTime.minusSeconds(Math.max(0, beforeSec));
 			LocalDateTime to = closeTime.plusSeconds(Math.max(0, afterSec));
-			System.out.println("[图片收集] (按方向) 区间聚合: bus=" + busNo + ", from=" + from.format(formatter) + ", to=" + to.format(formatter));
-			LocalDateTime cursor = from;
-			while (!cursor.isAfter(to)) {
-				String win = cursor.format(formatter);
-				Set<String> up = jedis.smembers("image_urls:" + busNo + ":" + win + ":up");
-				if (up != null && !up.isEmpty()) result.get("up").addAll(up);
-				Set<String> down = jedis.smembers("image_urls:" + busNo + ":" + win + ":down");
-				if (down != null && !down.isEmpty()) result.get("down").addAll(down);
-				cursor = cursor.plusSeconds(1);
+			System.out.println("[图片收集] (按方向) 区间聚合: bus=" + busNo + ", from=" + from.format(formatter) + ", to=" + to.format(formatter) + ", sqeNo=" + sqeNo);
+
+			// 🔥 优先尝试基于sqeNo的图片收集
+			if (sqeNo != null && !sqeNo.isEmpty()) {
+				Set<String> upImagesBySqe = jedis.smembers("image_urls:" + sqeNo + ":up");
+				if (upImagesBySqe != null && !upImagesBySqe.isEmpty()) {
+					result.get("up").addAll(upImagesBySqe);
+					System.out.println("[图片收集] (按方向) 基于sqeNo收集到上车图片 " + upImagesBySqe.size() + " 张");
+				}
+				Set<String> downImagesBySqe = jedis.smembers("image_urls:" + sqeNo + ":down");
+				if (downImagesBySqe != null && !downImagesBySqe.isEmpty()) {
+					result.get("down").addAll(downImagesBySqe);
+					System.out.println("[图片收集] (按方向) 基于sqeNo收集到下车图片 " + downImagesBySqe.size() + " 张");
+				}
+			}
+
+			// 🔥 如果基于sqeNo没有找到图片，按时间范围兜底收集
+			if (result.get("up").isEmpty() && result.get("down").isEmpty()) {
+				LocalDateTime cursor = from;
+				while (!cursor.isAfter(to)) {
+					String win = cursor.format(formatter);
+					Set<String> up = jedis.smembers("image_urls:" + busNo + ":" + win + ":up");
+					if (up != null && !up.isEmpty()) result.get("up").addAll(up);
+					Set<String> down = jedis.smembers("image_urls:" + busNo + ":" + win + ":down");
+					if (down != null && !down.isEmpty()) result.get("down").addAll(down);
+					cursor = cursor.plusSeconds(1);
+				}
+				System.out.println("[图片收集] (按方向) 兜底按时间范围收集完成");
 			}
 			System.out.println("[图片收集] (按方向) 区间聚合共收集到 上车=" + result.get("up").size() + ", 下车=" + result.get("down").size());
 		} catch (Exception e) {
@@ -2675,23 +2940,41 @@ public class PassengerFlowProcessor {
 
 	/**
 	 * 精确窗口分方向图片
+	 * @param sqeNo 开关门唯一批次号
 	 */
-	private Map<String, List<String>> getImagesByExactWindowSeparated(Jedis jedis, String busNo, String windowId) {
+	private Map<String, List<String>> getImagesByExactWindowSeparated(Jedis jedis, String busNo, String windowId, String sqeNo) {
 		Map<String, List<String>> result = new HashMap<>();
 		result.put("up", new ArrayList<>());
 		result.put("down", new ArrayList<>());
 		try {
-			String upImagesKey = "image_urls:" + busNo + ":" + windowId + ":up";
-			Set<String> upImages = jedis.smembers(upImagesKey);
-			if (upImages != null && !upImages.isEmpty()) {
-				result.get("up").addAll(upImages);
-				System.out.println("[图片收集] (按方向) 收集到上车图片 " + upImages.size() + " 张");
+			// 🔥 优先使用sqeNo获取图片
+			if (sqeNo != null && !sqeNo.isEmpty()) {
+				Set<String> upImagesBySqe = jedis.smembers("image_urls:" + sqeNo + ":up");
+				if (upImagesBySqe != null && !upImagesBySqe.isEmpty()) {
+					result.get("up").addAll(upImagesBySqe);
+					System.out.println("[图片收集] (按方向) 基于sqeNo收集到上车图片 " + upImagesBySqe.size() + " 张");
+				}
+				Set<String> downImagesBySqe = jedis.smembers("image_urls:" + sqeNo + ":down");
+				if (downImagesBySqe != null && !downImagesBySqe.isEmpty()) {
+					result.get("down").addAll(downImagesBySqe);
+					System.out.println("[图片收集] (按方向) 基于sqeNo收集到下车图片 " + downImagesBySqe.size() + " 张");
+				}
 			}
-			String downImagesKey = "image_urls:" + busNo + ":" + windowId + ":down";
-			Set<String> downImages = jedis.smembers(downImagesKey);
-			if (downImages != null && !downImages.isEmpty()) {
-				result.get("down").addAll(downImages);
-				System.out.println("[图片收集] (按方向) 收集到下车图片 " + downImages.size() + " 张");
+
+			// 🔥 如果基于sqeNo没有找到图片，兜底使用原有逻辑
+			if (result.get("up").isEmpty() && result.get("down").isEmpty()) {
+				String upImagesKey = "image_urls:" + busNo + ":" + windowId + ":up";
+				Set<String> upImages = jedis.smembers(upImagesKey);
+				if (upImages != null && !upImages.isEmpty()) {
+					result.get("up").addAll(upImages);
+					System.out.println("[图片收集] (按方向) 兜底收集到上车图片 " + upImages.size() + " 张");
+				}
+				String downImagesKey = "image_urls:" + busNo + ":" + windowId + ":down";
+				Set<String> downImages = jedis.smembers(downImagesKey);
+				if (downImages != null && !downImages.isEmpty()) {
+					result.get("down").addAll(downImages);
+					System.out.println("[图片收集] (按方向) 兜底收集到下车图片 " + downImages.size() + " 张");
+				}
 			}
 		} catch (Exception e) {
 			System.err.println("[图片收集] (按方向) 精确匹配异常: " + e.getMessage());
@@ -2708,4 +2991,224 @@ public class PassengerFlowProcessor {
         for (float v : vec) arr.put(v);
         return arr;
     }
+
+    /**
+     * 保存downup消息到数据库
+     */
+    private void saveDownUpMessage(JSONObject data, String busNo, String busId, String cameraNo) {
+        try {
+            // 创建完整的消息对象
+            JSONObject fullMessage = new JSONObject();
+            fullMessage.put("event", "downup");
+            fullMessage.put("data", data);
+
+            // 优化events数组中的image和feature字段
+            JSONObject optimizedData = new JSONObject(data.toString());
+            JSONArray events = optimizedData.optJSONArray("events");
+            if (events != null) {
+                for (int i = 0; i < events.length(); i++) {
+                    JSONObject event = events.getJSONObject(i);
+                    optimizeEventsImageFields(event);
+                }
+                optimizedData.put("events", events);
+            }
+
+            // 创建优化后的完整消息
+            JSONObject optimizedFullMessage = new JSONObject();
+            optimizedFullMessage.put("event", "downup");
+            optimizedFullMessage.put("data", optimizedData);
+
+            // 创建downup消息对象
+            RetrieveDownUpMsg downUpMsg = new RetrieveDownUpMsg();
+            downUpMsg.setBusNo(busNo);
+            downUpMsg.setBusId(busId); // 设置bus_id字段
+            downUpMsg.setCameraNo(cameraNo);
+            downUpMsg.setTimestamp(data.optString("timestamp"));
+            // downUpMsg.setStationId(data.optString("stationId"));
+            // downUpMsg.setStationName(data.optString("stationName"));
+            downUpMsg.setEvent("downup");
+
+            // 解析events数组
+            JSONArray eventsArray = data.optJSONArray("events");
+            if (eventsArray != null) {
+                StringBuilder eventsJson = new StringBuilder("[");
+                for (int i = 0; i < eventsArray.length(); i++) {
+                    if (i > 0) eventsJson.append(",");
+                    JSONObject event = eventsArray.getJSONObject(i);
+
+                    DownUpEvent downUpEvent = new DownUpEvent();
+                    downUpEvent.setDirection(event.optString("direction"));
+                    downUpEvent.setFeature(event.has("feature") && !event.isNull("feature") ? "有" : null);
+                    downUpEvent.setImage(event.has("image") && !event.isNull("image") ? "有" : null);
+                    downUpEvent.setBoxX(event.optInt("box_x"));
+                    downUpEvent.setBoxY(event.optInt("box_y"));
+                    downUpEvent.setBoxW(event.optInt("box_w"));
+                    downUpEvent.setBoxH(event.optInt("box_h"));
+
+                    JSONObject eventJson = new JSONObject();
+                    eventJson.put("direction", downUpEvent.getDirection());
+                    eventJson.put("feature", downUpEvent.getFeature());
+                    eventJson.put("image", downUpEvent.getImage());
+                    eventJson.put("box_x", downUpEvent.getBoxX());
+                    eventJson.put("box_y", downUpEvent.getBoxY());
+                    eventJson.put("box_w", downUpEvent.getBoxW());
+                    eventJson.put("box_h", downUpEvent.getBoxH());
+
+                    eventsJson.append(eventJson.toString());
+                }
+                eventsJson.append("]");
+                downUpMsg.setEventsJson(eventsJson.toString());
+            }
+
+            downUpMsg.setOriginalMessage(optimizedFullMessage.toString());
+
+            if (Config.LOG_INFO) {
+                System.out.println(String.format("[WebSocket消息保存] 开始保存downup消息: 车辆=%s, 车辆ID=%s, 事件数=%d",
+                    busNo, busId, eventsArray != null ? eventsArray.length() : 0));
+            }
+
+            // 异步保存到数据库
+            asyncDbServiceManager.saveDownUpMsgAsync(downUpMsg);
+
+            if (Config.LOG_INFO) {
+                System.out.println(String.format("[WebSocket消息保存] downup消息记录完成: 车辆=%s, 车辆ID=%s, 时间=%s",
+                    busNo, busId, downUpMsg.getTimestamp()));
+            }
+
+        } catch (Exception e) {
+            if (Config.LOG_ERROR) {
+                System.err.println(String.format("[WebSocket消息保存] 保存车辆 %s downup消息时发生错误: %s", busNo, e.getMessage()));
+                e.printStackTrace();
+            }
+        }
+    }
+
+    /**
+     * 保存load_factor消息到数据库
+     */
+    private void saveLoadFactorMessage(JSONObject data, String busNo, String cameraNo) {
+        try {
+            // 创建完整的消息对象
+            JSONObject fullMessage = new JSONObject();
+            fullMessage.put("event", "load_factor");
+            fullMessage.put("data", data);
+
+            // 创建load_factor消息对象
+            RetrieveLoadFactorMsg loadFactorMsg = new RetrieveLoadFactorMsg();
+            loadFactorMsg.setBusNo(busNo);
+            loadFactorMsg.setCameraNo(cameraNo);
+            loadFactorMsg.setTimestamp(data.optString("timestamp"));
+            loadFactorMsg.setCount(data.optInt("count"));
+            // 处理满载率，确保转换为BigDecimal
+            double factorValue = data.optDouble("factor", 0.0);
+            loadFactorMsg.setFactor(java.math.BigDecimal.valueOf(factorValue));
+            loadFactorMsg.setEvent("load_factor");
+            loadFactorMsg.setOriginalMessage(fullMessage.toString());
+
+            if (Config.LOG_INFO) {
+                System.out.println(String.format("[WebSocket消息保存] 开始保存load_factor消息: 车辆=%s, 人数=%d, 满载率=%.2f",
+                    busNo, loadFactorMsg.getCount(), loadFactorMsg.getFactor()));
+            }
+
+            // 异步保存到数据库
+            asyncDbServiceManager.saveLoadFactorMsgAsync(loadFactorMsg);
+
+            if (Config.LOG_INFO) {
+                System.out.println(String.format("[WebSocket消息保存] load_factor消息记录完成: 车辆=%s, 时间=%s",
+                    busNo, loadFactorMsg.getTimestamp()));
+            }
+
+        } catch (Exception e) {
+            if (Config.LOG_ERROR) {
+                System.err.println(String.format("[WebSocket消息保存] 保存车辆 %s load_factor消息时发生错误: %s", busNo, e.getMessage()));
+                e.printStackTrace();
+            }
+        }
+    }
+
+    /**
+     * 优化事件对象中的image和feature字段
+     */
+    private void optimizeEventsImageFields(JSONObject event) {
+        // 优化image字段
+        if (event.has("image") && !event.isNull("image")) {
+            String imageValue = event.optString("image");
+            if (imageValue != null && !imageValue.trim().isEmpty()) {
+                event.put("image", "有");
+            }
+        }
+
+        // 优化feature字段
+        if (event.has("feature") && !event.isNull("feature")) {
+            String featureValue = event.optString("feature");
+            if (featureValue != null && !featureValue.trim().isEmpty()) {
+                event.put("feature", "有");
+            }
+        }
+    }
+
+    /**
+     * 保存WebSocket消息到数据库
+     * 第一时间无条件保存所有WebSocket消息到retrieve_all_ws表
+     */
+    private void saveWebSocketMessage(JSONObject eventJson, String event, JSONObject data) {
+        try {
+            if (data == null) return;
+
+            // 创建WebSocket消息记录对象
+            RetrieveAllWs allWs = new RetrieveAllWs();
+
+            // 基本信息
+            String busNo = data.optString("bus_no");
+            if (busNo == null || busNo.trim().isEmpty()) {
+                busNo = "UNKNOWN";
+            }
+
+            allWs.setBusNo(busNo);
+            allWs.setEvent(event);
+            allWs.setRawMessage(eventJson.toString());
+            allWs.setReceivedAt(LocalDateTime.now());
+
+            // 提取关键字段
+            allWs.setBusId(data.optString("bus_id"));
+            allWs.setCameraNo(data.optString("camera_no"));
+            allWs.setStationId(data.optString("stationId"));
+            allWs.setStationName(data.optString("stationName"));
+
+            // 解析时间戳
+            String timestamp = data.optString("timestamp");
+            if (timestamp != null && !timestamp.trim().isEmpty()) {
+                try {
+                    LocalDateTime parsedTime = LocalDateTime.parse(timestamp.trim(),
+                        java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+                    allWs.setMessageTimestamp(parsedTime);
+                } catch (Exception e) {
+                    // 解析失败使用当前时间
+                    allWs.setMessageTimestamp(LocalDateTime.now());
+                }
+            } else {
+                allWs.setMessageTimestamp(LocalDateTime.now());
+            }
+
+            // 确保bus_id不为空
+            if (allWs.getBusId() == null || allWs.getBusId().trim().isEmpty()) {
+                allWs.setBusId(busNo);
+            }
+
+            if (Config.LOG_DEBUG) {
+                System.out.println(String.format("[第一时间保存] WebSocket消息到retrieve_all_ws: 事件=%s, 车辆=%s",
+                    event, busNo));
+            }
+
+            // 异步保存到retrieve_all_ws表
+            asyncDbServiceManager.saveAllWebSocketMessageAsync(allWs);
+
+        } catch (Exception e) {
+            if (Config.LOG_ERROR) {
+                System.err.println(String.format("[第一时间保存] 保存WebSocket消息时发生错误: 事件=%s, 错误=%s", event, e.getMessage()));
+                e.printStackTrace();
+            }
+        }
+    }
+
 }

@@ -27,6 +27,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Kafka消费者服务，统一消费多个主题，判断开门/关门，发送信号到CV
@@ -70,6 +71,12 @@ public class KafkaConsumerService {
 
     // 本地乘客流处理器：用于在判定开/关门后直接触发处理，无需依赖CV回推
     private final PassengerFlowProcessor passengerFlowProcessor = new PassengerFlowProcessor();
+
+    // 异步数据库服务管理器（替换原有的同步数据库服务）
+    private final AsyncDbServiceManager asyncDbServiceManager = AsyncDbServiceManager.getInstance();
+
+    // 性能统计相关
+    private long lastPerformanceLogTime = System.currentTimeMillis();
 
     /**
      * 安全地序列化JSON对象，避免循环引用问题
@@ -285,6 +292,20 @@ public class KafkaConsumerService {
                 }
             }
 
+            // 关闭异步数据库服务管理器
+            if (asyncDbServiceManager != null) {
+                try {
+                    asyncDbServiceManager.shutdown();
+                    if (Config.LOG_INFO) {
+                        System.out.println("[KafkaConsumerService] Async database service manager shutdown completed");
+                    }
+                } catch (Exception e) {
+                    if (Config.LOG_ERROR) {
+                        System.err.println("[KafkaConsumerService] Error shutting down async database service manager: " + e.getMessage());
+                    }
+                }
+            }
+
             if (Config.LOG_INFO) {
                 System.out.println("[KafkaConsumerService] Kafka consumer service stopped completely");
             }
@@ -299,6 +320,13 @@ public class KafkaConsumerService {
             try {
                 // 减少poll超时时间，确保能够快速响应停止信号
                 ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(500));
+
+                // 定期打印异步数据库性能统计（每5分钟一次）
+                long currentTime = System.currentTimeMillis();
+                if (currentTime - lastPerformanceLogTime > 300000) { // 5分钟
+                    asyncDbServiceManager.printPerformanceStats();
+                    lastPerformanceLogTime = currentTime;
+                }
                 for (ConsumerRecord<String, String> record : records) {
                     try {
                         JSONObject message = new JSONObject(record.value());
@@ -306,13 +334,25 @@ public class KafkaConsumerService {
                         String busNo = message.optString("busSelfNo", message.optString("busNo"));
                         if (busNo.isEmpty()) continue;
 
-                        // 票务数据不进行试点线路过滤，直接处理
+                        // 设置当前处理的topic
+                        setCurrentTopic(topic);
+
+        // 第一时间（无条件保存监听到的msg，确保数据完整性）
+        String sqeNo = getCurrentSqeNoFromRedis(busNo);
+        saveMessage(topic, message, busNo, sqeNo);
+
+                        // 票务数据处理：第一时间保存到数据库
                         if (topic.equals(KafkaConfig.TICKET_TOPIC)) {
                             System.out.println("[票务数据接收] 收到票务Kafka原始数据:");
                             System.out.println("   topic=" + topic);
                             System.out.println("   busNo=" + busNo);
                             System.out.println("   完整消息: " + message.toString());
                             System.out.println("   ================================================================================");
+
+                            // 第一时间保存刷卡数据到数据库（无条件保存，确保数据完整性）
+                            handleCardSwipeDataImmediate(message, busNo);
+
+                            // 继续原有的票务处理逻辑
                             processMessage(topic, message, busNo);
                             continue;
                         }
@@ -451,7 +491,7 @@ public class KafkaConsumerService {
             }
 
             // 判断开门/关门
-            judgeAndSendDoorSignal(busNo, jedis);
+            judgeAndSendDoorSignal(topic, message, busNo, jedis);
         } catch (Exception e) {
             if (Config.LOG_ERROR) {
                 System.err.println("[KafkaConsumerService] Process message error: " + e.getMessage());
@@ -522,8 +562,14 @@ public class KafkaConsumerService {
                            "5".equals(trafficType2) ? "down" : trafficType2;
         String routeNo = message.optString("routeNo");
 
+        // 第一时间保存到离站数据到数据库（无条件保存，确保数据完整性）
+        handleArriveLeaveDataImmediate(message, busNo, routeNo, isArriveOrLeft, stationName);
+
         // 收集原始Kafka数据用于校验
         collectBusGpsMsg(busNo, message, jedis);
+
+        // 处理到离站数据：检查是否为试点线路车辆并保存到数据库
+        //handleArriveLeaveData(message, busNo, routeNo, isArriveOrLeft, stationName);
 
         // 对白名单中的车辆打印完整的到离站Kafka原始数据 - 已注释，只保留试点线路
         /*
@@ -665,7 +711,7 @@ public class KafkaConsumerService {
         System.out.println("   ================================================================================");
     }
 
-    private void judgeAndSendDoorSignal(String busNo, Jedis jedis) throws JsonProcessingException {
+    private void judgeAndSendDoorSignal(String topic, JSONObject message, String busNo, Jedis jedis) throws JsonProcessingException {
         // 白名单检查：只有白名单内的车辆才能触发开关门信号 - 已注释，只保留试点线路
         /*
         if (!isDoorSignalWhitelisted(busNo)) {
@@ -673,6 +719,9 @@ public class KafkaConsumerService {
             return;
         }
         */
+
+        // 第一时间（无条件保存监听到的msg，确保数据完整性）
+        // saveMessage(topic, message, busNo);
 
         // 获取缓存数据（仅到离站）
         String arriveLeaveStr = jedis.get("arrive_leave:" + busNo);
@@ -684,12 +733,12 @@ public class KafkaConsumerService {
 
         JSONObject arriveLeave = new JSONObject(arriveLeaveStr);
         String stationId = arriveLeave.optString("stationId");
-        
+
         // 检查是否处理过相同的到离站信号（基于seqNum和timestamp）
         String isArriveOrLeft = arriveLeave.optString("isArriveOrLeft");
         String seqNum = arriveLeave.optString("seqNum");
         String timestamp = arriveLeave.optString("timestamp");
-        
+
         if (seqNum != null && !seqNum.isEmpty() && timestamp != null && !timestamp.isEmpty()) {
             String processedKey = "processed_signal:" + busNo + ":" + seqNum + ":" + timestamp;
             if (jedis.get(processedKey) != null) {
@@ -955,6 +1004,9 @@ public class KafkaConsumerService {
                 }
             }
 
+            // 🔥 生成开关门唯一批次号
+            String sqeNo = generateSqeNo(busNo, timestamp, action);
+
             // 严格按照约定格式构建消息
             JSONObject doorSignal = new JSONObject();
             doorSignal.put("event", "open_close_door");
@@ -964,6 +1016,7 @@ public class KafkaConsumerService {
             data.put("bus_id", busId); // 车辆ID（到离站中的busNo）
             data.put("camera_no", "default"); // 摄像头编号，没有地方获取，传default
             data.put("action", action); // open 或 close
+            data.put("sqe_no", sqeNo); // 🔥 新增：开关门唯一批次号
             data.put("timestamp", timestamp.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
             data.put("stationId", stationId); // 站点ID
             data.put("stationName", stationName); // 站点名称
@@ -980,6 +1033,11 @@ public class KafkaConsumerService {
             if (Config.LOG_INFO) {
                 System.out.println("[KafkaConsumerService] 发送" + (action.equals("open") ? "开门" : "关门") + "信号到CV系统: busNo=" + busNo + ", busId=" + busId);
             }
+
+            // 保存WebSocket消息到数据库
+            saveOpenCloseDoorMessage(data.optString("bus_no"), data.optString("bus_id"),
+                data.optString("camera_no"), action, data.optString("timestamp"),
+                stationId, stationName, data);
 
             // 本地自回推：直接触发 PassengerFlowProcessor 处理开/关门事件
             // 这样即使CV不回发 open_close_door，也能继续OD流程
@@ -1024,7 +1082,7 @@ public class KafkaConsumerService {
             String eventType = "1".equals(isArriveOrLeft) ? "door_open" : "door_close";
             String stationId = message.optString("stationId");
             String stationName = message.optString("stationName");
-            
+
             // 构建包含事件类型和原始Kafka数据的JSON对象
             JSONObject gpsMsg = new JSONObject();
             gpsMsg.put("eventType", eventType);
@@ -1032,10 +1090,10 @@ public class KafkaConsumerService {
             gpsMsg.put("stationId", stationId);
             gpsMsg.put("stationName", stationName);
             gpsMsg.put("timestamp", message.optString("gmtTime"));
-            
+
             // 按站点分组存储，每个站点只存储一对开关门信号
             String key = "bus_gps_msg:" + busNo + ":" + stationId;
-            
+
             // 获取该站点的现有数据数组
             String existingDataStr = jedis.get(key);
             JSONArray gpsMsgArray;
@@ -1044,40 +1102,40 @@ public class KafkaConsumerService {
             } else {
                 gpsMsgArray = new JSONArray();
             }
-            
+
             // 严格去重：检查是否已经有完全相同的信号（类型+时间戳+其他关键字段）
             boolean isDuplicate = false;
             for (int i = 0; i < gpsMsgArray.length(); i++) {
                 JSONObject existingMsg = gpsMsgArray.getJSONObject(i);
-                
+
                 // 检查类型是否相同
                 if (eventType.equals(existingMsg.optString("eventType"))) {
                     // 检查时间戳是否相同
                     String existingTime = existingMsg.optString("timestamp");
                     String newTime = gpsMsg.optString("timestamp");
-                    
+
                     if (newTime != null && !newTime.isEmpty() && existingTime != null && !existingTime.isEmpty()) {
                         if (newTime.equals(existingTime)) {
                             // 时间戳相同，进一步检查其他关键字段
                             JSONObject existingKafkaData = existingMsg.optJSONObject("kafkaData");
                             JSONObject newKafkaData = gpsMsg.optJSONObject("kafkaData");
-                            
+
                             if (existingKafkaData != null && newKafkaData != null) {
                                 // 检查seqNum是否相同（报文顺序号）
                                 String existingSeqNum = existingKafkaData.optString("seqNum");
                                 String newSeqNum = newKafkaData.optString("seqNum");
-                                
+
                                 // 检查sendType是否相同（发送类型）
                                 String existingSendType = existingKafkaData.optString("sendType");
                                 String newSendType = newKafkaData.optString("sendType");
-                                
+
                                 // 检查pktSeq是否相同（包序列号）
                                 String existingPktSeq = existingKafkaData.optString("pktSeq");
                                 String newPktSeq = newKafkaData.optString("pktSeq");
-                                
+
                                 // 更严格的去重条件：时间戳相同且（seqNum相同 或 sendType相同 或 pktSeq相同）
-                                if (existingSeqNum.equals(newSeqNum) || 
-                                    existingSendType.equals(newSendType) || 
+                                if (existingSeqNum.equals(newSeqNum) ||
+                                    existingSendType.equals(newSendType) ||
                                     existingPktSeq.equals(newPktSeq)) {
                                     // 完全相同的信号，去重
                                     isDuplicate = true;
@@ -1093,7 +1151,7 @@ public class KafkaConsumerService {
                                 java.time.LocalDateTime existingDateTime = java.time.LocalDateTime.parse(existingTime.replace(" ", "T"));
                                 java.time.LocalDateTime newDateTime = java.time.LocalDateTime.parse(newTime.replace(" ", "T"));
                                 long timeDiffSeconds = java.time.Duration.between(existingDateTime, newDateTime).getSeconds();
-                                
+
                                 // 如果时间差在5秒内且类型相同，认为是重复信号
                                 if (Math.abs(timeDiffSeconds) <= 5) {
                                     isDuplicate = true;
@@ -1112,7 +1170,7 @@ public class KafkaConsumerService {
                     }
                 }
             }
-            
+
             // 如果不是重复信号，则添加新数据
             if (!isDuplicate) {
                 gpsMsgArray.put(gpsMsg);
@@ -1120,11 +1178,11 @@ public class KafkaConsumerService {
                     System.out.println("[KafkaConsumerService] 添加新信号: busNo=" + busNo + ", stationId=" + stationId + ", eventType=" + eventType + ", timestamp=" + gpsMsg.optString("timestamp") + ", 当前信号数=" + gpsMsgArray.length());
                 }
             }
-            
+
             // 存储到Redis，设置过期时间
             jedis.set(key, gpsMsgArray.toString());
             jedis.expire(key, Config.REDIS_TTL_OPEN_TIME);
-            
+
             if (Config.LOG_DEBUG) {
                 System.out.println("[KafkaConsumerService] 收集到离站信号原始数据: busNo=" + busNo + ", stationId=" + stationId + ", stationName=" + stationName + ", eventType=" + eventType);
             }
@@ -1132,6 +1190,521 @@ public class KafkaConsumerService {
             if (Config.LOG_ERROR) {
                 System.err.println("[KafkaConsumerService] 收集到离站信号原始数据失败: " + e.getMessage());
             }
+        }
+    }
+
+    /**
+     * 保存开关门WebSocket消息到数据库
+     */
+    private void saveOpenCloseDoorMessage(String busNo, String busId, String cameraNo, String action,
+            String timestamp, String stationId, String stationName, JSONObject originalData) {
+        try {
+            // 创建完整的消息对象，包含event字段（open_close_door消息不包含image字段）
+            JSONObject fullMessage = new JSONObject();
+            fullMessage.put("event", "open_close_door");
+            fullMessage.put("data", originalData);
+
+            // 创建开关门消息对象
+            OpenCloseDoorMsg doorMsg = new OpenCloseDoorMsg();
+            doorMsg.setBusNo(busNo);
+            doorMsg.setBusId(busId); // 设置bus_id字段
+            doorMsg.setCameraNo(cameraNo);
+            doorMsg.setAction(action);
+            doorMsg.setTimestamp(timestamp);
+
+            // 解析时间戳
+            if (timestamp != null && !timestamp.trim().isEmpty()) {
+                try {
+                    LocalDateTime parsedTime = LocalDateTime.parse(timestamp.trim(),
+                        java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+                    doorMsg.setParsedTimestamp(parsedTime);
+                } catch (Exception e) {
+                    if (Config.LOG_ERROR) {
+                        System.err.println(String.format("[WebSocket消息保存] 解析时间戳失败: %s, 错误: %s", timestamp, e.getMessage()));
+                    }
+                    // 时间戳解析失败时使用当前时间
+                    doorMsg.setParsedTimestamp(LocalDateTime.now());
+                }
+            } else {
+                // 时间戳为空时使用当前时间
+                doorMsg.setParsedTimestamp(LocalDateTime.now());
+            }
+
+            doorMsg.setStationId(stationId);
+            doorMsg.setStationName(stationName);
+            doorMsg.setEvent("open_close_door");
+            doorMsg.setOriginalMessage(fullMessage.toString());
+
+            if (Config.LOG_INFO) {
+                String actionDesc = "open".equals(action) ? "开门" : "关门";
+                System.out.println(String.format("[WebSocket消息保存] 开始保存%s消息: 车辆=%s, 车辆ID=%s, 站点=%s",
+                    actionDesc, busNo, busId, stationName));
+            }
+
+            // 异步保存到数据库
+            asyncDbServiceManager.saveOpenCloseDoorMsgAsync(doorMsg);
+
+            if (Config.LOG_INFO) {
+                String actionDesc = "open".equals(action) ? "开门" : "关门";
+                System.out.println(String.format("[WebSocket消息保存] %s消息记录完成: 车辆=%s, 车辆ID=%s, 站点=%s, 时间=%s",
+                    actionDesc, busNo, busId, stationName, timestamp));
+            }
+
+        } catch (Exception e) {
+            if (Config.LOG_ERROR) {
+                System.err.println(String.format("[WebSocket消息保存] 保存车辆 %s 开关门消息时发生错误: %s", busNo, e.getMessage()));
+                e.printStackTrace();
+            }
+        }
+    }
+
+    /**
+     * 第一时间保存刷卡数据到数据库（无条件保存）
+     */
+    private void handleCardSwipeDataImmediate(JSONObject message, String busNo) {
+        try {
+            // 解析刷卡数据
+            BusCardSwipeData cardData = new BusCardSwipeData();
+            cardData.setBusSelfNo(message.optString("busSelfNo", busNo)); // 如果busSelfNo为空，使用busNo作为fallback
+            cardData.setCardNo(message.optString("cardNo"));
+            cardData.setCardType(message.optString("cardType"));
+            cardData.setChildCardType(message.optString("childCardType"));
+            cardData.setOnOff(message.optString("onOff"));
+            cardData.setTradeNo(message.optString("tradeNo"));
+            cardData.setTradeTime(message.optString("tradeTime"));
+
+            // 🔥 获取当前车辆的sqe_no（从Redis中获取当前开门批次）
+            String sqeNo = getCurrentSqeNoFromRedis(busNo);
+            cardData.setSqeNo(sqeNo);
+
+            if (Config.LOG_INFO) {
+                System.out.println(String.format("[第一时间保存] 刷卡数据: 车辆=%s, 卡号=%s, 交易时间=%s, sqeNo=%s",
+                    busNo, cardData.getCardNo(), cardData.getTradeTime(), sqeNo));
+            }
+
+            // 异步保存到数据库
+            asyncDbServiceManager.saveCardSwipeDataAsync(cardData);
+
+        } catch (Exception e) {
+            if (Config.LOG_ERROR) {
+                System.err.println(String.format("[第一时间保存] 保存车辆 %s 刷卡数据时发生错误: %s", busNo, e.getMessage()));
+                e.printStackTrace();
+            }
+        }
+    }
+
+    /**
+     * 第一时间保存到离站数据到数据库（无条件保存）
+     */
+    private void handleArriveLeaveDataImmediate(JSONObject message, String busNo, String routeNo, String isArriveOrLeft, String stationName) {
+        try {
+            // 解析到离站数据
+            BusArriveLeaveData arriveLeaveData = new BusArriveLeaveData();
+            arriveLeaveData.setBusNo(busNo);
+            arriveLeaveData.setBusSelfNo(message.optString("busSelfNo", busNo)); // 设置车辆自编号
+            arriveLeaveData.setBusId(message.optLong("busId"));
+            arriveLeaveData.setSrcAddr(message.optString("srcAddr"));
+            arriveLeaveData.setSeqNum(message.optLong("seqNum"));
+            arriveLeaveData.setPacketTime(message.optLong("packetTime"));
+            arriveLeaveData.setIsArriveOrLeft(isArriveOrLeft);
+            arriveLeaveData.setStationId(message.optString("stationId"));
+            arriveLeaveData.setStationName(stationName);
+            arriveLeaveData.setNextStationSeqNum(message.optString("nextStationSeqNum"));
+            arriveLeaveData.setTrafficType(message.optString("trafficType"));
+            arriveLeaveData.setRouteNo(routeNo); // 设置线路编号
+            arriveLeaveData.setPktType(message.optInt("pktType", 4)); // 设置包类型，到离站消息默认为4
+
+            // direction映射逻辑
+            String trafficType = message.optString("trafficType");
+            String direction = "4".equals(trafficType) || "6".equals(trafficType) ? "up" :
+                              "5".equals(trafficType) ? "down" : trafficType;
+            arriveLeaveData.setDirection(direction);
+
+            // 保存原始消息
+            arriveLeaveData.setOriginalMessage(message.toString());
+
+            // 🔥 获取当前车辆的sqe_no（从Redis中获取当前开门批次）
+            String sqeNo = getCurrentSqeNoFromRedis(busNo);
+            arriveLeaveData.setSqeNo(sqeNo);
+
+            // 异步保存到数据库
+            asyncDbServiceManager.saveArriveLeaveDataAsync(arriveLeaveData);
+
+            if (Config.LOG_INFO) {
+                String actionDesc = "1".equals(isArriveOrLeft) ? "到站" : "2".equals(isArriveOrLeft) ? "离站" : "其他";
+                System.out.println(String.format("[第一时间保存] 到离站数据: 车辆=%s, %s, 站点=%s, 线路=%s, sqeNo=%s",
+                    busNo, actionDesc, stationName, routeNo, sqeNo));
+            }
+
+        } catch (Exception e) {
+            if (Config.LOG_ERROR) {
+                System.err.println(String.format("[第一时间保存] 保存车辆 %s 到离站数据时发生错误: %s", busNo, e.getMessage()));
+                e.printStackTrace();
+            }
+        }
+    }
+
+    /**
+     * 处理刷卡数据
+     */
+    private void handleCardSwipeData(JSONObject message, String busNo) {
+        try {
+            // 检查是否为试点线路车辆
+            if (!isPilotVehicle(busNo)) {
+                if (Config.LOG_DEBUG) {
+                    System.out.println(String.format("[刷卡数据过滤] 车辆 %s 不在试点线路中，跳过保存", busNo));
+                }
+                return;
+            }
+
+            // 解析刷卡数据
+            BusCardSwipeData cardData = new BusCardSwipeData();
+            cardData.setBusSelfNo(message.optString("busSelfNo", busNo)); // 如果busSelfNo为空，使用busNo作为fallback
+            cardData.setCardNo(message.optString("cardNo"));
+            cardData.setCardType(message.optString("cardType"));
+            cardData.setChildCardType(message.optString("childCardType"));
+            cardData.setOnOff(message.optString("onOff"));
+            cardData.setTradeNo(message.optString("tradeNo"));
+            cardData.setTradeTime(message.optString("tradeTime"));
+
+            if (Config.LOG_INFO) {
+                System.out.println(String.format("[刷卡数据处理] 试点线路车辆 %s 刷卡数据，开始保存到数据库", busNo));
+            }
+
+            // 异步保存到数据库
+            asyncDbServiceManager.saveCardSwipeDataAsync(cardData);
+
+            if (Config.LOG_INFO) {
+                System.out.println(String.format("[刷卡数据保存] 车辆 %s 刷卡数据已提交异步保存: 卡号=%s, 交易时间=%s",
+                    busNo, cardData.getCardNo(), cardData.getTradeTime()));
+            }
+
+        } catch (Exception e) {
+            if (Config.LOG_ERROR) {
+                System.err.println(String.format("[刷卡数据处理] 处理车辆 %s 刷卡数据时发生错误: %s", busNo, e.getMessage()));
+                e.printStackTrace();
+            }
+        }
+    }
+
+    /**
+     * 处理到离站数据
+     */
+    private void handleArriveLeaveData(JSONObject message, String busNo, String routeNo, String isArriveOrLeft, String stationName) {
+        try {
+            // 检查是否为试点线路
+            if (!isPilotRoute(routeNo)) {
+                if (Config.LOG_DEBUG) {
+                    System.out.println(String.format("[到离站数据过滤] 线路 %s 不在试点线路中，跳过保存", routeNo));
+                }
+                return;
+            }
+
+            // 解析到离站数据
+            BusArriveLeaveData arriveLeaveData = new BusArriveLeaveData();
+            arriveLeaveData.setBusNo(busNo);
+            arriveLeaveData.setBusSelfNo(message.optString("busSelfNo", busNo)); // 设置车辆自编号
+            arriveLeaveData.setBusId(message.optLong("busId"));
+            arriveLeaveData.setSrcAddr(message.optString("srcAddr"));
+            arriveLeaveData.setSeqNum(message.optLong("seqNum"));
+            arriveLeaveData.setPacketTime(message.optLong("packetTime"));
+            arriveLeaveData.setIsArriveOrLeft(isArriveOrLeft);
+            arriveLeaveData.setStationId(message.optString("stationId"));
+            arriveLeaveData.setStationName(stationName);
+            arriveLeaveData.setNextStationSeqNum(message.optString("nextStationSeqNum"));
+            arriveLeaveData.setTrafficType(message.optString("trafficType"));
+            arriveLeaveData.setRouteNo(routeNo); // 设置线路编号
+            arriveLeaveData.setPktType(message.optInt("pktType", 4)); // 设置包类型，到离站消息默认为4
+
+            // direction映射逻辑
+            String trafficType = message.optString("trafficType");
+            String direction = "4".equals(trafficType) || "6".equals(trafficType) ? "up" :
+                              "5".equals(trafficType) ? "down" : trafficType;
+            arriveLeaveData.setDirection(direction);
+
+            // 保存原始消息
+            arriveLeaveData.setOriginalMessage(message.toString());
+
+            // 异步保存到数据库
+            asyncDbServiceManager.saveArriveLeaveDataAsync(arriveLeaveData);
+
+            if (Config.LOG_INFO) {
+                String actionDesc = "1".equals(isArriveOrLeft) ? "到站" : "2".equals(isArriveOrLeft) ? "离站" : "其他";
+                System.out.println(String.format("[到离站数据保存] 车辆 %s %s数据已提交异步保存: 站点=%s, 线路=%s",
+                    busNo, actionDesc, stationName, routeNo));
+            }
+
+        } catch (Exception e) {
+            if (Config.LOG_ERROR) {
+                System.err.println(String.format("[到离站数据处理] 处理车辆 %s 到离站数据时发生错误: %s", busNo, e.getMessage()));
+                e.printStackTrace();
+            }
+        }
+    }
+
+    /**
+     * 检查车辆是否为试点车辆
+     */
+    private boolean isPilotVehicle(String busNo) {
+        try (Jedis jedis = jedisPool.getResource()) {
+            jedis.auth(Config.REDIS_PASSWORD);
+
+            // 先尝试从GPS数据获取线路信息
+            String gpsData = jedis.get("gps:" + busNo);
+            if (gpsData != null) {
+                JSONObject gpsJson = new JSONObject(gpsData);
+                String routeNo = gpsJson.optString("routeNo");
+                if (routeNo != null && !routeNo.isEmpty() && isPilotRoute(routeNo)) {
+                    return true;
+                }
+            }
+
+            // 再尝试从到离站数据获取线路信息
+            String arriveLeaveData = jedis.get("arrive_leave:" + busNo);
+            if (arriveLeaveData != null) {
+                JSONObject arriveLeaveJson = new JSONObject(arriveLeaveData);
+                String routeNo = arriveLeaveJson.optString("routeNo");
+                if (routeNo != null && !routeNo.isEmpty() && isPilotRoute(routeNo)) {
+                    return true;
+                }
+            }
+
+        } catch (Exception e) {
+            if (Config.LOG_ERROR) {
+                System.err.println(String.format("[试点车辆检查] 检查车辆 %s 时发生错误: %s", busNo, e.getMessage()));
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 无条件保存所有收到的消息到数据库
+     * 确保数据完整性，第一时间保存原始消息
+     */
+    private void saveMessage(String topic, JSONObject message, String busNo, String sqeNo) {
+        try {
+            switch (topic) {
+                case KafkaConfig.BUS_GPS_TOPIC:
+                    String routeNo = message.optString("routeNo");
+                    if (routeNo == null || routeNo.isEmpty()) {
+                        return;
+                    }
+
+                    // 检查是否为试点线路
+                    if (routeNo != null && !routeNo.isEmpty() && !isPilotRoute(routeNo)) {
+                        if (Config.LOG_DEBUG) {
+                        System.out.println(String.format("[GPS数据过滤] 线路 %s 不在试点线路中，跳过保存", routeNo));
+                    }
+
+                    return;
+                }
+
+                case KafkaConfig.TICKET_TOPIC:
+                    break;
+                default:
+                    break;
+            }
+
+
+            // 创建消息记录对象
+            RetrieveAllMsg allMsg = new RetrieveAllMsg();
+
+            // 基本信息
+            allMsg.setBusNo(busNo);
+            allMsg.setSource("kafka");
+            allMsg.setRawMessage(message.toString());
+            allMsg.setReceivedAt(LocalDateTime.now());
+            allMsg.setTopic(topic);
+
+            // 根据topic确定消息类型
+            if (KafkaConfig.TICKET_TOPIC.equals(topic)) {
+                allMsg.setMessageType("kafka_ticket");
+                // 提取票务相关字段
+                parseTicketMessage(message, allMsg);
+            } else if (KafkaConfig.BUS_GPS_TOPIC.equals(topic)) {
+                allMsg.setMessageType("kafka_gps");
+                // 提取GPS相关字段
+                parseGpsMessage(message, allMsg);
+            } else {
+                allMsg.setMessageType("kafka_unknown");
+            }
+
+            // 通用字段提取
+            parseCommonFields(message, allMsg);
+
+            // 🔥 设置sqe_no
+            allMsg.setSqeNo(sqeNo);
+
+            if (Config.LOG_DEBUG) {
+                System.out.println(String.format("[第一时间保存] 消息类型=%s, 车辆=%s, 来源=%s, sqeNo=%s",
+                    allMsg.getMessageType(), busNo, allMsg.getSource(), sqeNo));
+            }
+
+            // 异步保存到数据库
+            asyncDbServiceManager.saveAllMessageAsync(allMsg);
+
+        } catch (Exception e) {
+            if (Config.LOG_ERROR) {
+                System.err.println(String.format("[第一时间保存] 保存车辆 %s 消息时发生错误: %s", busNo, e.getMessage()));
+                e.printStackTrace();
+            }
+        }
+    }
+
+    /**
+     * 解析票务消息的特定字段
+     */
+    private void parseTicketMessage(JSONObject message, RetrieveAllMsg allMsg) {
+        try {
+            // 票务消息特有字段
+            allMsg.setBusId(message.optString("busSelfNo"));
+
+            // 尝试解析时间戳
+            String tradeTime = message.optString("tradeTime");
+            if (tradeTime != null && !tradeTime.trim().isEmpty()) {
+                try {
+                    LocalDateTime timestamp = LocalDateTime.parse(tradeTime.trim(),
+                        java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+                    allMsg.setMessageTimestamp(timestamp);
+                } catch (Exception e) {
+                    // 解析失败使用当前时间
+                    allMsg.setMessageTimestamp(LocalDateTime.now());
+                }
+            }
+        } catch (Exception e) {
+            if (Config.LOG_ERROR) {
+                System.err.println("[第一时间保存] 解析票务消息字段失败: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * 解析GPS消息的特定字段
+     */
+    private void parseGpsMessage(JSONObject message, RetrieveAllMsg allMsg) {
+        try {
+            // GPS消息特有字段
+            allMsg.setBusId(String.valueOf(message.optLong("busId")));
+            allMsg.setRouteNo(message.optString("routeNo"));
+            allMsg.setStationId(message.optString("stationId"));
+            allMsg.setStationName(message.optString("stationName"));
+
+            // 尝试解析时间戳
+            String gmtTime = message.optString("gmtTime");
+            if (gmtTime != null && !gmtTime.trim().isEmpty()) {
+                try {
+                    LocalDateTime timestamp = LocalDateTime.parse(gmtTime.trim(),
+                        java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+                    allMsg.setMessageTimestamp(timestamp);
+                } catch (Exception e) {
+                    // 解析失败使用当前时间
+                    allMsg.setMessageTimestamp(LocalDateTime.now());
+                }
+            }
+        } catch (Exception e) {
+            if (Config.LOG_ERROR) {
+                System.err.println("[第一时间保存] 解析GPS消息字段失败: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * 解析通用字段
+     */
+    private void parseCommonFields(JSONObject message, RetrieveAllMsg allMsg) {
+        try {
+            // 如果bus_id为空，尝试从其他字段获取
+            if (allMsg.getBusId() == null || allMsg.getBusId().trim().isEmpty()) {
+                allMsg.setBusId(message.optString("busSelfNo"));
+            }
+
+            // 如果仍然为空，使用busNo
+            if (allMsg.getBusId() == null || allMsg.getBusId().trim().isEmpty()) {
+                allMsg.setBusId(allMsg.getBusNo());
+            }
+
+            // 如果消息时间戳为空，使用当前时间
+            if (allMsg.getMessageTimestamp() == null) {
+                allMsg.setMessageTimestamp(LocalDateTime.now());
+            }
+        } catch (Exception e) {
+            if (Config.LOG_ERROR) {
+                System.err.println("[第一时间保存] 解析通用字段失败: " + e.getMessage());
+            }
+        }
+    }
+
+    // 用于跟踪当前处理的topic的变量
+    private String currentTopic = null;
+
+    /**
+     * 获取当前处理的topic
+     */
+    private String getCurrentTopic() {
+        return currentTopic;
+    }
+
+    /**
+     * 设置当前处理的topic
+     */
+    private void setCurrentTopic(String topic) {
+        this.currentTopic = topic;
+    }
+
+    /**
+     * 生成开关门唯一批次号（sqe_no）
+     * 格式: {busId}_{timestamp}_{uuid}
+     * 示例: 8-203_20250115143025_abc12345
+     */
+    private String generateSqeNo(String busNo, LocalDateTime timestamp, String action) {
+        try {
+            // 格式化时间戳：yyyyMMddHHmmss
+            String timeStr = timestamp.format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
+
+            // 生成短UUID（取前8位）
+            String shortUuid = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+
+            // 组合：busNo_timestamp_uuid (去掉action)
+            String sqeNo = String.format("%s_%s_%s", busNo, timeStr, shortUuid);
+
+            if (Config.LOG_DEBUG) {
+                System.out.println("[SqeNo生成] busNo=" + busNo + ", action=" + action + ", sqeNo=" + sqeNo);
+            }
+
+            return sqeNo;
+        } catch (Exception e) {
+            if (Config.LOG_ERROR) {
+                System.err.println("[SqeNo生成] 生成sqe_no失败: " + e.getMessage());
+            }
+            // 兜底：使用简单的时间戳+随机数 (也去掉action)
+            long timestamp_ms = System.currentTimeMillis();
+            return busNo + "_" + timestamp_ms + "_" + (int)(Math.random() * 10000);
+        }
+    }
+
+    /**
+     * 从Redis获取当前车辆的sqe_no（用于Kafka消息关联）
+     */
+    private String getCurrentSqeNoFromRedis(String busNo) {
+        try (Jedis jedis = jedisPool.getResource()) {
+            jedis.auth(Config.REDIS_PASSWORD);
+
+            // 首先尝试通过windowId获取sqe_no
+            String windowId = jedis.get("open_time:" + busNo);
+            if (windowId != null && !windowId.isEmpty()) {
+                String sqeNo = jedis.get("open_time_index:" + windowId);
+                if (sqeNo != null && !sqeNo.isEmpty()) {
+                    return sqeNo;
+                }
+            }
+
+            // 如果没有找到，返回null（表示当前没有开门批次）
+            return null;
+        } catch (Exception e) {
+            if (Config.LOG_ERROR) {
+                System.err.println("[sqe_no获取] 获取车辆 " + busNo + " 的sqe_no失败: " + e.getMessage());
+            }
+            return null;
         }
     }
 }

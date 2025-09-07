@@ -1023,8 +1023,24 @@ public class KafkaConsumerService {
 
             doorSignal.put("data", data);
 
+            // 🔥 调试：打印发送给CV的完整消息，确认sqe_no是否正确
+            if (Config.LOG_DEBUG) {
+                System.out.println("[KafkaConsumerService] 🔥 发送给CV的WebSocket消息:");
+                System.out.println("   sqe_no: " + sqeNo);
+                System.out.println("   完整消息: " + doorSignal.toString());
+                System.out.println("   ================================================================================");
+            }
+
             // 使用安全的JSON序列化方法
             String messageJson = safeJsonToString(doorSignal);
+
+            // 🔥 二次确认：检查序列化后的消息是否包含sqe_no
+            if (Config.LOG_DEBUG) {
+                System.out.println("[KafkaConsumerService] 🔥 序列化后的消息:");
+                System.out.println("   包含sqe_no: " + messageJson.contains("sqe_no"));
+                System.out.println("   sqe_no值: " + (messageJson.contains(sqeNo) ? sqeNo : "NOT_FOUND"));
+                System.out.println("   ================================================================================");
+            }
 
             // 通过WebSocket发送给CV
             WebSocketEndpoint.sendToAll(messageJson);
@@ -1351,9 +1367,9 @@ public class KafkaConsumerService {
         try {
             // 检查是否为试点线路车辆
             if (!isPilotVehicle(busNo)) {
-                if (Config.LOG_DEBUG) {
-                    System.out.println(String.format("[刷卡数据过滤] 车辆 %s 不在试点线路中，跳过保存", busNo));
-                }
+                // if (Config.LOG_DEBUG) {
+                //     System.out.println(String.format("[刷卡数据过滤] 车辆 %s 不在试点线路中，跳过保存", busNo));
+                // }
                 return;
             }
 
@@ -1394,9 +1410,9 @@ public class KafkaConsumerService {
         try {
             // 检查是否为试点线路
             if (!isPilotRoute(routeNo)) {
-                if (Config.LOG_DEBUG) {
-                    System.out.println(String.format("[到离站数据过滤] 线路 %s 不在试点线路中，跳过保存", routeNo));
-                }
+                // if (Config.LOG_DEBUG) {
+                //     System.out.println(String.format("[到离站数据过滤] 线路 %s 不在试点线路中，跳过保存", routeNo));
+                // }
                 return;
             }
 
@@ -1493,7 +1509,7 @@ public class KafkaConsumerService {
                     // 检查是否为试点线路
                     if (routeNo != null && !routeNo.isEmpty() && !isPilotRoute(routeNo)) {
                         if (Config.LOG_DEBUG) {
-                        System.out.println(String.format("[GPS数据过滤] 线路 %s 不在试点线路中，跳过保存", routeNo));
+                        // System.out.println(String.format("[GPS数据过滤] 线路 %s 不在试点线路中，跳过保存", routeNo));
                     }
 
                     return;

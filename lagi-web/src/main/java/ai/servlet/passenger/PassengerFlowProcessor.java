@@ -15,6 +15,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
+import redis.clients.jedis.Transaction;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -411,6 +412,9 @@ public class PassengerFlowProcessor {
 				}
 
 				// 限制每个时间窗口的特征数量，避免数据过大
+				String featuresKey = sqeNo != null && !sqeNo.isEmpty() ?
+					"features_set:" + sqeNo :
+					"features_set:" + canonicalBusNo + ":" + windowId;
 				long featureCount = jedis.scard(featuresKey);
 				if (featureCount > Config.MAX_FEATURES_PER_WINDOW) {
 					if (Config.LOG_DEBUG) {
@@ -787,6 +791,14 @@ public class PassengerFlowProcessor {
 		String stationId = data.optString("stationId", "UNKNOWN");
 		String stationName = data.optString("stationName", "Unknown Station");
 
+		// 🔥 调试：检查CV回推的开门事件是否包含sqe_no
+		if (Config.LOG_DEBUG) {
+			System.out.println("[PassengerFlowProcessor] 🔥 CV回推开门事件:");
+			System.out.println("   sqe_no: " + (sqeNo != null && !sqeNo.isEmpty() ? sqeNo : "NULL或空"));
+			System.out.println("   完整data: " + data.toString());
+			System.out.println("   ================================================================================");
+		}
+
 		// 打印本地生成的开关门事件数据，用于timestamp校验
 		System.out.println("[本地开关门事件] open_close_door事件数据详情:");
 		System.out.println("   bus_no: " + busNo);
@@ -905,6 +917,14 @@ public class PassengerFlowProcessor {
 	private void handleCloseDoorAndCVComplateEvent(JSONObject data, String busNo, String busId, String cameraNo, Jedis jedis) throws IOException, SQLException {
 		String sqeNo = data.optString("sqe_no");  // 新增：获取开关门唯一批次号
 		LocalDateTime eventTime = LocalDateTime.parse(data.optString("timestamp").replace(" ", "T"));
+
+		// 🔥 调试：检查CV回推的notify_complete事件是否包含sqe_no
+		if (Config.LOG_DEBUG) {
+			System.out.println("[PassengerFlowProcessor] 🔥 CV回推notify_complete事件:");
+			System.out.println("   sqe_no: " + (sqeNo != null && !sqeNo.isEmpty() ? sqeNo : "NULL或空"));
+			System.out.println("   完整data: " + data.toString());
+			System.out.println("   ================================================================================");
+		}
 
 		// notify_complete事件处理 - 收到CV的公交分析业务处理结束信号，开始发Kafka落库
 		if (Config.PILOT_ROUTE_LOG_ENABLED) {
@@ -1120,12 +1140,12 @@ public class PassengerFlowProcessor {
 			LocalDateTime end = record.getTimestampEnd();
 			if (begin != null && end != null) {
 				Map<String, List<String>> imagesByDir = getImagesByTimeRangeSeparated(jedis, busNo, begin, end,
-					Config.IMAGE_TIME_TOLERANCE_BEFORE_SECONDS, Config.IMAGE_TIME_TOLERANCE_AFTER_SECONDS);
+					Config.IMAGE_TIME_TOLERANCE_BEFORE_SECONDS, Config.IMAGE_TIME_TOLERANCE_AFTER_SECONDS, null);
 				List<String> upImages = imagesByDir.getOrDefault("up", new ArrayList<>());
 				List<String> downImages = imagesByDir.getOrDefault("down", new ArrayList<>());
 				processImagesToVideoByDirection(record, jedis, busNo, windowId, upImages, downImages);
 			} else {
-				Map<String, List<String>> imagesByDir = getImagesByExactWindowSeparated(jedis, busNo, windowId);
+				Map<String, List<String>> imagesByDir = getImagesByExactWindowSeparated(jedis, busNo, windowId, null);
 				List<String> upImages = imagesByDir.getOrDefault("up", new ArrayList<>());
 				List<String> downImages = imagesByDir.getOrDefault("down", new ArrayList<>());
 				processImagesToVideoByDirection(record, jedis, busNo, windowId, upImages, downImages);
@@ -1457,7 +1477,7 @@ public class PassengerFlowProcessor {
 
 		record.setCurrentStationName(getCurrentStationName(busNo, jedis));
 		// 设置车辆总人数（来自CV系统满载率推送）
-		record.setVehicleTotalCount(getVehicleTotalCountFromRedis(jedis, busNo));
+		record.setVehicleTotalCount(getVehicleTotalCountFromRedis(jedis, busNo, sqeNo));
 		Long busId = getBusIdFromRedis(jedis, busNo);
 		if (busId != null) record.setBusId(busId);
 
@@ -2670,6 +2690,7 @@ public class PassengerFlowProcessor {
 					System.out.println("[流程] 乘客特征集合设置完成，特征数: " + featuresArray.length() + ", 位置数: " + positionArray.length());
 				}
 			} else {
+				String normalizedWindowId = normalizeWindowId(windowId);
 				if (Config.LOG_DEBUG) {
 					System.out.println("[PassengerFlowProcessor] No features found for busNo=" + busNo + ", windowId=" + normalizedWindowId);
 					System.out.println("[PassengerFlowProcessor] Redis key: " + featuresKey);

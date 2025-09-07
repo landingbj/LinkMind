@@ -846,6 +846,13 @@ public class PassengerFlowProcessor {
 				tx.expire("open_time_index:" + windowId, Config.REDIS_TTL_OPEN_TIME);
 				tx.expire("canonical_bus:" + sqeNo, Config.REDIS_TTL_OPEN_TIME);
 
+				// 存储当前开门批次号，供关门事件复用
+				tx.set("current_sqe_no:" + canonicalBusNo, sqeNo);
+				tx.expire("current_sqe_no:" + canonicalBusNo, Config.REDIS_TTL_OPEN_TIME);
+				// 以bus_no冗余一份，增强兼容性
+				tx.set("current_sqe_no:" + busNo, sqeNo);
+				tx.expire("current_sqe_no:" + busNo, Config.REDIS_TTL_OPEN_TIME);
+
 				// 兼容性存储：保持原有逻辑作为兜底
 				tx.set("open_time:" + canonicalBusNo, windowId);
 				tx.expire("open_time:" + canonicalBusNo, Config.REDIS_TTL_OPEN_TIME);
@@ -1038,6 +1045,16 @@ public class PassengerFlowProcessor {
 			// 设置OD发送幂等标记
 			jedis.set(odSentKey, "1");
 			jedis.expire(odSentKey, Config.REDIS_TTL_OPEN_TIME);
+
+			// 清理当前开门批次号，避免后续误用
+			try {
+				if (canonicalBusNo != null && !canonicalBusNo.isEmpty()) {
+					jedis.del("current_sqe_no:" + canonicalBusNo);
+				}
+				if (busNo != null && !busNo.isEmpty()) {
+					jedis.del("current_sqe_no:" + busNo);
+				}
+			} catch (Exception ignore) {}
 
 			// 注意：不再手动清理Redis缓存，让Redis的TTL机制和RedisCleanupUtil自动管理
 			// 这样可以确保乘客特征向量、区间客流数据等关键信息在需要时仍然可用

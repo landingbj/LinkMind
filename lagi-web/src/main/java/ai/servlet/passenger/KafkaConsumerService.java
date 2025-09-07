@@ -1009,8 +1009,35 @@ public class KafkaConsumerService {
                 }
             }
 
-            // 🔥 生成开关门唯一批次号
-            String sqeNo = generateSqeNo(busNo, timestamp, action);
+            //  获取/生成开关门唯一批次号：开门生成，关门复用
+            String sqeNo;
+            if ("close".equals(action)) {
+                // 关门：优先复用开门时记录的current_sqe_no
+                try (Jedis jedis = jedisPool.getResource()) {
+                    jedis.auth(Config.REDIS_PASSWORD);
+                    String canonicalKey = "current_sqe_no:" + busId;
+                    String plateKey = "current_sqe_no:" + busNo;
+                    String reused = jedis.get(canonicalKey);
+                    if (reused == null || reused.isEmpty()) {
+                        reused = jedis.get(plateKey);
+                    }
+                    if (reused != null && !reused.isEmpty()) {
+                        sqeNo = reused;
+                        if (Config.LOG_INFO) {
+                            System.out.println("[SqeNo复用] 关门复用开门sqe_no: " + sqeNo + ", busNo=" + busNo);
+                        }
+                    } else {
+                        // 兜底：极端情况下未取到则生成，但同时打印告警
+                        sqeNo = generateSqeNo(busNo, timestamp, action);
+                        if (Config.LOG_ERROR) {
+                            System.err.println("[SqeNo复用告警] 未找到当前开门批次号，关门将临时生成新的sqe_no: " + sqeNo + ", busNo=" + busNo);
+                        }
+                    }
+                }
+            } else {
+                // 开门：生成新的sqe_no
+                sqeNo = generateSqeNo(busNo, timestamp, action);
+            }
 
             // 严格按照约定格式构建消息
             JSONObject doorSignal = new JSONObject();
@@ -1021,16 +1048,16 @@ public class KafkaConsumerService {
             data.put("bus_id", busId); // 车辆ID（到离站中的busNo）
             data.put("camera_no", "default"); // 摄像头编号，没有地方获取，传default
             data.put("action", action); // open 或 close
-            data.put("sqe_no", sqeNo); // 🔥 新增：开关门唯一批次号
+            data.put("sqe_no", sqeNo); //  新增：开关门唯一批次号
             data.put("timestamp", timestamp.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
             data.put("stationId", stationId); // 站点ID
             data.put("stationName", stationName); // 站点名称
 
             doorSignal.put("data", data);
 
-            // 🔥 调试：打印发送给CV的完整消息，确认sqe_no是否正确
+            //  调试：打印发送给CV的完整消息，确认sqe_no是否正确
             if (Config.LOG_DEBUG) {
-                System.out.println("[KafkaConsumerService] 🔥 发送给CV的WebSocket消息:");
+                System.out.println("[KafkaConsumerService]  发送给CV的WebSocket消息:");
                 System.out.println("   sqe_no: " + sqeNo);
                 System.out.println("   完整消息: " + doorSignal.toString());
                 System.out.println("   ================================================================================");
@@ -1039,9 +1066,9 @@ public class KafkaConsumerService {
             // 使用安全的JSON序列化方法
             String messageJson = safeJsonToString(doorSignal);
 
-            // 🔥 二次确认：检查序列化后的消息是否包含sqe_no
+            //  二次确认：检查序列化后的消息是否包含sqe_no
             if (Config.LOG_DEBUG) {
-                System.out.println("[KafkaConsumerService] 🔥 序列化后的消息:");
+                System.out.println("[KafkaConsumerService]  序列化后的消息:");
                 System.out.println("   包含sqe_no: " + messageJson.contains("sqe_no"));
                 System.out.println("   sqe_no值: " + (messageJson.contains(sqeNo) ? sqeNo : "NOT_FOUND"));
                 System.out.println("   ================================================================================");
@@ -1258,7 +1285,7 @@ public class KafkaConsumerService {
 
             doorMsg.setStationId(stationId);
             doorMsg.setStationName(stationName);
-            // 🔥 提取并设置sqe_no字段
+            //  提取并设置sqe_no字段
             String sqeNo = originalData.optString("sqe_no");
             doorMsg.setSqeNo(sqeNo);
             doorMsg.setEvent("open_close_door");
@@ -1266,7 +1293,7 @@ public class KafkaConsumerService {
 
             if (Config.LOG_INFO) {
                 String actionDesc = "open".equals(action) ? "开门" : "关门";
-                System.out.println(String.format("[WebSocket消息保存] 🔥 开始保存%s消息: 车辆=%s, 车辆ID=%s, sqe_no=%s, 站点=%s",
+                System.out.println(String.format("[WebSocket消息保存]  开始保存%s消息: 车辆=%s, 车辆ID=%s, sqe_no=%s, 站点=%s",
                     actionDesc, busNo, busId, sqeNo, stationName));
             }
 
@@ -1275,7 +1302,7 @@ public class KafkaConsumerService {
 
             if (Config.LOG_INFO) {
                 String actionDesc = "open".equals(action) ? "开门" : "关门";
-                System.out.println(String.format("[WebSocket消息保存] 🔥 %s消息记录完成: 车辆=%s, 车辆ID=%s, sqe_no=%s, 站点=%s, 时间=%s",
+                System.out.println(String.format("[WebSocket消息保存]  %s消息记录完成: 车辆=%s, 车辆ID=%s, sqe_no=%s, 站点=%s, 时间=%s",
                     actionDesc, busNo, busId, sqeNo, stationName, timestamp));
             }
 
@@ -1302,7 +1329,7 @@ public class KafkaConsumerService {
             cardData.setTradeNo(message.optString("tradeNo"));
             cardData.setTradeTime(message.optString("tradeTime"));
 
-            // 🔥 获取当前车辆的sqe_no（从Redis中获取当前开门批次）
+            //  获取当前车辆的sqe_no（从Redis中获取当前开门批次）
             String sqeNo = getCurrentSqeNoFromRedis(busNo);
             cardData.setSqeNo(sqeNo);
 
@@ -1352,7 +1379,7 @@ public class KafkaConsumerService {
             // 保存原始消息
             arriveLeaveData.setOriginalMessage(message.toString());
 
-            // 🔥 获取当前车辆的sqe_no（从Redis中获取当前开门批次）
+            //  获取当前车辆的sqe_no（从Redis中获取当前开门批次）
             String sqeNo = getCurrentSqeNoFromRedis(busNo);
             arriveLeaveData.setSqeNo(sqeNo);
 
@@ -1561,7 +1588,7 @@ public class KafkaConsumerService {
             // 通用字段提取
             parseCommonFields(message, allMsg);
 
-            // 🔥 设置sqe_no
+            //  设置sqe_no
             allMsg.setSqeNo(sqeNo);
 
             if (Config.LOG_DEBUG) {

@@ -9,6 +9,11 @@ import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 使用标准 Java WebSocket API 的端点实现
@@ -20,6 +25,23 @@ public class WebSocketEndpoint {
 	// 存储所有连接的会话
 	private static Set<Session> sessions = Collections.synchronizedSet(new HashSet<>());
 	private static final PassengerFlowProcessor PROCESSOR = new PassengerFlowProcessor();
+
+	// 异步事件处理执行器，避免在WebSocket线程中执行耗时任务
+	private static final ExecutorService EVENT_EXECUTOR = new ThreadPoolExecutor(
+		2, 8,
+		60L, TimeUnit.SECONDS,
+		new LinkedBlockingQueue<>(2000),
+		new ThreadFactory() {
+			private int threadNumber = 1;
+			@Override
+			public Thread newThread(Runnable r) {
+				Thread t = new Thread(r, "WS-Event-" + threadNumber++);
+				t.setDaemon(true);
+				return t;
+			}
+		},
+		new ThreadPoolExecutor.CallerRunsPolicy()
+	);
 
 	@OnOpen
 	public void onOpen(Session session) {
@@ -123,16 +145,23 @@ public class WebSocketEndpoint {
 					return;
 				}
 
-				PROCESSOR.processEvent(jsonMessage);
-
+				// 先快速ACK，随后异步处理
 				JSONObject ack = new JSONObject();
 				ack.put("type", "ack");
 				ack.put("event", eventType);
 				ack.put("timestamp", LocalDateTime.now().toString());
-
-				// 移除确认响应调试日志
-
 				session.getBasicRemote().sendText(ack.toString());
+
+				EVENT_EXECUTOR.submit(() -> {
+					try {
+						PROCESSOR.processEvent(jsonMessage);
+					} catch (Throwable t) {
+						if (Config.LOG_ERROR) {
+							System.err.println("[WebSocket] 异步处理事件失败: " + t.getMessage());
+							t.printStackTrace();
+						}
+					}
+				});
 				return;
 			}
 

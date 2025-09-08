@@ -925,6 +925,14 @@ public class PassengerFlowProcessor {
 		String sqeNo = data.optString("sqe_no");  // 新增：获取开关门唯一批次号
 		LocalDateTime eventTime = LocalDateTime.parse(data.optString("timestamp").replace(" ", "T"));
 
+		// 如果从CV回推的事件中没有获取到sqeNo，尝试从Redis中获取
+		if (sqeNo == null || sqeNo.isEmpty()) {
+			sqeNo = getCurrentSqeNo(busNo, jedis);
+			if (Config.LOG_DEBUG) {
+				System.out.println("[PassengerFlowProcessor] 从CV事件中未获取到sqeNo，尝试从Redis获取: " + sqeNo);
+			}
+		}
+
 		//  调试：检查CV回推的notify_complete事件是否包含sqe_no
 		if (Config.LOG_DEBUG) {
 			System.out.println("[PassengerFlowProcessor]  CV回推notify_complete事件:");
@@ -1035,8 +1043,8 @@ public class PassengerFlowProcessor {
 			record.setVehicleTotalCount(getVehicleTotalCountFromRedis(jedis, canonicalBusNo, sqeNo));
 
 			// 设置原始数据字段用于校验
-			record.setRetrieveBusGpsMsg(getBusGpsMsgFromRedis(jedis, busNo));
-			record.setRetrieveDownupMsg(getDownupMsgFromRedis(jedis, busNo));
+			record.setRetrieveBusGpsMsg(getBusGpsMsgFromRedis(jedis, busNo, sqeNo));
+			record.setRetrieveDownupMsg(getDownupMsgFromRedis(jedis, busNo, sqeNo));
 
 			// 数据完整性检查和验证
 			validateOdRecord(record);
@@ -1161,8 +1169,9 @@ public class PassengerFlowProcessor {
 	 * @param busNo 公交车编号
 	 * @param windowId 时间窗口ID
 	 * @param eventTime 事件时间
+	 * @param sqeNo 开关门唯一批次号
 	 */
-	private void processImagesParallel(BusOdRecord record, Jedis jedis, String busNo, String windowId, LocalDateTime eventTime) throws IOException, SQLException {
+	private void processImagesParallel(BusOdRecord record, Jedis jedis, String busNo, String windowId, LocalDateTime eventTime, String sqeNo) throws IOException, SQLException {
 		System.out.println("[并行处理] 开始为车辆 " + busNo + " 并行处理图片，时间窗口: " + windowId);
 
 		// 1. 收集图片URL
@@ -1186,7 +1195,7 @@ public class PassengerFlowProcessor {
 		try {
 			// 3.1 AI分析（同步执行，因为需要结果）
 			System.out.println("[并行处理] 开始AI图片分析");
-			analyzeImagesWithAI(jedis, busNo, eventTime, record, imageUrls);
+			analyzeImagesWithAI(jedis, busNo, eventTime, record, imageUrls, sqeNo);
 
 			// 3.2 视频转换（同步执行，因为需要结果）
 			System.out.println("[并行处理] 开始分别按方向图片转视频");
@@ -1472,7 +1481,7 @@ public class PassengerFlowProcessor {
 		System.out.println("[并行处理] 成功设置passengerImages字段，图片数量: " + imageUrls.size());
 		try {
 			System.out.println("[并行处理] 开始AI图片分析");
-			analyzeImagesWithAI(jedis, busNo, eventTime, record, imageUrls);
+			analyzeImagesWithAI(jedis, busNo, eventTime, record, imageUrls, sqeNo);
 			System.out.println("[并行处理] 开始分别按方向图片转视频");
 			LocalDateTime begin = record.getTimestampBegin();
 			LocalDateTime end = record.getTimestampEnd();
@@ -1621,8 +1630,8 @@ public class PassengerFlowProcessor {
 		if (busId != null) record.setBusId(busId);
 
 		// 设置原始数据字段用于校验
-		record.setRetrieveBusGpsMsg(getBusGpsMsgFromRedis(jedis, busNo));
-		record.setRetrieveDownupMsg(getDownupMsgFromRedis(jedis, busNo));
+		record.setRetrieveBusGpsMsg(getBusGpsMsgFromRedis(jedis, busNo, sqeNo));
+		record.setRetrieveDownupMsg(getDownupMsgFromRedis(jedis, busNo, sqeNo));
 
 		System.out.println("[OD记录创建] OD记录创建完成:");
 		System.out.println("   sqeNo=" + record.getSqeNo());
@@ -2342,12 +2351,11 @@ public class PassengerFlowProcessor {
 	 * @param busNo 车辆编号
 	 * @return JSON字符串
 	 */
-	private String getBusGpsMsgFromRedis(Jedis jedis, String busNo) {
+	private String getBusGpsMsgFromRedis(Jedis jedis, String busNo, String sqeNo) {
 		try {
 			JSONArray allData = new JSONArray();
 			
-			// 方式1：优先通过sqe_no检索
-			String sqeNo = getCurrentSqeNo(busNo, jedis);
+			// 方式1：优先通过传入的sqe_no检索
 			if (sqeNo != null && !sqeNo.isEmpty()) {
 				String sqeKey = "bus_gps_msg:" + sqeNo;
 				String sqeData = jedis.get(sqeKey);
@@ -2417,13 +2425,12 @@ public class PassengerFlowProcessor {
 	 * @param busNo 车辆编号
 	 * @return JSON字符串
 	 */
-	private String getDownupMsgFromRedis(Jedis jedis, String busNo) {
+	private String getDownupMsgFromRedis(Jedis jedis, String busNo, String sqeNo) {
 		try {
 			//  增强检索策略：多种方式尝试获取downup数据
 			JSONArray allData = new JSONArray();
 
-			// 方式1： 优先通过sqe_no检索（新增逻辑）
-			String sqeNo = getCurrentSqeNo(busNo, jedis);
+			// 方式1： 优先通过传入的sqe_no检索
 			if (sqeNo != null && !sqeNo.isEmpty()) {
 				String sqeKey = "downup_msg:" + sqeNo;
 				String sqeData = jedis.get(sqeKey);
@@ -2675,7 +2682,7 @@ public class PassengerFlowProcessor {
 			String sqeNo = record.getSqeNo();
 
 			//  使用增强的downup数据收集逻辑
-			String downupData = getDownupMsgFromRedis(jedis, busNo);
+			String downupData = getDownupMsgFromRedis(jedis, busNo, sqeNo);
 
 			if (downupData != null && !downupData.isEmpty() && !downupData.equals("[]")) {
 				record.setRetrieveDownupMsg(downupData);
@@ -2807,7 +2814,7 @@ public class PassengerFlowProcessor {
      * 图片转视频：用于存储和展示
      * 大模型分析：直接使用图片列表进行AI分析，无需等待视频转换
      */
-    private void analyzeImagesWithAI(Jedis jedis, String busNo, LocalDateTime timeWindow, BusOdRecord record, List<String> imageUrls) throws IOException, SQLException {
+    private void analyzeImagesWithAI(Jedis jedis, String busNo, LocalDateTime timeWindow, BusOdRecord record, List<String> imageUrls, String sqeNo) throws IOException, SQLException {
         // 检查是否启用AI图片分析
         if (!Config.ENABLE_AI_IMAGE_ANALYSIS) {
             System.out.println("[大模型分析] AI图片分析功能已禁用，跳过分析");
@@ -2820,16 +2827,31 @@ public class PassengerFlowProcessor {
             return;
         }
 
-        System.out.println("[大模型分析] 开始为车辆 " + busNo + " 进行AI图片分析");
+        System.out.println("[大模型分析] 开始为车辆 " + busNo + " 进行AI图片分析，sqeNo: " + sqeNo);
 
-        // 获取当前开门时间窗口ID
-        String windowId = jedis.get("open_time:" + busNo);
+        // 获取当前开门时间窗口ID - 优先使用sqeNo进行匹配
+        String windowId = null;
+        if (sqeNo != null && !sqeNo.isEmpty()) {
+            windowId = jedis.get("open_time:" + sqeNo);
+            if (Config.LOG_DEBUG) {
+                System.out.println("[大模型分析] 通过sqeNo查找窗口: sqeNo=" + sqeNo + ", windowId=" + windowId);
+            }
+        }
+        
+        // 兜底：如果sqeNo匹配失败，使用busNo
         if (windowId == null) {
-            System.out.println("[大模型分析] 未找到车辆 " + busNo + " 的开门时间窗口，跳过AI分析");
+            windowId = jedis.get("open_time:" + busNo);
+            if (Config.LOG_DEBUG) {
+                System.out.println("[大模型分析] 兜底通过busNo查找窗口: busNo=" + busNo + ", windowId=" + windowId);
+            }
+        }
+        
+        if (windowId == null) {
+            System.out.println("[大模型分析] 未找到车辆 " + busNo + " (sqeNo: " + sqeNo + ") 的开门时间窗口，跳过AI分析");
             return;
         }
 
-        System.out.println("[大模型分析] 找到时间窗口: " + windowId);
+        System.out.println("[大模型分析] 找到时间窗口: " + windowId + " (sqeNo: " + sqeNo + ")");
 
         // 使用传入的图片URL列表，不再从特征数据中收集
         if (imageUrls == null || imageUrls.isEmpty()) {

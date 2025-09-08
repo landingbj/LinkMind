@@ -2417,11 +2417,13 @@ public class PassengerFlowProcessor {
 					boolean hasImage = !image.isNull() && !image.asText("").isEmpty();
 					obj.put("image", hasImage ? 1 : 0);
 				}
-				// 若存在子数组如 events，则深入处理
-				com.fasterxml.jackson.databind.JsonNode events = obj.get("events");
-				if (events != null && events.isArray()) {
-					for (com.fasterxml.jackson.databind.JsonNode e : events) {
-						reduceFeatureAndImage(e);
+				// 递归遍历对象的所有子字段（如 data/events 等）
+				java.util.Iterator<java.util.Map.Entry<String, com.fasterxml.jackson.databind.JsonNode>> fields = obj.fields();
+				while (fields.hasNext()) {
+					java.util.Map.Entry<String, com.fasterxml.jackson.databind.JsonNode> entry = fields.next();
+					com.fasterxml.jackson.databind.JsonNode child = entry.getValue();
+					if (child != null && (child.isObject() || child.isArray())) {
+						reduceFeatureAndImage(child);
 					}
 				}
 			} else if (node.isArray()) {

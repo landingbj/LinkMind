@@ -18,16 +18,11 @@ import java.sql.SQLException;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Properties;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.Set;
-import java.util.UUID;
 
 /**
  * Kafka消费者服务，统一消费多个主题，判断开门/关门，发送信号到CV
@@ -1125,112 +1120,131 @@ public class KafkaConsumerService {
      * @param message 原始Kafka消息
      * @param jedis Redis连接
      */
-    private void collectBusGpsMsg(String busNo, JSONObject message, Jedis jedis) {
-        try {
-            String isArriveOrLeft = String.valueOf(message.opt("isArriveOrLeft"));
-            String eventType = "1".equals(isArriveOrLeft) ? "door_open" : "door_close";
-            String stationId = message.optString("stationId");
-            String stationName = message.optString("stationName");
+	private void collectBusGpsMsg(String busNo, JSONObject message, Jedis jedis) {
+		try {
+			String isArriveOrLeft = String.valueOf(message.opt("isArriveOrLeft"));
+			String eventType = "1".equals(isArriveOrLeft) ? "door_open" : "door_close";
+			String stationId = message.optString("stationId");
+			String stationName = message.optString("stationName");
+			String sqeNo = getCurrentSqeNoFromRedis(busNo);
 
-            // 构建包含事件类型和原始Kafka数据的JSON对象
-            JSONObject gpsMsg = new JSONObject();
-            gpsMsg.put("eventType", eventType);
-            gpsMsg.put("kafkaData", message);
-            gpsMsg.put("stationId", stationId);
-            gpsMsg.put("stationName", stationName);
-            gpsMsg.put("timestamp", message.optString("gmtTime"));
+			// 构建包含事件类型和原始Kafka数据的JSON对象
+			JSONObject gpsMsg = new JSONObject();
+			gpsMsg.put("eventType", eventType);
+			gpsMsg.put("kafkaData", message);
+			gpsMsg.put("stationId", stationId);
+			gpsMsg.put("stationName", stationName);
+			gpsMsg.put("timestamp", message.optString("gmtTime"));
+			gpsMsg.put("sqe_no", sqeNo); // 添加sqe_no字段
 
-            // 按站点分组存储，每个站点只存储一对开关门信号
-            String key = "bus_gps_msg:" + busNo + ":" + stationId;
+			// 增强存储策略：同时使用多种key格式存储
+			List<String> keys = new ArrayList<>();
 
-            // 获取该站点的现有数据数组
-            String existingDataStr = jedis.get(key);
-            JSONArray gpsMsgArray;
-            if (existingDataStr != null && !existingDataStr.isEmpty()) {
-                gpsMsgArray = new JSONArray(existingDataStr);
-            } else {
-                gpsMsgArray = new JSONArray();
-            }
+			// 方式1：按站点分组存储（原有逻辑）
+			if (stationId != null && !stationId.isEmpty()) {
+				keys.add("bus_gps_msg:" + busNo + ":" + stationId);
+			}
 
-            // 严格去重：检查是否已经有完全相同的信号（类型+时间戳+其他关键字段）
-            boolean isDuplicate = false;
-            for (int i = 0; i < gpsMsgArray.length(); i++) {
-                JSONObject existingMsg = gpsMsgArray.getJSONObject(i);
+			// 方式2：按sqe_no存储（新增逻辑）
+			if (sqeNo != null && !sqeNo.isEmpty()) {
+				keys.add("bus_gps_msg:" + sqeNo);
+				keys.add("bus_gps_msg:" + busNo + ":" + sqeNo);
+			}
 
-                // 检查类型是否相同
-                if (eventType.equals(existingMsg.optString("eventType"))) {
-                    // 检查时间戳是否相同
-                    String existingTime = existingMsg.optString("timestamp");
-                    String newTime = gpsMsg.optString("timestamp");
+			// 方式3：按车辆编号存储（兜底逻辑）
+			keys.add("bus_gps_msg:" + busNo);
 
-                    if (newTime != null && !newTime.isEmpty() && existingTime != null && !existingTime.isEmpty()) {
-                        if (newTime.equals(existingTime)) {
-                            // 时间戳相同，进一步检查其他关键字段
-                            JSONObject existingKafkaData = existingMsg.optJSONObject("kafkaData");
-                            JSONObject newKafkaData = gpsMsg.optJSONObject("kafkaData");
+			// 为每个key存储数据
+			for (String key : keys) {
+				// 获取该key的现有数据数组
+				String existingDataStr = jedis.get(key);
+				JSONArray gpsMsgArray;
+				if (existingDataStr != null && !existingDataStr.isEmpty()) {
+					gpsMsgArray = new JSONArray(existingDataStr);
+				} else {
+					gpsMsgArray = new JSONArray();
+				}
 
-                            if (existingKafkaData != null && newKafkaData != null) {
-                                // 检查seqNum是否相同（报文顺序号）
-                                String existingSeqNum = existingKafkaData.optString("seqNum");
-                                String newSeqNum = newKafkaData.optString("seqNum");
+				// 严格去重：检查是否已经有完全相同的信号（类型+时间戳+其他关键字段）
+				boolean isDuplicate = false;
+				for (int i = 0; i < gpsMsgArray.length(); i++) {
+					JSONObject existingMsg = gpsMsgArray.getJSONObject(i);
 
-                                // 检查sendType是否相同（发送类型）
-                                String existingSendType = existingKafkaData.optString("sendType");
-                                String newSendType = newKafkaData.optString("sendType");
+					// 检查类型是否相同
+					if (eventType.equals(existingMsg.optString("eventType"))) {
+						// 检查时间戳是否相同
+						String existingTime = existingMsg.optString("timestamp");
+						String newTime = gpsMsg.optString("timestamp");
 
-                                // 检查pktSeq是否相同（包序列号）
-                                String existingPktSeq = existingKafkaData.optString("pktSeq");
-                                String newPktSeq = newKafkaData.optString("pktSeq");
+						if (newTime != null && !newTime.isEmpty() && existingTime != null && !existingTime.isEmpty()) {
+							if (newTime.equals(existingTime)) {
+								// 时间戳相同，进一步检查其他关键字段
+								JSONObject existingKafkaData = existingMsg.optJSONObject("kafkaData");
+								JSONObject newKafkaData = gpsMsg.optJSONObject("kafkaData");
 
-                                // 更严格的去重条件：时间戳相同且（seqNum相同 或 sendType相同 或 pktSeq相同）
-                                if (existingSeqNum.equals(newSeqNum) ||
-                                    existingSendType.equals(newSendType) ||
-                                    existingPktSeq.equals(newPktSeq)) {
-                                    // 完全相同的信号，去重
-                                    isDuplicate = true;
-                                    if (Config.LOG_DEBUG) {
-                                        System.out.println("[KafkaConsumerService] 发现重复信号，去重: busNo=" + busNo + ", stationId=" + stationId + ", eventType=" + eventType + ", timestamp=" + newTime + ", seqNum=" + newSeqNum + ", sendType=" + newSendType + ", pktSeq=" + newPktSeq);
-                                    }
-                                    break;
-                                }
-                            }
-                        } else {
-                            // 时间戳不同，检查是否在时间窗口内（5秒内）且类型相同
-                            try {
-                                java.time.LocalDateTime existingDateTime = java.time.LocalDateTime.parse(existingTime.replace(" ", "T"));
-                                java.time.LocalDateTime newDateTime = java.time.LocalDateTime.parse(newTime.replace(" ", "T"));
-                                long timeDiffSeconds = java.time.Duration.between(existingDateTime, newDateTime).getSeconds();
+								if (existingKafkaData != null && newKafkaData != null) {
+									// 检查seqNum是否相同（报文顺序号）
+									String existingSeqNum = existingKafkaData.optString("seqNum");
+									String newSeqNum = newKafkaData.optString("seqNum");
 
-                                // 如果时间差在5秒内且类型相同，认为是重复信号
-                                if (Math.abs(timeDiffSeconds) <= 5) {
-                                    isDuplicate = true;
-                                    if (Config.LOG_DEBUG) {
-                                        System.out.println("[KafkaConsumerService] 发现时间窗口内重复信号，去重: busNo=" + busNo + ", stationId=" + stationId + ", eventType=" + eventType + ", 时间差=" + timeDiffSeconds + "秒");
-                                    }
-                                    break;
-                                }
-                            } catch (Exception e) {
-                                // 时间解析失败，跳过时间窗口检查
-                                if (Config.LOG_DEBUG) {
-                                    System.out.println("[KafkaConsumerService] 时间解析失败，跳过时间窗口检查: " + e.getMessage());
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+									// 检查sendType是否相同（发送类型）
+									String existingSendType = existingKafkaData.optString("sendType");
+									String newSendType = newKafkaData.optString("sendType");
 
-            // 如果不是重复信号，则添加新数据
-            if (!isDuplicate) {
-                gpsMsgArray.put(gpsMsg);
-                if (Config.LOG_DEBUG) {
-                    System.out.println("[KafkaConsumerService] 添加新信号: busNo=" + busNo + ", stationId=" + stationId + ", eventType=" + eventType + ", timestamp=" + gpsMsg.optString("timestamp") + ", 当前信号数=" + gpsMsgArray.length());
-                }
-            }
+									// 检查pktSeq是否相同（包序列号）
+									String existingPktSeq = existingKafkaData.optString("pktSeq");
+									String newPktSeq = newKafkaData.optString("pktSeq");
 
-            // 存储到Redis，设置过期时间
-            jedis.set(key, gpsMsgArray.toString());
-            jedis.expire(key, Config.REDIS_TTL_OPEN_TIME);
+									// 更严格的去重条件：时间戳相同且（seqNum相同 或 sendType相同 或 pktSeq相同）
+									if (existingSeqNum.equals(newSeqNum) ||
+										existingSendType.equals(newSendType) ||
+										existingPktSeq.equals(newPktSeq)) {
+										// 完全相同的信号，去重
+										isDuplicate = true;
+										if (Config.LOG_DEBUG) {
+											System.out.println("[KafkaConsumerService] 发现重复信号，去重: busNo=" + busNo + ", stationId=" + stationId + ", eventType=" + eventType + ", timestamp=" + newTime + ", seqNum=" + newSeqNum + ", sendType=" + newSendType + ", pktSeq=" + newPktSeq);
+										}
+										break;
+									}
+								}
+							} else {
+								// 时间戳不同，检查是否在时间窗口内（5秒内）且类型相同
+								try {
+									java.time.LocalDateTime existingDateTime = java.time.LocalDateTime.parse(existingTime.replace(" ", "T"));
+									java.time.LocalDateTime newDateTime = java.time.LocalDateTime.parse(newTime.replace(" ", "T"));
+									long timeDiffSeconds = java.time.Duration.between(existingDateTime, newDateTime).getSeconds();
+
+									// 如果时间差在5秒内且类型相同，认为是重复信号
+									if (Math.abs(timeDiffSeconds) <= 5) {
+										isDuplicate = true;
+										if (Config.LOG_DEBUG) {
+											System.out.println("[KafkaConsumerService] 发现时间窗口内重复信号，去重: busNo=" + busNo + ", stationId=" + stationId + ", eventType=" + eventType + ", 时间差=" + timeDiffSeconds + "秒");
+										}
+										break;
+									}
+								} catch (Exception e) {
+									// 时间解析失败，跳过时间窗口检查
+									if (Config.LOG_DEBUG) {
+										System.out.println("[KafkaConsumerService] 时间解析失败，跳过时间窗口检查: " + e.getMessage());
+									}
+								}
+							}
+						}
+					}
+				}
+
+				// 如果不是重复信号，则添加新数据
+				if (!isDuplicate) {
+					gpsMsgArray.put(gpsMsg);
+					if (Config.LOG_DEBUG) {
+						System.out.println("[KafkaConsumerService] 添加新信号: busNo=" + busNo + ", stationId=" + stationId + ", eventType=" + eventType + ", timestamp=" + gpsMsg.optString("timestamp") + ", 当前信号数=" + gpsMsgArray.length() + ", key=" + key);
+					}
+				}
+
+				// 存储到Redis，设置过期时间
+				jedis.set(key, gpsMsgArray.toString());
+				jedis.expire(key, Config.REDIS_TTL_OPEN_TIME);
+			}
 
             if (Config.LOG_DEBUG) {
                 System.out.println("[KafkaConsumerService] 收集到离站信号原始数据: busNo=" + busNo + ", stationId=" + stationId + ", stationName=" + stationName + ", eventType=" + eventType);

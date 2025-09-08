@@ -17,6 +17,7 @@ public class simpleStartupListener implements ServletContextListener {
 
     private KafkaConsumerService kafkaConsumerService;
     private RedisCleanupUtil redisCleanupUtil;
+    private CardSwipeWaitQueueConsumer waitQueueConsumer;
 
     @Override
     public void contextInitialized(ServletContextEvent sce) {
@@ -24,7 +25,7 @@ public class simpleStartupListener implements ServletContextListener {
             logger.info("=== 应用启动监听器开始初始化 ===");
             logger.info("[SimpleStartupListener] 正在启动服务...");
             logger.info("[SimpleStartupListener] 日志配置 - LOG_INFO={}, LOG_DEBUG={}, LOG_ERROR={}", Config.LOG_INFO, Config.LOG_DEBUG, Config.LOG_ERROR);
-            
+
             // 打印Kafka配置信息
             logger.info("[SimpleStartupListener] 📡 Kafka配置信息:");
             logger.info("   Bootstrap Servers: {}", KafkaConfig.BOOTSTRAP_SERVERS);
@@ -32,7 +33,7 @@ public class simpleStartupListener implements ServletContextListener {
             logger.info("   票务主题: {}", KafkaConfig.TICKET_TOPIC);
             logger.info("   客流分析主题: {}", KafkaConfig.PASSENGER_FLOW_TOPIC);
             logger.info("   消费者组ID: {}", KafkaConfig.CONSUMER_GROUP_ID);
-            
+
             // 启动Redis清理工具
             logger.info("[SimpleStartupListener] 正在启动Redis清理工具...");
             redisCleanupUtil = new RedisCleanupUtil();
@@ -48,7 +49,14 @@ public class simpleStartupListener implements ServletContextListener {
             if (Config.LOG_INFO) {
                 logger.info("[SimpleStartupListener] Kafka消费者服务启动成功");
             }
-            
+
+            // 启动等待队列消费者
+            logger.info("[SimpleStartupListener] 正在启动等待队列消费者...");
+            waitQueueConsumer = new CardSwipeWaitQueueConsumer();
+            if (Config.LOG_INFO) {
+                logger.info("[SimpleStartupListener] 等待队列消费者启动成功");
+            }
+
             logger.info("=== 应用启动监听器初始化完成 ===");
 
         } catch (Exception e) {
@@ -64,7 +72,7 @@ public class simpleStartupListener implements ServletContextListener {
         if (Config.LOG_INFO) {
             logger.info("[SimpleStartupListener] Application context is being destroyed, stopping services...");
         }
-        
+
         try {
             // 停止Kafka消费者服务
             if (kafkaConsumerService != null) {
@@ -74,6 +82,17 @@ public class simpleStartupListener implements ServletContextListener {
                 kafkaConsumerService.stop();
                 if (Config.LOG_INFO) {
                     logger.info("[SimpleStartupListener] Kafka consumer service stopped");
+                }
+            }
+
+            // 停止等待队列消费者
+            if (waitQueueConsumer != null) {
+                if (Config.LOG_INFO) {
+                    logger.info("[SimpleStartupListener] Stopping wait queue consumer...");
+                }
+                waitQueueConsumer.shutdown();
+                if (Config.LOG_INFO) {
+                    logger.info("[SimpleStartupListener] Wait queue consumer stopped");
                 }
             }
 

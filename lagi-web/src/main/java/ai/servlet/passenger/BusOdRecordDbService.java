@@ -59,15 +59,50 @@ public class BusOdRecordDbService {
     }
 
     /**
+     * 查询bus_od_record表（宽松条件，用于诊断）
+     * 条件：仅bus_no匹配，不限制时间
+     */
+    public BusOdRecord findLatestByBusNoOnly(String busNo) {
+        String sql = "SELECT * FROM ads.bus_od_record " +
+                    "WHERE bus_no = ? " +
+                    "ORDER BY created_at DESC " +
+                    "LIMIT 5";
+
+        logger.info("[BusOdRecordDbService] 宽松查询参数: busNo={}", busNo);
+
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setString(1, busNo);
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                int count = 0;
+                while (rs.next()) {
+                    count++;
+                    logger.info("[BusOdRecordDbService] 找到记录 #{}: id={}, busNo={}, created_at={}",
+                               count, rs.getLong("id"), rs.getString("bus_no"), rs.getTimestamp("created_at"));
+                }
+                logger.info("[BusOdRecordDbService] 总共找到 {} 条记录", count);
+                return null; // 仅用于诊断，不返回具体记录
+            }
+        } catch (SQLException e) {
+            logger.error("[BusOdRecordDbService] 宽松查询失败: busNo=" + busNo + ", 错误=" + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
      * 查询bus_od_record表
-     * 条件：bus_no匹配且时间差小于1分钟
+     * 条件：bus_no匹配且时间差小于5分钟
      */
     public BusOdRecord findLatestByBusNoAndTime(String busNo, String tradeTime) {
         String sql = "SELECT * FROM ads.bus_od_record " +
                     "WHERE bus_no = ? " +
-                    "  AND ABS(EXTRACT(EPOCH FROM (created_at - TIMESTAMP ?))) <= 60 " +
+                    "  AND ABS(EXTRACT(EPOCH FROM (created_at - ?::TIMESTAMP))) <= 300 " +
                     "ORDER BY created_at DESC " +
                     "LIMIT 1";
+
+        logger.info("[BusOdRecordDbService] 查询参数: busNo={}, tradeTime={}", busNo, tradeTime);
 
         try (Connection conn = dataSource.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -75,11 +110,16 @@ public class BusOdRecordDbService {
             stmt.setString(1, busNo);
             stmt.setString(2, tradeTime);
 
+            logger.info("[BusOdRecordDbService] 执行SQL: {}", sql);
+
             try (ResultSet rs = stmt.executeQuery()) {
                 if (rs.next()) {
                     BusOdRecord record = new BusOdRecord();
                     record.setId(rs.getLong("id"));
                     record.setBusNo(rs.getString("bus_no"));
+
+                    logger.info("[BusOdRecordDbService] 找到匹配记录: id={}, busNo={}, created_at={}",
+                               record.getId(), record.getBusNo(), rs.getTimestamp("created_at"));
 
                     // 处理bus_id字段 - 可能是String或Long类型
                     String busIdStr = rs.getString("bus_id");
@@ -132,10 +172,7 @@ public class BusOdRecordDbService {
                 }
             }
 
-            if (Config.LOG_DEBUG) {
-                logger.debug(String.format("[BusOdRecordDbService] 未找到匹配记录: busNo=%s, tradeTime=%s",
-                    busNo, tradeTime));
-            }
+            logger.warn("[BusOdRecordDbService] 未找到匹配记录: busNo={}, tradeTime={}", busNo, tradeTime);
 
             return null;
 

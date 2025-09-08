@@ -33,7 +33,7 @@ public class Config {
     public static final boolean ENABLE_AI_IMAGE_ANALYSIS = true;       // 是否启用AI图片分析
     public static final int MAX_IMAGES_PER_ANALYSIS = 40;              // 每次AI分析的最大图片数量
     public static final int IMAGE_DURATION_SECONDS = 2;                // 每张图片在视频中的播放时长（秒）
-    
+
     // 特征数据配置
     public static final int MAX_FEATURE_SIZE_BYTES = 50000;            // 单个特征数据最大字节数（50KB，支持约10000维特征向量）
     public static final int MAX_FEATURES_PER_WINDOW = 50;              // 每个时间窗口最大特征数量
@@ -102,17 +102,17 @@ public class Config {
     public static String getDbUser() { return DB_USER; }
     public static String getDbPassword() { return DB_PASSWORD; }
 
-    // WebSocket 事件线程池配置（支持通过系统属性覆盖，供运行时调节）
-    // 属性键：
-    //  - WS_CORE_POOL_SIZE
-    //  - WS_MAX_POOL_SIZE
-    //  - WS_KEEP_ALIVE_SECONDS
-    //  - WS_QUEUE_CAPACITY
-    //  - WS_MONITOR_SECONDS
+    // WebSocket 事件线程池配置
+    // 可用属性键：
+    //  - WS_CORE_POOL_SIZE        核心线程数（默认：8）
+    //  - WS_MAX_POOL_SIZE         最大线程数（默认：32）
+    //  - WS_KEEP_ALIVE_SECONDS    线程空闲存活秒数（默认：60）
+    //  - WS_QUEUE_CAPACITY        任务队列容量（默认：20）
+    //  - WS_MONITOR_SECONDS       监控日志打印间隔秒数（默认：5）
     public static final int WS_CORE_POOL_SIZE = getIntProperty("WS_CORE_POOL_SIZE", 8);
     public static final int WS_MAX_POOL_SIZE = getIntProperty("WS_MAX_POOL_SIZE", 32);
     public static final int WS_KEEP_ALIVE_SECONDS = getIntProperty("WS_KEEP_ALIVE_SECONDS", 60);
-    public static final int WS_QUEUE_CAPACITY = getIntProperty("WS_QUEUE_CAPACITY", 200);
+    public static final int WS_QUEUE_CAPACITY = getIntProperty("WS_QUEUE_CAPACITY", 20);
     public static final int WS_MONITOR_SECONDS = getIntProperty("WS_MONITOR_SECONDS", 5);
 
     private static int getIntProperty(String key, int defaultValue) {

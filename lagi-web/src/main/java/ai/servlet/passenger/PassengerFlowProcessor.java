@@ -128,6 +128,23 @@ public class PassengerFlowProcessor {
 			return;
 		}
 
+		// 幂等性检查：防止重复处理相同的downup事件
+		// 使用sqe_no + timestamp + events数量作为唯一标识
+		String timestamp = data.optString("timestamp");
+		if (sqeNo != null && !sqeNo.isEmpty() && timestamp != null && !timestamp.isEmpty() && events != null) {
+			String eventId = sqeNo + "_" + timestamp + "_" + events.length();
+			String processedKey = "downup_processed:" + eventId;
+			if (jedis.get(processedKey) != null) {
+				if (Config.LOG_DEBUG) {
+					System.out.println("[PassengerFlowProcessor] downup事件已处理过，跳过: eventId=" + eventId + ", busNo=" + busNo);
+				}
+				return;
+			}
+			// 标记事件已处理，设置较短的过期时间
+			jedis.set(processedKey, "1");
+			jedis.expire(processedKey, 300); // 5分钟过期
+		}
+
 		// 收集原始downup事件数据用于校验
 		if (Config.LOG_DEBUG) {
 			System.out.println("[PassengerFlowProcessor] 开始收集downup事件: busNo=" + busNo + ", sqeNo=" + sqeNo + ", stationId=" + data.optString("stationId") + ", events=" + (events != null ? events.length() : 0));
@@ -751,6 +768,23 @@ public class PassengerFlowProcessor {
 		double factor = data.optDouble("factor");
 		String cameraNo = data.optString("camera_no");
 
+		// 幂等性检查：防止重复处理相同的load_factor事件
+		// 使用sqe_no + timestamp + count + factor作为唯一标识
+		String timestamp = data.optString("timestamp");
+		if (sqeNo != null && !sqeNo.isEmpty() && timestamp != null && !timestamp.isEmpty()) {
+			String eventId = sqeNo + "_" + timestamp + "_" + count + "_" + factor;
+			String processedKey = "load_factor_processed:" + eventId;
+			if (jedis.get(processedKey) != null) {
+				if (Config.LOG_DEBUG) {
+					System.out.println("[PassengerFlowProcessor] load_factor事件已处理过，跳过: eventId=" + eventId + ", busNo=" + busNo);
+				}
+				return;
+			}
+			// 标记事件已处理，设置较短的过期时间
+			jedis.set(processedKey, "1");
+			jedis.expire(processedKey, 300); // 5分钟过期
+		}
+
 		// 打印CV推送的满载率数据，用于开关门timestamp校验
 		if (Config.PILOT_ROUTE_LOG_ENABLED) {
 			System.out.println("[CV满载率数据] 收到车牌号" + busNo + "的满载率数据，sqe_no=" + sqeNo + "，开始收集");
@@ -766,7 +800,7 @@ public class PassengerFlowProcessor {
 			jedis.expire("bus_alias_by_camera:" + cameraNo, Config.REDIS_TTL_OPEN_TIME);
 		}
 
-		//  缓存满载率和车辆总人数：优先使用sqe_no
+		//  缓存满载率和车辆总人数：优先使用sqe_no，避免重复存储
 		if (sqeNo != null && !sqeNo.isEmpty()) {
 			String loadFactorKey = "load_factor:" + sqeNo;
 			String vehicleTotalCountKey = "vehicle_total_count:" + sqeNo;
@@ -774,15 +808,23 @@ public class PassengerFlowProcessor {
 			jedis.set(vehicleTotalCountKey, String.valueOf(count));
 			jedis.expire(loadFactorKey, Config.REDIS_TTL_COUNTS);
 			jedis.expire(vehicleTotalCountKey, Config.REDIS_TTL_COUNTS);
+			
+			if (Config.LOG_DEBUG) {
+				System.out.println("[CV满载率数据] 使用sqeNo存储: sqeNo=" + sqeNo + ", factor=" + factor + ", count=" + count);
+			}
+		} else {
+			// 只有在sqeNo为空时才使用兼容性存储
+			String loadFactorKeyLegacy = "load_factor:" + canonicalBusNo;
+			String vehicleTotalCountKeyLegacy = "vehicle_total_count:" + canonicalBusNo;
+			jedis.set(loadFactorKeyLegacy, String.valueOf(factor));
+			jedis.set(vehicleTotalCountKeyLegacy, String.valueOf(count));
+			jedis.expire(loadFactorKeyLegacy, Config.REDIS_TTL_COUNTS);
+			jedis.expire(vehicleTotalCountKeyLegacy, Config.REDIS_TTL_COUNTS);
+			
+			if (Config.LOG_DEBUG) {
+				System.out.println("[CV满载率数据] 使用兼容性存储: busNo=" + canonicalBusNo + ", factor=" + factor + ", count=" + count);
+			}
 		}
-
-		// 兼容性存储：保持原有逻辑
-		String loadFactorKeyLegacy = "load_factor:" + canonicalBusNo;
-		String vehicleTotalCountKeyLegacy = "vehicle_total_count:" + canonicalBusNo;
-		jedis.set(loadFactorKeyLegacy, String.valueOf(factor));
-		jedis.set(vehicleTotalCountKeyLegacy, String.valueOf(count));  // 存储CV系统的车辆总人数
-		jedis.expire(loadFactorKeyLegacy, Config.REDIS_TTL_COUNTS);
-		jedis.expire(vehicleTotalCountKeyLegacy, Config.REDIS_TTL_COUNTS);
 
 		System.out.println("[CV数据映射] 最终使用的bus_no: " + canonicalBusNo + ", 已缓存满载率数据");
 	}
@@ -1088,26 +1130,29 @@ public class PassengerFlowProcessor {
 	private void setSectionPassengerFlowCount(BusOdRecord record, Jedis jedis, String busNo, String windowId, String sqeNo) {
 		try {
 			Map<String, String> sectionFlows = null;
+			String usedKey = null;
 			
 			// 方式1：优先使用sqeNo获取区间客流数据
 			if (sqeNo != null && !sqeNo.isEmpty()) {
 				String sqeKey = "section_flow:" + sqeNo;
 				sectionFlows = jedis.hgetAll(sqeKey);
+				usedKey = sqeKey;
 				if (Config.LOG_DEBUG) {
 					System.out.println("[PassengerFlowProcessor] 通过sqeNo获取区间客流数据: sqeNo=" + sqeNo + ", 数据量=" + (sectionFlows != null ? sectionFlows.size() : 0));
 				}
 			}
 			
-			// 方式2：兜底方案 - 使用车辆编号和时间窗口
-			if (sectionFlows == null || sectionFlows.isEmpty()) {
+			// 方式2：兜底方案 - 使用车辆编号和时间窗口（只有在sqeNo获取失败时才执行）
+			if ((sectionFlows == null || sectionFlows.isEmpty()) && (sqeNo == null || sqeNo.isEmpty())) {
 				String flowKey = "section_flow:" + busNo + ":" + windowId;
 				sectionFlows = jedis.hgetAll(flowKey);
+				usedKey = flowKey;
 				if (Config.LOG_DEBUG) {
 					System.out.println("[PassengerFlowProcessor] 通过车辆+时间窗口获取区间客流数据: busNo=" + busNo + ", windowId=" + windowId + ", 数据量=" + (sectionFlows != null ? sectionFlows.size() : 0));
 				}
 			}
 			
-			// 方式3：最后兜底 - 搜索所有相关的区间客流数据
+			// 方式3：最后兜底 - 搜索所有相关的区间客流数据（只有在前面方式都失败时才执行）
 			if (sectionFlows == null || sectionFlows.isEmpty()) {
 				Set<String> keys = jedis.keys("section_flow:" + busNo + ":*");
 				for (String key : keys) {
@@ -1117,6 +1162,7 @@ public class PassengerFlowProcessor {
 							sectionFlows = new HashMap<>();
 						}
 						sectionFlows.putAll(keyFlows);
+						usedKey = key; // 记录使用的键
 					}
 				}
 				if (Config.LOG_DEBUG) {
@@ -1126,7 +1172,7 @@ public class PassengerFlowProcessor {
 
 			if (Config.PILOT_ROUTE_LOG_ENABLED) {
 				System.out.println("[流程] 开始设置区间客流统计: busNo=" + busNo + ", windowId=" + windowId + ", sqeNo=" + sqeNo);
-				System.out.println("[流程] 获取到的区间数据数量: " + (sectionFlows != null ? sectionFlows.size() : 0));
+				System.out.println("[流程] 获取到的区间数据数量: " + (sectionFlows != null ? sectionFlows.size() : 0) + ", 使用键: " + usedKey);
 			}
 
 			if (sectionFlows != null && !sectionFlows.isEmpty()) {
@@ -1313,51 +1359,72 @@ public class PassengerFlowProcessor {
 		System.out.println("[增强图片收集] 开始多种方式收集图片: busNo=" + busNo + ", windowId=" + windowId + ", sqeNo=" + sqeNo);
 
 		try {
-			// 方式1：基于sqe_no收集
+			// 方式1：基于sqe_no收集（优先级最高）
 			if (sqeNo != null && !sqeNo.isEmpty()) {
 				Set<String> upImages = jedis.smembers("image_urls:" + sqeNo + ":up");
 				Set<String> downImages = jedis.smembers("image_urls:" + sqeNo + ":down");
 				if (upImages != null) imageUrls.addAll(upImages);
 				if (downImages != null) imageUrls.addAll(downImages);
-				System.out.println("[增强图片收集] 方式1(sqe_no): 收集到 " + imageUrls.size() + " 张图片");
-			}
-
-			// 方式2：基于时间窗口收集
-			if (imageUrls.isEmpty() && windowId != null) {
-				List<String> windowImages = getImagesByExactWindow(jedis, busNo, windowId);
-				imageUrls.addAll(windowImages);
-				System.out.println("[增强图片收集] 方式2(时间窗口): 收集到 " + windowImages.size() + " 张图片");
-			}
-
-			// 方式3：基于时间范围收集
-			if (imageUrls.isEmpty() && beginTime != null && endTime != null) {
-				List<String> rangeImages = getImagesByTimeRange(jedis, busNo, beginTime, endTime,
-					Config.IMAGE_TIME_TOLERANCE_BEFORE_SECONDS, Config.IMAGE_TIME_TOLERANCE_AFTER_SECONDS, sqeNo);
-				imageUrls.addAll(rangeImages);
-				System.out.println("[增强图片收集] 方式3(时间范围): 收集到 " + rangeImages.size() + " 张图片");
-			}
-
-			// 方式4：模糊匹配收集
-			if (imageUrls.isEmpty() && windowId != null) {
-				List<String> fuzzyImages = getImagesByFuzzyWindow(jedis, busNo, windowId);
-				imageUrls.addAll(fuzzyImages);
-				System.out.println("[增强图片收集] 方式4(模糊匹配): 收集到 " + fuzzyImages.size() + " 张图片");
-			}
-
-			// 方式5：扫描所有相关Redis键
-			if (imageUrls.isEmpty()) {
-				Set<String> allImageKeys = jedis.keys("image_urls:*" + busNo + "*");
-				if (allImageKeys != null) {
-					for (String key : allImageKeys) {
-						Set<String> images = jedis.smembers(key);
-						if (images != null) imageUrls.addAll(images);
-					}
-					System.out.println("[增强图片收集] 方式5(全扫描): 扫描到 " + allImageKeys.size() + " 个键，收集到 " + imageUrls.size() + " 张图片");
+				// 立即去重
+				imageUrls = new ArrayList<>(new HashSet<>(imageUrls));
+				System.out.println("[增强图片收集] 方式1(sqe_no): 收集到 " + imageUrls.size() + " 张不重复图片");
+				
+				// 如果基于sqeNo收集到图片，直接返回，不再尝试其他方式
+				if (!imageUrls.isEmpty()) {
+					System.out.println("[增强图片收集] 基于sqeNo成功收集到图片，跳过其他收集方式");
+					return imageUrls;
 				}
 			}
 
-			// 去重
-			imageUrls = new ArrayList<>(new HashSet<>(imageUrls));
+			// 方式2：基于时间窗口收集
+			if (windowId != null) {
+				List<String> windowImages = getImagesByExactWindow(jedis, busNo, windowId);
+				if (!windowImages.isEmpty()) {
+					imageUrls.addAll(windowImages);
+					// 立即去重
+					imageUrls = new ArrayList<>(new HashSet<>(imageUrls));
+					System.out.println("[增强图片收集] 方式2(时间窗口): 收集到 " + imageUrls.size() + " 张不重复图片");
+					return imageUrls;
+				}
+			}
+
+			// 方式3：基于时间范围收集（仅作为兜底，不传递sqeNo避免重复）
+			if (beginTime != null && endTime != null) {
+				List<String> rangeImages = getImagesByTimeRange(jedis, busNo, beginTime, endTime,
+					Config.IMAGE_TIME_TOLERANCE_BEFORE_SECONDS, Config.IMAGE_TIME_TOLERANCE_AFTER_SECONDS, null);
+				if (!rangeImages.isEmpty()) {
+					imageUrls.addAll(rangeImages);
+					// 立即去重
+					imageUrls = new ArrayList<>(new HashSet<>(imageUrls));
+					System.out.println("[增强图片收集] 方式3(时间范围): 收集到 " + imageUrls.size() + " 张不重复图片");
+					return imageUrls;
+				}
+			}
+
+			// 方式4：模糊匹配收集
+			if (windowId != null) {
+				List<String> fuzzyImages = getImagesByFuzzyWindow(jedis, busNo, windowId);
+				if (!fuzzyImages.isEmpty()) {
+					imageUrls.addAll(fuzzyImages);
+					// 立即去重
+					imageUrls = new ArrayList<>(new HashSet<>(imageUrls));
+					System.out.println("[增强图片收集] 方式4(模糊匹配): 收集到 " + imageUrls.size() + " 张不重复图片");
+					return imageUrls;
+				}
+			}
+
+			// 方式5：扫描所有相关Redis键（最后兜底）
+			Set<String> allImageKeys = jedis.keys("image_urls:*" + busNo + "*");
+			if (allImageKeys != null && !allImageKeys.isEmpty()) {
+				for (String key : allImageKeys) {
+					Set<String> images = jedis.smembers(key);
+					if (images != null) imageUrls.addAll(images);
+				}
+				// 立即去重
+				imageUrls = new ArrayList<>(new HashSet<>(imageUrls));
+				System.out.println("[增强图片收集] 方式5(全扫描): 扫描到 " + allImageKeys.size() + " 个键，收集到 " + imageUrls.size() + " 张不重复图片");
+			}
+
 			System.out.println("[增强图片收集] 最终收集到 " + imageUrls.size() + " 张不重复图片");
 
 		} catch (Exception e) {
@@ -1433,24 +1500,36 @@ public class PassengerFlowProcessor {
 					imageUrls.addAll(downImagesBySqe);
 					System.out.println("[图片收集] 基于sqeNo收集到下车图片 " + downImagesBySqe.size() + " 张");
 				}
+				
+				// 如果基于sqeNo收集到图片，立即去重并返回，不再进行时间范围扫描
+				if (!imageUrls.isEmpty()) {
+					imageUrls = new ArrayList<>(new HashSet<>(imageUrls));
+					System.out.println("[图片收集] 基于sqeNo成功收集到 " + imageUrls.size() + " 张不重复图片，跳过时间范围扫描");
+					return imageUrls;
+				}
 			}
 
-			//  如果基于sqeNo没有找到图片，或作为兜底，按时间范围收集
-			if (imageUrls.isEmpty()) {
-				LocalDateTime cursor = from;
-				while (!cursor.isAfter(to)) {
-					String win = cursor.format(formatter);
-					// 上车
-					Set<String> up = jedis.smembers("image_urls:" + busNo + ":" + win + ":up");
-					if (up != null && !up.isEmpty()) imageUrls.addAll(up);
-					// 下车
-					Set<String> down = jedis.smembers("image_urls:" + busNo + ":" + win + ":down");
-					if (down != null && !down.isEmpty()) imageUrls.addAll(down);
-					cursor = cursor.plusSeconds(1); // 秒级扫描
-				}
-				System.out.println("[图片收集] 兜底按时间范围收集到图片 " + imageUrls.size() + " 张");
+			//  只有在sqeNo收集失败时才按时间范围收集（兜底方案）
+			System.out.println("[图片收集] sqeNo收集失败，开始按时间范围兜底收集...");
+			LocalDateTime cursor = from;
+			int scanCount = 0;
+			while (!cursor.isAfter(to)) {
+				String win = cursor.format(formatter);
+				// 上车
+				Set<String> up = jedis.smembers("image_urls:" + busNo + ":" + win + ":up");
+				if (up != null && !up.isEmpty()) imageUrls.addAll(up);
+				// 下车
+				Set<String> down = jedis.smembers("image_urls:" + busNo + ":" + win + ":down");
+				if (down != null && !down.isEmpty()) imageUrls.addAll(down);
+				
+				// 优化扫描粒度：每5秒扫描一次，而不是每秒
+				cursor = cursor.plusSeconds(5);
+				scanCount++;
 			}
-			System.out.println("[图片收集] 区间聚合共收集到图片 " + imageUrls.size() + " 张");
+			
+			// 立即去重
+			imageUrls = new ArrayList<>(new HashSet<>(imageUrls));
+			System.out.println("[图片收集] 兜底按时间范围收集到图片 " + imageUrls.size() + " 张 (扫描了 " + scanCount + " 个时间点)");
 		} catch (Exception e) {
 			System.err.println("[图片收集] 区间聚合异常: " + e.getMessage());
 		}
@@ -1465,10 +1544,12 @@ public class PassengerFlowProcessor {
 			LocalDateTime eventTime, List<String> imageUrls, String sqeNo) throws IOException, SQLException {
 		System.out.println("[并行处理] 开始为车辆 " + busNo + " 并行处理图片(区间聚合)，时间窗口: " + windowId);
 
-		//  增强图片收集：如果传入的图片列表为空，尝试多种方式收集
+		//  如果传入的图片列表为空，尝试增强收集（兜底方案）
 		if (imageUrls == null || imageUrls.isEmpty()) {
 			System.out.println("[并行处理] 传入图片列表为空，尝试增强收集...");
 			imageUrls = enhancedImageCollection(jedis, busNo, windowId, sqeNo, record.getTimestampBegin(), record.getTimestampEnd());
+		} else {
+			System.out.println("[并行处理] 使用传入的图片列表，图片数量: " + imageUrls.size());
 		}
 
 		if (imageUrls == null || imageUrls.isEmpty()) {
@@ -1586,7 +1667,41 @@ public class PassengerFlowProcessor {
 			System.err.println("[图片收集] 模糊匹配收集图片时发生异常: " + e.getMessage());
 		}
 
+		// 去重处理
+		imageUrls = new ArrayList<>(new HashSet<>(imageUrls));
+		System.out.println("[图片收集] 模糊匹配去重后共收集到图片 " + imageUrls.size() + " 张");
+
 		return imageUrls;
+	}
+
+	/**
+	 * 轻量级方法：只获取图片数量，不收集具体URL
+	 * 用于CV结果等待时的性能优化
+	 */
+	private int getImageCountBySqeNo(Jedis jedis, String busNo, String windowId, String sqeNo) {
+		try {
+			// 优先使用sqeNo获取图片数量
+			if (sqeNo != null && !sqeNo.isEmpty()) {
+				Set<String> upImages = jedis.smembers("image_urls:" + sqeNo + ":up");
+				Set<String> downImages = jedis.smembers("image_urls:" + sqeNo + ":down");
+				int count = (upImages != null ? upImages.size() : 0) + (downImages != null ? downImages.size() : 0);
+				if (count > 0) {
+					return count;
+				}
+			}
+			
+			// 兜底：使用时间窗口获取图片数量
+			if (windowId != null) {
+				String upImagesKey = "image_urls:" + busNo + ":" + windowId + ":up";
+				String downImagesKey = "image_urls:" + busNo + ":" + windowId + ":down";
+				Set<String> upImages = jedis.smembers(upImagesKey);
+				Set<String> downImages = jedis.smembers(downImagesKey);
+				return (upImages != null ? upImages.size() : 0) + (downImages != null ? downImages.size() : 0);
+			}
+		} catch (Exception e) {
+			System.err.println("[图片数量检查] 获取图片数量时发生异常: " + e.getMessage());
+		}
+		return 0;
 	}
 
 	private BusOdRecord createBaseRecord(String busNo, String cameraNo, LocalDateTime time, Jedis jedis, String sqeNo) {
@@ -1769,8 +1884,12 @@ public class PassengerFlowProcessor {
 	}
 
 	private String getTicketCountWindowFromRedis(Jedis jedis, String busNo) {
+		// 优先尝试通过sqeNo获取票务数据
+		String sqeNo = jedis.get("current_sqe_no:" + busNo);
 		String windowId = jedis.get("open_time:" + busNo);
+		
 		System.out.println("[票务计数获取] 获取车辆 " + busNo + " 的刷卡计数:");
+		System.out.println("   sqeNo: " + sqeNo);
 		System.out.println("   开门窗口ID: " + windowId);
 
 		if (windowId == null) {
@@ -1778,9 +1897,23 @@ public class PassengerFlowProcessor {
 			return "{\"upCount\":0,\"downCount\":0,\"totalCount\":0,\"detail\":[]}";
 		}
 
-		// 获取上下车计数
-		String upCountKey = "ticket_count:" + busNo + ":" + windowId + ":up";
-		String downCountKey = "ticket_count:" + busNo + ":" + windowId + ":down";
+		// 优先使用sqeNo获取票务数据
+		String upCountKey, downCountKey, upDetailKey, downDetailKey;
+		if (sqeNo != null && !sqeNo.isEmpty()) {
+			upCountKey = "ticket_count:" + sqeNo + ":up";
+			downCountKey = "ticket_count:" + sqeNo + ":down";
+			upDetailKey = "ticket_detail:" + sqeNo + ":up";
+			downDetailKey = "ticket_detail:" + sqeNo + ":down";
+			System.out.println("   [票务计数获取] 使用sqeNo获取票务数据: " + sqeNo);
+		} else {
+			// 兜底：使用原有方式
+			upCountKey = "ticket_count:" + busNo + ":" + windowId + ":up";
+			downCountKey = "ticket_count:" + busNo + ":" + windowId + ":down";
+			upDetailKey = "ticket_detail:" + busNo + ":" + windowId + ":up";
+			downDetailKey = "ticket_detail:" + busNo + ":" + windowId + ":down";
+			System.out.println("   [票务计数获取] 使用车辆+时间窗口获取票务数据");
+		}
+		
 		String upCountStr = jedis.get(upCountKey);
 		String downCountStr = jedis.get(downCountKey);
 
@@ -1792,7 +1925,6 @@ public class PassengerFlowProcessor {
 		JSONArray detailArray = new JSONArray();
 
 		// 获取上车详情
-		String upDetailKey = "ticket_detail:" + busNo + ":" + windowId + ":up";
 		Set<String> upDetails = jedis.smembers(upDetailKey);
 		if (upDetails != null) {
 			for (String detail : upDetails) {
@@ -1805,7 +1937,6 @@ public class PassengerFlowProcessor {
 		}
 
 		// 获取下车详情
-		String downDetailKey = "ticket_detail:" + busNo + ":" + windowId + ":down";
 		Set<String> downDetails = jedis.smembers(downDetailKey);
 		if (downDetails != null) {
 			for (String detail : downDetails) {
@@ -3350,7 +3481,8 @@ public class PassengerFlowProcessor {
         long lastChange = start;
         int lastUp = getCachedUpCount(jedis, busNo, windowId, sqeNo);
         int lastDown = getCachedDownCount(jedis, busNo, windowId, sqeNo);
-        int lastImageCount = getAllImageUrls(jedis, busNo, windowId).size();
+        // 优化：避免重复调用getAllImageUrls，使用更轻量的方式检查图片数量变化
+        int lastImageCount = getImageCountBySqeNo(jedis, busNo, windowId, sqeNo);
 
         if (Config.LOG_DEBUG) {
             System.out.println("[CV结果等待] 初始状态 - 上车: " + lastUp + ", 下车: " + lastDown + ", 图片: " + lastImageCount);
@@ -3373,7 +3505,8 @@ public class PassengerFlowProcessor {
             }
             int up = getCachedUpCount(jedis, busNo, windowId, sqeNo);
             int down = getCachedDownCount(jedis, busNo, windowId, sqeNo);
-            int img = getAllImageUrls(jedis, busNo, windowId).size();
+            // 优化：使用轻量级方法检查图片数量变化
+            int img = getImageCountBySqeNo(jedis, busNo, windowId, sqeNo);
 
             if (up != lastUp || down != lastDown || img != lastImageCount) {
                 if (Config.LOG_DEBUG) {
@@ -3432,16 +3565,22 @@ public class PassengerFlowProcessor {
 
 			//  如果基于sqeNo没有找到图片，按时间范围兜底收集
 			if (result.get("up").isEmpty() && result.get("down").isEmpty()) {
+				System.out.println("[图片收集] (按方向) sqeNo收集失败，开始按时间范围兜底收集...");
 				LocalDateTime cursor = from;
+				int scanCount = 0;
 				while (!cursor.isAfter(to)) {
 					String win = cursor.format(formatter);
 					Set<String> up = jedis.smembers("image_urls:" + busNo + ":" + win + ":up");
 					if (up != null && !up.isEmpty()) result.get("up").addAll(up);
 					Set<String> down = jedis.smembers("image_urls:" + busNo + ":" + win + ":down");
 					if (down != null && !down.isEmpty()) result.get("down").addAll(down);
-					cursor = cursor.plusSeconds(1);
+					// 优化扫描粒度：每5秒扫描一次，而不是每秒
+					cursor = cursor.plusSeconds(5);
+					scanCount++;
 				}
-				System.out.println("[图片收集] (按方向) 兜底按时间范围收集完成");
+				System.out.println("[图片收集] (按方向) 兜底按时间范围收集完成 (扫描了 " + scanCount + " 个时间点)");
+			} else {
+				System.out.println("[图片收集] (按方向) 基于sqeNo成功收集到图片，跳过时间范围扫描");
 			}
 			System.out.println("[图片收集] (按方向) 区间聚合共收集到 上车=" + result.get("up").size() + ", 下车=" + result.get("down").size());
 		} catch (Exception e) {

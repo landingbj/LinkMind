@@ -141,6 +141,33 @@ public class PassengerFlowProcessor {
         return s == null ? -1 : s.length();
     }
 
+    // 判断是否有downup数据：优先查Redis是否存在 downup_msg:{sqeNo} 或按bus窗口键，其次再看记录字段
+    private boolean hasDownupData(BusOdRecord r) {
+        try (Jedis jedis = jedisPool.getResource()) {
+            String sqeNo = r.getSqeNo();
+            String busNo = r.getBusNo();
+            // 1) sqeNo 直接命中
+            if (sqeNo != null && !sqeNo.trim().isEmpty()) {
+                String key = "downup_msg:" + sqeNo;
+                String v = jedis.get(key);
+                if (v != null && !v.trim().isEmpty() && !"[]".equals(v.trim())) return true;
+            }
+            // 2) 通过windowId 兼容命中
+            String windowId = jedis.get("open_time:" + busNo);
+            if (windowId != null && !windowId.trim().isEmpty()) {
+                String key = "downup_msg:" + busNo + ":" + windowId;
+                String v = jedis.get(key);
+                if (v != null && !v.trim().isEmpty() && !"[]".equals(v.trim())) return true;
+            }
+            // 3) 回退：检查记录字段
+            String raw = r.getRetrieveDownupMsg();
+            if (raw != null && !raw.trim().isEmpty()) return true;
+            return false;
+        } catch (Exception ignore) {
+            return false;
+        }
+    }
+
 	private void handleDownUpEvent(JSONObject data, String busNo, String busId, String cameraNo, Jedis jedis) throws IOException, SQLException {
 		String sqeNo = data.optString("sqe_no");  // 新增：获取开关门唯一批次号
 		LocalDateTime eventTime = LocalDateTime.parse(data.optString("timestamp").replace(" ", "T"));
@@ -1114,14 +1141,15 @@ public class PassengerFlowProcessor {
 			if (Config.PILOT_ROUTE_LOG_ENABLED) {
 				logger.info("[CV业务完成] 准备落库，发送kafka:busNo=" + busNo);
 			}
-			// 统一落库：强绑定字段校验通过才发送Kafka
-			if (shouldCommitOd(record)) {
+			// 统一落库：无downup则放行发送；有downup则执行强绑定校验
+			boolean hasDownup = hasDownupData(record);
+			if (!hasDownup || shouldCommitOd(record)) {
 				sendToKafka(record);
 				// 设置OD发送幂等标记
 				jedis.set(odSentKey, "1");
 				jedis.expire(odSentKey, Config.REDIS_TTL_OPEN_TIME);
 				if (Config.LOG_INFO) {
-					logger.info("[统一落库] 已发送到Kafka且设置幂等标记: sqeNo=" + sqeNo);
+					logger.info("[统一落库] 已发送到Kafka且设置幂等标记: sqeNo=" + sqeNo + ", hasDownup=" + hasDownup);
 				}
 			} else {
 				logger.warn("[统一落库] 强绑定字段不完整，跳过发送Kafka: sqeNo=" + sqeNo +

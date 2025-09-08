@@ -1226,18 +1226,14 @@ public class PassengerFlowProcessor {
 					logger.info("[流程] 最终JSON长度: " + sectionFlowArray.toString().length());
 				}
 			} else {
-				// 设置默认值，避免字段为null
-				record.setSectionPassengerFlowCount("[]");
 				if (Config.PILOT_ROUTE_LOG_ENABLED) {
-					logger.info("[流程] 警告：未找到区间客流数据，设置默认值[]");
+					logger.info("[流程] 警告：未找到区间客流数据");
 				}
 			}
 		} catch (Exception e) {
 			if (Config.LOG_ERROR) {
 				logger.error("[PassengerFlowProcessor] Error setting section passenger flow count: " + e.getMessage());
 			}
-			// 异常情况下设置默认值
-			record.setSectionPassengerFlowCount("[]");
 		}
 	}
 
@@ -1374,24 +1370,15 @@ public class PassengerFlowProcessor {
 					logger.error("[图片转视频] 转换失败: " + e.getMessage());
 					e.printStackTrace();
 
-					// 设置默认值，避免字段为null
-					record.setPassengerVideoUrl("");
-					logger.info("[图片转视频] 转换失败，已设置默认值");
+					logger.info("[图片转视频] 转换失败");
 				}
 			} else {
-				// 没有图片时设置默认值
-				record.setPassengerImages("[]");
-				record.setPassengerVideoUrl("");
-				logger.info("[图片转视频] 没有图片需要处理，已设置默认值");
+				logger.info("[图片转视频] 没有图片需要处理");
 			}
 		} catch (Exception e) {
 			logger.error("[图片转视频] 处理过程发生异常: " + e.getMessage());
 			e.printStackTrace();
-
-			// 异常情况下设置默认值
-			record.setPassengerImages("[]");
-			record.setPassengerVideoUrl("");
-			logger.info("[图片转视频] 异常处理，已设置默认值");
+			logger.info("[图片转视频] 异常处理");
 		}
 	}
 
@@ -1614,8 +1601,7 @@ public class PassengerFlowProcessor {
 		}
 
 		if (imageUrls == null || imageUrls.isEmpty()) {
-			logger.info("[并行处理] 增强收集后仍无图片，设置默认值");
-			record.setPassengerImages("[]");
+			logger.info("[并行处理] 增强收集后仍无图片");
 			return;
 		}
 
@@ -1825,10 +1811,7 @@ public class PassengerFlowProcessor {
 			record.setTicketDownCount(downCount);
 			logger.info("[OD记录创建] 设置ticketUpCount: " + upCount + ", ticketDownCount: " + downCount);
 		} catch (Exception e) {
-			// 如果JSON解析失败，设置默认值
-			record.setTicketUpCount(0);
-			record.setTicketDownCount(0);
-			logger.error("[OD记录创建] 解析ticketJson JSON失败，设置默认值: " + e.getMessage());
+			logger.error("[OD记录创建] 解析ticketJson JSON失败: " + e.getMessage());
 		}
 
 		logger.info("[OD记录创建] 设置ticketJson: " + ticketCountJson);
@@ -3242,7 +3225,6 @@ public class PassengerFlowProcessor {
                     // 兜底：用图片数量作为AI总人数的保守估计
                     int size = imageUrls != null ? imageUrls.size() : 0;
                     record.setAiTotalCount(Math.max(record.getAiTotalCount() != null ? record.getAiTotalCount() : 0, size));
-                    record.setFeatureDescription("[]");
 
                     logger.info("[大模型分析] 使用兜底方案: aiTotalCount=" + record.getAiTotalCount() + ", featureDescription=[]");
                     break;
@@ -3270,7 +3252,6 @@ public class PassengerFlowProcessor {
                     int size = imageUrls != null ? imageUrls.size() : 0;
                     Integer cur = record.getAiTotalCount();
                     record.setAiTotalCount(Math.max(cur == null ? 0 : cur, size));
-                    record.setFeatureDescription("[]"); // 设置空的特征描述
                     logger.info("[大模型分析] 设置兜底值 - AI总人数: " + record.getAiTotalCount() + ", 特征描述: []");
                     return;
                 }
@@ -3319,8 +3300,6 @@ public class PassengerFlowProcessor {
             int downN = downImages != null ? downImages.size() : 0;
             Integer cur = record.getAiTotalCount();
             record.setAiTotalCount(Math.max(cur == null ? 0 : cur, upN + downN));
-            // 方向化描述置空数组
-            record.setFeatureDescription("[]");
             return;
         }
 
@@ -3526,21 +3505,14 @@ public class PassengerFlowProcessor {
 					logger.info("[流程] 乘客特征集合设置完成，特征数: " + featuresArray.length() + ", 位置数: " + positionArray.length());
 				}
 			} else {
-				// 设置默认值，避免字段为null
-				record.setPassengerFeatures("[]");
-				record.setPassengerPosition("[]");
 				if (Config.PILOT_ROUTE_LOG_ENABLED) {
-					logger.info("[流程] 警告：未找到乘客特征数据，设置默认值[]");
+					logger.info("[流程] 警告：未找到乘客特征数据");
 				}
 			}
 		} catch (Exception e) {
 			if (Config.LOG_ERROR) {
 				logger.error("[PassengerFlowProcessor] Error setting passenger features: " + e.getMessage());
 			}
-
-			// 异常情况下设置默认值
-			record.setPassengerFeatures("[]");
-			record.setPassengerPosition("[]");
 		}
 	}
 
@@ -3578,96 +3550,50 @@ public class PassengerFlowProcessor {
 				}
 			}
 
-			// 检查featureDescription字段
-			if (record.getFeatureDescription() == null || record.getFeatureDescription().trim().isEmpty()) {
-				record.setFeatureDescription("[]");
-				if (Config.LOG_DEBUG) {
-					logger.info("[数据验证] featureDescription字段为空，设置默认值[]");
-				}
-			}
-
-			// 检查aiTotalCount字段
-			if (record.getAiTotalCount() == null) {
-				record.setAiTotalCount(0);
-				if (Config.LOG_DEBUG) {
-					logger.info("[数据验证] aiTotalCount字段为空，设置默认值0");
-				}
-			}
-
-			// 检查sectionPassengerFlowCount字段
-			if (record.getSectionPassengerFlowCount() == null || record.getSectionPassengerFlowCount().trim().isEmpty()) {
-				record.setSectionPassengerFlowCount("[]");
-				if (Config.LOG_DEBUG) {
-					logger.info("[数据验证] sectionPassengerFlowCount字段为空，设置默认值[]");
-				}
-			}
-
-			// 检查retrieveBusGpsMsg字段
-			if (record.getRetrieveBusGpsMsg() == null || record.getRetrieveBusGpsMsg().trim().isEmpty()) {
-				record.setRetrieveBusGpsMsg("[]");
-				if (Config.LOG_DEBUG) {
-					logger.info("[数据验证] retrieveBusGpsMsg字段为空，设置默认值[]");
-				}
-			}
-
-			// 检查retrieveDownupMsg字段
-			if (record.getRetrieveDownupMsg() == null || record.getRetrieveDownupMsg().trim().isEmpty()) {
-				record.setRetrieveDownupMsg("[]");
-				if (Config.LOG_DEBUG) {
-					logger.info("[数据验证] retrieveDownupMsg字段为空，设置默认值[]");
-				}
-			}
-
-			// 检查passengerFeatures字段
-			if (record.getPassengerFeatures() == null || record.getPassengerFeatures().trim().isEmpty()) {
-				record.setPassengerFeatures("[]");
-				if (Config.LOG_DEBUG) {
-					logger.info("[数据验证] passengerFeatures字段为空，设置默认值[]");
-				}
-			}
-
-			// 检查passengerPosition字段
-			if (record.getPassengerPosition() == null || record.getPassengerPosition().trim().isEmpty()) {
-				record.setPassengerPosition("[]");
-				if (Config.LOG_DEBUG) {
-					logger.info("[数据验证] passengerPosition字段为空，设置默认值[]");
-				}
-			}
-
-			// 检查passengerImages字段
-			if (record.getPassengerImages() == null || record.getPassengerImages().trim().isEmpty()) {
-				record.setPassengerImages("[]");
-				if (Config.LOG_DEBUG) {
-					logger.info("[数据验证] passengerImages字段为空，设置默认值[]");
-				}
-			}
-
-			// 检查ticketJson字段
-			if (record.getTicketJson() == null || record.getTicketJson().trim().isEmpty()) {
-				record.setTicketJson("{}");
-				if (Config.LOG_DEBUG) {
-					logger.info("[数据验证] ticketJson字段为空，设置默认值{}");
-				}
-			}
-
-			// 检查数值字段
-			if (record.getUpCount() == null) {
-				record.setUpCount(0);
-			}
-			if (record.getDownCount() == null) {
-				record.setDownCount(0);
-			}
-			if (record.getTicketUpCount() == null) {
-				record.setTicketUpCount(0);
-			}
-			if (record.getTicketDownCount() == null) {
-				record.setTicketDownCount(0);
-			}
-			if (record.getVehicleTotalCount() == null) {
-				record.setVehicleTotalCount(0);
-			}
-
+			// 纯校验：字段为空仅记录日志，不再赋默认值
 			if (Config.LOG_DEBUG) {
+				if (record.getFeatureDescription() == null || record.getFeatureDescription().trim().isEmpty()) {
+					logger.info("[数据验证] featureDescription字段为空");
+				}
+				if (record.getAiTotalCount() == null) {
+					logger.info("[数据验证] aiTotalCount字段为空");
+				}
+				if (record.getSectionPassengerFlowCount() == null || record.getSectionPassengerFlowCount().trim().isEmpty()) {
+					logger.info("[数据验证] sectionPassengerFlowCount字段为空");
+				}
+				if (record.getRetrieveBusGpsMsg() == null || record.getRetrieveBusGpsMsg().trim().isEmpty()) {
+					logger.info("[数据验证] retrieveBusGpsMsg字段为空");
+				}
+				if (record.getRetrieveDownupMsg() == null || record.getRetrieveDownupMsg().trim().isEmpty()) {
+					logger.info("[数据验证] retrieveDownupMsg字段为空");
+				}
+				if (record.getPassengerFeatures() == null || record.getPassengerFeatures().trim().isEmpty()) {
+					logger.info("[数据验证] passengerFeatures字段为空");
+				}
+				if (record.getPassengerPosition() == null || record.getPassengerPosition().trim().isEmpty()) {
+					logger.info("[数据验证] passengerPosition字段为空");
+				}
+				if (record.getPassengerImages() == null || record.getPassengerImages().trim().isEmpty()) {
+					logger.info("[数据验证] passengerImages字段为空");
+				}
+				if (record.getTicketJson() == null || record.getTicketJson().trim().isEmpty()) {
+					logger.info("[数据验证] ticketJson字段为空");
+				}
+				if (record.getUpCount() == null) {
+					logger.info("[数据验证] upCount字段为空");
+				}
+				if (record.getDownCount() == null) {
+					logger.info("[数据验证] downCount字段为空");
+				}
+				if (record.getTicketUpCount() == null) {
+					logger.info("[数据验证] ticketUpCount字段为空");
+				}
+				if (record.getTicketDownCount() == null) {
+					logger.info("[数据验证] ticketDownCount字段为空");
+				}
+				if (record.getVehicleTotalCount() == null) {
+					logger.info("[数据验证] vehicleTotalCount字段为空");
+				}
 				logger.info("[数据验证] OD记录数据完整性检查完成");
 			}
 		} catch (Exception e) {

@@ -1142,8 +1142,8 @@ public class PassengerFlowProcessor {
 				}
 			}
 			
-			// 方式2：兜底方案 - 使用车辆编号和时间窗口（只有在sqeNo获取失败时才执行）
-			if ((sectionFlows == null || sectionFlows.isEmpty()) && (sqeNo == null || sqeNo.isEmpty())) {
+			// 方式2：兜底方案 - 使用车辆编号和时间窗口（只有在方式1失败时才执行）
+			if (sectionFlows == null || sectionFlows.isEmpty()) {
 				String flowKey = "section_flow:" + busNo + ":" + windowId;
 				sectionFlows = jedis.hgetAll(flowKey);
 				usedKey = flowKey;
@@ -1376,54 +1376,53 @@ public class PassengerFlowProcessor {
 				}
 			}
 
-			// 方式2：基于时间窗口收集
-			if (windowId != null) {
-				List<String> windowImages = getImagesByExactWindow(jedis, busNo, windowId);
-				if (!windowImages.isEmpty()) {
-					imageUrls.addAll(windowImages);
-					// 立即去重
-					imageUrls = new ArrayList<>(new HashSet<>(imageUrls));
-					System.out.println("[增强图片收集] 方式2(时间窗口): 收集到 " + imageUrls.size() + " 张不重复图片");
-					return imageUrls;
-				}
-			}
-
-			// 方式3：基于时间范围收集（仅作为兜底，不传递sqeNo避免重复）
-			if (beginTime != null && endTime != null) {
-				List<String> rangeImages = getImagesByTimeRange(jedis, busNo, beginTime, endTime,
-					Config.IMAGE_TIME_TOLERANCE_BEFORE_SECONDS, Config.IMAGE_TIME_TOLERANCE_AFTER_SECONDS, null);
-				if (!rangeImages.isEmpty()) {
-					imageUrls.addAll(rangeImages);
-					// 立即去重
-					imageUrls = new ArrayList<>(new HashSet<>(imageUrls));
-					System.out.println("[增强图片收集] 方式3(时间范围): 收集到 " + imageUrls.size() + " 张不重复图片");
-					return imageUrls;
-				}
-			}
-
-			// 方式4：模糊匹配收集
-			if (windowId != null) {
-				List<String> fuzzyImages = getImagesByFuzzyWindow(jedis, busNo, windowId);
-				if (!fuzzyImages.isEmpty()) {
-					imageUrls.addAll(fuzzyImages);
-					// 立即去重
-					imageUrls = new ArrayList<>(new HashSet<>(imageUrls));
-					System.out.println("[增强图片收集] 方式4(模糊匹配): 收集到 " + imageUrls.size() + " 张不重复图片");
-					return imageUrls;
-				}
-			}
-
-			// 方式5：扫描所有相关Redis键（最后兜底）
-			Set<String> allImageKeys = jedis.keys("image_urls:*" + busNo + "*");
-			if (allImageKeys != null && !allImageKeys.isEmpty()) {
-				for (String key : allImageKeys) {
-					Set<String> images = jedis.smembers(key);
-					if (images != null) imageUrls.addAll(images);
-				}
+		// 方式2：基于时间窗口收集
+		if (windowId != null) {
+			List<String> windowImages = getImagesByExactWindow(jedis, busNo, windowId);
+			if (!windowImages.isEmpty()) {
 				// 立即去重
-				imageUrls = new ArrayList<>(new HashSet<>(imageUrls));
-				System.out.println("[增强图片收集] 方式5(全扫描): 扫描到 " + allImageKeys.size() + " 个键，收集到 " + imageUrls.size() + " 张不重复图片");
+				windowImages = new ArrayList<>(new HashSet<>(windowImages));
+				System.out.println("[增强图片收集] 方式2(时间窗口): 收集到 " + windowImages.size() + " 张不重复图片");
+				return windowImages;
 			}
+		}
+
+		// 方式3：基于时间范围收集（仅作为兜底，不传递sqeNo避免重复）
+		if (beginTime != null && endTime != null) {
+			List<String> rangeImages = getImagesByTimeRange(jedis, busNo, beginTime, endTime,
+				Config.IMAGE_TIME_TOLERANCE_BEFORE_SECONDS, Config.IMAGE_TIME_TOLERANCE_AFTER_SECONDS, null);
+			if (!rangeImages.isEmpty()) {
+				// 立即去重
+				rangeImages = new ArrayList<>(new HashSet<>(rangeImages));
+				System.out.println("[增强图片收集] 方式3(时间范围): 收集到 " + rangeImages.size() + " 张不重复图片");
+				return rangeImages;
+			}
+		}
+
+		// 方式4：模糊匹配收集
+		if (windowId != null) {
+			List<String> fuzzyImages = getImagesByFuzzyWindow(jedis, busNo, windowId);
+			if (!fuzzyImages.isEmpty()) {
+				// 立即去重
+				fuzzyImages = new ArrayList<>(new HashSet<>(fuzzyImages));
+				System.out.println("[增强图片收集] 方式4(模糊匹配): 收集到 " + fuzzyImages.size() + " 张不重复图片");
+				return fuzzyImages;
+			}
+		}
+
+		// 方式5：扫描所有相关Redis键（最后兜底）
+		Set<String> allImageKeys = jedis.keys("image_urls:*" + busNo + "*");
+		if (allImageKeys != null && !allImageKeys.isEmpty()) {
+			List<String> allImages = new ArrayList<>();
+			for (String key : allImageKeys) {
+				Set<String> images = jedis.smembers(key);
+				if (images != null) allImages.addAll(images);
+			}
+			// 立即去重
+			allImages = new ArrayList<>(new HashSet<>(allImages));
+			System.out.println("[增强图片收集] 方式5(全扫描): 扫描到 " + allImageKeys.size() + " 个键，收集到 " + allImages.size() + " 张不重复图片");
+			return allImages;
+		}
 
 			System.out.println("[增强图片收集] 最终收集到 " + imageUrls.size() + " 张不重复图片");
 

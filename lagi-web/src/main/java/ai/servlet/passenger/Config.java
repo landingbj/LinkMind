@@ -101,4 +101,32 @@ public class Config {
     public static String getDbUrl() { return DB_URL; }
     public static String getDbUser() { return DB_USER; }
     public static String getDbPassword() { return DB_PASSWORD; }
+
+    // WebSocket 事件线程池配置（支持通过系统属性覆盖，供运行时调节）
+    // 属性键：
+    //  - WS_CORE_POOL_SIZE
+    //  - WS_MAX_POOL_SIZE
+    //  - WS_KEEP_ALIVE_SECONDS
+    //  - WS_QUEUE_CAPACITY
+    //  - WS_MONITOR_SECONDS
+    public static final int WS_CORE_POOL_SIZE = getIntProperty("WS_CORE_POOL_SIZE", 8);
+    public static final int WS_MAX_POOL_SIZE = getIntProperty("WS_MAX_POOL_SIZE", 32);
+    public static final int WS_KEEP_ALIVE_SECONDS = getIntProperty("WS_KEEP_ALIVE_SECONDS", 60);
+    public static final int WS_QUEUE_CAPACITY = getIntProperty("WS_QUEUE_CAPACITY", 200);
+    public static final int WS_MONITOR_SECONDS = getIntProperty("WS_MONITOR_SECONDS", 5);
+
+    private static int getIntProperty(String key, int defaultValue) {
+        try {
+            String v = System.getProperty(key);
+            if (v == null || v.isEmpty()) {
+                v = System.getenv(key);
+            }
+            if (v == null || v.isEmpty()) {
+                return defaultValue;
+            }
+            return Integer.parseInt(v.trim());
+        } catch (Exception ignore) {
+            return defaultValue;
+        }
+    }
 }

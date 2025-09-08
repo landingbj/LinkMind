@@ -12,7 +12,9 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -31,9 +33,9 @@ public class WebSocketEndpoint {
 
 	// 异步事件处理执行器，避免在WebSocket线程中执行耗时任务
 	private static final ExecutorService EVENT_EXECUTOR = new ThreadPoolExecutor(
-		2, 8,
-		60L, TimeUnit.SECONDS,
-		new LinkedBlockingQueue<>(2000),
+		Config.WS_CORE_POOL_SIZE, Config.WS_MAX_POOL_SIZE,
+		Config.WS_KEEP_ALIVE_SECONDS, TimeUnit.SECONDS,
+		new LinkedBlockingQueue<>(Config.WS_QUEUE_CAPACITY),
 		new ThreadFactory() {
 			private int threadNumber = 1;
 			@Override
@@ -43,8 +45,55 @@ public class WebSocketEndpoint {
 				return t;
 			}
 		},
-		new ThreadPoolExecutor.CallerRunsPolicy()
+		new ThreadPoolExecutor.CallerRunsPolicy() {
+			@Override
+			public void rejectedExecution(Runnable r, ThreadPoolExecutor e) {
+				if (Config.LOG_ERROR) {
+					logger.error("[WebSocket] 任务被拒绝: poolSize={}, active={}, core={}, max={}, queueSize={}, taskCount={}, completed={}",
+						e.getPoolSize(), e.getActiveCount(), e.getCorePoolSize(), e.getMaximumPoolSize(),
+						e.getQueue() != null ? e.getQueue().size() : -1,
+						e.getTaskCount(), e.getCompletedTaskCount());
+				}
+				super.rejectedExecution(r, e);
+			}
+		}
 	);
+
+	// 定时打印线程池运行指标
+	private static final ScheduledExecutorService POOL_MONITOR = Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
+		@Override
+		public Thread newThread(Runnable r) {
+			Thread t = new Thread(r, "WS-Event-Monitor");
+			t.setDaemon(true);
+			return t;
+		}
+	});
+
+	static {
+		POOL_MONITOR.scheduleAtFixedRate(() -> {
+			if (Config.LOG_INFO) {
+				try {
+					logPoolStats();
+				} catch (Throwable ignore) {}
+			}
+		}, Config.WS_MONITOR_SECONDS, Config.WS_MONITOR_SECONDS, TimeUnit.SECONDS);
+
+		if (Config.LOG_INFO) {
+			logger.info("[WebSocket] 线程池配置: core={}, max={}, keepAliveSeconds={}, queueCapacity={}, monitorSeconds={}",
+					Config.WS_CORE_POOL_SIZE, Config.WS_MAX_POOL_SIZE, Config.WS_KEEP_ALIVE_SECONDS,
+					Config.WS_QUEUE_CAPACITY, Config.WS_MONITOR_SECONDS);
+		}
+	}
+
+	private static void logPoolStats() {
+		ThreadPoolExecutor e = (ThreadPoolExecutor) EVENT_EXECUTOR;
+		int queueSize = e.getQueue() != null ? e.getQueue().size() : -1;
+		int queueRemaining = e.getQueue() != null ? e.getQueue().remainingCapacity() : -1;
+		logger.info("[WebSocket] 线程池: poolSize={}, active={}, core={}, max={}, largest={}, queueSize={}, queueRemain={}, taskCount={}, completed={}, isShutdown={}, isTerminated={}",
+			e.getPoolSize(), e.getActiveCount(), e.getCorePoolSize(), e.getMaximumPoolSize(),
+			e.getLargestPoolSize(), queueSize, queueRemaining, e.getTaskCount(), e.getCompletedTaskCount(),
+			e.isShutdown(), e.isTerminated());
+	}
 
 	@OnOpen
 	public void onOpen(Session session) {

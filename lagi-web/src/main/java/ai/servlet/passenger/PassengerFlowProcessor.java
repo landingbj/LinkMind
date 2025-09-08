@@ -2274,7 +2274,13 @@ public class PassengerFlowProcessor {
 
 	private void sendToKafka(Object data) {
 		try {
-			String json = objectMapper.writeValueAsString(data);
+			String json;
+			// 仅在发送到Kafka时，对OD的特定大字段做降载处理，不影响原对象及其他流程
+			if (data instanceof BusOdRecord) {
+				json = buildKafkaJsonWithReducedPayload((BusOdRecord) data);
+			} else {
+				json = objectMapper.writeValueAsString(data);
+			}
 
 			// 试点线路最终流程日志 - 准备发送到Kafka（隐藏payload，仅打印主题与大小）
 			if (Config.PILOT_ROUTE_LOG_ENABLED) {
@@ -2330,6 +2336,100 @@ public class PassengerFlowProcessor {
 				logger.error("[流程异常] 序列化发送数据失败: " + e.getMessage());
 			}
 		}
+	}
+
+	/**
+	 * 构建仅用于Kafka发送的JSON：对 passengerFeatures 与 retrieveDownupMsg 中的base64字段做“有=1/无=0”降载
+	 * 不修改原始 BusOdRecord 对象
+	 */
+	private String buildKafkaJsonWithReducedPayload(BusOdRecord record) {
+		try {
+			com.fasterxml.jackson.databind.node.ObjectNode root = objectMapper.valueToTree(record);
+			// 1) 处理 passengerFeatures：其为JSON数组的字符串
+			com.fasterxml.jackson.databind.JsonNode pfNode = root.get("passengerFeatures");
+			if (pfNode != null && !pfNode.isNull() && pfNode.isTextual()) {
+				String pfText = pfNode.asText();
+				try {
+					com.fasterxml.jackson.databind.JsonNode parsed = objectMapper.readTree(pfText);
+					if (parsed != null && parsed.isArray()) {
+						com.fasterxml.jackson.databind.node.ArrayNode arr = (com.fasterxml.jackson.databind.node.ArrayNode) parsed;
+						for (com.fasterxml.jackson.databind.JsonNode item : arr) {
+							if (item != null && item.isObject()) {
+								com.fasterxml.jackson.databind.node.ObjectNode obj = (com.fasterxml.jackson.databind.node.ObjectNode) item;
+								// feature: 有原始值则置为1，无则0
+								com.fasterxml.jackson.databind.JsonNode feature = obj.get("feature");
+								boolean hasFeature = feature != null && !feature.isNull() && !feature.asText("").isEmpty();
+								obj.put("feature", hasFeature ? 1 : 0);
+								// image: 有原始值则置为1，无则0
+								com.fasterxml.jackson.databind.JsonNode image = obj.get("image");
+								boolean hasImage = image != null && !image.isNull() && !image.asText("").isEmpty();
+								obj.put("image", hasImage ? 1 : 0);
+							}
+						}
+						// 将降载后的数组重新作为字符串写回字段
+						root.put("passengerFeatures", objectMapper.writeValueAsString(arr));
+					}
+				} catch (Exception ignore) {}
+
+			}
+
+			// 2) 处理 retrieveDownupMsg：其为JSON数组/对象的字符串，内部事件中的 feature 与 image 降载
+			com.fasterxml.jackson.databind.JsonNode rdmNode = root.get("retrieveDownupMsg");
+			if (rdmNode != null && !rdmNode.isNull() && rdmNode.isTextual()) {
+				String rdmText = rdmNode.asText();
+				try {
+					com.fasterxml.jackson.databind.JsonNode parsed = objectMapper.readTree(rdmText);
+					// 兼容数组或对象结构
+					if (parsed.isArray()) {
+						for (com.fasterxml.jackson.databind.JsonNode n : parsed) {
+							reduceFeatureAndImage(n);
+						}
+						root.put("retrieveDownupMsg", objectMapper.writeValueAsString(parsed));
+					} else if (parsed.isObject()) {
+						reduceFeatureAndImage(parsed);
+						root.put("retrieveDownupMsg", objectMapper.writeValueAsString(parsed));
+					}
+				} catch (Exception ignore) {}
+			}
+
+			return objectMapper.writeValueAsString(root);
+		} catch (Exception e) {
+			// 回退到原始序列化
+			try { return objectMapper.writeValueAsString(record); } catch (Exception ex) { return "{}"; }
+		}
+	}
+
+	/**
+	 * 对节点内可能出现的 feature/image 字段做“有=1/无=0”降载，支持多层结构
+	 */
+	private void reduceFeatureAndImage(com.fasterxml.jackson.databind.JsonNode node) {
+		try {
+			if (node == null) return;
+			if (node.isObject()) {
+				com.fasterxml.jackson.databind.node.ObjectNode obj = (com.fasterxml.jackson.databind.node.ObjectNode) node;
+				com.fasterxml.jackson.databind.JsonNode feature = obj.get("feature");
+				if (feature != null) {
+					boolean hasFeature = !feature.isNull() && !feature.asText("").isEmpty();
+					obj.put("feature", hasFeature ? 1 : 0);
+				}
+				com.fasterxml.jackson.databind.JsonNode image = obj.get("image");
+				if (image != null) {
+					boolean hasImage = !image.isNull() && !image.asText("").isEmpty();
+					obj.put("image", hasImage ? 1 : 0);
+				}
+				// 若存在子数组如 events，则深入处理
+				com.fasterxml.jackson.databind.JsonNode events = obj.get("events");
+				if (events != null && events.isArray()) {
+					for (com.fasterxml.jackson.databind.JsonNode e : events) {
+						reduceFeatureAndImage(e);
+					}
+				}
+			} else if (node.isArray()) {
+				for (com.fasterxml.jackson.databind.JsonNode n : node) {
+					reduceFeatureAndImage(n);
+				}
+			}
+		} catch (Exception ignore) {}
 	}
 
 	/**

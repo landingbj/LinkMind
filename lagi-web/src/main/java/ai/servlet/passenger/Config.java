@@ -4,8 +4,8 @@ public class Config {
     public static final String DB_URL = "jdbc:postgresql://20.17.39.40:5432/GJ_DW";
     public static final String DB_USER = "gj_dw_r1";
     public static final String DB_PASSWORD = ")xNPm1OKZMgB";
-    public static final String REDIS_HOST = "20.17.39.68";
-    public static final String REDIS_PASSWORD = ")xNPm1OKZMgB";
+    public static final String REDIS_HOST = "20.17.39.34";
+    public static final String REDIS_PASSWORD = "2gHLmc!1hb!s@t";
     public static final int REDIS_PORT = 6379;
     public static final String OSS_UPLOAD_URL = "http://20.17.39.75:30080/admin/sys-file/upload";
     public static final String OSS_FILE_BASE_URL = "https://gateway-busfusion.ibuscloud.com";

@@ -25,8 +25,6 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.net.URL;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.nio.channels.Channels;
 import java.nio.channels.ReadableByteChannel;
 import java.sql.SQLException;
@@ -34,7 +32,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.Base64;
 
 /**
  * 乘客流量处理器，处理CV WebSocket推送的事件
@@ -798,7 +795,7 @@ public class PassengerFlowProcessor {
 			jedis.set(vehicleTotalCountKey, String.valueOf(count));
 			jedis.expire(loadFactorKey, Config.REDIS_TTL_COUNTS);
 			jedis.expire(vehicleTotalCountKey, Config.REDIS_TTL_COUNTS);
-			
+
 			if (Config.LOG_DEBUG) {
 				logger.info("[CV满载率数据] 使用sqeNo存储: sqeNo=" + sqeNo + ", factor=" + factor + ", count=" + count);
 			}
@@ -810,7 +807,7 @@ public class PassengerFlowProcessor {
 			jedis.set(vehicleTotalCountKeyLegacy, String.valueOf(count));
 			jedis.expire(loadFactorKeyLegacy, Config.REDIS_TTL_COUNTS);
 			jedis.expire(vehicleTotalCountKeyLegacy, Config.REDIS_TTL_COUNTS);
-			
+
 			if (Config.LOG_DEBUG) {
 				logger.info("[CV满载率数据] 使用兼容性存储: busNo=" + canonicalBusNo + ", factor=" + factor + ", count=" + count);
 			}
@@ -1121,7 +1118,7 @@ public class PassengerFlowProcessor {
 		try {
 			Map<String, String> sectionFlows = null;
 			String usedKey = null;
-			
+
 			// 方式1：优先使用sqeNo获取区间客流数据
 			if (sqeNo != null && !sqeNo.isEmpty()) {
 				String sqeKey = "section_flow:" + sqeNo;
@@ -1131,7 +1128,7 @@ public class PassengerFlowProcessor {
 					logger.info("[PassengerFlowProcessor] 通过sqeNo获取区间客流数据: sqeNo=" + sqeNo + ", 数据量=" + (sectionFlows != null ? sectionFlows.size() : 0));
 				}
 			}
-			
+
 			// 方式2：兜底方案 - 使用车辆编号和时间窗口（只有在方式1失败时才执行）
 			if (sectionFlows == null || sectionFlows.isEmpty()) {
 				String flowKey = "section_flow:" + busNo + ":" + windowId;
@@ -1141,7 +1138,7 @@ public class PassengerFlowProcessor {
 					logger.info("[PassengerFlowProcessor] 通过车辆+时间窗口获取区间客流数据: busNo=" + busNo + ", windowId=" + windowId + ", 数据量=" + (sectionFlows != null ? sectionFlows.size() : 0));
 				}
 			}
-			
+
 			// 方式3：最后兜底 - 搜索所有相关的区间客流数据（只有在前面方式都失败时才执行）
 			if (sectionFlows == null || sectionFlows.isEmpty()) {
 				Set<String> keys = jedis.keys("section_flow:" + busNo + ":*");
@@ -1358,7 +1355,7 @@ public class PassengerFlowProcessor {
 				// 立即去重
 				imageUrls = new ArrayList<>(new HashSet<>(imageUrls));
 				logger.info("[增强图片收集] 方式1(sqe_no): 收集到 " + imageUrls.size() + " 张不重复图片");
-				
+
 				// 如果基于sqeNo收集到图片，直接返回，不再尝试其他方式
 				if (!imageUrls.isEmpty()) {
 					logger.info("[增强图片收集] 基于sqeNo成功收集到图片，跳过其他收集方式");
@@ -1489,7 +1486,7 @@ public class PassengerFlowProcessor {
 					imageUrls.addAll(downImagesBySqe);
 					logger.info("[图片收集] 基于sqeNo收集到下车图片 " + downImagesBySqe.size() + " 张");
 				}
-				
+
 				// 如果基于sqeNo收集到图片，立即去重并返回，不再进行时间范围扫描
 				if (!imageUrls.isEmpty()) {
 					imageUrls = new ArrayList<>(new HashSet<>(imageUrls));
@@ -1510,12 +1507,12 @@ public class PassengerFlowProcessor {
 				// 下车
 				Set<String> down = jedis.smembers("image_urls:" + busNo + ":" + win + ":down");
 				if (down != null && !down.isEmpty()) imageUrls.addAll(down);
-				
+
 				// 优化扫描粒度：每5秒扫描一次，而不是每秒
 				cursor = cursor.plusSeconds(5);
 				scanCount++;
 			}
-			
+
 			// 立即去重
 			imageUrls = new ArrayList<>(new HashSet<>(imageUrls));
 			logger.info("[图片收集] 兜底按时间范围收集到图片 " + imageUrls.size() + " 张 (扫描了 " + scanCount + " 个时间点)");
@@ -1678,7 +1675,7 @@ public class PassengerFlowProcessor {
 					return count;
 				}
 			}
-			
+
 			// 兜底：使用时间窗口获取图片数量
 			if (windowId != null) {
 				String upImagesKey = "image_urls:" + busNo + ":" + windowId + ":up";
@@ -1876,7 +1873,7 @@ public class PassengerFlowProcessor {
 		// 优先尝试通过sqeNo获取票务数据
 		String sqeNo = jedis.get("current_sqe_no:" + busNo);
 		String windowId = jedis.get("open_time:" + busNo);
-		
+
 		logger.info("[票务计数获取] 获取车辆 " + busNo + " 的刷卡计数:");
 		logger.info("   sqeNo: " + sqeNo);
 		logger.info("   开门窗口ID: " + windowId);
@@ -1902,7 +1899,7 @@ public class PassengerFlowProcessor {
 			downDetailKey = "ticket_detail:" + busNo + ":" + windowId + ":down";
 			logger.info("   [票务计数获取] 使用车辆+时间窗口获取票务数据");
 		}
-		
+
 		String upCountStr = jedis.get(upCountKey);
 		String downCountStr = jedis.get(downCountKey);
 
@@ -1958,7 +1955,7 @@ public class PassengerFlowProcessor {
 
 	private int getVehicleTotalCountFromRedis(Jedis jedis, String busNo, String sqeNo) {
 		String count = null;
-		
+
 		// 方式1：优先使用sqe_no获取车辆总人数
 		if (sqeNo != null && !sqeNo.isEmpty()) {
 			count = jedis.get("vehicle_total_count:" + sqeNo);
@@ -1966,7 +1963,7 @@ public class PassengerFlowProcessor {
 				logger.info("[PassengerFlowProcessor] 通过sqeNo获取车辆总人数: sqeNo=" + sqeNo + ", count=" + count);
 			}
 		}
-		
+
 		// 方式2：兜底 - 使用原有key格式
 		if (count == null) {
 			count = jedis.get("vehicle_total_count:" + busNo);
@@ -1974,7 +1971,7 @@ public class PassengerFlowProcessor {
 				logger.info("[PassengerFlowProcessor] 通过车辆编号获取车辆总人数: busNo=" + busNo + ", count=" + count);
 			}
 		}
-		
+
 		// 方式3：最后兜底 - 搜索所有相关的车辆总人数数据
 		if (count == null) {
 			Set<String> keys = jedis.keys("vehicle_total_count:" + busNo + ":*");
@@ -2477,7 +2474,7 @@ public class PassengerFlowProcessor {
 	private String getBusGpsMsgFromRedis(Jedis jedis, String busNo, String sqeNo) {
 		try {
 			JSONArray allData = new JSONArray();
-			
+
 			// 方式1：优先通过传入的sqe_no检索
 			if (sqeNo != null && !sqeNo.isEmpty()) {
 				String sqeKey = "bus_gps_msg:" + sqeNo;
@@ -2492,7 +2489,7 @@ public class PassengerFlowProcessor {
 					}
 				}
 			}
-			
+
 			// 方式2：获取当前站点的开关门数据
 			if (allData.length() == 0) {
 				String currentStationId = getCurrentStationId(busNo, jedis);
@@ -2506,7 +2503,7 @@ public class PassengerFlowProcessor {
 					}
 				}
 			}
-			
+
 			// 方式3：兜底方案 - 获取所有站点的数据
 			if (allData.length() == 0) {
 				Set<String> keys = jedis.keys("bus_gps_msg:" + busNo + ":*");
@@ -2520,7 +2517,7 @@ public class PassengerFlowProcessor {
 					}
 				}
 			}
-			
+
 			// 方式4：最后兜底 - 通过车辆编号直接检索
 			if (allData.length() == 0) {
 				String data = jedis.get("bus_gps_msg:" + busNo);
@@ -2531,7 +2528,7 @@ public class PassengerFlowProcessor {
 					}
 				}
 			}
-			
+
 			return allData.length() > 0 ? allData.toString() : "[]";
 		} catch (Exception e) {
 			if (Config.LOG_ERROR) {
@@ -2960,7 +2957,7 @@ public class PassengerFlowProcessor {
                 logger.info("[大模型分析] 通过sqeNo查找窗口: sqeNo=" + sqeNo + ", windowId=" + windowId);
             }
         }
-        
+
         // 兜底：如果sqeNo匹配失败，使用busNo
         if (windowId == null) {
             windowId = jedis.get("open_time:" + busNo);
@@ -2968,7 +2965,7 @@ public class PassengerFlowProcessor {
                 logger.info("[大模型分析] 兜底通过busNo查找窗口: busNo=" + busNo + ", windowId=" + windowId);
             }
         }
-        
+
         if (windowId == null) {
             logger.info("[大模型分析] 未找到车辆 " + busNo + " (sqeNo: " + sqeNo + ") 的开门时间窗口，跳过AI分析");
             return;
@@ -3021,11 +3018,11 @@ public class PassengerFlowProcessor {
 				// 检查是否成功获取到特征
 				if (passengerFeatures != null && passengerFeatures.length() > 0) {
 					logger.info("[大模型分析] 成功获取到乘客特征，停止重试");
-					
+
 					// 设置AI分析结果到record中
 					record.setFeatureDescription(passengerFeatures.toString());
 					record.setAiTotalCount(aiTotalCount);
-					
+
 					logger.info("[大模型分析] AI分析结果已设置: featureDescription长度=" + passengerFeatures.toString().length() + ", aiTotalCount=" + aiTotalCount);
 					break; // 成功拿到非空特征
 				}
@@ -3033,12 +3030,12 @@ public class PassengerFlowProcessor {
                 // 检查是否达到最大重试次数
                 if (attempts >= maxRetry) {
                     logger.info("[大模型分析] 特征仍为空且已达最大重试次数(" + maxRetry + ")，停止重试");
-                    
+
                     // 兜底：用图片数量作为AI总人数的保守估计
                     int size = imageUrls != null ? imageUrls.size() : 0;
                     record.setAiTotalCount(Math.max(record.getAiTotalCount() != null ? record.getAiTotalCount() : 0, size));
                     record.setFeatureDescription("[]");
-                    
+
                     logger.info("[大模型分析] 使用兜底方案: aiTotalCount=" + record.getAiTotalCount() + ", featureDescription=[]");
                     break;
                 }
@@ -3158,7 +3155,7 @@ public class PassengerFlowProcessor {
 	private void setPassengerFeatures(BusOdRecord record, Jedis jedis, String busNo, String windowId, String sqeNo) {
 		try {
 			Set<String> features = null;
-			
+
 			// 方式1：优先使用sqeNo获取特征集合
 			if (sqeNo != null && !sqeNo.isEmpty()) {
 				String sqeKey = "features_set:" + sqeNo;
@@ -3167,7 +3164,7 @@ public class PassengerFlowProcessor {
 					logger.info("[PassengerFlowProcessor] 通过sqeNo获取特征集合: sqeNo=" + sqeNo + ", 特征数=" + (features != null ? features.size() : 0));
 				}
 			}
-			
+
 			// 方式2：兜底方案 - 使用车辆编号和时间窗口
 			if (features == null || features.isEmpty()) {
 				String featuresKey = "features_set:" + busNo + ":" + normalizeWindowId(windowId);
@@ -3176,7 +3173,7 @@ public class PassengerFlowProcessor {
 					logger.info("[PassengerFlowProcessor] 通过车辆+时间窗口获取特征集合: busNo=" + busNo + ", windowId=" + windowId + ", 特征数=" + (features != null ? features.size() : 0));
 				}
 			}
-			
+
 			// 方式3：最近窗口回退
 			if (features == null || features.isEmpty()) {
 				String normalizedWindowId = normalizeWindowId(windowId);
@@ -3189,7 +3186,7 @@ public class PassengerFlowProcessor {
 					}
 				}
 			}
-			
+
 			// 方式4：按时间区间聚合
 			if (features == null || features.isEmpty()) {
 				features = findFeaturesInTimeRange(jedis, busNo, record.getTimestampBegin(), record.getTimestampEnd());
@@ -3197,7 +3194,7 @@ public class PassengerFlowProcessor {
 					logger.info("[PassengerFlowProcessor] 通过时间区间聚合获取特征集合: 特征数=" + (features != null ? features.size() : 0));
 				}
 			}
-			
+
 			// 方式5：最后兜底 - 搜索所有相关特征数据
 			if (features == null || features.isEmpty()) {
 				Set<String> allKeys = jedis.keys("features_set:" + busNo + ":*");
@@ -3304,7 +3301,7 @@ public class PassengerFlowProcessor {
 					logger.info("[数据验证] featureDescription字段为空，设置默认值[]");
 				}
 			}
-			
+
 			// 检查aiTotalCount字段
 			if (record.getAiTotalCount() == null) {
 				record.setAiTotalCount(0);
@@ -3312,7 +3309,7 @@ public class PassengerFlowProcessor {
 					logger.info("[数据验证] aiTotalCount字段为空，设置默认值0");
 				}
 			}
-			
+
 			// 检查sectionPassengerFlowCount字段
 			if (record.getSectionPassengerFlowCount() == null || record.getSectionPassengerFlowCount().trim().isEmpty()) {
 				record.setSectionPassengerFlowCount("[]");
@@ -3320,7 +3317,7 @@ public class PassengerFlowProcessor {
 					logger.info("[数据验证] sectionPassengerFlowCount字段为空，设置默认值[]");
 				}
 			}
-			
+
 			// 检查retrieveBusGpsMsg字段
 			if (record.getRetrieveBusGpsMsg() == null || record.getRetrieveBusGpsMsg().trim().isEmpty()) {
 				record.setRetrieveBusGpsMsg("[]");
@@ -3328,7 +3325,7 @@ public class PassengerFlowProcessor {
 					logger.info("[数据验证] retrieveBusGpsMsg字段为空，设置默认值[]");
 				}
 			}
-			
+
 			// 检查retrieveDownupMsg字段
 			if (record.getRetrieveDownupMsg() == null || record.getRetrieveDownupMsg().trim().isEmpty()) {
 				record.setRetrieveDownupMsg("[]");
@@ -3336,7 +3333,7 @@ public class PassengerFlowProcessor {
 					logger.info("[数据验证] retrieveDownupMsg字段为空，设置默认值[]");
 				}
 			}
-			
+
 			// 检查passengerFeatures字段
 			if (record.getPassengerFeatures() == null || record.getPassengerFeatures().trim().isEmpty()) {
 				record.setPassengerFeatures("[]");
@@ -3344,7 +3341,7 @@ public class PassengerFlowProcessor {
 					logger.info("[数据验证] passengerFeatures字段为空，设置默认值[]");
 				}
 			}
-			
+
 			// 检查passengerPosition字段
 			if (record.getPassengerPosition() == null || record.getPassengerPosition().trim().isEmpty()) {
 				record.setPassengerPosition("[]");
@@ -3352,7 +3349,7 @@ public class PassengerFlowProcessor {
 					logger.info("[数据验证] passengerPosition字段为空，设置默认值[]");
 				}
 			}
-			
+
 			// 检查passengerImages字段
 			if (record.getPassengerImages() == null || record.getPassengerImages().trim().isEmpty()) {
 				record.setPassengerImages("[]");
@@ -3360,7 +3357,7 @@ public class PassengerFlowProcessor {
 					logger.info("[数据验证] passengerImages字段为空，设置默认值[]");
 				}
 			}
-			
+
 			// 检查ticketJson字段
 			if (record.getTicketJson() == null || record.getTicketJson().trim().isEmpty()) {
 				record.setTicketJson("{}");
@@ -3368,7 +3365,7 @@ public class PassengerFlowProcessor {
 					logger.info("[数据验证] ticketJson字段为空，设置默认值{}");
 				}
 			}
-			
+
 			// 检查数值字段
 			if (record.getUpCount() == null) {
 				record.setUpCount(0);
@@ -3385,7 +3382,7 @@ public class PassengerFlowProcessor {
 			if (record.getVehicleTotalCount() == null) {
 				record.setVehicleTotalCount(0);
 			}
-			
+
 			if (Config.LOG_DEBUG) {
 				logger.info("[数据验证] OD记录数据完整性检查完成");
 			}

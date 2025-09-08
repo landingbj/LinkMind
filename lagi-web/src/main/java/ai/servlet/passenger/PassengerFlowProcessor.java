@@ -1796,7 +1796,8 @@ public class PassengerFlowProcessor {
 		record.setRouteDirection(getRouteDirectionFromBusNo(busNo, jedis));
 		record.setGpsLat(getGpsLat(busNo, jedis));
 		record.setGpsLng(getGpsLng(busNo, jedis));
-		record.setFullLoadRate(getFullLoadRateFromRedis(jedis, busNo, sqeNo));
+		java.math.BigDecimal fullLoadRate = getFullLoadRateFromRedis(jedis, busNo, sqeNo);
+		if (fullLoadRate != null) record.setFullLoadRate(fullLoadRate);
 
 		// 设置刷卡人数（JSON格式）
 		String ticketCountJson = getTicketCountWindowFromRedis(jedis, busNo);
@@ -2094,7 +2095,7 @@ public class PassengerFlowProcessor {
 			factor = jedis.get("load_factor:" + busNo);
 		}
 
-		return factor != null ? new BigDecimal(factor) : BigDecimal.ZERO;
+		return factor != null ? new BigDecimal(factor) : null;
 	}
 
 	private float matchPassengerFeature(String feature, String busNo) {

@@ -40,6 +40,7 @@ public class KafkaConsumerService {
     private KafkaConsumer<String, String> consumer;
     private ExecutorService executorService;
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private java.util.concurrent.ScheduledExecutorService overdueScanner;
 
     // 试点线路
     private static final String[] PILOT_ROUTES = {
@@ -222,6 +223,10 @@ public class KafkaConsumerService {
             ));
             executorService = Executors.newSingleThreadExecutor();
             executorService.submit(this::consumeLoop);
+
+            // 启动超时关门巡检器：每5秒扫描一次
+            overdueScanner = java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
+            overdueScanner.scheduleAtFixedRate(this::scanAndForceCloseOverdueDoors, 5, 5, java.util.concurrent.TimeUnit.SECONDS);
         }
     }
 
@@ -311,6 +316,18 @@ public class KafkaConsumerService {
 
             if (Config.LOG_INFO) {
                 logger.info("[KafkaConsumerService] Kafka consumer service stopped completely");
+            }
+
+            // 关闭超时关门巡检器
+            if (overdueScanner != null) {
+                try {
+                    overdueScanner.shutdown();
+                    overdueScanner.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                } finally {
+                    overdueScanner.shutdownNow();
+                }
             }
         }
     }
@@ -854,6 +871,8 @@ public class KafkaConsumerService {
             String ticketCountKey = "ticket_count_window:" + busNo;
             jedis.set(openTimeKey, now.format(formatter));
             jedis.expire(openTimeKey, Config.REDIS_TTL_OPEN_TIME);
+            // 将车辆加入开门集合，供巡检器扫描
+            try { jedis.sadd("open_buses", busNo); jedis.expire("open_buses", Config.REDIS_TTL_OPEN_TIME); } catch (Exception ignore) {}
             // 记录开门站点，便于同站重复开门忽略
             if (stationId != null && !stationId.isEmpty()) {
                 jedis.set("open_station:" + busNo, stationId);
@@ -931,6 +950,8 @@ public class KafkaConsumerService {
                 // 设置关门幂等标记
                 jedis.set(closeSentKey, "1");
                 jedis.expire(closeSentKey, Config.REDIS_TTL_OPEN_TIME);
+                // 从开门集合移除
+                try { jedis.srem("open_buses", busNo); } catch (Exception ignore) {}
                 // 记录最近一次到离站标志
                 jedis.set("last_arrive_leave_flag:" + busNo, arriveLeave.optString("isArriveOrLeft", ""));
                 jedis.expire("last_arrive_leave_flag:" + busNo, Config.REDIS_TTL_ARRIVE_LEAVE);
@@ -1102,6 +1123,58 @@ public class KafkaConsumerService {
         } catch (Exception e) {
             if (Config.LOG_ERROR) {
                 logger.error("[KafkaConsumerService] Failed to send door signal to CV: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * 扫描并强制关闭超时未关门的车辆
+     * 不依赖新的到离站消息驱动，保证MAX_DOOR_OPEN_MS生效
+     */
+    private void scanAndForceCloseOverdueDoors() {
+        if (!running.get()) return;
+        try (Jedis jedis = jedisPool.getResource()) {
+            jedis.auth(Config.REDIS_PASSWORD);
+            Set<String> openBuses = jedis.smembers("open_buses");
+            if (openBuses == null || openBuses.isEmpty()) return;
+            LocalDateTime now = LocalDateTime.now();
+            for (String busNo : openBuses) {
+                try {
+                    String openTimeStr = jedis.get("open_time:" + busNo);
+                    if (openTimeStr == null || openTimeStr.isEmpty()) {
+                        // 键不存在则从集合移除，避免脏数据
+                        jedis.srem("open_buses", busNo);
+                        continue;
+                    }
+                    LocalDateTime openTime = openTimeStr.contains("T") ? LocalDateTime.parse(openTimeStr) : LocalDateTime.parse(openTimeStr, formatter);
+                    long openMs = java.time.Duration.between(openTime, now).toMillis();
+                    if (openMs >= Config.MAX_DOOR_OPEN_MS) {
+                        // 幂等：避免重复对同一窗口强制关门
+                        String closeSentKey = "close_sent:" + busNo + ":" + (openTimeStr.contains("T") ? openTimeStr.replace("T", " ") : openTimeStr);
+                        if (jedis.get(closeSentKey) != null) {
+                            jedis.srem("open_buses", busNo);
+                            continue;
+                        }
+                        if (Config.LOG_INFO) {
+                            logger.info("[超时巡检] 车辆 " + busNo + " 开门超时(" + (openMs/1000) + "s) ，触发强制关门");
+                        }
+                        // 触发关门
+                        sendDoorSignalToCV(busNo, "close", now);
+                        // 设置关门幂等标记
+                        jedis.set(closeSentKey, "1");
+                        jedis.expire(closeSentKey, Config.REDIS_TTL_OPEN_TIME);
+                        // 从集合移除
+                        jedis.srem("open_buses", busNo);
+                    }
+                } catch (Exception perBusEx) {
+                    if (Config.LOG_ERROR) {
+                        logger.error("[超时巡检] 处理车辆 " + busNo + " 失败: " + perBusEx.getMessage());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            if (Config.LOG_ERROR) {
+                logger.error("[超时巡检] 扫描失败: " + e.getMessage());
             }
         }
     }

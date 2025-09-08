@@ -3269,6 +3269,34 @@ public class PassengerFlowProcessor {
 	 */
 	private void validateOdRecord(BusOdRecord record) {
 		try {
+			// 时间顺序校验与纠正：若开门时间在关门时间之后，进行纠正以避免异常数据
+			if (record.getTimestampBegin() != null && record.getTimestampEnd() != null
+					&& record.getTimestampBegin().isAfter(record.getTimestampEnd())) {
+				if (Config.LOG_ERROR) {
+					logger.error("[数据验证] 检测到timestampBegin晚于timestampEnd，执行纠正: begin="
+							+ record.getTimestampBegin().format(formatter) + ", end="
+							+ record.getTimestampEnd().format(formatter));
+				}
+				// 纠正策略：交换两者，确保begin <= end
+				LocalDateTime tmpBegin = record.getTimestampBegin();
+				record.setTimestampBegin(record.getTimestampEnd());
+				record.setTimestampEnd(tmpBegin);
+			}
+
+			// 时长上限裁剪：若开关门时长超过配置的最大值（默认2分钟），将end截断到begin+上限
+			if (record.getTimestampBegin() != null && record.getTimestampEnd() != null) {
+				long durationMs = java.time.Duration.between(record.getTimestampBegin(), record.getTimestampEnd()).toMillis();
+				if (durationMs > Config.MAX_DOOR_OPEN_MS) {
+					LocalDateTime clippedEnd = record.getTimestampBegin().plusNanos((long)Config.MAX_DOOR_OPEN_MS * 1_000_000);
+					if (Config.LOG_ERROR) {
+						logger.error("[数据验证] OD时长超过上限，执行裁剪: begin="
+								+ record.getTimestampBegin().format(formatter) + ", end="
+								+ record.getTimestampEnd().format(formatter) + ", clippedEnd=" + clippedEnd.format(formatter));
+					}
+					record.setTimestampEnd(clippedEnd);
+				}
+			}
+
 			// 检查featureDescription字段
 			if (record.getFeatureDescription() == null || record.getFeatureDescription().trim().isEmpty()) {
 				record.setFeatureDescription("[]");

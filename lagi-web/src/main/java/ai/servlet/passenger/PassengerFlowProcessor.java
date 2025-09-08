@@ -73,8 +73,11 @@ public class PassengerFlowProcessor {
 			return;
 		}
 
-		String busNo = data.optString("bus_no");
-		String busId = data.optString("bus_id");
+		// 修复：CV推送的WebSocket中，bus_id是核心字段，bus_no是废字段
+		// 将bus_id作为我们的核心车辆标识使用
+		String vehicleId = data.optString("bus_id");  // CV的bus_id就是我们的核心车辆标识
+		String busNo = vehicleId;  // 在我们的业务逻辑中使用busNo
+		String busId = vehicleId;  // 为了兼容现有方法签名，保持busId变量
 		String cameraNo = data.optString("camera_no");
 
 		// 降低参数解析日志噪音
@@ -85,24 +88,24 @@ public class PassengerFlowProcessor {
 			switch (event) {
 				case "downup":
 					// 第一时间保存downup消息到数据库
-					saveDownUpMessage(data, busNo, busId, cameraNo);
-					handleDownUpEvent(data, busNo, busId, cameraNo, jedis);
+					saveDownUpMessage(data, busNo, busNo, cameraNo);  // busNo和busId现在是同一个值
+					handleDownUpEvent(data, busNo, busNo, cameraNo, jedis);  // busNo和busId现在是同一个值
 					break;
 				case "load_factor":
 					// 第一时间保存load_factor消息到数据库
 					saveLoadFactorMessage(data, busNo, cameraNo);
 					// 高频事件，移除过程性日志
-					handleLoadFactorEvent(data, busNo, busId, jedis);
+					handleLoadFactorEvent(data, busNo, busNo, jedis);  // busNo和busId现在是同一个值
 					break;
 				case "open_close_door":
 					// 关键事件在KafkaConsumerService侧已有明确日志
 					// 只处理open，开始缓存
-					handleOpenDoorEvent(data, busNo, busId, cameraNo, jedis);
+					handleOpenDoorEvent(data, busNo, busNo, cameraNo, jedis);  // busNo和busId现在是同一个值
 					break;
 				case "notify_complete":
 					// 关键事件在KafkaConsumerService侧已有明确日志
 					// 收到cv的公交分析业务处理结束，开始发kafa落库
-					handleCloseDoorAndCVComplateEvent(data, busNo, busId, cameraNo, jedis);
+					handleCloseDoorAndCVComplateEvent(data, busNo, busNo, cameraNo, jedis);  // busNo和busId现在是同一个值
 					break;
 				default:
 					if (Config.LOG_ERROR) {
@@ -127,7 +130,7 @@ public class PassengerFlowProcessor {
 
 		// 收集原始downup事件数据用于校验
 		if (Config.LOG_DEBUG) {
-			System.out.println("[PassengerFlowProcessor] 开始收集downup事件: busNo=" + busNo + ", busId=" + busId + ", sqeNo=" + sqeNo + ", stationId=" + data.optString("stationId") + ", events=" + (events != null ? events.length() : 0));
+			System.out.println("[PassengerFlowProcessor] 开始收集downup事件: busNo=" + busNo + ", sqeNo=" + sqeNo + ", stationId=" + data.optString("stationId") + ", events=" + (events != null ? events.length() : 0));
 		}
 		collectDownupMsg(busNo, data, jedis);
 
@@ -141,15 +144,15 @@ public class PassengerFlowProcessor {
 
 		// 精简CV数据接收日志，避免重复输出
 		if (Config.PILOT_ROUTE_LOG_ENABLED) {
-			System.out.println("[CV数据接收] downup事件: bus_id=" + busId + ", bus_no=" + busNo + ", sqe_no=" + sqeNo + ", stationId=" + stationId + ", stationName=" + stationName + ", 事件数=" + (events != null ? events.length() : 0));
+			System.out.println("[CV数据接收] downup事件: bus_id=" + busId + ", sqe_no=" + sqeNo + ", stationId=" + stationId + ", stationName=" + stationName + ", 事件数=" + (events != null ? events.length() : 0));
 		}
 
 		if (Config.PILOT_ROUTE_LOG_ENABLED) {
-			System.out.println("[流程] downup事件开始: busId=" + busId + ", busNo=" + busNo + ", sqe_no=" + sqeNo + ", 事件数=" + (events != null ? events.length() : 0));
+			System.out.println("[流程] downup事件开始: busNo=" + busNo + ", sqe_no=" + sqeNo + ", 事件数=" + (events != null ? events.length() : 0));
 		}
 
-		// 现在直接使用bus_id作为canonicalBusNo，不再需要映射
-		String canonicalBusNo = busId != null && !busId.isEmpty() ? busId : busNo;
+		// 修复：busNo和busId现在是同一个值（都来自CV的bus_id），直接使用
+		String canonicalBusNo = busNo;
 
 		for (int i = 0; i < events.length(); i++) {
 			JSONObject ev = events.getJSONObject(i);
@@ -754,8 +757,8 @@ public class PassengerFlowProcessor {
 		}
 
 
-		// 现在直接使用bus_id作为canonicalBusNo，不再需要映射
-		String canonicalBusNo = busId != null && !busId.isEmpty() ? busId : busNo;
+		// 修复：busNo和busId现在是同一个值（都来自CV的bus_id），直接使用
+		String canonicalBusNo = busNo;
 
 		// 缓存 camera 与 bus 的映射，便于反查
 		if (cameraNo != null && !cameraNo.isEmpty() && !"default".equalsIgnoreCase(cameraNo)) {
@@ -811,8 +814,8 @@ public class PassengerFlowProcessor {
 		System.out.println("   stationName: " + stationName);
 		System.out.println("   ================================================================================");
 
-		// 现在直接使用bus_id作为canonicalBusNo，不再需要映射
-		String canonicalBusNo = busId != null && !busId.isEmpty() ? busId : busNo;
+		// 修复：busNo和busId现在是同一个值（都来自CV的bus_id），直接使用
+		String canonicalBusNo = busNo;
 
 		if ("open".equals(action)) {
 			// 验证sqe_no必须存在
@@ -968,7 +971,7 @@ public class PassengerFlowProcessor {
 
 		// 兜底：如果sqe_no匹配失败，使用canonicalBusNo逻辑（修复原有漏洞）
 		if (windowId == null || canonicalBusNo == null) {
-			canonicalBusNo = busId != null && !busId.isEmpty() ? busId : busNo;
+			canonicalBusNo = busNo;  // 修复：busNo和busId现在是同一个值
 			windowId = jedis.get("open_time:" + canonicalBusNo);
 			if (Config.PILOT_ROUTE_LOG_ENABLED) {
 				System.out.println("[CV业务完成] 兜底匹配: canonicalBusNo=" + canonicalBusNo + ", windowId=" + windowId);

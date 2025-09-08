@@ -331,7 +331,9 @@ public class KafkaConsumerService {
                     try {
                         JSONObject message = new JSONObject(record.value());
                         String topic = record.topic();
-                        String busNo = message.optString("busSelfNo", message.optString("busNo"));
+                        // 修复：统一使用busNo作为核心车辆标识
+                        // 到离站信号使用busNo，刷卡数据使用busSelfNo，但都映射到busNo
+                        String busNo = message.optString("busNo", message.optString("busSelfNo"));
                         if (busNo.isEmpty()) continue;
 
                         // 设置当前处理的topic

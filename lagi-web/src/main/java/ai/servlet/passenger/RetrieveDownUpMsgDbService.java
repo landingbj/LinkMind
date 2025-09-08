@@ -2,6 +2,8 @@ package ai.servlet.passenger;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -13,6 +15,7 @@ import java.time.LocalDateTime;
  * 负责连接PolarDB并保存downup消息到retrieve_downup_msg表
  */
 public class RetrieveDownUpMsgDbService {
+    private static final Logger logger = LoggerFactory.getLogger(RetrieveDownUpMsgDbService.class);
 
     // PolarDB连接配置
     private static final String DB_URL = "jdbc:mysql://20.17.39.67:3306/gjdev?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai";
@@ -46,7 +49,7 @@ public class RetrieveDownUpMsgDbService {
         this.dataSource = new HikariDataSource(config);
 
         if (Config.LOG_INFO) {
-            System.out.println("[RetrieveDownUpMsgDbService] 数据库连接池初始化完成");
+            logger.info("[RetrieveDownUpMsgDbService] 数据库连接池初始化完成");
         }
     }
 
@@ -78,17 +81,17 @@ public class RetrieveDownUpMsgDbService {
             int result = stmt.executeUpdate();
 
             if (Config.LOG_DEBUG) {
-                System.out.println(String.format("[RetrieveDownUpMsgDbService] 🔥 保存downup消息成功: 车辆=%s, 上车=%d, 下车=%d, sqe_no=%s",
-                    downUpMsg.getBusNo(), downUpMsg.getUpCount(), downUpMsg.getDownCount(), downUpMsg.getSqeNo()));
+                logger.info("[RetrieveDownUpMsgDbService] 🔥 保存downup消息成功: 车辆={}, 上车={}, 下车={}, sqe_no={}",
+                    downUpMsg.getBusNo(), downUpMsg.getUpCount(), downUpMsg.getDownCount(), downUpMsg.getSqeNo());
             }
 
             return result > 0;
 
         } catch (SQLException e) {
             if (Config.LOG_ERROR) {
-                System.err.println(String.format("[RetrieveDownUpMsgDbService] 保存downup消息失败: 车辆=%s, 错误=%s",
-                    downUpMsg.getBusNo(), e.getMessage()));
-                e.printStackTrace();
+                logger.error("[RetrieveDownUpMsgDbService] 保存downup消息失败: 车辆={}, 错误={}",
+                    downUpMsg.getBusNo(), e.getMessage());
+                logger.error("[RetrieveDownUpMsgDbService] 异常堆栈", e);
             }
             return false;
         }
@@ -101,7 +104,7 @@ public class RetrieveDownUpMsgDbService {
         if (dataSource != null && !dataSource.isClosed()) {
             dataSource.close();
             if (Config.LOG_INFO) {
-                System.out.println("[RetrieveDownUpMsgDbService] 数据库连接池已关闭");
+                logger.info("[RetrieveDownUpMsgDbService] 数据库连接池已关闭");
             }
         }
     }
@@ -114,7 +117,7 @@ public class RetrieveDownUpMsgDbService {
             return conn.isValid(5);
         } catch (SQLException e) {
             if (Config.LOG_ERROR) {
-                System.err.println("[RetrieveDownUpMsgDbService] 数据库连接测试失败: " + e.getMessage());
+                logger.error("[RetrieveDownUpMsgDbService] 数据库连接测试失败: {}", e.getMessage());
             }
             return false;
         }

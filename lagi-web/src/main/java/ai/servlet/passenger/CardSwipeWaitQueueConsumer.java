@@ -10,6 +10,8 @@ import org.json.JSONArray;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * 刷卡数据等待队列消费者
@@ -17,6 +19,7 @@ import java.util.Set;
  */
 @Component
 public class CardSwipeWaitQueueConsumer {
+    private static final Logger logger = LoggerFactory.getLogger(CardSwipeWaitQueueConsumer.class);
 
     @Autowired
     private BusOdRecordDbService busOdRecordDbService;
@@ -43,7 +46,7 @@ public class CardSwipeWaitQueueConsumer {
             }
 
         } catch (Exception e) {
-            System.err.println("[等待队列处理] 定时任务执行失败: " + e.getMessage());
+            logger.error("[等待队列处理] 定时任务执行失败: " + e.getMessage());
             e.printStackTrace();
         }
     }
@@ -62,7 +65,7 @@ public class CardSwipeWaitQueueConsumer {
             }
 
         } catch (Exception e) {
-            System.err.println("[等待队列处理] 处理队列失败: queueKey=" + queueKey + ", 错误=" + e.getMessage());
+            logger.error("[等待队列处理] 处理队列失败: queueKey=" + queueKey + ", 错误=" + e.getMessage());
             e.printStackTrace();
         }
     }
@@ -77,7 +80,7 @@ public class CardSwipeWaitQueueConsumer {
             JSONObject cardData = waitMessage.getJSONObject("cardData");
             int retryCount = waitMessage.getInt("retryCount");
 
-            System.out.println("[等待队列处理] 收到消息: busNo=" + busNo +
+            logger.info("[等待队列处理] 收到消息: busNo=" + busNo +
                              ", cardNo=" + cardData.getString("cardNo") +
                              ", retryCount=" + retryCount + ", queueKey=" + queueKey);
 
@@ -90,12 +93,12 @@ public class CardSwipeWaitQueueConsumer {
             } else {
                 // 找到记录，更新ticket_json
                 updateTicketJson(record, cardData);
-                System.out.println("[等待队列处理] 成功更新bus_od_record: id=" + record.getId() +
+                logger.info("[等待队列处理] 成功更新bus_od_record: id=" + record.getId() +
                                  ", busNo=" + busNo + ", cardNo=" + cardData.getString("cardNo"));
             }
 
         } catch (Exception e) {
-            System.err.println("[等待队列处理] 处理消息失败: message=" + message + ", 错误=" + e.getMessage());
+            logger.error("[等待队列处理] 处理消息失败: message=" + message + ", 错误=" + e.getMessage());
             e.printStackTrace();
         }
     }
@@ -108,7 +111,7 @@ public class CardSwipeWaitQueueConsumer {
         try {
             return busOdRecordDbService.findLatestByBusNoAndTime(busNo, tradeTime);
         } catch (Exception e) {
-            System.err.println("[等待队列处理] 查询bus_od_record失败: busNo=" + busNo +
+            logger.error("[等待队列处理] 查询bus_od_record失败: busNo=" + busNo +
                              ", tradeTime=" + tradeTime + ", 错误=" + e.getMessage());
             return null;
         }
@@ -162,20 +165,20 @@ public class CardSwipeWaitQueueConsumer {
             boolean updateResult = busOdRecordDbService.updateTicketJson(record.getId(), ticketJson.toString(), upCount, downCount);
 
             if (updateResult) {
-                System.out.println("[等待队列处理] 🔥 更新ticket_json成功: id=" + record.getId() +
+                logger.info("[等待队列处理] 🔥 更新ticket_json成功: id=" + record.getId() +
                                  ", busNo=" + record.getBusNo() +
                                  ", cardNo=" + cardData.getString("cardNo") +
                                  ", upCount=" + upCount + ", downCount=" + downCount +
                                  ", totalCount=" + (upCount + downCount) +
                                  ", 更新时间=" + LocalDateTime.now().format(formatter));
             } else {
-                System.err.println("[等待队列处理] ❌ 更新ticket_json失败: id=" + record.getId() +
+                logger.error("[等待队列处理] ❌ 更新ticket_json失败: id=" + record.getId() +
                                  ", busNo=" + record.getBusNo() +
                                  ", cardNo=" + cardData.getString("cardNo"));
             }
 
         } catch (Exception e) {
-            System.err.println("[等待队列处理] 更新ticket_json失败: " + e.getMessage());
+            logger.error("[等待队列处理] 更新ticket_json失败: " + e.getMessage());
             e.printStackTrace();
         }
     }
@@ -201,14 +204,14 @@ public class CardSwipeWaitQueueConsumer {
             waitMessage.put("retryCount", retryCount + 1);
             waitMessage.put("retryTime", LocalDateTime.now().plusMinutes(2).toString());
 
-            System.out.println("[等待队列处理] 查不到记录，准备重试: retryCount=" + (retryCount + 1) +
+            logger.info("[等待队列处理] 查不到记录，准备重试: retryCount=" + (retryCount + 1) +
                              ", busNo=" + waitMessage.getString("busNo"));
 
             // 重新发送到Redis队列
             scheduleRetry(waitMessage, jedis, queueKey);
         } else {
             // 超过重试次数，记录到错误日志
-            System.err.println("[等待队列处理] 超过重试次数，丢弃消息: " + waitMessage.toString());
+            logger.error("[等待队列处理] 超过重试次数，丢弃消息: " + waitMessage.toString());
         }
     }
 
@@ -220,12 +223,12 @@ public class CardSwipeWaitQueueConsumer {
             // 重新发送到Redis队列
             jedis.lpush(queueKey, waitMessage.toString());
 
-            System.out.println("[等待队列处理] 延迟重试: queueKey=" + queueKey +
+            logger.info("[等待队列处理] 延迟重试: queueKey=" + queueKey +
                              ", retryCount=" + waitMessage.getInt("retryCount") +
                              ", busNo=" + waitMessage.getString("busNo"));
 
         } catch (Exception e) {
-            System.err.println("[等待队列处理] 延迟重试失败: " + e.getMessage());
+            logger.error("[等待队列处理] 延迟重试失败: " + e.getMessage());
             e.printStackTrace();
         }
     }

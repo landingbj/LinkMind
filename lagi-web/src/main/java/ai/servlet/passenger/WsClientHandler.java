@@ -3,6 +3,8 @@ package ai.servlet.passenger;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
 import org.json.JSONObject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.net.URI;
 import java.time.LocalDateTime;
@@ -14,6 +16,7 @@ import java.time.LocalDateTime;
 public class WsClientHandler extends WebSocketClient {
 
 	private final PassengerFlowProcessor processor = new PassengerFlowProcessor();
+    private static final Logger logger = LoggerFactory.getLogger(WsClientHandler.class);
 
 	public WsClientHandler() throws Exception {
 		// 保留占位，如需启用，替换为有效URI
@@ -22,7 +25,7 @@ public class WsClientHandler extends WebSocketClient {
 
 	@Override
 	public void onOpen(ServerHandshake handshakedata) {
-		System.out.println("WebSocket connected");
+		logger.info("WebSocket connected");
 	}
 
 	@Override
@@ -32,18 +35,18 @@ public class WsClientHandler extends WebSocketClient {
 			JSONObject json = new JSONObject(message);
 			processor.processEvent(json);
 		} catch (Exception e) {
-			System.err.println("Process WS message error: " + e.getMessage());
+			logger.error("Process WS message error: {}", e.getMessage(), e);
 		}
 	}
 
 	@Override
 	public void onClose(int code, String reason, boolean remote) {
-		System.out.println("WebSocket closed: " + reason);
+		logger.info("WebSocket closed: {}", reason);
 	}
 
 	@Override
 	public void onError(Exception ex) {
-		ex.printStackTrace();
+		logger.error("WebSocket client error: {}", ex.getMessage(), ex);
 	}
 
 	public void sendOpenDoorSignal(String busNo, String cameraNo, LocalDateTime timestamp) {

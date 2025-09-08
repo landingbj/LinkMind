@@ -2,6 +2,8 @@ package ai.servlet.passenger;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -15,6 +17,7 @@ import java.time.format.DateTimeParseException;
  * 负责连接PolarDB并保存刷卡数据到bus_card_swipe_data_logs表
  */
 public class BusCardSwipeDbService {
+    private static final Logger logger = LoggerFactory.getLogger(BusCardSwipeDbService.class);
 
     // PolarDB连接配置
     private static final String DB_URL = "jdbc:mysql://20.17.39.67:3306/gjdev?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai";
@@ -50,7 +53,7 @@ public class BusCardSwipeDbService {
         this.dataSource = new HikariDataSource(config);
 
         if (Config.LOG_INFO) {
-            System.out.println("[BusCardSwipeDbService] 数据库连接池初始化完成");
+            logger.info("[BusCardSwipeDbService] 数据库连接池初始化完成");
         }
     }
 
@@ -79,7 +82,7 @@ public class BusCardSwipeDbService {
             int result = stmt.executeUpdate();
 
             if (Config.LOG_DEBUG) {
-                System.out.println(String.format("[BusCardSwipeDbService] 保存刷卡数据成功: 车辆=%s, 卡号=%s, 交易时间=%s",
+                logger.debug(String.format("[BusCardSwipeDbService] 保存刷卡数据成功: 车辆=%s, 卡号=%s, 交易时间=%s",
                     cardData.getBusSelfNo(), cardData.getCardNo(), cardData.getTradeTime()));
             }
 
@@ -87,9 +90,8 @@ public class BusCardSwipeDbService {
 
         } catch (SQLException e) {
             if (Config.LOG_ERROR) {
-                System.err.println(String.format("[BusCardSwipeDbService] 保存刷卡数据失败: 车辆=%s, 错误=%s",
-                    cardData.getBusSelfNo(), e.getMessage()));
-                e.printStackTrace();
+                logger.error(String.format("[BusCardSwipeDbService] 保存刷卡数据失败: 车辆=%s, 错误=%s",
+                    cardData.getBusSelfNo(), e.getMessage()), e);
             }
             return false;
         }
@@ -107,7 +109,7 @@ public class BusCardSwipeDbService {
             return LocalDateTime.parse(tradeTimeStr.trim(), TRADE_TIME_FORMATTER);
         } catch (DateTimeParseException e) {
             if (Config.LOG_ERROR) {
-                System.err.println(String.format("[BusCardSwipeDbService] 解析交易时间失败: %s, 错误: %s",
+                logger.error(String.format("[BusCardSwipeDbService] 解析交易时间失败: %s, 错误: %s",
                     tradeTimeStr, e.getMessage()));
             }
             return null;
@@ -121,7 +123,7 @@ public class BusCardSwipeDbService {
         if (dataSource != null && !dataSource.isClosed()) {
             dataSource.close();
             if (Config.LOG_INFO) {
-                System.out.println("[BusCardSwipeDbService] 数据库连接池已关闭");
+                logger.info("[BusCardSwipeDbService] 数据库连接池已关闭");
             }
         }
     }
@@ -134,7 +136,7 @@ public class BusCardSwipeDbService {
             return conn.isValid(5);
         } catch (SQLException e) {
             if (Config.LOG_ERROR) {
-                System.err.println("[BusCardSwipeDbService] 数据库连接测试失败: " + e.getMessage());
+                logger.error("[BusCardSwipeDbService] 数据库连接测试失败: " + e.getMessage());
             }
             return false;
         }

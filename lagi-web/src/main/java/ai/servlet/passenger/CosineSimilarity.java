@@ -21,12 +21,18 @@ public final class CosineSimilarity {
         double dot = 0.0, na = 0.0, nb = 0.0;
         for (int i = 0; i < a.length; i++) {
             double ai = a[i], bi = b[i];
+            if (!Double.isFinite(ai) || !Double.isFinite(bi)) {
+                continue; // 忽略非有限值，防止NaN传播
+            }
             dot += ai * bi;
             na += ai * ai;
             nb += bi * bi;
         }
         double denom = Math.sqrt(na) * Math.sqrt(nb);
         double result = denom == 0.0 ? 0.0 : dot / denom;
+        if (!Double.isFinite(result)) {
+            result = 0.0;
+        }
         if (Config.LOG_DEBUG || Config.PILOT_ROUTE_LOG_ENABLED) {
             System.out.println("[CosineSimilarity] 余弦相似度计算: length=" + a.length + ", result=" + result);
         }

@@ -401,23 +401,8 @@ public class PassengerFlowProcessor {
 					positionInfo.put("yRightBottom", boxY + boxH);
 					featureInfo.put("position", positionInfo);
 
-					// 限制特征数据大小，避免Redis存储过大
+					// 直接存储，不再对特征向量做截断
 					String featureStr = featureInfo.toString();
-					if (featureStr.length() > Config.MAX_FEATURE_SIZE_BYTES) {
-						if (Config.LOG_DEBUG) {
-							System.out.println("[PassengerFlowProcessor] 特征数据过大，智能截断处理: " + featureStr.length() + " bytes");
-						}
-
-						// 智能截断：确保截断后的特征向量仍能正确解码
-						String truncatedFeature = smartTruncateFeature(feature);
-						featureInfo.put("feature", truncatedFeature);
-						featureStr = featureInfo.toString();
-
-						if (Config.LOG_DEBUG) {
-							System.out.println("[PassengerFlowProcessor] 截断后大小: " + featureStr.length() + " bytes");
-						}
-					}
-
 					txDown.sadd(featuresKey, featureStr);
 					txDown.expire(featuresKey, Config.REDIS_TTL_FEATURES);
 
@@ -3122,54 +3107,7 @@ public class PassengerFlowProcessor {
 		return windowId.replace("T", " ");
 	}
 
-	/**
-	 * 智能截断特征向量，确保截断后仍能正确解码
-	 * @param feature 原始特征向量字符串
-	 * @return 截断后的特征向量字符串
-	 */
-	private String smartTruncateFeature(String feature) {
-		if (feature == null || feature.isEmpty()) {
-			return feature;
-		}
-
-		try {
-			// 先尝试解码原始特征向量，获取维度数
-			float[] originalFeatures = CosineSimilarity.parseFeatureVector(feature);
-			if (originalFeatures.length == 0) {
-				// 如果解码失败，直接截断到安全长度
-				return feature.substring(0, Math.min(Config.MAX_FEATURE_SIZE_BYTES / 2, feature.length()));
-			}
-
-			// 计算目标维度数（基于配置的最大字节数）
-			// 每个float 4字节，Base64编码后约5.33字节，加上JSON开销，按6字节计算
-			int maxDimensions = Config.MAX_FEATURE_SIZE_BYTES / 6;
-			maxDimensions = Math.min(maxDimensions, Config.MAX_FEATURE_VECTOR_DIMENSIONS);
-
-			if (originalFeatures.length <= maxDimensions) {
-				return feature; // 不需要截断
-			}
-
-			// 截断到目标维度数
-			float[] truncatedFeatures = new float[maxDimensions];
-			System.arraycopy(originalFeatures, 0, truncatedFeatures, 0, maxDimensions);
-
-			// 重新编码为Base64
-			ByteBuffer buffer = ByteBuffer.allocate(maxDimensions * 4);
-			buffer.order(ByteOrder.LITTLE_ENDIAN);
-			for (float f : truncatedFeatures) {
-				buffer.putFloat(f);
-			}
-
-			return Base64.getEncoder().encodeToString(buffer.array());
-
-		} catch (Exception e) {
-			if (Config.LOG_DEBUG) {
-				System.out.println("[PassengerFlowProcessor] 智能截断失败，使用简单截断: " + e.getMessage());
-			}
-			// 如果智能截断失败，使用简单截断
-			return feature.substring(0, Math.min(Config.MAX_FEATURE_SIZE_BYTES / 2, feature.length()));
-		}
-	}
+	// 已移除：不再进行特征向量截断
 
 	/**
 	 * 在时间范围内查找特征数据

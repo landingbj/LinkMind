@@ -24,6 +24,7 @@ public class Config {
     public static final String PASSENGER_PROMPT = "请分析车门区域的下车乘客特征";
     public static final int MEDIA_MAX_RETRY = 2;                 // 当返回空特征时的最大重试次数
     public static final int MEDIA_RETRY_BACKOFF_MS = 500;        // 重试退避时间（基础毫秒）
+    public static final int MEDIA_READY_TIMEOUT_MS = 10000;      // 媒体就绪（图片/特征）等待超时（毫秒）
 
     // FFmpeg 可执行文件路径；默认从 PATH 中查找，如部署机未配置可填绝对路径，如 "/usr/bin/ffmpeg"
     public static final String FFMPEG_PATH = "ffmpeg";

@@ -11,6 +11,7 @@ import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import java.util.concurrent.CompletableFuture;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import redis.clients.jedis.Jedis;
@@ -121,6 +122,25 @@ public class PassengerFlowProcessor {
 		}
 	}
 
+    // 强绑定校验：除AI字段外，其余字段需同时非空/非默认
+    private boolean shouldCommitOd(BusOdRecord r) {
+        try {
+            boolean imagesOk = r.getPassengerImages() != null && !r.getPassengerImages().trim().isEmpty() && !"[]".equals(r.getPassengerImages().trim());
+            boolean featuresOk = r.getPassengerFeatures() != null && !r.getPassengerFeatures().trim().isEmpty() && !"[]".equals(r.getPassengerFeatures().trim());
+            boolean videoOk = r.getPassengerVideoUrl() != null && !r.getPassengerVideoUrl().trim().isEmpty();
+            boolean posOk = r.getPassengerPosition() != null && !r.getPassengerPosition().trim().isEmpty();
+            boolean countOk = r.getUpCount() != null && r.getDownCount() != null;
+            boolean rawOk = r.getRetrieveDownupMsg() != null && !r.getRetrieveDownupMsg().trim().isEmpty();
+            return imagesOk && featuresOk && videoOk && posOk && countOk && rawOk;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private int safeLen(String s) {
+        return s == null ? -1 : s.length();
+    }
+
 	private void handleDownUpEvent(JSONObject data, String busNo, String busId, String cameraNo, Jedis jedis) throws IOException, SQLException {
 		String sqeNo = data.optString("sqe_no");  // 新增：获取开关门唯一批次号
 		LocalDateTime eventTime = LocalDateTime.parse(data.optString("timestamp").replace(" ", "T"));
@@ -173,6 +193,8 @@ public class PassengerFlowProcessor {
 		// 修复：busNo和busId现在是同一个值（都来自CV的bus_id），直接使用
 		String canonicalBusNo = busNo;
 
+		// 两阶段处理：先处理所有上车事件，统一写入features_set与映射；下车事件暂存，循环结束后统一匹配
+		java.util.List<JSONObject> __downEventsBuffer = new java.util.ArrayList<>();
 		for (int i = 0; i < events.length(); i++) {
 			JSONObject ev = events.getJSONObject(i);
 			String direction = ev.optString("direction");
@@ -365,9 +387,8 @@ public class PassengerFlowProcessor {
 
 			} else if ("down".equals(direction)) {
 				downCount++;
-
-				//  尝试匹配上车特征，计算区间客流 - 传递sqeNo参数
-				processPassengerMatching(feature, canonicalBusNo, jedis, eventTime, stationId, stationName, sqeNo, windowId);
+				// 先暂存，待所有上车特征全部写入后统一匹配
+				__downEventsBuffer.add(ev);
 
 				//  使用Redis事务保证下车计数和特征缓存的原子性
 				Transaction txDown = jedis.multi();
@@ -468,6 +489,14 @@ public class PassengerFlowProcessor {
 			}
 		}
 
+		// 统一匹配下车事件（第二阶段）
+		String __curStationId = data.optString("stationId");
+		String __curStationName = data.optString("stationName");
+		for (JSONObject __evDown : __downEventsBuffer) {
+			String __downFeature = __evDown.optString("feature");
+			processPassengerMatching(__downFeature, canonicalBusNo, jedis, eventTime, __curStationId, __curStationName, sqeNo, jedis.get("open_time:" + (sqeNo != null && !sqeNo.isEmpty() ? sqeNo : canonicalBusNo)));
+		}
+
 		// 不再在downup事件中自算总人数，统一以CV推送的vehicle_total_count为准
 
 		// 汇总日志可按需开启，默认关闭
@@ -562,7 +591,8 @@ public class PassengerFlowProcessor {
 						}
 					} catch (Exception ignore) {}
 					if (upTime != null) {
-						if (!upTime.isBefore(eventTime.minusSeconds(1))) {
+						// 放宽：允许同秒，上车时间需不晚于当前下车时间
+						if (upTime.isAfter(eventTime)) {
 							continue;
 						}
 					}
@@ -1084,10 +1114,23 @@ public class PassengerFlowProcessor {
 			if (Config.PILOT_ROUTE_LOG_ENABLED) {
 				logger.info("[CV业务完成] 准备落库，发送kafka:busNo=" + busNo);
 			}
-			sendToKafka(record);
-			// 设置OD发送幂等标记
-			jedis.set(odSentKey, "1");
-			jedis.expire(odSentKey, Config.REDIS_TTL_OPEN_TIME);
+			// 统一落库：强绑定字段校验通过才发送Kafka
+			if (shouldCommitOd(record)) {
+				sendToKafka(record);
+				// 设置OD发送幂等标记
+				jedis.set(odSentKey, "1");
+				jedis.expire(odSentKey, Config.REDIS_TTL_OPEN_TIME);
+				if (Config.LOG_INFO) {
+					logger.info("[统一落库] 已发送到Kafka且设置幂等标记: sqeNo=" + sqeNo);
+				}
+			} else {
+				logger.warn("[统一落库] 强绑定字段不完整，跳过发送Kafka: sqeNo=" + sqeNo +
+					" images=" + safeLen(record.getPassengerImages()) +
+					" features=" + safeLen(record.getPassengerFeatures()) +
+					" video=" + safeLen(record.getPassengerVideoUrl()) +
+					" position=" + safeLen(record.getPassengerPosition()) +
+					" up=" + record.getUpCount() + ", down=" + record.getDownCount());
+			}
 
 			// 清理当前开门批次号，避免后续误用
 			try {
@@ -1210,47 +1253,70 @@ public class PassengerFlowProcessor {
 	private void processImagesParallel(BusOdRecord record, Jedis jedis, String busNo, String windowId, LocalDateTime eventTime, String sqeNo) throws IOException, SQLException {
 		logger.info("[并行处理] 开始为车辆 " + busNo + " 并行处理图片，时间窗口: " + windowId);
 
-		// 1. 收集图片URL
-		List<String> imageUrls = getAllImageUrls(jedis, busNo, windowId);
-
-		if (imageUrls == null || imageUrls.isEmpty()) {
-			logger.info("[并行处理] 没有图片需要处理，跳过");
-			return;
-		}
-
-		logger.info("[并行处理] 收集到 " + imageUrls.size() + " 张图片，开始并行处理");
-
-		// 2. 设置图片URL集合到记录中
-		JSONArray imageArray = new JSONArray();
-		for (String imageUrl : imageUrls) {
-			imageArray.put(imageUrl);
-		}
-		record.setPassengerImages(imageArray.toString());
-
-		// 3. 并行处理：AI分析和视频转换
-		try {
-			// 3.1 AI分析（同步执行，因为需要结果）
-			logger.info("[并行处理] 开始AI图片分析");
-			analyzeImagesWithAI(jedis, busNo, eventTime, record, imageUrls, sqeNo);
-
-			// 3.2 视频转换（同步执行，因为需要结果）
-			logger.info("[并行处理] 开始分别按方向图片转视频");
-			LocalDateTime begin = record.getTimestampBegin();
-			LocalDateTime end = record.getTimestampEnd();
-			if (begin != null && end != null) {
-				Map<String, List<String>> imagesByDir = getImagesByTimeRangeSeparated(jedis, busNo, begin, end,
-					Config.IMAGE_TIME_TOLERANCE_BEFORE_SECONDS, Config.IMAGE_TIME_TOLERANCE_AFTER_SECONDS, null);
-				List<String> upImages = imagesByDir.getOrDefault("up", new ArrayList<>());
-				List<String> downImages = imagesByDir.getOrDefault("down", new ArrayList<>());
-				processImagesToVideoByDirection(record, jedis, busNo, windowId, upImages, downImages);
-			} else {
-				Map<String, List<String>> imagesByDir = getImagesByExactWindowSeparated(jedis, busNo, windowId, null);
-				List<String> upImages = imagesByDir.getOrDefault("up", new ArrayList<>());
-				List<String> downImages = imagesByDir.getOrDefault("down", new ArrayList<>());
-				processImagesToVideoByDirection(record, jedis, busNo, windowId, upImages, downImages);
+		// 基于 sqeNo 的就绪闸门：要求 up/down 图片集合与 features_set 就绪
+		if (sqeNo != null && !sqeNo.isEmpty()) {
+			boolean ready = waitReadyBySqeNo(jedis, sqeNo, Config.MEDIA_READY_TIMEOUT_MS, Config.MEDIA_RETRY_BACKOFF_MS);
+			if (!ready) {
+				logger.warn("[就绪闸门] sqeNo=" + sqeNo + " 在超时内未就绪（图片/特征不全），跳过本批处理");
+				return;
 			}
+		}
 
-			logger.info("[并行处理] 并行处理完成，AI分析和视频转换都已成功");
+		// 1. 分方向收集图片URL（sqeNo 优先，其次时间范围/精确窗口兜底），写入方向化 passengerImages
+		List<String> upImages;
+		List<String> downImages;
+		if (record.getTimestampBegin() != null && record.getTimestampEnd() != null) {
+			Map<String, List<String>> imagesByDir = getImagesByTimeRangeSeparated(jedis, busNo, record.getTimestampBegin(), record.getTimestampEnd(),
+					Config.IMAGE_TIME_TOLERANCE_BEFORE_SECONDS, Config.IMAGE_TIME_TOLERANCE_AFTER_SECONDS, sqeNo);
+			upImages = imagesByDir.getOrDefault("up", new ArrayList<>());
+			downImages = imagesByDir.getOrDefault("down", new ArrayList<>());
+		} else {
+			Map<String, List<String>> imagesByDir = getImagesByExactWindowSeparated(jedis, busNo, windowId, sqeNo);
+			upImages = imagesByDir.getOrDefault("up", new ArrayList<>());
+			downImages = imagesByDir.getOrDefault("down", new ArrayList<>());
+		}
+
+		JSONArray imagesByDirArr = new JSONArray();
+		if (upImages != null && !upImages.isEmpty()) {
+			JSONObject upObj = new JSONObject();
+			upObj.put("location", "up");
+			JSONArray arr = new JSONArray();
+			for (String url : upImages) arr.put(url);
+			upObj.put("images", arr);
+			imagesByDirArr.put(upObj);
+		}
+		if (downImages != null && !downImages.isEmpty()) {
+			JSONObject downObj = new JSONObject();
+			downObj.put("location", "down");
+			JSONArray arr = new JSONArray();
+			for (String url : downImages) arr.put(url);
+			downObj.put("images", arr);
+			imagesByDirArr.put(downObj);
+		}
+		record.setPassengerImages(imagesByDirArr.toString());
+
+		// 2. 并行处理：AI分析（方向化）与视频转换（方向化）
+		try {
+			logger.info("[并行处理] 并行启动：AI分析与视频生成");
+
+			CompletableFuture<Void> aiFuture = CompletableFuture.runAsync(() -> {
+				try {
+					analyzeImagesWithAIByDirection(jedis, busNo, eventTime, record, upImages, downImages, sqeNo);
+				} catch (Exception ex) {
+					logger.error("[并行处理] AI分析异常: " + ex.getMessage());
+				}
+			});
+
+			CompletableFuture<Void> videoFuture = CompletableFuture.runAsync(() -> {
+				try {
+					processImagesToVideoByDirection(record, jedis, busNo, windowId, upImages, downImages);
+				} catch (Exception ex) {
+					logger.error("[并行处理] 视频生成异常: " + ex.getMessage());
+				}
+			});
+
+			CompletableFuture.allOf(aiFuture, videoFuture).join();
+			logger.info("[并行处理] 并行处理完成，AI与视频均已结束");
 
 		} catch (Exception e) {
 			logger.error("[并行处理] 并行处理过程中发生异常: " + e.getMessage());
@@ -1530,6 +1596,15 @@ public class PassengerFlowProcessor {
 			LocalDateTime eventTime, List<String> imageUrls, String sqeNo) throws IOException, SQLException {
 		logger.info("[并行处理] 开始为车辆 " + busNo + " 并行处理图片(区间聚合)，时间窗口: " + windowId);
 
+		// 基于 sqeNo 的就绪闸门
+		if (sqeNo != null && !sqeNo.isEmpty()) {
+			boolean ready = waitReadyBySqeNo(jedis, sqeNo, Config.MEDIA_READY_TIMEOUT_MS, Config.MEDIA_RETRY_BACKOFF_MS);
+			if (!ready) {
+				logger.warn("[就绪闸门] sqeNo=" + sqeNo + " 在超时内未就绪（图片/特征不全），跳过本批处理");
+				return;
+			}
+		}
+
 		//  如果传入的图片列表为空，尝试增强收集（兜底方案）
 		if (imageUrls == null || imageUrls.isEmpty()) {
 			logger.info("[并行处理] 传入图片列表为空，尝试增强收集...");
@@ -1544,14 +1619,45 @@ public class PassengerFlowProcessor {
 			return;
 		}
 
-		JSONArray imageArray = new JSONArray();
-		for (String imageUrl : imageUrls) imageArray.put(imageUrl);
-		record.setPassengerImages(imageArray.toString());
+		// 改为按方向写入 passengerImages
+		List<String> upImagesForField;
+		List<String> downImagesForField;
+		LocalDateTime beginForField = record.getTimestampBegin();
+		LocalDateTime endForField = record.getTimestampEnd();
+		if (beginForField != null && endForField != null) {
+			Map<String, List<String>> imagesByDirField = getImagesByTimeRangeSeparated(jedis, busNo, beginForField, endForField,
+				Config.IMAGE_TIME_TOLERANCE_BEFORE_SECONDS, Config.IMAGE_TIME_TOLERANCE_AFTER_SECONDS, sqeNo);
+			upImagesForField = imagesByDirField.getOrDefault("up", new ArrayList<>());
+			downImagesForField = imagesByDirField.getOrDefault("down", new ArrayList<>());
+		} else {
+			Map<String, List<String>> imagesByDirField = getImagesByExactWindowSeparated(jedis, busNo, windowId, sqeNo);
+			upImagesForField = imagesByDirField.getOrDefault("up", new ArrayList<>());
+			downImagesForField = imagesByDirField.getOrDefault("down", new ArrayList<>());
+		}
 
-		logger.info("[并行处理] 成功设置passengerImages字段，图片数量: " + imageUrls.size());
+		JSONArray imagesByDirArr2 = new JSONArray();
+		if (upImagesForField != null && !upImagesForField.isEmpty()) {
+			JSONObject upObj = new JSONObject();
+			upObj.put("location", "up");
+			JSONArray arr = new JSONArray();
+			for (String url : upImagesForField) arr.put(url);
+			upObj.put("images", arr);
+			imagesByDirArr2.put(upObj);
+		}
+		if (downImagesForField != null && !downImagesForField.isEmpty()) {
+			JSONObject downObj = new JSONObject();
+			downObj.put("location", "down");
+			JSONArray arr = new JSONArray();
+			for (String url : downImagesForField) arr.put(url);
+			downObj.put("images", arr);
+			imagesByDirArr2.put(downObj);
+		}
+		record.setPassengerImages(imagesByDirArr2.toString());
+
+		logger.info("[并行处理] 成功设置passengerImages字段（方向化），上车=" + (upImagesForField != null ? upImagesForField.size() : 0) + ", 下车=" + (downImagesForField != null ? downImagesForField.size() : 0));
 		try {
-			logger.info("[并行处理] 开始AI图片分析");
-			analyzeImagesWithAI(jedis, busNo, eventTime, record, imageUrls, sqeNo);
+			logger.info("[并行处理] 开始AI图片分析（方向化）");
+			analyzeImagesWithAIByDirection(jedis, busNo, eventTime, record, upImagesForField, downImagesForField, sqeNo);
 			logger.info("[并行处理] 开始分别按方向图片转视频");
 			LocalDateTime begin = record.getTimestampBegin();
 			LocalDateTime end = record.getTimestampEnd();
@@ -3200,6 +3306,82 @@ public class PassengerFlowProcessor {
         // 注意：不再在这里发送到Kafka，由调用方统一处理
     }
 
+    /**
+     * 按方向调用大模型分析，并将结果以方向化 JSON 写入 featureDescription；aiTotalCount 设为方向合计
+     * featureDescription 结构：[{"location":"up","features":[...]},{"location":"down","features":[...]}]
+     */
+    private void analyzeImagesWithAIByDirection(Jedis jedis, String busNo, LocalDateTime timeWindow, BusOdRecord record,
+                                                List<String> upImages, List<String> downImages, String sqeNo) throws IOException, SQLException {
+        if (!Config.ENABLE_AI_IMAGE_ANALYSIS) {
+            logger.info("[大模型分析-方向] 已禁用，跳过");
+            // 兜底：用两方向图片数量之和作为合计
+            int upN = upImages != null ? upImages.size() : 0;
+            int downN = downImages != null ? downImages.size() : 0;
+            Integer cur = record.getAiTotalCount();
+            record.setAiTotalCount(Math.max(cur == null ? 0 : cur, upN + downN));
+            // 方向化描述置空数组
+            record.setFeatureDescription("[]");
+            return;
+        }
+
+        JSONArray byDir = new JSONArray();
+        int total = 0;
+
+        // 内部函数：单方向调用
+        java.util.function.BiFunction<String, List<String>, Integer> analyzeOne = (location, images) -> {
+            try {
+                if (images == null || images.isEmpty()) return 0;
+                List<String> limited = images;
+                if (images.size() > Config.MAX_IMAGES_PER_ANALYSIS) {
+                    limited = images.subList(0, Config.MAX_IMAGES_PER_ANALYSIS);
+                }
+                int attempts = 0;
+                int maxRetry = Math.max(0, Config.MEDIA_MAX_RETRY);
+                JSONArray feats = new JSONArray();
+                int count = 0;
+                while (true) {
+                    try {
+                        attempts++;
+                        JSONObject modelResponse = callMediaApi(limited, Config.PASSENGER_PROMPT);
+                        JSONObject responseObj = modelResponse.optJSONObject("response");
+                        feats = responseObj != null ? responseObj.optJSONArray("passenger_features") : new JSONArray();
+                        count = responseObj != null ? responseObj.optInt("total_count", 0) : 0;
+                        logger.info("[大模型分析-方向] " + location + " 第" + attempts + "次完成 - 特征:" + (feats != null ? feats.length() : 0) + ",人数:" + count);
+                        if (feats != null && feats.length() > 0) break;
+                        if (attempts >= maxRetry) break;
+                        int backoffMs = Config.MEDIA_RETRY_BACKOFF_MS * attempts;
+                        try { Thread.sleep(backoffMs); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+                    } catch (Exception ex) {
+                        logger.error("[大模型分析-方向] " + location + " 第" + attempts + "次失败: " + ex.getMessage());
+                        if (attempts >= maxRetry) break;
+                        int backoffMs = Config.MEDIA_RETRY_BACKOFF_MS * attempts;
+                        try { Thread.sleep(backoffMs); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+                    }
+                }
+                JSONObject obj = new JSONObject();
+                obj.put("location", location);
+                obj.put("features", feats != null ? feats : new JSONArray());
+                byDir.put(obj);
+                return Math.max(0, count);
+            } catch (Exception e) {
+                logger.error("[大模型分析-方向] " + location + " 处理异常: " + e.getMessage());
+                JSONObject obj = new JSONObject();
+                obj.put("location", location);
+                obj.put("features", new JSONArray());
+                byDir.put(obj);
+                return 0;
+            }
+        };
+
+        total += analyzeOne.apply("up", upImages);
+        total += analyzeOne.apply("down", downImages);
+
+        // 写入结果
+        record.setFeatureDescription(byDir.toString());
+        record.setAiTotalCount(total);
+        logger.info("[大模型分析-方向] 完成，aiTotalCount=" + total + ", featureDescription.len=" + byDir.toString().length());
+    }
+
 	/**
 	 * 标准化时间窗口ID格式，确保与存储时一致
 	 * @param windowId 原始时间窗口ID
@@ -3603,6 +3785,43 @@ public class PassengerFlowProcessor {
         return new int[]{lastUp, lastDown};
     }
 
+    /**
+     * 基于 sqeNo 的就绪闸门：等待 image_urls:{sqeNo}:up/down 和 features_set:{sqeNo} 就绪
+     */
+    private boolean waitReadyBySqeNo(Jedis jedis, String sqeNo, int timeoutMs, int backoffBaseMs) {
+        if (sqeNo == null || sqeNo.isEmpty()) return true;
+        long start = System.currentTimeMillis();
+        int attempt = 0;
+        while (System.currentTimeMillis() - start < Math.max(0, timeoutMs)) {
+            try {
+                Set<String> up = jedis.smembers("image_urls:" + sqeNo + ":up");
+                Set<String> down = jedis.smembers("image_urls:" + sqeNo + ":down");
+                long featureCount = jedis.scard("features_set:" + sqeNo);
+
+                boolean ok = up != null && !up.isEmpty() &&
+                             down != null && !down.isEmpty() &&
+                             featureCount > 0;
+                if (ok) {
+                    if (Config.LOG_DEBUG) {
+                        logger.info("[就绪闸门] sqeNo=" + sqeNo + " 就绪：up=" + up.size() + ", down=" + down.size() + ", features=" + featureCount);
+                    }
+                    return true;
+                }
+
+                attempt++;
+                int sleep = Math.max(50, backoffBaseMs) * attempt;
+                if (sleep > 2000) sleep = 2000; // 限制最大退避
+                try { Thread.sleep(sleep); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); return false; }
+            } catch (Exception e) {
+                if (Config.LOG_ERROR) {
+                    logger.error("[就绪闸门] 检查异常: " + e.getMessage());
+                }
+                return false;
+            }
+        }
+        return false;
+    }
+
 	/**
 	 * 区间分方向图片
 	 * @param sqeNo 开关门唯一批次号
@@ -3668,34 +3887,35 @@ public class PassengerFlowProcessor {
 		try {
 			String dynamicDir = "PassengerFlowRecognition/" + windowId;
 			String tempDir = System.getProperty("java.io.tmpdir");
-			if (upImages != null && !upImages.isEmpty()) {
-				try {
-					File upVideo = ImageToVideoConverter.convertImagesToVideo(upImages, tempDir);
-					String upUrl = OssUtil.uploadVideoFile(upVideo, UUID.randomUUID().toString() + ".mp4", dynamicDir);
-					JSONObject upObj = new JSONObject();
-					upObj.put("location", "up");
-					upObj.put("videoUrl", upUrl);
-					results.put(upObj);
-					upVideo.delete();
-					logger.info("[图片转视频-按方向] 上车视频上传成功: " + upUrl);
-				} catch (Exception e) {
-					logger.error("[图片转视频-按方向] 上车转换失败: " + e.getMessage());
+			java.util.function.BiConsumer<String, List<String>> processOne = (location, imgs) -> {
+				if (imgs == null || imgs.isEmpty()) return;
+				int attempts = 0;
+				int maxRetry = Math.max(1, Config.MEDIA_MAX_RETRY);
+				while (attempts < maxRetry) {
+					attempts++;
+					try {
+						File video = ImageToVideoConverter.convertImagesToVideo(imgs, tempDir);
+						String url = OssUtil.uploadVideoFile(video, UUID.randomUUID().toString() + ".mp4", dynamicDir);
+						JSONObject obj = new JSONObject();
+						obj.put("location", location);
+						obj.put("videoUrl", url);
+						results.put(obj);
+						video.delete();
+						logger.info("[图片转视频-按方向] " + location + " 成功: attempt=" + attempts + ", url=" + url);
+						return;
+					} catch (Exception ex) {
+						logger.error("[图片转视频-按方向] " + location + " 失败 attempt=" + attempts + ": " + ex.getMessage());
+						if (attempts >= maxRetry) {
+							logger.error("[图片转视频-按方向] " + location + " 达到最大重试，放弃");
+						} else {
+							try { Thread.sleep(Config.MEDIA_RETRY_BACKOFF_MS * attempts); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); return; }
+						}
+					}
 				}
-			}
-			if (downImages != null && !downImages.isEmpty()) {
-				try {
-					File downVideo = ImageToVideoConverter.convertImagesToVideo(downImages, tempDir);
-					String downUrl = OssUtil.uploadVideoFile(downVideo, UUID.randomUUID().toString() + ".mp4", dynamicDir);
-					JSONObject downObj = new JSONObject();
-					downObj.put("location", "down");
-					downObj.put("videoUrl", downUrl);
-					results.put(downObj);
-					downVideo.delete();
-					logger.info("[图片转视频-按方向] 下车视频上传成功: " + downUrl);
-				} catch (Exception e) {
-					logger.error("[图片转视频-按方向] 下车转换失败: " + e.getMessage());
-				}
-			}
+			};
+
+			processOne.accept("up", upImages);
+			processOne.accept("down", downImages);
 		} catch (Exception e) {
 			logger.error("[图片转视频-按方向] 处理过程异常: " + e.getMessage());
 		}

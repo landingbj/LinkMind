@@ -60,8 +60,8 @@ public class RetrieveAllWsDbService {
         String optimizedRawMessage = optimizeDownUpRawMessage(allWs.getRawMessage(), allWs.getEvent());
 
         String sql = "INSERT INTO retrieve_all_ws (bus_no, event, raw_message, bus_id, camera_no, " +
-                    "station_id, station_name, message_timestamp, received_at, created_at) " +
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                    "station_id, station_name, message_timestamp, received_at, created_at, sqe_no) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
         try (Connection conn = dataSource.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -79,20 +79,22 @@ public class RetrieveAllWsDbService {
                 java.sql.Timestamp.valueOf(allWs.getReceivedAt()) :
                 java.sql.Timestamp.valueOf(LocalDateTime.now()));
             stmt.setTimestamp(10, java.sql.Timestamp.valueOf(LocalDateTime.now()));
+            // 🔥 设置sqe_no字段
+            stmt.setString(11, allWs.getSqeNo());
 
             int result = stmt.executeUpdate();
 
             if (Config.LOG_DEBUG) {
-                System.out.println(String.format("[RetrieveAllWsDbService] 保存WebSocket消息成功: 车辆=%s, 事件=%s",
-                    allWs.getBusNo(), allWs.getEvent()));
+                System.out.println(String.format("[RetrieveAllWsDbService] 🔥 保存WebSocket消息成功: 车辆=%s, 事件=%s, sqe_no=%s",
+                    allWs.getBusNo(), allWs.getEvent(), allWs.getSqeNo()));
             }
 
             return result > 0;
 
         } catch (SQLException e) {
             if (Config.LOG_ERROR) {
-                System.err.println(String.format("[RetrieveAllWsDbService] 保存WebSocket消息失败: 车辆=%s, 事件=%s, 错误=%s",
-                    allWs.getBusNo(), allWs.getEvent(), e.getMessage()));
+                System.err.println(String.format("[RetrieveAllWsDbService] 🔥 保存WebSocket消息失败: 车辆=%s, 事件=%s, sqe_no=%s, 错误=%s",
+                    allWs.getBusNo(), allWs.getEvent(), allWs.getSqeNo(), e.getMessage()));
                 e.printStackTrace();
             }
             return false;

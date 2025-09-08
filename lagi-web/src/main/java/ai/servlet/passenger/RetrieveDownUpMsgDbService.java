@@ -55,8 +55,8 @@ public class RetrieveDownUpMsgDbService {
      */
     public boolean saveDownUpMsg(RetrieveDownUpMsg downUpMsg) {
         String sql = "INSERT INTO retrieve_downup_msg (bus_no, bus_id, camera_no, timestamp, event, " +
-                    "events_json, up_count, down_count, original_message, created_at) " +
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                    "events_json, up_count, down_count, original_message, created_at, sqe_no) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
         try (Connection conn = dataSource.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -72,12 +72,14 @@ public class RetrieveDownUpMsgDbService {
             stmt.setObject(8, downUpMsg.getDownCount());
             stmt.setString(9, downUpMsg.getOriginalMessage());
             stmt.setTimestamp(10, java.sql.Timestamp.valueOf(LocalDateTime.now()));
+            // 🔥 设置sqe_no字段
+            stmt.setString(11, downUpMsg.getSqeNo());
 
             int result = stmt.executeUpdate();
 
             if (Config.LOG_DEBUG) {
-                System.out.println(String.format("[RetrieveDownUpMsgDbService] 保存downup消息成功: 车辆=%s, 上车=%d, 下车=%d",
-                    downUpMsg.getBusNo(), downUpMsg.getUpCount(), downUpMsg.getDownCount()));
+                System.out.println(String.format("[RetrieveDownUpMsgDbService] 🔥 保存downup消息成功: 车辆=%s, 上车=%d, 下车=%d, sqe_no=%s",
+                    downUpMsg.getBusNo(), downUpMsg.getUpCount(), downUpMsg.getDownCount(), downUpMsg.getSqeNo()));
             }
 
             return result > 0;

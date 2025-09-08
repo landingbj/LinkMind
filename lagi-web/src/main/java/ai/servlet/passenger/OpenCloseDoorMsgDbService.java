@@ -55,8 +55,8 @@ public class OpenCloseDoorMsgDbService {
      */
     public boolean saveOpenCloseDoorMsg(OpenCloseDoorMsg doorMsg) {
         String sql = "INSERT INTO open_close_door_msg (bus_no, bus_id, camera_no, action, timestamp, " +
-                    "station_id, station_name, event, original_message, created_at) " +
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                    "station_id, station_name, event, original_message, created_at, sqe_no) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
         try (Connection conn = dataSource.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -72,12 +72,14 @@ public class OpenCloseDoorMsgDbService {
             stmt.setString(8, doorMsg.getEvent());
             stmt.setString(9, doorMsg.getOriginalMessage());
             stmt.setTimestamp(10, java.sql.Timestamp.valueOf(LocalDateTime.now()));
+            // 🔥 设置sqe_no字段
+            stmt.setString(11, doorMsg.getSqeNo());
 
             int result = stmt.executeUpdate();
 
             if (Config.LOG_DEBUG) {
-                System.out.println(String.format("[OpenCloseDoorMsgDbService] 保存开关门消息成功: 车辆=%s, 动作=%s, 站点=%s",
-                    doorMsg.getBusNo(), doorMsg.getAction(), doorMsg.getStationName()));
+                System.out.println(String.format("[OpenCloseDoorMsgDbService] 🔥 保存开关门消息成功: 车辆=%s, 动作=%s, 站点=%s, sqe_no=%s",
+                    doorMsg.getBusNo(), doorMsg.getAction(), doorMsg.getStationName(), doorMsg.getSqeNo()));
             }
 
             return result > 0;

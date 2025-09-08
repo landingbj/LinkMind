@@ -55,8 +55,8 @@ public class RetrieveLoadFactorMsgDbService {
      */
     public boolean saveLoadFactorMsg(RetrieveLoadFactorMsg loadFactorMsg) {
         String sql = "INSERT INTO retrieve_load_factor_msg (bus_no, camera_no, timestamp, event, " +
-                    "passenger_count, load_factor, original_message, created_at) " +
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+                    "passenger_count, load_factor, original_message, created_at, sqe_no) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
         try (Connection conn = dataSource.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -70,12 +70,14 @@ public class RetrieveLoadFactorMsgDbService {
             stmt.setBigDecimal(6, loadFactorMsg.getFactor());
             stmt.setString(7, loadFactorMsg.getOriginalMessage());
             stmt.setTimestamp(8, java.sql.Timestamp.valueOf(LocalDateTime.now()));
+            // 🔥 设置sqe_no字段
+            stmt.setString(9, loadFactorMsg.getSqeNo());
 
             int result = stmt.executeUpdate();
 
             if (Config.LOG_DEBUG) {
-                System.out.println(String.format("[RetrieveLoadFactorMsgDbService] 保存满载率消息成功: 车辆=%s, 人数=%d, 满载率=%s",
-                    loadFactorMsg.getBusNo(), loadFactorMsg.getCount(), loadFactorMsg.getFactorPercentage()));
+                System.out.println(String.format("[RetrieveLoadFactorMsgDbService] 🔥 保存满载率消息成功: 车辆=%s, 人数=%d, 满载率=%s, sqe_no=%s",
+                    loadFactorMsg.getBusNo(), loadFactorMsg.getCount(), loadFactorMsg.getFactorPercentage(), loadFactorMsg.getSqeNo()));
             }
 
             return result > 0;

@@ -1,8 +1,6 @@
 package ai.servlet.passenger;
 
 import org.json.JSONObject;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 
@@ -11,23 +9,21 @@ import java.math.BigDecimal;
  */
 public class RetrieveLoadFactorMsgTestUtil {
 
-    private static final Logger logger = LoggerFactory.getLogger(RetrieveLoadFactorMsgTestUtil.class);
-
     public static void main(String[] args) {
         // 测试满载率消息
         String loadFactorMessage = createTestLoadFactorMessage();
 
-        logger.info("=== 测试CV满载率消息解析 ===");
+        System.out.println("=== 测试CV满载率消息解析 ===");
         testMessage(loadFactorMessage);
 
         // 测试数据库服务
-        logger.info("\n=== 测试数据库连接 ===");
+        System.out.println("\n=== 测试数据库连接 ===");
         RetrieveLoadFactorMsgDbService dbService = new RetrieveLoadFactorMsgDbService();
         boolean testConnection = dbService.testConnection();
-        logger.info("数据库连接测试: {}", (testConnection ? "成功" : "失败"));
+        System.out.println("数据库连接测试: " + (testConnection ? "成功" : "失败"));
 
         dbService.close();
-        logger.info("\n测试完成！");
+        System.out.println("\n测试完成！");
     }
 
     private static String createTestLoadFactorMessage() {
@@ -67,23 +63,24 @@ public class RetrieveLoadFactorMsgTestUtil {
 
             loadFactorMsg.setOriginalMessage(messageJson);
 
-            logger.info("车辆编号: {}", loadFactorMsg.getBusNo());
-            logger.info("摄像头编号: {}", loadFactorMsg.getCameraNo());
-            logger.info("时间戳: {}", loadFactorMsg.getTimestamp());
-            logger.info("解析后时间: {}", loadFactorMsg.getParsedTimestamp());
-            logger.info("车辆总人数: {}", loadFactorMsg.getCount());
-            logger.info("满载率: {} ({})", loadFactorMsg.getFactor(), loadFactorMsg.getFactorPercentage());
+            System.out.println("车辆编号: " + loadFactorMsg.getBusNo());
+            System.out.println("摄像头编号: " + loadFactorMsg.getCameraNo());
+            System.out.println("时间戳: " + loadFactorMsg.getTimestamp());
+            System.out.println("解析后时间: " + loadFactorMsg.getParsedTimestamp());
+            System.out.println("车辆总人数: " + loadFactorMsg.getCount());
+            System.out.println("满载率: " + loadFactorMsg.getFactor() + " (" + loadFactorMsg.getFactorPercentage() + ")");
 
             // 测试数据库保存
             RetrieveLoadFactorMsgDbService dbService = new RetrieveLoadFactorMsgDbService();
             if (dbService.testConnection()) {
                 boolean saved = dbService.saveLoadFactorMsg(loadFactorMsg);
-                logger.info("数据保存测试: {}", (saved ? "成功" : "失败"));
+                System.out.println("数据保存测试: " + (saved ? "成功" : "失败"));
             }
             dbService.close();
 
         } catch (Exception e) {
-            logger.error("测试失败: {}", e.getMessage(), e);
+            System.err.println("测试失败: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 }

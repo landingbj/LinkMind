@@ -2,8 +2,6 @@ package ai.servlet.passenger;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -18,7 +16,6 @@ import java.time.format.DateTimeParseException;
  * 负责查询和更新bus_od_record表
  */
 public class BusOdRecordDbService {
-    private static final Logger logger = LoggerFactory.getLogger(BusOdRecordDbService.class);
 
     // PostgreSQL连接配置
     private static final String DB_URL = "jdbc:postgresql://20.17.39.40:5432/GJ_DW";
@@ -54,55 +51,20 @@ public class BusOdRecordDbService {
         this.dataSource = new HikariDataSource(config);
 
         if (Config.LOG_INFO) {
-            logger.info("[BusOdRecordDbService] 数据库连接池初始化完成");
-        }
-    }
-
-    /**
-     * 查询bus_od_record表（宽松条件，用于诊断）
-     * 条件：仅bus_no匹配，不限制时间
-     */
-    public BusOdRecord findLatestByBusNoOnly(String busNo) {
-        String sql = "SELECT * FROM ads.bus_od_record " +
-                    "WHERE bus_no = ? " +
-                    "ORDER BY created_at DESC " +
-                    "LIMIT 5";
-
-        logger.info("[BusOdRecordDbService] 宽松查询参数: busNo={}", busNo);
-
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
-
-            stmt.setString(1, busNo);
-
-            try (ResultSet rs = stmt.executeQuery()) {
-                int count = 0;
-                while (rs.next()) {
-                    count++;
-                    logger.info("[BusOdRecordDbService] 找到记录 #{}: id={}, busNo={}, created_at={}",
-                               count, rs.getLong("id"), rs.getString("bus_no"), rs.getTimestamp("created_at"));
-                }
-                logger.info("[BusOdRecordDbService] 总共找到 {} 条记录", count);
-                return null; // 仅用于诊断，不返回具体记录
-            }
-        } catch (SQLException e) {
-            logger.error("[BusOdRecordDbService] 宽松查询失败: busNo=" + busNo + ", 错误=" + e.getMessage());
-            return null;
+            System.out.println("[BusOdRecordDbService] 数据库连接池初始化完成");
         }
     }
 
     /**
      * 查询bus_od_record表
-     * 条件：bus_no匹配且时间差小于5分钟
+     * 条件：bus_no匹配且时间差小于1分钟
      */
     public BusOdRecord findLatestByBusNoAndTime(String busNo, String tradeTime) {
         String sql = "SELECT * FROM ads.bus_od_record " +
                     "WHERE bus_no = ? " +
-                    "  AND ABS(EXTRACT(EPOCH FROM (created_at - ?::TIMESTAMP))) <= 300 " +
+                    "  AND ABS(EXTRACT(EPOCH FROM (created_at - TIMESTAMP ?))) <= 60 " +
                     "ORDER BY created_at DESC " +
                     "LIMIT 1";
-
-        logger.info("[BusOdRecordDbService] 查询参数: busNo={}, tradeTime={}", busNo, tradeTime);
 
         try (Connection conn = dataSource.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -110,16 +72,11 @@ public class BusOdRecordDbService {
             stmt.setString(1, busNo);
             stmt.setString(2, tradeTime);
 
-            logger.info("[BusOdRecordDbService] 执行SQL: {}", sql);
-
             try (ResultSet rs = stmt.executeQuery()) {
                 if (rs.next()) {
                     BusOdRecord record = new BusOdRecord();
                     record.setId(rs.getLong("id"));
                     record.setBusNo(rs.getString("bus_no"));
-
-                    logger.info("[BusOdRecordDbService] 找到匹配记录: id={}, busNo={}, created_at={}",
-                               record.getId(), record.getBusNo(), rs.getTimestamp("created_at"));
 
                     // 处理bus_id字段 - 可能是String或Long类型
                     String busIdStr = rs.getString("bus_id");
@@ -164,7 +121,7 @@ public class BusOdRecordDbService {
                     }
 
                     if (Config.LOG_DEBUG) {
-                        logger.debug(String.format("[BusOdRecordDbService] 查询到记录: id=%d, busNo=%s, tradeTime=%s",
+                        System.out.println(String.format("[BusOdRecordDbService] 查询到记录: id=%d, busNo=%s, tradeTime=%s",
                             record.getId(), busNo, tradeTime));
                     }
 
@@ -172,14 +129,18 @@ public class BusOdRecordDbService {
                 }
             }
 
-            logger.warn("[BusOdRecordDbService] 未找到匹配记录: busNo={}, tradeTime={}", busNo, tradeTime);
+            if (Config.LOG_DEBUG) {
+                System.out.println(String.format("[BusOdRecordDbService] 未找到匹配记录: busNo=%s, tradeTime=%s",
+                    busNo, tradeTime));
+            }
 
             return null;
 
         } catch (SQLException e) {
             if (Config.LOG_ERROR) {
-                logger.error(String.format("[BusOdRecordDbService] 查询失败: busNo=%s, tradeTime=%s, 错误=%s",
-                    busNo, tradeTime, e.getMessage()), e);
+                System.err.println(String.format("[BusOdRecordDbService] 查询失败: busNo=%s, tradeTime=%s, 错误=%s",
+                    busNo, tradeTime, e.getMessage()));
+                e.printStackTrace();
             }
             return null;
         }
@@ -208,7 +169,7 @@ public class BusOdRecordDbService {
             // 记录更新时间和详细信息
             LocalDateTime updateTime = LocalDateTime.now();
             if (Config.LOG_INFO) {
-                logger.info(String.format("[BusOdRecordDbService] 🔥 更新ticket_json成功: id=%d, upCount=%d, downCount=%d, totalCount=%d, 更新时间=%s",
+                System.out.println(String.format("[BusOdRecordDbService] 🔥 更新ticket_json成功: id=%d, upCount=%d, downCount=%d, totalCount=%d, 更新时间=%s",
                     id, upCount, downCount, upCount + downCount, updateTime.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))));
             }
 
@@ -216,8 +177,9 @@ public class BusOdRecordDbService {
 
         } catch (SQLException e) {
             if (Config.LOG_ERROR) {
-                logger.error(String.format("[BusOdRecordDbService] 更新ticket_json失败: id=%d, 错误=%s",
-                    id, e.getMessage()), e);
+                System.err.println(String.format("[BusOdRecordDbService] 更新ticket_json失败: id=%d, 错误=%s",
+                    id, e.getMessage()));
+                e.printStackTrace();
             }
             return false;
         }
@@ -230,7 +192,7 @@ public class BusOdRecordDbService {
         if (dataSource != null && !dataSource.isClosed()) {
             dataSource.close();
             if (Config.LOG_INFO) {
-                logger.info("[BusOdRecordDbService] 数据库连接池已关闭");
+                System.out.println("[BusOdRecordDbService] 数据库连接池已关闭");
             }
         }
     }
@@ -243,7 +205,7 @@ public class BusOdRecordDbService {
             return conn.isValid(5);
         } catch (SQLException e) {
             if (Config.LOG_ERROR) {
-                logger.error("[BusOdRecordDbService] 数据库连接测试失败: " + e.getMessage());
+                System.err.println("[BusOdRecordDbService] 数据库连接测试失败: " + e.getMessage());
             }
             return false;
         }

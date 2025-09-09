@@ -4,8 +4,8 @@ public class Config {
     public static final String DB_URL = "jdbc:postgresql://20.17.39.40:5432/GJ_DW";
     public static final String DB_USER = "gj_dw_r1";
     public static final String DB_PASSWORD = ")xNPm1OKZMgB";
-    public static final String REDIS_HOST = "20.17.39.34";
-    public static final String REDIS_PASSWORD = "2gHLmc!1hb!s@t";
+    public static final String REDIS_HOST = "20.17.39.68";
+    public static final String REDIS_PASSWORD = ")xNPm1OKZMgB";
     public static final int REDIS_PORT = 6379;
     public static final String OSS_UPLOAD_URL = "http://20.17.39.75:30080/admin/sys-file/upload";
     public static final String OSS_FILE_BASE_URL = "https://gateway-busfusion.ibuscloud.com";
@@ -24,7 +24,6 @@ public class Config {
     public static final String PASSENGER_PROMPT = "请分析车门区域的下车乘客特征";
     public static final int MEDIA_MAX_RETRY = 2;                 // 当返回空特征时的最大重试次数
     public static final int MEDIA_RETRY_BACKOFF_MS = 500;        // 重试退避时间（基础毫秒）
-    public static final int MEDIA_READY_TIMEOUT_MS = 10000;      // 媒体就绪（图片/特征）等待超时（毫秒）
 
     // FFmpeg 可执行文件路径；默认从 PATH 中查找，如部署机未配置可填绝对路径，如 "/usr/bin/ffmpeg"
     public static final String FFMPEG_PATH = "ffmpeg";
@@ -34,7 +33,7 @@ public class Config {
     public static final boolean ENABLE_AI_IMAGE_ANALYSIS = true;       // 是否启用AI图片分析
     public static final int MAX_IMAGES_PER_ANALYSIS = 40;              // 每次AI分析的最大图片数量
     public static final int IMAGE_DURATION_SECONDS = 2;                // 每张图片在视频中的播放时长（秒）
-
+    
     // 特征数据配置
     public static final int MAX_FEATURE_SIZE_BYTES = 50000;            // 单个特征数据最大字节数（50KB，支持约10000维特征向量）
     public static final int MAX_FEATURES_PER_WINDOW = 50;              // 每个时间窗口最大特征数量
@@ -102,32 +101,4 @@ public class Config {
     public static String getDbUrl() { return DB_URL; }
     public static String getDbUser() { return DB_USER; }
     public static String getDbPassword() { return DB_PASSWORD; }
-
-    // WebSocket 事件线程池配置
-    // 可用属性键：
-    //  - WS_CORE_POOL_SIZE        核心线程数（默认：8）
-    //  - WS_MAX_POOL_SIZE         最大线程数（默认：32）
-    //  - WS_KEEP_ALIVE_SECONDS    线程空闲存活秒数（默认：60）
-    //  - WS_QUEUE_CAPACITY        任务队列容量（默认：20）
-    //  - WS_MONITOR_SECONDS       监控日志打印间隔秒数（默认：5）
-    public static final int WS_CORE_POOL_SIZE = getIntProperty("WS_CORE_POOL_SIZE", 16);
-    public static final int WS_MAX_POOL_SIZE = getIntProperty("WS_MAX_POOL_SIZE", 64);
-    public static final int WS_KEEP_ALIVE_SECONDS = getIntProperty("WS_KEEP_ALIVE_SECONDS", 60);
-    public static final int WS_QUEUE_CAPACITY = getIntProperty("WS_QUEUE_CAPACITY", 100);
-    public static final int WS_MONITOR_SECONDS = getIntProperty("WS_MONITOR_SECONDS", 5);
-
-    private static int getIntProperty(String key, int defaultValue) {
-        try {
-            String v = System.getProperty(key);
-            if (v == null || v.isEmpty()) {
-                v = System.getenv(key);
-            }
-            if (v == null || v.isEmpty()) {
-                return defaultValue;
-            }
-            return Integer.parseInt(v.trim());
-        } catch (Exception ignore) {
-            return defaultValue;
-        }
-    }
 }

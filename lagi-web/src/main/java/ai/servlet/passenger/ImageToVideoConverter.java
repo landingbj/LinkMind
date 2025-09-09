@@ -4,15 +4,12 @@ import java.io.File;
 import java.io.IOException;
 import java.util.List;
 import java.util.UUID;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * 图片转视频工具类
  * 用于将乘客图片集合转换为视频文件
  */
 public class ImageToVideoConverter {
-    private static final Logger logger = LoggerFactory.getLogger(ImageToVideoConverter.class);
     
     /**
      * 将图片URL列表转换为视频文件
@@ -23,7 +20,7 @@ public class ImageToVideoConverter {
      * @throws IOException 转换异常
      */
     public static File convertImagesToVideo(List<String> imageUrls, String outputDir, double frameRate) throws IOException {
-        logger.info("[FFmpeg转换] 开始转换图片为视频，图片数量: " + imageUrls.size() + ", 输出目录: " + outputDir + ", 帧率: " + frameRate);
+        System.out.println("[FFmpeg转换] 开始转换图片为视频，图片数量: " + imageUrls.size() + ", 输出目录: " + outputDir + ", 帧率: " + frameRate);
         
         if (imageUrls == null || imageUrls.isEmpty()) {
             throw new IllegalArgumentException("图片URL列表不能为空");
@@ -39,16 +36,16 @@ public class ImageToVideoConverter {
         String outputFileName = "passenger_video_" + UUID.randomUUID().toString() + ".mp4";
         File outputFile = new File(outputDirectory, outputFileName);
         
-        logger.info("[FFmpeg转换] 输出文件路径: " + outputFile.getAbsolutePath());
+        System.out.println("[FFmpeg转换] 输出文件路径: " + outputFile.getAbsolutePath());
         
         try {
             // 使用FFmpeg将图片转换为视频
             // 这里需要系统安装FFmpeg
             String ffmpegCommand = buildFFmpegCommand(imageUrls, outputFile.getAbsolutePath(), frameRate);
             
-            logger.info("[FFmpeg转换] 开始创建临时图片目录并下载图片");
+            System.out.println("[FFmpeg转换] 开始创建临时图片目录并下载图片");
             File tempDir = createTempImageDirectory(imageUrls);
-            logger.info("[FFmpeg转换] 临时图片目录创建完成: " + tempDir.getAbsolutePath());
+            System.out.println("[FFmpeg转换] 临时图片目录创建完成: " + tempDir.getAbsolutePath());
             
             ProcessBuilder processBuilder = new ProcessBuilder();
             // 优先使用可配置的FFmpeg路径
@@ -59,18 +56,18 @@ public class ImageToVideoConverter {
             // 设置工作目录为临时图片目录
             processBuilder.directory(tempDir);
             
-            logger.info("[FFmpeg转换] 开始执行FFmpeg命令，工作目录: " + tempDir.getAbsolutePath());
+            System.out.println("[FFmpeg转换] 开始执行FFmpeg命令，工作目录: " + tempDir.getAbsolutePath());
             // 启动前输出实际命令，便于排错
-            logger.info("[FFmpeg转换] 执行命令: " + String.join(" ", processBuilder.command()));
+            System.out.println("[FFmpeg转换] 执行命令: " + String.join(" ", processBuilder.command()));
             Process process = processBuilder.start();
             int exitCode = process.waitFor();
             
             if (exitCode != 0) {
-                logger.error("[FFmpeg转换] FFmpeg转换失败，退出码: " + exitCode);
+                System.err.println("[FFmpeg转换] FFmpeg转换失败，退出码: " + exitCode);
                 throw new IOException("FFmpeg转换失败，退出码: " + exitCode);
             }
             
-            logger.info("[FFmpeg转换] FFmpeg转换成功，退出码: " + exitCode);
+            System.out.println("[FFmpeg转换] FFmpeg转换成功，退出码: " + exitCode);
             
             // 清理临时文件
             cleanupTempFiles(tempDir);

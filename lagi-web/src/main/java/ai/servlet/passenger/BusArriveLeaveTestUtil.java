@@ -1,14 +1,11 @@
 package ai.servlet.passenger;
 
 import com.google.gson.Gson;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * 到离站数据测试工具类
  */
 public class BusArriveLeaveTestUtil {
-    private static final Logger logger = LoggerFactory.getLogger(BusArriveLeaveTestUtil.class);
 
     public static void main(String[] args) {
         // 测试JSON解析 - 模拟到站数据
@@ -19,47 +16,47 @@ public class BusArriveLeaveTestUtil {
 
         Gson gson = new Gson();
 
-        logger.info("=== 测试到站数据解析 ===");
+        System.out.println("=== 测试到站数据解析 ===");
         BusArriveLeaveData arriveData = gson.fromJson(arriveJsonData, BusArriveLeaveData.class);
         arriveData.setDirection("up"); // 4=上行
         arriveData.setOriginalMessage(arriveJsonData);
 
-        logger.info("车辆编号: " + arriveData.getBusNo());
-        logger.info("到离站标识: " + arriveData.getIsArriveOrLeft() + " (1=到站)");
-        logger.info("站点名称: " + arriveData.getStationName());
-        logger.info("线路编号: " + arriveData.getRouteNo());
-        logger.info("方向: " + arriveData.getDirection());
+        System.out.println("车辆编号: " + arriveData.getBusNo());
+        System.out.println("到离站标识: " + arriveData.getIsArriveOrLeft() + " (1=到站)");
+        System.out.println("站点名称: " + arriveData.getStationName());
+        System.out.println("线路编号: " + arriveData.getRouteNo());
+        System.out.println("方向: " + arriveData.getDirection());
 
-        logger.info("\n=== 测试离站数据解析 ===");
+        System.out.println("\n=== 测试离站数据解析 ===");
         BusArriveLeaveData leaveData = gson.fromJson(leaveJsonData, BusArriveLeaveData.class);
         leaveData.setDirection("up"); // 4=上行
         leaveData.setOriginalMessage(leaveJsonData);
 
-        logger.info("车辆编号: " + leaveData.getBusNo());
-        logger.info("到离站标识: " + leaveData.getIsArriveOrLeft() + " (2=离站)");
-        logger.info("站点名称: " + leaveData.getStationName());
-        logger.info("线路编号: " + leaveData.getRouteNo());
-        logger.info("方向: " + leaveData.getDirection());
+        System.out.println("车辆编号: " + leaveData.getBusNo());
+        System.out.println("到离站标识: " + leaveData.getIsArriveOrLeft() + " (2=离站)");
+        System.out.println("站点名称: " + leaveData.getStationName());
+        System.out.println("线路编号: " + leaveData.getRouteNo());
+        System.out.println("方向: " + leaveData.getDirection());
 
         // 测试数据库服务
-        logger.info("\n=== 测试数据库连接 ===");
+        System.out.println("\n=== 测试数据库连接 ===");
         BusArriveLeaveDbService dbService = new BusArriveLeaveDbService();
         boolean testConnection = dbService.testConnection();
-        logger.info("数据库连接测试: " + (testConnection ? "成功" : "失败"));
+        System.out.println("数据库连接测试: " + (testConnection ? "成功" : "失败"));
 
         if (testConnection) {
             // 测试保存到站数据
-            logger.info("\n=== 测试保存到站数据 ===");
+            System.out.println("\n=== 测试保存到站数据 ===");
             boolean savedArrive = dbService.saveArriveLeaveData(arriveData);
-            logger.info("到站数据保存测试: " + (savedArrive ? "成功" : "失败"));
+            System.out.println("到站数据保存测试: " + (savedArrive ? "成功" : "失败"));
 
             // 测试保存离站数据
-            logger.info("\n=== 测试保存离站数据 ===");
+            System.out.println("\n=== 测试保存离站数据 ===");
             boolean savedLeave = dbService.saveArriveLeaveData(leaveData);
-            logger.info("离站数据保存测试: " + (savedLeave ? "成功" : "失败"));
+            System.out.println("离站数据保存测试: " + (savedLeave ? "成功" : "失败"));
         }
 
         dbService.close();
-        logger.info("\n测试完成！");
+        System.out.println("\n测试完成！");
     }
 }

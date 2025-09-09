@@ -4,8 +4,6 @@ import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -17,7 +15,6 @@ import java.time.LocalDateTime;
  * 负责连接PolarDB并保存所有WebSocket消息到retrieve_all_ws表
  */
 public class RetrieveAllWsDbService {
-    private static final Logger logger = LoggerFactory.getLogger(RetrieveAllWsDbService.class);
 
     // PolarDB连接配置
     private static final String DB_URL = "jdbc:mysql://20.17.39.67:3306/gjdev?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai";
@@ -51,7 +48,7 @@ public class RetrieveAllWsDbService {
         this.dataSource = new HikariDataSource(config);
 
         if (Config.LOG_INFO) {
-            logger.info("[RetrieveAllWsDbService] 数据库连接池初始化完成");
+            System.out.println("[RetrieveAllWsDbService] 数据库连接池初始化完成");
         }
     }
 
@@ -88,17 +85,17 @@ public class RetrieveAllWsDbService {
             int result = stmt.executeUpdate();
 
             if (Config.LOG_DEBUG) {
-                logger.info("[RetrieveAllWsDbService] 🔥 保存WebSocket消息成功: 车辆={}, 事件={}, sqe_no={}",
-                    allWs.getBusNo(), allWs.getEvent(), allWs.getSqeNo());
+                System.out.println(String.format("[RetrieveAllWsDbService] 🔥 保存WebSocket消息成功: 车辆=%s, 事件=%s, sqe_no=%s",
+                    allWs.getBusNo(), allWs.getEvent(), allWs.getSqeNo()));
             }
 
             return result > 0;
 
         } catch (SQLException e) {
             if (Config.LOG_ERROR) {
-                logger.error("[RetrieveAllWsDbService] 🔥 保存WebSocket消息失败: 车辆={}, 事件={}, sqe_no={}, 错误={}",
-                    allWs.getBusNo(), allWs.getEvent(), allWs.getSqeNo(), e.getMessage());
-                logger.error("[RetrieveAllWsDbService] 异常堆栈", e);
+                System.err.println(String.format("[RetrieveAllWsDbService] 🔥 保存WebSocket消息失败: 车辆=%s, 事件=%s, sqe_no=%s, 错误=%s",
+                    allWs.getBusNo(), allWs.getEvent(), allWs.getSqeNo(), e.getMessage()));
+                e.printStackTrace();
             }
             return false;
         }
@@ -111,7 +108,7 @@ public class RetrieveAllWsDbService {
         if (dataSource != null && !dataSource.isClosed()) {
             dataSource.close();
             if (Config.LOG_INFO) {
-                logger.info("[RetrieveAllWsDbService] 数据库连接池已关闭");
+                System.out.println("[RetrieveAllWsDbService] 数据库连接池已关闭");
             }
         }
     }
@@ -124,7 +121,7 @@ public class RetrieveAllWsDbService {
             return conn.isValid(5);
         } catch (SQLException e) {
             if (Config.LOG_ERROR) {
-                logger.error("[RetrieveAllWsDbService] 数据库连接测试失败: {}", e.getMessage());
+                System.err.println("[RetrieveAllWsDbService] 数据库连接测试失败: " + e.getMessage());
             }
             return false;
         }
@@ -164,7 +161,7 @@ public class RetrieveAllWsDbService {
             return messageJson.toString();
         } catch (Exception e) {
             if (Config.LOG_ERROR) {
-                logger.error("[RetrieveAllWsDbService] 优化downup消息失败: {}", e.getMessage());
+                System.err.println("[RetrieveAllWsDbService] 优化downup消息失败: " + e.getMessage());
             }
             return rawMessage; // 优化失败时返回原始消息
         }

@@ -1,5 +1,7 @@
 package ai.servlet.passenger;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -8,6 +10,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * 负责管理所有数据库保存操作的异步执行，确保不影响主流程性能
  */
 public class AsyncDbServiceManager {
+
+    private static final Logger logger = LoggerFactory.getLogger(AsyncDbServiceManager.class);
 
     // 异步执行线程池
     private final ExecutorService asyncExecutor;
@@ -67,7 +71,7 @@ public class AsyncDbServiceManager {
         this.retrieveAllWsDbService = new RetrieveAllWsDbService();
 
         if (Config.LOG_INFO) {
-            System.out.println("[AsyncDbServiceManager] 异步数据库服务管理器初始化完成");
+            logger.info("[AsyncDbServiceManager] 异步数据库服务管理器初始化完成");
         }
     }
 
@@ -95,7 +99,7 @@ public class AsyncDbServiceManager {
                 return busCardSwipeDbService.saveCardSwipeData(cardData);
             } catch (Exception e) {
                 if (Config.LOG_ERROR) {
-                    System.err.println("[AsyncDB] 保存刷卡数据异常: " + e.getMessage());
+                    logger.error("[AsyncDB] 保存刷卡数据异常: " + e.getMessage());
                 }
                 return false;
             }
@@ -115,7 +119,7 @@ public class AsyncDbServiceManager {
                 return busArriveLeaveDbService.saveArriveLeaveData(arriveLeaveData);
             } catch (Exception e) {
                 if (Config.LOG_ERROR) {
-                    System.err.println("[AsyncDB] 保存到离站数据异常: " + e.getMessage());
+                    logger.error("[AsyncDB] 保存到离站数据异常: " + e.getMessage());
                 }
                 return false;
             }
@@ -135,7 +139,7 @@ public class AsyncDbServiceManager {
                 return openCloseDoorMsgDbService.saveOpenCloseDoorMsg(doorMsg);
             } catch (Exception e) {
                 if (Config.LOG_ERROR) {
-                    System.err.println("[AsyncDB] 保存开关门消息异常: " + e.getMessage());
+                    logger.error("[AsyncDB] 保存开关门消息异常: " + e.getMessage());
                 }
                 return false;
             }
@@ -155,7 +159,7 @@ public class AsyncDbServiceManager {
                 return retrieveDownUpMsgDbService.saveDownUpMsg(downUpMsg);
             } catch (Exception e) {
                 if (Config.LOG_ERROR) {
-                    System.err.println("[AsyncDB] 保存downup消息异常: " + e.getMessage());
+                    logger.error("[AsyncDB] 保存downup消息异常: " + e.getMessage());
                 }
                 return false;
             }
@@ -175,7 +179,7 @@ public class AsyncDbServiceManager {
                 return retrieveLoadFactorMsgDbService.saveLoadFactorMsg(loadFactorMsg);
             } catch (Exception e) {
                 if (Config.LOG_ERROR) {
-                    System.err.println("[AsyncDB] 保存满载率消息异常: " + e.getMessage());
+                    logger.error("[AsyncDB] 保存满载率消息异常: " + e.getMessage());
                 }
                 return false;
             }
@@ -193,7 +197,7 @@ public class AsyncDbServiceManager {
                 return task.call();
             } catch (Exception e) {
                 if (Config.LOG_ERROR) {
-                    System.err.println("[AsyncDB] " + taskType + "任务执行异常: " + e.getMessage());
+                    logger.error("[AsyncDB] " + taskType + "任务执行异常: " + e.getMessage());
                 }
                 return false;
             }
@@ -201,17 +205,17 @@ public class AsyncDbServiceManager {
             if (throwable != null) {
                 totalFailed.incrementAndGet();
                 if (Config.LOG_ERROR) {
-                    System.err.println("[AsyncDB] " + taskType + "任务失败: " + description + ", 错误: " + throwable.getMessage());
+                    logger.error("[AsyncDB] " + taskType + "任务失败: " + description + ", 错误: " + throwable.getMessage());
                 }
             } else if (result != null && result) {
                 totalCompleted.incrementAndGet();
                 if (Config.LOG_DEBUG) {
-                    System.out.println("[AsyncDB] " + taskType + "保存成功: " + description);
+                    logger.info("[AsyncDB] " + taskType + "保存成功: " + description);
                 }
             } else {
                 totalFailed.incrementAndGet();
                 if (Config.LOG_ERROR) {
-                    System.err.println("[AsyncDB] " + taskType + "保存失败: " + description);
+                    logger.error("[AsyncDB] " + taskType + "保存失败: " + description);
                 }
             }
             return result;
@@ -242,7 +246,7 @@ public class AsyncDbServiceManager {
      */
     public void printPerformanceStats() {
         if (Config.LOG_INFO) {
-            System.out.println(getPerformanceStats());
+            logger.info(getPerformanceStats());
         }
     }
 
@@ -251,8 +255,8 @@ public class AsyncDbServiceManager {
      */
     public void shutdown() {
         if (Config.LOG_INFO) {
-            System.out.println("[AsyncDbServiceManager] 开始关闭异步数据库服务...");
-            System.out.println(getPerformanceStats());
+            logger.info("[AsyncDbServiceManager] 开始关闭异步数据库服务...");
+            logger.info(getPerformanceStats());
         }
 
         try {
@@ -262,20 +266,20 @@ public class AsyncDbServiceManager {
             // 等待现有任务完成，最多等待30秒
             if (!asyncExecutor.awaitTermination(30, TimeUnit.SECONDS)) {
                 if (Config.LOG_INFO) {
-                    System.out.println("[AsyncDbServiceManager] 30秒内未完成所有任务，强制关闭");
+                    logger.info("[AsyncDbServiceManager] 30秒内未完成所有任务，强制关闭");
                 }
                 asyncExecutor.shutdownNow();
 
                 // 再等待10秒
                 if (!asyncExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
                     if (Config.LOG_ERROR) {
-                        System.err.println("[AsyncDbServiceManager] 无法完全关闭异步执行器");
+                        logger.error("[AsyncDbServiceManager] 无法完全关闭异步执行器");
                     }
                 }
             }
         } catch (InterruptedException e) {
             if (Config.LOG_ERROR) {
-                System.err.println("[AsyncDbServiceManager] 关闭过程被中断: " + e.getMessage());
+                logger.error("[AsyncDbServiceManager] 关闭过程被中断: " + e.getMessage());
             }
             asyncExecutor.shutdownNow();
             Thread.currentThread().interrupt();
@@ -290,12 +294,12 @@ public class AsyncDbServiceManager {
             retrieveLoadFactorMsgDbService.close();
 
             if (Config.LOG_INFO) {
-                System.out.println("[AsyncDbServiceManager] 所有数据库连接已关闭");
-                System.out.println("[AsyncDbServiceManager] 最终统计: " + getPerformanceStats());
+                logger.info("[AsyncDbServiceManager] 所有数据库连接已关闭");
+                logger.info("[AsyncDbServiceManager] 最终统计: " + getPerformanceStats());
             }
         } catch (Exception e) {
             if (Config.LOG_ERROR) {
-                System.err.println("[AsyncDbServiceManager] 关闭数据库连接时发生错误: " + e.getMessage());
+                logger.error("[AsyncDbServiceManager] 关闭数据库连接时发生错误: " + e.getMessage());
             }
         }
     }
@@ -313,7 +317,7 @@ public class AsyncDbServiceManager {
                 return retrieveAllMsgDbService.saveAllMessage(allMsg);
             } catch (Exception e) {
                 if (Config.LOG_ERROR) {
-                    System.err.println("[AsyncDB] 保存所有消息异常: " + e.getMessage());
+                    logger.error("[AsyncDB] 保存所有消息异常: " + e.getMessage());
                 }
                 return false;
             }
@@ -332,7 +336,7 @@ public class AsyncDbServiceManager {
                 return retrieveAllWsDbService.saveAllWebSocketMessage(allWs);
             } catch (Exception e) {
                 if (Config.LOG_ERROR) {
-                    System.err.println("[AsyncDB] 保存WebSocket消息异常: " + e.getMessage());
+                    logger.error("[AsyncDB] 保存WebSocket消息异常: " + e.getMessage());
                 }
                 return false;
             }

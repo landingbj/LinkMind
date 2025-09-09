@@ -7,12 +7,15 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * 开关门WebSocket消息实体类
  */
 @Data
 public class OpenCloseDoorMsg {
+    private static final Logger logger = LoggerFactory.getLogger(OpenCloseDoorMsg.class);
 
     /** 车辆编号 */
     @JsonProperty("bus_no")
@@ -173,7 +176,7 @@ public class OpenCloseDoorMsg {
             try {
                 return LocalDateTime.parse(timestampStr.trim());
             } catch (DateTimeParseException e2) {
-                System.err.println("[OpenCloseDoorMsg] 解析时间戳失败: " + timestampStr + ", 错误: " + e2.getMessage());
+                logger.error("[OpenCloseDoorMsg] 解析时间戳失败: {}, 错误: {}", timestampStr, e2.getMessage(), e2);
                 return null;
             }
         }

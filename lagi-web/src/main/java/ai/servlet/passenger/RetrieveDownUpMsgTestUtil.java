@@ -3,6 +3,8 @@ package ai.servlet.passenger;
 import com.google.gson.Gson;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -11,22 +13,23 @@ import java.util.List;
  * CV downup消息测试工具类
  */
 public class RetrieveDownUpMsgTestUtil {
+    private static final Logger logger = LoggerFactory.getLogger(RetrieveDownUpMsgTestUtil.class);
 
     public static void main(String[] args) {
         // 测试downup消息
         String downupMessage = createTestDownUpMessage();
 
-        System.out.println("=== 测试CV downup消息解析 ===");
+        logger.info("=== 测试CV downup消息解析 ===");
         testMessage(downupMessage);
 
         // 测试数据库服务
-        System.out.println("\n=== 测试数据库连接 ===");
+        logger.info("\n=== 测试数据库连接 ===");
         RetrieveDownUpMsgDbService dbService = new RetrieveDownUpMsgDbService();
         boolean testConnection = dbService.testConnection();
-        System.out.println("数据库连接测试: " + (testConnection ? "成功" : "失败"));
+        logger.info("数据库连接测试: {}", (testConnection ? "成功" : "失败"));
 
         dbService.close();
-        System.out.println("\n测试完成！");
+        logger.info("\n测试完成！");
     }
 
     private static String createTestDownUpMessage() {
@@ -117,13 +120,13 @@ public class RetrieveDownUpMsgTestUtil {
                 downUpMsg.setEventsJson(events.toString());
             }
 
-            System.out.println("车辆编号: " + downUpMsg.getBusNo());
-            System.out.println("车辆ID: " + downUpMsg.getBusId());
-            System.out.println("摄像头编号: " + downUpMsg.getCameraNo());
-            System.out.println("时间戳: " + downUpMsg.getTimestamp());
-            System.out.println("解析后时间: " + downUpMsg.getParsedTimestamp());
-            System.out.println("上车事件数: " + downUpMsg.getUpCount());
-            System.out.println("下车事件数: " + downUpMsg.getDownCount());
+            logger.info("车辆编号: {}", downUpMsg.getBusNo());
+            logger.info("车辆ID: {}", downUpMsg.getBusId());
+            logger.info("摄像头编号: {}", downUpMsg.getCameraNo());
+            logger.info("时间戳: {}", downUpMsg.getTimestamp());
+            logger.info("解析后时间: {}", downUpMsg.getParsedTimestamp());
+            logger.info("上车事件数: {}", downUpMsg.getUpCount());
+            logger.info("下车事件数: {}", downUpMsg.getDownCount());
 
             // 显示image和feature优化信息
             JSONArray originalEvents = data.optJSONArray("events");
@@ -141,22 +144,21 @@ public class RetrieveDownUpMsgTestUtil {
                         featureCount++;
                     }
                 }
-                System.out.println("包含图像的事件数: " + imageCount + " (已优化为'有')");
-                System.out.println("包含特征的事件数: " + featureCount + " (已优化为'有')");
+                logger.info("包含图像的事件数: {} (已优化为'有')", imageCount);
+                logger.info("包含特征的事件数: {} (已优化为'有')", featureCount);
             }
-            System.out.println("总事件数: " + (downUpMsg.getEvents() != null ? downUpMsg.getEvents().size() : 0));
+            logger.info("总事件数: {}", (downUpMsg.getEvents() != null ? downUpMsg.getEvents().size() : 0));
 
             // 测试数据库保存
             RetrieveDownUpMsgDbService dbService = new RetrieveDownUpMsgDbService();
             if (dbService.testConnection()) {
                 boolean saved = dbService.saveDownUpMsg(downUpMsg);
-                System.out.println("数据保存测试: " + (saved ? "成功" : "失败"));
+                logger.info("数据保存测试: {}", (saved ? "成功" : "失败"));
             }
             dbService.close();
 
         } catch (Exception e) {
-            System.err.println("测试失败: " + e.getMessage());
-            e.printStackTrace();
+            logger.error("测试失败: {}", e.getMessage(), e);
         }
     }
 }

@@ -2,6 +2,8 @@ package ai.servlet.passenger;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -13,6 +15,7 @@ import java.time.LocalDateTime;
  * 负责连接PolarDB并保存所有消息到retrieve_all_msg表
  */
 public class RetrieveAllMsgDbService {
+    private static final Logger logger = LoggerFactory.getLogger(RetrieveAllMsgDbService.class);
 
     // PolarDB连接配置
     private static final String DB_URL = "jdbc:mysql://20.17.39.67:3306/gjdev?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai";
@@ -46,7 +49,7 @@ public class RetrieveAllMsgDbService {
         this.dataSource = new HikariDataSource(config);
 
         if (Config.LOG_INFO) {
-            System.out.println("[RetrieveAllMsgDbService] 数据库连接池初始化完成");
+            logger.info("[RetrieveAllMsgDbService] 数据库连接池初始化完成");
         }
     }
 
@@ -83,17 +86,16 @@ public class RetrieveAllMsgDbService {
             int result = stmt.executeUpdate();
 
             if (Config.LOG_DEBUG) {
-                System.out.println(String.format("[RetrieveAllMsgDbService] 保存消息成功: 车辆=%s, 类型=%s, 来源=%s",
-                    allMsg.getBusNo(), allMsg.getMessageType(), allMsg.getSource()));
+                logger.info("[RetrieveAllMsgDbService] 保存消息成功: 车辆={}, 类型={}, 来源={}",
+                    allMsg.getBusNo(), allMsg.getMessageType(), allMsg.getSource());
             }
 
             return result > 0;
 
         } catch (SQLException e) {
             if (Config.LOG_ERROR) {
-                System.err.println(String.format("[RetrieveAllMsgDbService] 保存消息失败: 车辆=%s, 类型=%s, 错误=%s",
-                    allMsg.getBusNo(), allMsg.getMessageType(), e.getMessage()));
-                e.printStackTrace();
+                logger.error("[RetrieveAllMsgDbService] 保存消息失败: 车辆={}, 类型={}, 错误={}",
+                    allMsg.getBusNo(), allMsg.getMessageType(), e.getMessage(), e);
             }
             return false;
         }
@@ -106,7 +108,7 @@ public class RetrieveAllMsgDbService {
         if (dataSource != null && !dataSource.isClosed()) {
             dataSource.close();
             if (Config.LOG_INFO) {
-                System.out.println("[RetrieveAllMsgDbService] 数据库连接池已关闭");
+                logger.info("[RetrieveAllMsgDbService] 数据库连接池已关闭");
             }
         }
     }
@@ -119,7 +121,7 @@ public class RetrieveAllMsgDbService {
             return conn.isValid(5);
         } catch (SQLException e) {
             if (Config.LOG_ERROR) {
-                System.err.println("[RetrieveAllMsgDbService] 数据库连接测试失败: " + e.getMessage());
+                logger.error("[RetrieveAllMsgDbService] 数据库连接测试失败: {}", e.getMessage());
             }
             return false;
         }

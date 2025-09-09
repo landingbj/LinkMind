@@ -3,6 +3,8 @@ package ai.servlet.passenger;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.ScanResult;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Set;
 import java.util.concurrent.Executors;
@@ -13,6 +15,7 @@ import java.util.concurrent.TimeUnit;
  * Redis清理工具类，用于定期清理过期数据和监控内存使用情况
  */
 public class RedisCleanupUtil {
+    private static final Logger logger = LoggerFactory.getLogger(RedisCleanupUtil.class);
     
     private final JedisPool jedisPool;
     private final ScheduledExecutorService scheduler;
@@ -32,7 +35,7 @@ public class RedisCleanupUtil {
             CLEANUP_INTERVAL_MINUTES, CLEANUP_INTERVAL_MINUTES, TimeUnit.MINUTES);
         
         if (Config.LOG_INFO) {
-            System.out.println("[RedisCleanupUtil] Started cleanup task, interval: " + CLEANUP_INTERVAL_MINUTES + " minutes");
+            logger.info("[RedisCleanupUtil] Started cleanup task, interval: {} minutes", CLEANUP_INTERVAL_MINUTES);
         }
     }
     
@@ -80,7 +83,7 @@ public class RedisCleanupUtil {
             
         } catch (Exception e) {
             if (Config.LOG_ERROR) {
-                System.err.println("[RedisCleanupUtil] Cleanup error: " + e.getMessage());
+                logger.error("[RedisCleanupUtil] Cleanup error: {}", e.getMessage());
             }
         }
     }
@@ -105,7 +108,7 @@ public class RedisCleanupUtil {
                         expiredCount++;
                         
                         if (Config.LOG_DEBUG) {
-                            System.out.println("[RedisCleanupUtil] Set TTL for key: " + key + ", TTL: " + newTtl + "s");
+                            logger.info("[RedisCleanupUtil] Set TTL for key: {}, TTL: {}s", key, newTtl);
                         }
                     }
                 } else if (ttl == -2) { // 键不存在（已被删除）
@@ -121,21 +124,21 @@ public class RedisCleanupUtil {
                     expiredCount++;
                     
                     if (Config.LOG_DEBUG) {
-                        System.out.println("[RedisCleanupUtil] Deleted expired key: " + key);
+                        logger.info("[RedisCleanupUtil] Deleted expired key: {}", key);
                     }
                 }
             }
             
             if (expiredCount > 0 || skippedCount > 0) {
                 if (Config.LOG_INFO) {
-                    System.out.println("[RedisCleanupUtil] " + dataType + " cleanup: " + 
-                        expiredCount + " processed, " + skippedCount + " skipped (still valid)");
+                    logger.info("[RedisCleanupUtil] {} cleanup: {} processed, {} skipped (still valid)", 
+                        dataType, expiredCount, skippedCount);
                 }
             }
             
         } catch (Exception e) {
             if (Config.LOG_ERROR) {
-                System.err.println("[RedisCleanupUtil] Error cleaning " + dataType + ": " + e.getMessage());
+                logger.error("[RedisCleanupUtil] Error cleaning {}: {}", dataType, e.getMessage());
             }
         }
     }
@@ -197,20 +200,20 @@ public class RedisCleanupUtil {
                 
                 if (usagePercent > 80) {
                     if (Config.LOG_ERROR) {
-                        System.err.println("[RedisCleanupUtil] WARNING: Redis memory usage is " + 
-                            String.format("%.2f", usagePercent) + "% (" + 
-                            formatBytes(usedMemory) + "/" + formatBytes(maxMemory) + ")");
+                        logger.error("[RedisCleanupUtil] WARNING: Redis memory usage is {}% ({}/{})",
+                            String.format("%.2f", usagePercent), 
+                            formatBytes(usedMemory), formatBytes(maxMemory));
                     }
                 } else if (Config.LOG_INFO) {
-                    System.out.println("[RedisCleanupUtil] Redis memory usage: " + 
-                        String.format("%.2f", usagePercent) + "% (" + 
-                        formatBytes(usedMemory) + "/" + formatBytes(maxMemory) + ")");
+                    logger.info("[RedisCleanupUtil] Redis memory usage: {}% ({}/{})",
+                        String.format("%.2f", usagePercent), 
+                        formatBytes(usedMemory), formatBytes(maxMemory));
                 }
             }
             
         } catch (Exception e) {
             if (Config.LOG_ERROR) {
-                System.err.println("[RedisCleanupUtil] Error monitoring memory: " + e.getMessage());
+                logger.error("[RedisCleanupUtil] Error monitoring memory: {}", e.getMessage());
             }
         }
     }
@@ -230,7 +233,7 @@ public class RedisCleanupUtil {
      */
     public void manualCleanup() {
         if (Config.LOG_INFO) {
-            System.out.println("[RedisCleanupUtil] Manual cleanup triggered");
+            logger.info("[RedisCleanupUtil] Manual cleanup triggered");
         }
         cleanupExpiredData();
     }
@@ -240,7 +243,7 @@ public class RedisCleanupUtil {
      */
     public void shutdown() {
         if (Config.LOG_INFO) {
-            System.out.println("[RedisCleanupUtil] Shutting down cleanup task");
+            logger.info("[RedisCleanupUtil] Shutting down cleanup task");
         }
         
         try {
@@ -250,7 +253,7 @@ public class RedisCleanupUtil {
             // 等待最多30秒让任务自然结束
             if (!scheduler.awaitTermination(Config.REDIS_CLEANUP_SHUTDOWN_TIMEOUT_MS / 1000, TimeUnit.SECONDS)) {
                 if (Config.LOG_INFO) {
-                    System.out.println("[RedisCleanupUtil] Scheduler did not terminate gracefully, forcing shutdown");
+                    logger.info("[RedisCleanupUtil] Scheduler did not terminate gracefully, forcing shutdown");
                 }
                 // 如果30秒内没有结束，强制关闭
                 scheduler.shutdownNow();
@@ -258,18 +261,18 @@ public class RedisCleanupUtil {
                 // 再等待最多10秒
                 if (!scheduler.awaitTermination(10, TimeUnit.SECONDS)) {
                     if (Config.LOG_ERROR) {
-                        System.err.println("[RedisCleanupUtil] Scheduler did not terminate");
+                        logger.error("[RedisCleanupUtil] Scheduler did not terminate");
                     }
                 }
             }
             
             if (Config.LOG_INFO) {
-                System.out.println("[RedisCleanupUtil] Scheduler stopped");
+                logger.info("[RedisCleanupUtil] Scheduler stopped");
             }
             
         } catch (InterruptedException e) {
             if (Config.LOG_ERROR) {
-                System.err.println("[RedisCleanupUtil] Interrupted while waiting for scheduler to terminate: " + e.getMessage());
+                logger.error("[RedisCleanupUtil] Interrupted while waiting for scheduler to terminate: {}", e.getMessage());
             }
             // 恢复中断状态
             Thread.currentThread().interrupt();
@@ -282,17 +285,17 @@ public class RedisCleanupUtil {
             if (jedisPool != null) {
                 jedisPool.close();
                 if (Config.LOG_INFO) {
-                    System.out.println("[RedisCleanupUtil] Redis connection pool closed");
+                    logger.info("[RedisCleanupUtil] Redis connection pool closed");
                 }
             }
         } catch (Exception e) {
             if (Config.LOG_ERROR) {
-                System.err.println("[RedisCleanupUtil] Error closing Redis connection pool: " + e.getMessage());
+                logger.error("[RedisCleanupUtil] Error closing Redis connection pool: {}", e.getMessage());
             }
         }
         
         if (Config.LOG_INFO) {
-            System.out.println("[RedisCleanupUtil] Cleanup task shutdown complete");
+            logger.info("[RedisCleanupUtil] Cleanup task shutdown complete");
         }
     }
     

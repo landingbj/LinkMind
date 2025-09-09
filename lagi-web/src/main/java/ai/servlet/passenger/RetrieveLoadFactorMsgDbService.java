@@ -3,6 +3,9 @@ package ai.servlet.passenger;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -13,6 +16,8 @@ import java.time.LocalDateTime;
  * 负责连接PolarDB并保存满载率消息到retrieve_load_factor_msg表
  */
 public class RetrieveLoadFactorMsgDbService {
+
+    private static final Logger logger = LoggerFactory.getLogger(RetrieveLoadFactorMsgDbService.class);
 
     // PolarDB连接配置
     private static final String DB_URL = "jdbc:mysql://20.17.39.67:3306/gjdev?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai";
@@ -46,7 +51,7 @@ public class RetrieveLoadFactorMsgDbService {
         this.dataSource = new HikariDataSource(config);
 
         if (Config.LOG_INFO) {
-            System.out.println("[RetrieveLoadFactorMsgDbService] 数据库连接池初始化完成");
+            logger.info("[RetrieveLoadFactorMsgDbService] 数据库连接池初始化完成");
         }
     }
 
@@ -76,7 +81,7 @@ public class RetrieveLoadFactorMsgDbService {
             int result = stmt.executeUpdate();
 
             if (Config.LOG_DEBUG) {
-                System.out.println(String.format("[RetrieveLoadFactorMsgDbService] 🔥 保存满载率消息成功: 车辆=%s, 人数=%d, 满载率=%s, sqe_no=%s",
+                logger.info(String.format("[RetrieveLoadFactorMsgDbService] 🔥 保存满载率消息成功: 车辆=%s, 人数=%d, 满载率=%s, sqe_no=%s",
                     loadFactorMsg.getBusNo(), loadFactorMsg.getCount(), loadFactorMsg.getFactorPercentage(), loadFactorMsg.getSqeNo()));
             }
 
@@ -84,9 +89,8 @@ public class RetrieveLoadFactorMsgDbService {
 
         } catch (SQLException e) {
             if (Config.LOG_ERROR) {
-                System.err.println(String.format("[RetrieveLoadFactorMsgDbService] 保存满载率消息失败: 车辆=%s, 错误=%s",
-                    loadFactorMsg.getBusNo(), e.getMessage()));
-                e.printStackTrace();
+                logger.error(String.format("[RetrieveLoadFactorMsgDbService] 保存满载率消息失败: 车辆=%s, 错误=%s",
+                    loadFactorMsg.getBusNo(), e.getMessage()), e);
             }
             return false;
         }
@@ -99,7 +103,7 @@ public class RetrieveLoadFactorMsgDbService {
         if (dataSource != null && !dataSource.isClosed()) {
             dataSource.close();
             if (Config.LOG_INFO) {
-                System.out.println("[RetrieveLoadFactorMsgDbService] 数据库连接池已关闭");
+                logger.info("[RetrieveLoadFactorMsgDbService] 数据库连接池已关闭");
             }
         }
     }
@@ -112,7 +116,7 @@ public class RetrieveLoadFactorMsgDbService {
             return conn.isValid(5);
         } catch (SQLException e) {
             if (Config.LOG_ERROR) {
-                System.err.println("[RetrieveLoadFactorMsgDbService] 数据库连接测试失败: " + e.getMessage());
+                logger.error("[RetrieveLoadFactorMsgDbService] 数据库连接测试失败: {}", e.getMessage(), e);
             }
             return false;
         }

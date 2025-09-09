@@ -3,6 +3,8 @@ package ai.servlet.passenger;
 import lombok.Data;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -14,6 +16,7 @@ import java.time.format.DateTimeParseException;
  */
 @Data
 public class RetrieveLoadFactorMsg {
+    private static final Logger logger = LoggerFactory.getLogger(RetrieveLoadFactorMsg.class);
 
     /** 车辆编号 */
     @JsonProperty("bus_no")
@@ -144,7 +147,7 @@ public class RetrieveLoadFactorMsg {
             try {
                 return LocalDateTime.parse(timestampStr.trim());
             } catch (DateTimeParseException e2) {
-                System.err.println("[RetrieveLoadFactorMsg] 解析时间戳失败: " + timestampStr + ", 错误: " + e2.getMessage());
+                logger.error("[RetrieveLoadFactorMsg] 解析时间戳失败: {}, 错误: {}", timestampStr, e2.getMessage());
                 return null;
             }
         }

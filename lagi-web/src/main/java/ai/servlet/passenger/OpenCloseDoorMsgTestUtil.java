@@ -1,11 +1,15 @@
 package ai.servlet.passenger;
 
 import com.google.gson.Gson;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * 开关门WebSocket消息测试工具类
  */
 public class OpenCloseDoorMsgTestUtil {
+
+    private static final Logger logger = LoggerFactory.getLogger(OpenCloseDoorMsgTestUtil.class);
 
     public static void main(String[] args) {
         // 测试开门消息（包含bus_id字段）
@@ -14,20 +18,20 @@ public class OpenCloseDoorMsgTestUtil {
         // 测试关门消息（包含bus_id，无image字段）
         String closeMessage = "{\"event\":\"open_close_door\",\"data\":{\"bus_no\":\"6-6445\",\"bus_id\":\"8-203\",\"camera_no\":\"camera_01\",\"action\":\"close\",\"timestamp\":\"2025-01-06 15:32:30\"}}";
 
-        System.out.println("=== 测试开门消息解析 ===");
+        logger.info("=== 测试开门消息解析 ===");
         testMessage(openMessage, "清河坊站", "3301000101243477");
 
-        System.out.println("\n=== 测试关门消息解析 ===");
+        logger.info("\n=== 测试关门消息解析 ===");
         testMessage(closeMessage, "清河坊站", "3301000101243477");
 
         // 测试数据库服务
-        System.out.println("\n=== 测试数据库连接 ===");
+        logger.info("\n=== 测试数据库连接 ===");
         OpenCloseDoorMsgDbService dbService = new OpenCloseDoorMsgDbService();
         boolean testConnection = dbService.testConnection();
-        System.out.println("数据库连接测试: " + (testConnection ? "成功" : "失败"));
+        logger.info("数据库连接测试: {}", (testConnection ? "成功" : "失败"));
 
         dbService.close();
-        System.out.println("\n测试完成！");
+        logger.info("\n测试完成！");
     }
 
     private static void testMessage(String messageJson, String stationName, String stationId) {
@@ -48,26 +52,25 @@ public class OpenCloseDoorMsgTestUtil {
             doorMsg.setStationName(stationName);
             doorMsg.setOriginalMessage(messageJson);
 
-            System.out.println("车辆编号: " + doorMsg.getBusNo());
-            System.out.println("车辆ID: " + doorMsg.getBusId());
-            System.out.println("摄像头编号: " + doorMsg.getCameraNo());
-            System.out.println("动作: " + doorMsg.getAction() + " (" +
-                ("open".equals(doorMsg.getAction()) ? "开门" : "关门") + ")");
-            System.out.println("时间戳: " + doorMsg.getTimestamp());
-            System.out.println("解析后时间: " + doorMsg.getParsedTimestamp());
-            System.out.println("站点: " + doorMsg.getStationName() + " (" + doorMsg.getStationId() + ")");
+            logger.info("车辆编号: {}", doorMsg.getBusNo());
+            logger.info("车辆ID: {}", doorMsg.getBusId());
+            logger.info("摄像头编号: {}", doorMsg.getCameraNo());
+            logger.info("动作: {} ({})", doorMsg.getAction(),
+                ("open".equals(doorMsg.getAction()) ? "开门" : "关门"));
+            logger.info("时间戳: {}", doorMsg.getTimestamp());
+            logger.info("解析后时间: {}", doorMsg.getParsedTimestamp());
+            logger.info("站点: {} ({})", doorMsg.getStationName(), doorMsg.getStationId());
 
             // 测试数据库保存
             OpenCloseDoorMsgDbService dbService = new OpenCloseDoorMsgDbService();
             if (dbService.testConnection()) {
                 boolean saved = dbService.saveOpenCloseDoorMsg(doorMsg);
-                System.out.println("数据保存测试: " + (saved ? "成功" : "失败"));
+                logger.info("数据保存测试: {}", (saved ? "成功" : "失败"));
             }
             dbService.close();
 
         } catch (Exception e) {
-            System.err.println("测试失败: " + e.getMessage());
-            e.printStackTrace();
+            logger.error("测试失败: {}", e.getMessage(), e);
         }
     }
 }

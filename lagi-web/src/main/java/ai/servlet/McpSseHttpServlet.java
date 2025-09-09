@@ -6,7 +6,7 @@ import ai.mcps.spec.*;
 import ai.mcps.spec.McpSchema.Resource;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.var;
+import ai.mcps.server.McpSyncServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Flux;
@@ -85,7 +85,7 @@ public class McpSseHttpServlet extends HttpServlet implements McpServerTransport
                 new McpSchema.Tool("test", "测试", emptyJsonSchema), (exchange, request) -> {
             // perform a blocking call to a remote service
             String response = "Hello, World!";
-            var callResponse = new McpSchema.CallToolResult(Collections.singletonList(new McpSchema.TextContent(response)), null);
+            McpSchema.CallToolResult callResponse = new McpSchema.CallToolResult(Collections.singletonList(new McpSchema.TextContent(response)), null);
             return callResponse;
         });
         Resource resource = new Resource("test://resource", "Test Resource",  "Test resource description","text/plain", null);
@@ -97,7 +97,7 @@ public class McpSseHttpServlet extends HttpServlet implements McpServerTransport
             McpSchema.ReadResourceResult readResourceResult = new McpSchema.ReadResourceResult(Collections.singletonList(resourceContents));
             return readResourceResult;
         });
-        var mcpServer = McpServer.sync(this)
+        McpSyncServer mcpServer = McpServer.sync(this)
                 .capabilities(McpSchema.ServerCapabilities.builder().tools(true).resources(true, true).build())
                 .tools(tool1)
                 .resources(specificaiton)

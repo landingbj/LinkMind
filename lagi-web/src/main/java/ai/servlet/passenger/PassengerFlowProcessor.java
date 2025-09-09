@@ -73,8 +73,9 @@ public class PassengerFlowProcessor {
 			return;
 		}
 
-		String busNo = data.optString("bus_no");
-		String busId = data.optString("bus_id");
+		// 统一车辆编号：以CV的 bus_id 为准，与到离站 busNo/刷卡 busSelfNo 对齐
+		String busNo = data.optString("bus_id");
+		String busId = busNo;
 		String cameraNo = data.optString("camera_no");
 
 		// 降低参数解析日志噪音
@@ -3699,7 +3700,8 @@ public class PassengerFlowProcessor {
             RetrieveAllWs allWs = new RetrieveAllWs();
 
             // 基本信息
-            String busNo = data.optString("bus_no");
+            // 统一：以 bus_id 为车辆编号；CV的 bus_no 为废字段不参与匹配
+            String busNo = data.optString("bus_id");
             if (busNo == null || busNo.trim().isEmpty()) {
                 busNo = "UNKNOWN";
             }
@@ -3733,7 +3735,7 @@ public class PassengerFlowProcessor {
                 allWs.setMessageTimestamp(LocalDateTime.now());
             }
 
-            // 确保bus_id不为空
+            // 确保bus_id不为空：等于 busNo（到离站/刷卡/CV统一编号）
             if (allWs.getBusId() == null || allWs.getBusId().trim().isEmpty()) {
                 allWs.setBusId(busNo);
             }

@@ -948,15 +948,56 @@ public class KafkaConsumerService {
                         ", 已发送关门信号到CV系统，并已触发本地OD处理流程");
                 }
 
-                // 注意：不再立即清理Redis缓存，让CV系统处理完OD数据后再清理
-                // jedis.del("open_time:" + busNo);
-                // jedis.del("ticket_count_window:" + busNo);
                 // 设置关门幂等标记
                 jedis.set(closeSentKey, "1");
                 jedis.expire(closeSentKey, Config.REDIS_TTL_OPEN_TIME);
                 // 记录最近一次到离站标志
                 jedis.set("last_arrive_leave_flag:" + busNo, arriveLeave.optString("isArriveOrLeft", ""));
                 jedis.expire("last_arrive_leave_flag:" + busNo, Config.REDIS_TTL_ARRIVE_LEAVE);
+
+                // 本地兜底：等待CV notify_complete，未回告则自行触发
+                try {
+                    final String busNoFinal = busNo;
+                    final String openTimeForKey = openTimeStr.contains("T") ? openTimeStr.replace("T", " ") : openTimeStr;
+                    new Thread(() -> {
+                        try (Jedis j = jedisPool.getResource()) {
+                            j.auth(Config.REDIS_PASSWORD);
+                            // 获取开门批次号
+                            String sqeNo = j.get("current_sqe_no:" + busNoFinal);
+                            if (sqeNo == null || sqeNo.isEmpty()) {
+                                // 尝试按open_time反查sqe_no
+                                sqeNo = j.get("open_time_index:" + openTimeForKey);
+                            }
+                            if (sqeNo == null || sqeNo.isEmpty()) return;
+
+                            // 延迟等待
+                            try { Thread.sleep(Math.max(0, Config.NOTIFY_FALLBACK_DELAY_MS)); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); return; }
+
+                            // 已发送OD则不再触发
+                            String odSentKey = "od_sent:" + sqeNo;
+                            if (j.get(odSentKey) != null) return;
+
+                            // 构造notify_complete并触发处理
+                            try {
+                                JSONObject notifyEvent = new JSONObject();
+                                notifyEvent.put("event", "notify_complete");
+                                JSONObject dataObj = new JSONObject();
+                                dataObj.put("sqe_no", sqeNo);
+                                dataObj.put("bus_no", busNoFinal);
+                                dataObj.put("timestamp", java.time.LocalDateTime.now().format(formatter));
+                                notifyEvent.put("data", dataObj);
+                                passengerFlowProcessor.processEvent(notifyEvent);
+                                if (Config.LOG_INFO) {
+                                    System.out.println("[KafkaConsumerService] 本地兜底触发notify_complete: sqe_no=" + sqeNo + ", busNo=" + busNoFinal);
+                                }
+                            } catch (Exception ex) {
+                                if (Config.LOG_ERROR) {
+                                    System.err.println("[KafkaConsumerService] 本地兜底触发失败: " + ex.getMessage());
+                                }
+                            }
+                        } catch (Exception ignore) {}
+                    }).start();
+                } catch (Exception ignore) {}
             } else {
                 logDoorSkipThrottled(busNo, "未找到open_time窗口");
             }

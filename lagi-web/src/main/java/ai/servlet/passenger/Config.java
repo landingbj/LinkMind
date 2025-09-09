@@ -33,6 +33,7 @@ public class Config {
     public static final boolean ENABLE_AI_IMAGE_ANALYSIS = true;       // 是否启用AI图片分析
     public static final int MAX_IMAGES_PER_ANALYSIS = 40;              // 每次AI分析的最大图片数量
     public static final int IMAGE_DURATION_SECONDS = 2;                // 每张图片在视频中的播放时长（秒）
+    public static final int NOTIFY_FALLBACK_DELAY_MS = 15000;          // 本地兜底：close后等待notify_complete的超时时间（毫秒）
     
     // 特征数据配置
     public static final int MAX_FEATURE_SIZE_BYTES = 50000;            // 单个特征数据最大字节数（50KB，支持约10000维特征向量）

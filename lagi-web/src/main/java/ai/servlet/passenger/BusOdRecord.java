@@ -16,30 +16,46 @@ public class BusOdRecord {
     /** 主键ID */
     private Long id;
 
-    /** 数据日期（用于按天统计） */
+    /** 数据日期（用于按天统计）
+     * 示例：2025-09-09
+     */
     private LocalDate date;
 
-    /** 开门时间 */
+    /** 开门时间
+     * 示例：2025-09-09 12:26:45
+     */
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "Asia/Shanghai")
     private LocalDateTime timestampBegin;
 
-    /** 关门时间 */
+    /** 关门时间
+     * 示例：2025-09-09 12:27:30
+     */
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "Asia/Shanghai")
     private LocalDateTime timestampEnd;
 
-    /** 公交车编号 */
+    /** 公交车编号
+     * 示例：2-8091
+     */
     private String busNo;
 
-    /** 车辆ID */
+    /** 车辆ID
+     * 示例：1001032473
+     */
     private Long busId;
 
-    /** 摄像头编号 */
+    /** 摄像头编号
+     * 示例：DVR0 或 01
+     */
     private String cameraNo;
 
-    /** 线路编号 */
+    /** 线路编号
+     * 示例：3301000100121015（GPS/到离站的 routeNo）
+     */
     private String lineId;
 
-    /** 线路运行方向（从GPS数据获取：up=上行, down=下行, circular=环形） */
+    /** 线路运行方向（从GPS数据获取：up=上行, down=下行, circular=环形）
+     * 示例：up
+     */
     private String routeDirection;
 
     /**
@@ -74,114 +90,133 @@ public class BusOdRecord {
      */
     private String sectionPassengerFlowCount;
 
-    /** 本站站点名称（从车辆到离站信号获取） */
+    /** 本站站点名称（从车辆到离站信号获取）
+     * 示例：汤大线24号路口
+     */
     private String currentStationName;
 
     /**
-     * 乘客特征向量集合（JSON数组格式）
-     * 格式：[{"feature":"xxx","direction":"up","timestamp":"xxx","image":"xxx","position":{"xLeftUp":100,"yLeftUp":100,"xRightBottom":200,"yRightBottom":200}}]
+     * CV推送的乘客特征向量集合（JSON数组格式）
+     * 结构：[{"feature":"...","direction":"up|down","timestamp":"yyyy-MM-dd HH:mm:ss","image":"http(s)://...","position":{"xLeftUp":100,"yLeftUp":100,"xRightBottom":200,"yRightBottom":200}}]
+     * 示例：[{"feature":"BASE64或向量串","direction":"up","timestamp":"2025-09-09 12:26:50","image":"https://.../xxx.jpg","position":{"xLeftUp":100,"yLeftUp":120,"xRightBottom":200,"yRightBottom":260}}]
      */
     private String passengerFeatures;
 
-    /** 本站上车人数 */
+    /** 本站上车人数
+     * 示例：3（按方向图片计数或CV聚合）
+     */
     private Integer upCount;
 
-    /** 本站下车人数 */
+    /** 本站下车人数
+     * 示例：2（按方向图片计数或CV聚合）
+     */
     private Integer downCount;
 
-    /** 车辆经度 */
+    /** 车辆经度
+     * 示例：29.90658416
+     */
     private BigDecimal gpsLat;
 
-    /** 车辆纬度 */
+    /** 车辆纬度
+     * 示例：119.87444275
+     */
     private BigDecimal gpsLng;
 
-    /** 乘客图片URL集合（JSON数组格式，OSS URL） */
+    /** 乘客图片URL集合（JSON数组格式，OSS URL）
+     * 结构：[{"location":"up","images":["https://...jpg","https://...jpg"]},{"location":"down","images":["https://...jpg"]}]
+     * 示例：[{"location":"up","images":["https://gateway-busfusion.ibuscloud.com/admin/sys-file/oss/file?fileName=cv_2-8091_...jpg"]},{"location":"down","images":["https://gateway-busfusion.ibuscloud.com/admin/sys-file/oss/file?fileName=cv_2-8091_...jpg")}]
+     */
     private String passengerImages;
 
     /**
      * 乘客视频URL（JSON数组字符串），按上下车方向分别生成
-     * 形如：[{"location":"up","videoUrl":"..."},{"location":"down","videoUrl":"..."}]
+     * 结构：[{"location":"up","videoUrl":"https://...mp4"},{"location":"down","videoUrl":"https://...mp4"}]
+     * 示例：[{"location":"up","videoUrl":"https://gateway-busfusion.ibuscloud.com/admin/sys-file/oss/file?fileName=...mp4"}]
      */
     private String passengerVideoUrl;
 
     /**
      * 乘客图像坐标（JSON格式字符串）
-     * 例如 [{"xLeftUp":100,"yLeftUp":100,"xRightBottom":200,"yRightBottom":200},...]
+     * 结构：[{"xLeftUp":100,"yLeftUp":100,"xRightBottom":200,"yRightBottom":200},...]
+     * 示例：[{"xLeftUp":100,"yLeftUp":120,"xRightBottom":200,"yRightBottom":260}]
      */
     private String passengerPosition;
 
     /**
-     * 满载率（小数形式，例如 0.9 表示满载率90%，0.75 表示满载率75%）
-     * 直接存储CV系统推送的factor值，不做百分比转换
+     * 满载率（小数形式，例如 0.9 表示90%）
+     * 直接存储CV系统推送的factor值
+     * 示例：0.85
      */
     private BigDecimal fullLoadRate;
 
-    /** 乘客特征文字描述 */
+    /** 大模型识别的乘客特征文字描述
+     * 结构：[{"location":"up","features":["乘客1: 紫色上衣，深色长裤，脚穿深色鞋子，右手持有物品。"]},{"location":"down","features":["乘客1: 黑色上衣，黑色裤子，脚穿深色鞋子，右手提透明袋子。"]}]
+     * 示例：[{"location":"up","features":["乘客1: 紫色上衣，深色长裤，脚穿深色鞋子，右手持有物品。"]}]
+     */
     private String featureDescription;
 
     /**
-     * 车辆当前总人数（来自CV系统满载率推送的count字段）
-     * 表示车辆在某个时刻的实时载客总数，直接存储CV推送的原始值
+     * 车辆当前总人数（CV满载率推送的count）
+     * 示例：37
      */
     private Integer vehicleTotalCount;
 
 
     /**
      * 大模型识别的总人数（AI基于窗口内所有图片统计）
+     * 示例：5
      */
     private Integer aiTotalCount;
 
     /**
      * 刷卡人数（票务数据）- JSON格式
-     * 结构：
-     * {
-     *   "upCount": 上车刷卡人数,
-     *   "downCount": 下车刷卡人数,
-     *   "totalCount": 总刷卡人数,
+     * 结构：{
+     *   "upCount": 3,
+     *   "downCount": 1,
+     *   "totalCount": 4,
      *   "detail": [
-     *     {
-     *       "busSelfNo": "车辆自编号",
-     *       "cardNo": "卡号",
-     *       "cardType": "主卡类型",
-     *       "childCardType": "子卡类型",
-     *       "tradeTime": "交易时间",
-     *       "onOff": "上下车标识",
-     *       "direction": "方向描述"
-     *     }
+     *     {"busSelfNo":"6-6314","cardNo":"00004880100230243214","cardType":"0800","childCardType":"0800","tradeTime":"2025-08-14 12:10:15","onOff":"up","direction":"上车"}
      *   ]
      * }
+     * 示例：见上结构
      */
     private String ticketJson;
 
-    /** 上车刷卡人数*/
+    /** 上车刷卡人数
+     * 示例：3
+     */
     private Integer ticketUpCount;
 
-    /** 下车刷卡人数*/
+    /** 下车刷卡人数
+     * 示例：1
+     */
     private Integer ticketDownCount;
 
-    /** 数据入库时间 */
+    /** 数据入库时间
+     * 示例：2025-09-09 12:27:31
+     */
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "Asia/Shanghai")
     private LocalDateTime createdAt;
 
     /**
      * 开关门唯一批次号
      * 格式：{busId}_{timestamp}_{uuid8位}
-     * 示例：8-203_20250106142300_a1b2c3d4
+     * 示例：1001032473_20250909_122730_ab12cd34
      * 用于关联同一开关门事件的所有相关数据
      */
     private String sqeNo;
 
     /**
-     * 车辆到离站信号原始数据JSON数组
-     * 存储用于判断开门和关门信号的原始Kafka数据
-     * 格式：[{"eventType":"door_open","kafkaData":{...}},{"eventType":"door_close","kafkaData":{...}}]
+     * 车辆到离站信号原始数据JSON数组（用于溯源）
+     * 结构：[{"eventType":"door_open","kafkaData":{...}},{"eventType":"door_close","kafkaData":{...}}]
+     * 示例：[{"eventType":"door_open","kafkaData":{"stationId":"3301000101622286","stationName":"汤大线24号路口","timestamp":"2025-09-09 12:26:45"}}]
      */
     private String retrieveBusGpsMsg;
 
     /**
-     * CV推送的原始downup事件数据JSON数组
-     * 存储开门和关门过程中收集到的所有downup事件
-     * 格式：[{"event":"downup","data":{...}}, ...]
+     * CV推送的原始downup事件数据JSON数组（按 sqe_no 聚合后的唯一集合A）
+     * 结构：[{"event":"downup","data":{"sqe_no":"...","bus_no":"...","timestamp":"...","events":[{"direction":"up","feature":"...","image":"http(s)://...","box_x":100,"box_y":100,"box_w":100,"box_h":100}]}}]
+     * 示例：[{"event":"downup","data":{"sqe_no":"1001032473_20250909_122730_ab12cd34","bus_no":"2-8091","timestamp":"2025-09-09 12:27:00","events":[{"direction":"up","feature":"xxxxx","image":"https://...jpg","box_x":100,"box_y":100,"box_w":100,"box_h":100}]}}]
      */
     private String retrieveDownupMsg;
 }

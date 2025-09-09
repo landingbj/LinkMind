@@ -698,6 +698,29 @@ public class KafkaConsumerService {
             writeToWaitQueue(message, busNo);
         }
 
+        // 新增：按当前开门批次 sqe_no 聚合刷卡集合C（带幂等索引）
+        try {
+            String sqeNo = getCurrentSqeNoFromRedis(busNo);
+            if (sqeNo != null && !sqeNo.isEmpty()) {
+                String key = "ticket_msg:" + sqeNo;
+                String idxKey = "ticket_msg_idx:" + sqeNo;
+                // 幂等ID：tradeTime|cardNo
+                String id = (tradeTime != null ? tradeTime : "") + "|" + (cardNo != null ? cardNo : "");
+                Long added = jedis.sadd(idxKey, id);
+                jedis.expire(idxKey, Config.REDIS_TTL_OPEN_TIME);
+                if (added != null && added == 1L) {
+                String existing = jedis.get(key);
+                org.json.JSONArray arr = (existing != null && !existing.isEmpty()) ? new org.json.JSONArray(existing) : new org.json.JSONArray();
+                org.json.JSONObject obj = new org.json.JSONObject();
+                obj.put("event", "ticket");
+                obj.put("data", message);
+                arr.put(obj);
+                jedis.set(key, arr.toString());
+                jedis.expire(key, Config.REDIS_TTL_OPEN_TIME);
+                }
+            }
+        } catch (Exception ignore) {}
+
         // 为兼容原有逻辑，仍维护到离站最近信息（若字段提供）
         String stationId = message.optString("stationId");
         String stationName = message.optString("stationName");

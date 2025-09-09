@@ -366,28 +366,73 @@ public class WebSocketEndpoint {
 	 * 发送消息给所有客户端（供其他类调用）
 	 */
 	public static void sendToAll(String message) {
-		// 打印下发消息的event与sqe_no，便于链路核查
+		// 🔥 增强日志：WebSocket发送状态跟踪
 		if (Config.LOG_INFO) {
+			logger.info("[WebSocket发送跟踪] ========== 开始WebSocket消息发送 ==========");
+			logger.info("[WebSocket发送跟踪] 当前活跃连接数: {}", sessions.size());
+			
+			// 检查连接状态
+			int activeConnections = 0;
+			for (Session session : sessions) {
+				if (session.isOpen()) {
+					activeConnections++;
+				}
+			}
+			logger.info("[WebSocket发送跟踪] 有效连接数: {}", activeConnections);
+			
 			try {
 				JSONObject obj = new JSONObject(message);
 				String event = obj.optString("event");
 				JSONObject data = obj.optJSONObject("data");
 				String sqeNo = data != null ? data.optString("sqe_no", "") : "";
 				String action = data != null ? data.optString("action", "") : "";
-				logger.info("[WebSocket] 下发消息: event={}, action={}, sqe_no={}, 连接数={}", event, action, sqeNo, sessions.size());
-			} catch (Exception ignore) {}
+				String busId = data != null ? data.optString("bus_id", "") : "";
+				logger.info("[WebSocket发送跟踪] 消息详情: event={}, action={}, bus_id={}, sqe_no={}", event, action, busId, sqeNo);
+			} catch (Exception e) {
+				logger.warn("[WebSocket发送跟踪] 解析消息失败: {}", e.getMessage());
+			}
+		}
+
+		// 检查是否有活跃连接
+		if (sessions.isEmpty()) {
+			if (Config.LOG_ERROR) {
+				logger.error("[WebSocket发送跟踪] 没有活跃的WebSocket连接，无法发送消息");
+			}
+			return;
 		}
 		synchronized (sessions) {
+			int successCount = 0;
+			int failCount = 0;
+			
 			for (Session session : sessions) {
 				if (session.isOpen()) {
 					try {
 						session.getBasicRemote().sendText(message);
-					} catch (IOException e) {
-						if (Config.LOG_ERROR) {
-							logger.error("发送消息失败: {}", e.getMessage(), e);
+						successCount++;
+						if (Config.LOG_DEBUG) {
+							logger.debug("[WebSocket发送跟踪] 消息发送成功到会话: {}", session.getId());
 						}
+					} catch (IOException e) {
+						failCount++;
+						if (Config.LOG_ERROR) {
+							logger.error("[WebSocket发送跟踪] 发送消息失败到会话 {}: {}", session.getId(), e.getMessage());
+						}
+						sessions.remove(session);
 					}
+				} else {
+					failCount++;
+					if (Config.LOG_DEBUG) {
+						logger.debug("[WebSocket发送跟踪] 移除已关闭的会话: {}", session.getId());
+					}
+					sessions.remove(session);
 				}
+			}
+			
+			// 🔥 增强日志：发送结果统计
+			if (Config.LOG_INFO) {
+				logger.info("[WebSocket发送跟踪] 消息发送完成: 成功={}, 失败={}, 剩余连接数={}", 
+					successCount, failCount, sessions.size());
+				logger.info("[WebSocket发送跟踪] ========== WebSocket消息发送结束 ==========");
 			}
 		}
 	}
@@ -397,6 +442,38 @@ public class WebSocketEndpoint {
 	 */
 	public static int getClientCount() {
 		return sessions.size();
+	}
+
+	/**
+	 * 获取有效连接数（已打开的连接）
+	 */
+	public static int getActiveConnectionCount() {
+		int count = 0;
+		for (Session session : sessions) {
+			if (session.isOpen()) {
+				count++;
+			}
+		}
+		return count;
+	}
+
+	/**
+	 * 检查是否有活跃的WebSocket连接
+	 */
+	public static boolean hasActiveConnections() {
+		return getActiveConnectionCount() > 0;
+	}
+
+	/**
+	 * 打印WebSocket连接状态（供调试使用）
+	 */
+	public static void printConnectionStatus() {
+		if (Config.LOG_INFO) {
+			int totalConnections = sessions.size();
+			int activeConnections = getActiveConnectionCount();
+			logger.info("[WebSocket状态] 总连接数: {}, 活跃连接数: {}, 是否有活跃连接: {}", 
+				totalConnections, activeConnections, hasActiveConnections());
+		}
 	}
 
 	/**

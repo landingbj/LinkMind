@@ -736,6 +736,12 @@ public class KafkaConsumerService {
     }
 
     private void judgeAndSendDoorSignal(String topic, JSONObject message, String busNo, Jedis jedis) throws JsonProcessingException {
+        // 🔥 增强日志：开始开关门信号判断流程
+        if (Config.LOG_INFO) {
+            logger.info("[开关门信号跟踪] ========== 开始判断开关门信号 ==========");
+            logger.info("[开关门信号跟踪] 车辆: {}, Topic: {}, 时间: {}", busNo, topic, LocalDateTime.now().format(formatter));
+        }
+
         // 白名单检查：只有白名单内的车辆才能触发开关门信号 - 已注释，只保留试点线路
         /*
         if (!isDoorSignalWhitelisted(busNo)) {
@@ -751,12 +757,26 @@ public class KafkaConsumerService {
         String arriveLeaveStr = jedis.get("arrive_leave:" + busNo);
 
         if (arriveLeaveStr == null) {
+            if (Config.LOG_INFO) {
+                logger.warn("[开关门信号跟踪] 车辆 {} 缺少arrive_leave数据，跳过开关门判断", busNo);
+            }
             logDoorSkipThrottled(busNo, "缺少arrive_leave");
             return;
         }
 
         JSONObject arriveLeave = new JSONObject(arriveLeaveStr);
         String stationId = arriveLeave.optString("stationId");
+
+        // 🔥 增强日志：打印到离站数据详情
+        if (Config.LOG_INFO) {
+            logger.info("[开关门信号跟踪] 车辆 {} 到离站数据详情:", busNo);
+            logger.info("  站点ID: {}", stationId);
+            logger.info("  站点名称: {}", arriveLeave.optString("stationName"));
+            logger.info("  到离站标志: {}", arriveLeave.optString("isArriveOrLeft"));
+            logger.info("  线路编号: {}", arriveLeave.optString("routeNo"));
+            logger.info("  方向: {}", arriveLeave.optString("direction"));
+            logger.info("  时间戳: {}", arriveLeave.optString("timestamp"));
+        }
 
         // 检查是否处理过相同的到离站信号（基于seqNum和timestamp）
         String isArriveOrLeft = arriveLeave.optString("isArriveOrLeft");
@@ -766,12 +786,18 @@ public class KafkaConsumerService {
         if (seqNum != null && !seqNum.isEmpty() && timestamp != null && !timestamp.isEmpty()) {
             String processedKey = "processed_signal:" + busNo + ":" + seqNum + ":" + timestamp;
             if (jedis.get(processedKey) != null) {
+                if (Config.LOG_INFO) {
+                    logger.info("[开关门信号跟踪] 车辆 {} 已处理过相同信号，跳过: seqNum={}, timestamp={}", busNo, seqNum, timestamp);
+                }
                 logDoorSkipThrottled(busNo, "已处理过相同信号，跳过: seqNum=" + seqNum + ", timestamp=" + timestamp);
                 return;
             }
             // 标记该信号已处理，设置较短的过期时间（避免Redis内存过多）
             jedis.set(processedKey, "1");
             jedis.expire(processedKey, 300); // 5分钟过期
+            if (Config.LOG_INFO) {
+                logger.info("[开关门信号跟踪] 车辆 {} 标记信号已处理: {}", busNo, processedKey);
+            }
         }
 
         // 移除判门输入调试日志
@@ -790,6 +816,13 @@ public class KafkaConsumerService {
             // 到站信号：直接开门
             shouldOpen = true;
             openReason = "报站到站信号";
+            if (Config.LOG_INFO) {
+                logger.info("[开关门信号跟踪] 车辆 {} 触发开门条件: {}", busNo, openReason);
+            }
+        } else {
+            if (Config.LOG_INFO) {
+                logger.info("[开关门信号跟踪] 车辆 {} 未满足开门条件: isArriveOrLeft={}", busNo, arriveLeave.optString("isArriveOrLeft"));
+            }
         }
 
         // 判断关门（加入去抖与最小开门时长约束）
@@ -800,6 +833,13 @@ public class KafkaConsumerService {
         if (isArriveLeaveClose) {
             closeCondition = true; // 报站离站
             closeReason = "报站离站信号";
+            if (Config.LOG_INFO) {
+                logger.info("[开关门信号跟踪] 车辆 {} 触发关门条件: {}", busNo, closeReason);
+            }
+        } else {
+            if (Config.LOG_INFO) {
+                logger.info("[开关门信号跟踪] 车辆 {} 未满足关门条件: isArriveOrLeft={}", busNo, arriveLeave.optString("isArriveOrLeft"));
+            }
         }
 
         // 增加关门超时机制：如果开门时间超过最大允许时长，强制关门
@@ -844,6 +884,10 @@ public class KafkaConsumerService {
         // 移除判门结果调试日志
 
         if (shouldOpen) {
+            if (Config.LOG_INFO) {
+                logger.info("[开关门信号跟踪] 车辆 {} 开始处理开门逻辑", busNo);
+            }
+            
             String openTimeKey = "open_time:" + busNo;
             String lastOpenStr = jedis.get(openTimeKey);
             // 开门防抖：同一车辆在指定秒内不重复开门且不重置窗口
@@ -852,6 +896,9 @@ public class KafkaConsumerService {
                     LocalDateTime lastOpen = lastOpenStr.contains("T") ? LocalDateTime.parse(lastOpenStr) : LocalDateTime.parse(lastOpenStr, formatter);
                     long sinceLastOpenSec = java.time.Duration.between(lastOpen, now).getSeconds();
                     if (sinceLastOpenSec < Config.OPEN_DEBOUNCE_SECONDS) {
+                        if (Config.LOG_INFO) {
+                            logger.info("[开关门信号跟踪] 车辆 {} 开门防抖，忽略重复: {}s < {}s", busNo, sinceLastOpenSec, Config.OPEN_DEBOUNCE_SECONDS);
+                        }
                         logDoorSkipThrottled(busNo, "开门防抖(" + sinceLastOpenSec + "s<" + Config.OPEN_DEBOUNCE_SECONDS + ")，忽略重复");
                         // 仅刷新到离站态标记有效期
                         jedis.expire("arrive_leave:" + busNo, Config.REDIS_TTL_ARRIVE_LEAVE);
@@ -860,6 +907,9 @@ public class KafkaConsumerService {
                     // 若同一站内重复到站，保持首次窗口，不重置
                     String openedStation = jedis.get("open_station:" + busNo);
                     if (openedStation != null && openedStation.equals(stationId)) {
+                        if (Config.LOG_INFO) {
+                            logger.info("[开关门信号跟踪] 车辆 {} 同站重复到站，保持首开门窗口: 站点={}", busNo, stationId);
+                        }
                         logDoorSkipThrottled(busNo, "同站重复到站，保持首开门窗口，不重置");
                         jedis.expire(openTimeKey, Config.REDIS_TTL_OPEN_TIME);
                         jedis.expire("open_station:" + busNo, Config.REDIS_TTL_OPEN_TIME);
@@ -898,22 +948,38 @@ public class KafkaConsumerService {
                     ", 原因=" + openReason + ", 时间=" + now.format(formatter));
             }
 
+            // 🔥 增强日志：发送开门信号前的详细信息
+            if (Config.LOG_INFO) {
+                logger.info("[开关门信号跟踪] 车辆 {} 准备发送开门信号到CV系统", busNo);
+                logger.info("  原因: {}", openReason);
+                logger.info("  时间: {}", now.format(formatter));
+                logger.info("  站点ID: {}", stationId);
+                logger.info("  站点名称: {}", arriveLeave.optString("stationName"));
+                logger.info("  线路ID: {}", arriveLeave.optString("routeNo", "UNKNOWN"));
+            }
+
             // 发送开门信号到CV（bus_no为车牌号由sendDoorSignalToCV内部映射）
             sendDoorSignalToCV(busNo, "open", now);
 
             if (Config.LOG_INFO) {
-                logger.info("[KafkaConsumerService] 开门信号处理完成: busNo=" + busNo +
-                    ", open_time=" + now.format(formatter) + ", Redis缓存已设置");
+                logger.info("[开关门信号跟踪] 车辆 {} 开门信号处理完成: open_time={}, Redis缓存已设置", busNo, now.format(formatter));
             }
             // 记录最近一次到离站标志
             jedis.set("last_arrive_leave_flag:" + busNo, arriveLeave.optString("isArriveOrLeft", ""));
             jedis.expire("last_arrive_leave_flag:" + busNo, Config.REDIS_TTL_ARRIVE_LEAVE);
         } else if (shouldClose) {
+            if (Config.LOG_INFO) {
+                logger.info("[开关门信号跟踪] 车辆 {} 开始处理关门逻辑", busNo);
+            }
+            
             String openTimeStr = jedis.get("open_time:" + busNo);
             if (openTimeStr != null) {
                 // 幂等：该开门窗口是否已发过关门
                 String closeSentKey = "close_sent:" + busNo + ":" + (openTimeStr.contains("T") ? openTimeStr.replace("T", " ") : openTimeStr);
                 if (jedis.get(closeSentKey) != null) {
+                    if (Config.LOG_INFO) {
+                        logger.info("[开关门信号跟踪] 车辆 {} 该开门窗口已发送过关门，忽略重复: {}", busNo, openTimeStr);
+                    }
                     logDoorSkipThrottled(busNo, "该开门窗口已发送过关门，忽略重复");
                     return;
                 }
@@ -936,12 +1002,22 @@ public class KafkaConsumerService {
                         ", 上次开门时间=" + openTimeStr);
                 }
 
+                // 🔥 增强日志：发送关门信号前的详细信息
+                if (Config.LOG_INFO) {
+                    logger.info("[开关门信号跟踪] 车辆 {} 准备发送关门信号到CV系统", busNo);
+                    logger.info("  原因: {}", closeReason);
+                    logger.info("  时间: {}", now.format(formatter));
+                    logger.info("  上次开门时间: {}", openTimeStr);
+                    logger.info("  站点ID: {}", stationId);
+                    logger.info("  站点名称: {}", arriveLeave.optString("stationName"));
+                    logger.info("  线路ID: {}", arriveLeave.optString("routeNo", "UNKNOWN"));
+                }
+
                 // 发送关门信号到CV
                 sendDoorSignalToCV(busNo, "close", now);
 
                 if (Config.LOG_INFO) {
-                    logger.info("[KafkaConsumerService] 关门信号处理完成: busNo=" + busNo +
-                        ", 已发送关门信号到CV系统，并已触发本地OD处理流程");
+                    logger.info("[开关门信号跟踪] 车辆 {} 关门信号处理完成: 已发送关门信号到CV系统，并已触发本地OD处理流程", busNo);
                 }
 
                 // 注意：不再立即清理Redis缓存，让CV系统处理完OD数据后再清理
@@ -961,7 +1037,15 @@ public class KafkaConsumerService {
         } else {
             // 数据齐全但条件未触发，低频提示原因
             String arriveFlag = arriveLeave.optString("isArriveOrLeft");
+            if (Config.LOG_INFO) {
+                logger.info("[开关门信号跟踪] 车辆 {} 条件未满足，跳过开关门: arriveLeave={}", busNo, arriveFlag);
+            }
             logDoorSkipThrottled(busNo, "条件未满足: arriveLeave=" + arriveFlag);
+        }
+
+        // 🔥 增强日志：开关门信号判断流程结束
+        if (Config.LOG_INFO) {
+            logger.info("[开关门信号跟踪] ========== 开关门信号判断流程结束 ==========");
         }
     }
 
@@ -1012,6 +1096,12 @@ public class KafkaConsumerService {
      */
     private void sendDoorSignalToCV(String busNo, String action, LocalDateTime timestamp) {
         try {
+            // 🔥 增强日志：开始发送开关门信号到CV
+            if (Config.LOG_INFO) {
+                logger.info("[WebSocket发送跟踪] ========== 开始发送{}信号到CV ==========", action.equals("open") ? "开门" : "关门");
+                logger.info("[WebSocket发送跟踪] 车辆: {}, 动作: {}, 时间: {}", busNo, action, timestamp.format(formatter));
+            }
+
             // 现在直接使用busNo作为bus_id，不再需要映射
             String busId = busNo;
 
@@ -1025,10 +1115,17 @@ public class KafkaConsumerService {
                     JSONObject arriveLeave = new JSONObject(arriveLeaveStr);
                     stationId = arriveLeave.optString("stationId", "UNKNOWN");
                     stationName = arriveLeave.optString("stationName", "Unknown Station");
+                    if (Config.LOG_INFO) {
+                        logger.info("[WebSocket发送跟踪] 车辆 {} 获取站点信息: 站点ID={}, 站点名称={}", busNo, stationId, stationName);
+                    }
+                } else {
+                    if (Config.LOG_INFO) {
+                        logger.warn("[WebSocket发送跟踪] 车辆 {} 未找到到离站数据，使用默认站点信息", busNo);
+                    }
                 }
             } catch (Exception e) {
                 if (Config.LOG_ERROR) {
-                    logger.error("[KafkaConsumerService] 获取站点信息失败: " + e.getMessage());
+                    logger.error("[WebSocket发送跟踪] 车辆 {} 获取站点信息失败: {}", busNo, e.getMessage());
                 }
             }
 
@@ -1097,13 +1194,32 @@ public class KafkaConsumerService {
                 logger.info("   ================================================================================");
             }
 
+            // 🔥 增强日志：发送前检查WebSocket连接状态
+            if (Config.LOG_INFO) {
+                logger.info("[WebSocket发送跟踪] 车辆 {} 准备通过WebSocket发送消息到CV", busNo);
+                logger.info("  消息内容: {}", messageJson);
+                logger.info("  sqe_no: {}", sqeNo);
+                
+                // 检查WebSocket连接状态
+                WebSocketEndpoint.printConnectionStatus();
+            }
+
+            // 检查WebSocket连接状态
+            if (!WebSocketEndpoint.hasActiveConnections()) {
+                if (Config.LOG_ERROR) {
+                    logger.error("[WebSocket发送跟踪] 车辆 {} 没有活跃的WebSocket连接，无法发送{}信号", 
+                        busNo, action.equals("open") ? "开门" : "关门");
+                }
+                // 注意：这里不return，继续执行后续逻辑，确保数据库保存等操作正常进行
+            }
+
             // 通过WebSocket发送给CV
             WebSocketEndpoint.sendToAll(messageJson);
 
-            // 关键日志：发送开/关门时打印sqe_no
+            // 🔥 增强日志：发送完成确认
             if (Config.LOG_INFO) {
-                logger.info("[KafkaConsumerService] 发送" + (action.equals("open") ? "开门" : "关门") +
-                    "信号到CV系统: busNo=" + busNo + ", busId=" + busId + ", sqe_no=" + sqeNo);
+                logger.info("[WebSocket发送跟踪] 车辆 {} {}信号已发送到CV系统: busId={}, sqe_no={}", 
+                    busNo, action.equals("open") ? "开门" : "关门", busId, sqeNo);
             }
 
             // 保存WebSocket消息到数据库
@@ -1122,7 +1238,15 @@ public class KafkaConsumerService {
             }
         } catch (Exception e) {
             if (Config.LOG_ERROR) {
-                logger.error("[KafkaConsumerService] Failed to send door signal to CV: " + e.getMessage());
+                logger.error("[WebSocket发送跟踪] 车辆 {} 发送{}信号到CV失败: {}", 
+                    busNo, action.equals("open") ? "开门" : "关门", e.getMessage());
+                e.printStackTrace();
+            }
+        } finally {
+            // 🔥 增强日志：发送流程结束
+            if (Config.LOG_INFO) {
+                logger.info("[WebSocket发送跟踪] ========== {}信号发送流程结束 ==========", 
+                    action.equals("open") ? "开门" : "关门");
             }
         }
     }

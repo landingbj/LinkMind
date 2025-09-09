@@ -125,8 +125,8 @@ public class PassengerFlowProcessor {
     // 强绑定校验：除AI字段外，其余字段需同时非空/非默认
     private boolean shouldCommitOd(BusOdRecord r) {
         try {
-            boolean imagesOk = r.getPassengerImages() != null && !r.getPassengerImages().trim().isEmpty() && !"[]".equals(r.getPassengerImages().trim());
-            boolean featuresOk = r.getPassengerFeatures() != null && !r.getPassengerFeatures().trim().isEmpty() && !"[]".equals(r.getPassengerFeatures().trim());
+            boolean imagesOk = r.getPassengerImages() != null && !r.getPassengerImages().trim().isEmpty();
+            boolean featuresOk = r.getPassengerFeatures() != null && !r.getPassengerFeatures().trim().isEmpty();
             boolean videoOk = r.getPassengerVideoUrl() != null && !r.getPassengerVideoUrl().trim().isEmpty();
             boolean posOk = r.getPassengerPosition() != null && !r.getPassengerPosition().trim().isEmpty();
             boolean countOk = r.getUpCount() != null && r.getDownCount() != null;
@@ -150,14 +150,14 @@ public class PassengerFlowProcessor {
             if (sqeNo != null && !sqeNo.trim().isEmpty()) {
                 String key = "downup_msg:" + sqeNo;
                 String v = jedis.get(key);
-                if (v != null && !v.trim().isEmpty() && !"[]".equals(v.trim())) return true;
+                if (v != null && !v.trim().isEmpty()) return true;
             }
             // 2) 通过windowId 兼容命中
             String windowId = jedis.get("open_time:" + busNo);
             if (windowId != null && !windowId.trim().isEmpty()) {
                 String key = "downup_msg:" + busNo + ":" + windowId;
                 String v = jedis.get(key);
-                if (v != null && !v.trim().isEmpty() && !"[]".equals(v.trim())) return true;
+                if (v != null && !v.trim().isEmpty()) return true;
             }
             // 3) 回退：检查记录字段
             String raw = r.getRetrieveDownupMsg();
@@ -1317,7 +1317,10 @@ public class PassengerFlowProcessor {
 			downObj.put("images", arr);
 			imagesByDirArr.put(downObj);
 		}
-		record.setPassengerImages(imagesByDirArr.toString());
+		// 只在有图片数据时才设置字段
+		if (imagesByDirArr.length() > 0) {
+			record.setPassengerImages(imagesByDirArr.toString());
+		}
 
 		// 2. 并行处理：AI分析（方向化）与视频转换（方向化）
 		try {
@@ -1369,7 +1372,10 @@ public class PassengerFlowProcessor {
 				for (String imageUrl : imageUrls) {
 					imageArray.put(imageUrl);
 				}
-				record.setPassengerImages(imageArray.toString());
+				// 只在有图片数据时才设置字段
+				if (imageArray.length() > 0) {
+					record.setPassengerImages(imageArray.toString());
+				}
 
 				// 转换为视频 - 与AI分析并行处理，用于存储和展示
 				try {
@@ -1666,7 +1672,10 @@ public class PassengerFlowProcessor {
 			downObj.put("images", arr);
 			imagesByDirArr2.put(downObj);
 		}
-		record.setPassengerImages(imagesByDirArr2.toString());
+		// 只在有图片数据时才设置字段
+		if (imagesByDirArr2.length() > 0) {
+			record.setPassengerImages(imagesByDirArr2.toString());
+		}
 
 		logger.info("[并行处理] 成功设置passengerImages字段（方向化），上车=" + (upImagesForField != null ? upImagesForField.size() : 0) + ", 下车=" + (downImagesForField != null ? downImagesForField.size() : 0));
 		try {
@@ -2749,12 +2758,12 @@ public class PassengerFlowProcessor {
 				}
 			}
 
-			return allData.length() > 0 ? allData.toString() : "[]";
+			return allData.length() > 0 ? allData.toString() : null;
 		} catch (Exception e) {
 			if (Config.LOG_ERROR) {
 				logger.error("[PassengerFlowProcessor] 获取车辆到离站信号原始数据失败: " + e.getMessage());
 			}
-			return "[]";
+			return null;
 		}
 	}
 
@@ -2893,16 +2902,16 @@ public class PassengerFlowProcessor {
 				}
 			}
 
-			String result = allData.length() > 0 ? allData.toString() : "[]";
+			String result = allData.length() > 0 ? allData.toString() : null;
 			if (Config.LOG_DEBUG) {
-				logger.info("[PassengerFlowProcessor]  返回downup数据: 总数据量=" + allData.length() + ", 结果长度=" + result.length());
+				logger.info("[PassengerFlowProcessor]  返回downup数据: 总数据量=" + allData.length() + ", 结果=" + (result != null ? "有数据" : "无数据"));
 			}
 			return result;
 		} catch (Exception e) {
 			if (Config.LOG_ERROR) {
 				logger.error("[PassengerFlowProcessor] 获取downup事件原始数据失败: " + e.getMessage());
 			}
-			return "[]";
+			return null;
 		}
 	}
 
@@ -2969,7 +2978,7 @@ public class PassengerFlowProcessor {
 		if (record == null || jedis == null) return;
 
 		String passengerImages = record.getPassengerImages();
-		if (passengerImages != null && !passengerImages.isEmpty() && !passengerImages.equals("[]")) {
+		if (passengerImages != null && !passengerImages.isEmpty()) {
 			logger.info("[数据修复] 记录已有passengerImages数据，跳过修复");
 			return;
 		}
@@ -2990,8 +2999,11 @@ public class PassengerFlowProcessor {
 				for (String imageUrl : imageUrls) {
 					imageArray.put(imageUrl);
 				}
-				record.setPassengerImages(imageArray.toString());
-				logger.info("[数据修复] 成功修复passengerImages字段，图片数量: " + imageUrls.size());
+				// 只在有图片数据时才设置字段
+				if (imageArray.length() > 0) {
+					record.setPassengerImages(imageArray.toString());
+					logger.info("[数据修复] 成功修复passengerImages字段，图片数量: " + imageUrls.size());
+				}
 			} else {
 				logger.info("[数据修复] 未找到相关图片，保持原状");
 			}
@@ -3010,7 +3022,7 @@ public class PassengerFlowProcessor {
 		if (record == null || jedis == null) return;
 
 		String retrieveDownupMsg = record.getRetrieveDownupMsg();
-		if (retrieveDownupMsg != null && !retrieveDownupMsg.isEmpty() && !retrieveDownupMsg.equals("[]")) {
+		if (retrieveDownupMsg != null && !retrieveDownupMsg.isEmpty()) {
 			logger.info("[数据修复] 记录已有retrieveDownupMsg数据，跳过修复");
 			return;
 		}
@@ -3024,7 +3036,7 @@ public class PassengerFlowProcessor {
 			//  使用增强的downup数据收集逻辑
 			String downupData = getDownupMsgFromRedis(jedis, busNo, sqeNo);
 
-			if (downupData != null && !downupData.isEmpty() && !downupData.equals("[]")) {
+			if (downupData != null && !downupData.isEmpty()) {
 				record.setRetrieveDownupMsg(downupData);
 				logger.info("[数据修复] 成功修复retrieveDownupMsg字段，数据长度: " + downupData.length());
 
@@ -3304,7 +3316,7 @@ public class PassengerFlowProcessor {
 
         // 增强现有记录，设置大模型识别的总人数
         String featureDescription = (passengerFeatures != null && passengerFeatures.length() > 0) ?
-            passengerFeatures.toString() : "[]";
+            passengerFeatures.toString() : null;
         record.setFeatureDescription(featureDescription);
         record.setAiTotalCount(aiTotalCount);
 
@@ -3523,7 +3535,10 @@ public class PassengerFlowProcessor {
 					}
 				}
 
-				record.setPassengerFeatures(featuresArray.toString());
+				// 只在有特征数据时才设置字段
+				if (featuresArray.length() > 0) {
+					record.setPassengerFeatures(featuresArray.toString());
+				}
 
 				// 设置乘客图像坐标
 				if (positionArray.length() > 0) {

@@ -110,10 +110,10 @@ public class Config {
     //  - WS_KEEP_ALIVE_SECONDS    线程空闲存活秒数（默认：60）
     //  - WS_QUEUE_CAPACITY        任务队列容量（默认：20）
     //  - WS_MONITOR_SECONDS       监控日志打印间隔秒数（默认：5）
-    public static final int WS_CORE_POOL_SIZE = getIntProperty("WS_CORE_POOL_SIZE", 8);
-    public static final int WS_MAX_POOL_SIZE = getIntProperty("WS_MAX_POOL_SIZE", 32);
+    public static final int WS_CORE_POOL_SIZE = getIntProperty("WS_CORE_POOL_SIZE", 16);
+    public static final int WS_MAX_POOL_SIZE = getIntProperty("WS_MAX_POOL_SIZE", 64);
     public static final int WS_KEEP_ALIVE_SECONDS = getIntProperty("WS_KEEP_ALIVE_SECONDS", 60);
-    public static final int WS_QUEUE_CAPACITY = getIntProperty("WS_QUEUE_CAPACITY", 20);
+    public static final int WS_QUEUE_CAPACITY = getIntProperty("WS_QUEUE_CAPACITY", 100);
     public static final int WS_MONITOR_SECONDS = getIntProperty("WS_MONITOR_SECONDS", 5);
 
     private static int getIntProperty(String key, int defaultValue) {

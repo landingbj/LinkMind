@@ -672,9 +672,12 @@ public class KafkaConsumerService {
         logger.info("   childCardType=" + childCardType);
         logger.info("   onOff=" + onOff);
 
-        // 只在存在已开启窗口时累计
+        // 获取当前sqeNo和windowId
+        String sqeNo = jedis.get("current_sqe_no:" + busNo);
         String windowId = jedis.get("open_time:" + busNo);
+
         logger.info("   检查开门窗口: open_time:" + busNo + " = " + windowId);
+        logger.info("   检查当前sqeNo: current_sqe_no:" + busNo + " = " + sqeNo);
 
         if (windowId != null && !windowId.isEmpty()) {
             // 判断上下车方向
@@ -697,18 +700,33 @@ public class KafkaConsumerService {
             ticketDetail.put("onOff", onOff != null ? onOff : "unknown");
             ticketDetail.put("direction", direction.equals("up") ? "上车" : "下车");
 
-            // 存储到对应的上下车集合中
-            String detailKey = "ticket_detail:" + busNo + ":" + windowId + ":" + direction;
-            jedis.sadd(detailKey, ticketDetail.toString());
-            jedis.expire(detailKey, Config.REDIS_TTL_OPEN_TIME);
+            // 🔥 兼容模式：同时使用新旧两种键格式存储
+            if (sqeNo != null && !sqeNo.isEmpty()) {
+                // 新格式：使用sqeNo（与getTicketCountWindowFromRedis读取逻辑一致）
+                String newCountKey = "ticket_count:" + sqeNo + ":" + direction;
+                String newDetailKey = "ticket_detail:" + sqeNo + ":" + direction;
 
-            // 更新上下车计数
-            String countKey = "ticket_count:" + busNo + ":" + windowId + ":" + direction;
-            long count = jedis.incr(countKey);
-            jedis.expire(countKey, Config.REDIS_TTL_OPEN_TIME);
+                long newCount = jedis.incr(newCountKey);
+                jedis.sadd(newDetailKey, ticketDetail.toString());
+                jedis.expire(newCountKey, Config.REDIS_TTL_OPEN_TIME);
+                jedis.expire(newDetailKey, Config.REDIS_TTL_OPEN_TIME);
 
-            logger.info("   [票务计数] " + (direction.equals("up") ? "上车" : "下车") + "刷卡计数已更新: " + countKey + " = " + count);
-            logger.info("   [票务详情] 刷卡详情已存储: " + detailKey);
+                logger.info("   [票务计数-新格式] " + (direction.equals("up") ? "上车" : "下车") + "刷卡计数已更新: " + newCountKey + " = " + newCount);
+                logger.info("   [票务详情-新格式] 刷卡详情已存储: " + newDetailKey);
+            }
+
+            // 旧格式：使用windowId（保持向后兼容）
+            String oldCountKey = "ticket_count:" + busNo + ":" + windowId + ":" + direction;
+            String oldDetailKey = "ticket_detail:" + busNo + ":" + windowId + ":" + direction;
+
+            long oldCount = jedis.incr(oldCountKey);
+            jedis.sadd(oldDetailKey, ticketDetail.toString());
+            jedis.expire(oldCountKey, Config.REDIS_TTL_OPEN_TIME);
+            jedis.expire(oldDetailKey, Config.REDIS_TTL_OPEN_TIME);
+
+            logger.info("   [票务计数-旧格式] " + (direction.equals("up") ? "上车" : "下车") + "刷卡计数已更新: " + oldCountKey + " = " + oldCount);
+            logger.info("   [票务详情-旧格式] 刷卡详情已存储: " + oldDetailKey);
+
         } else {
             // 🔥 新增：无窗口时写入等待队列
             logger.info("   [票务计数] 未找到开门窗口，写入等待队列");
@@ -887,7 +905,7 @@ public class KafkaConsumerService {
             if (Config.LOG_INFO) {
                 logger.info("[开关门信号跟踪] 车辆 {} 开始处理开门逻辑", busNo);
             }
-            
+
             String openTimeKey = "open_time:" + busNo;
             String lastOpenStr = jedis.get(openTimeKey);
             // 开门防抖：同一车辆在指定秒内不重复开门且不重置窗口
@@ -971,7 +989,7 @@ public class KafkaConsumerService {
             if (Config.LOG_INFO) {
                 logger.info("[开关门信号跟踪] 车辆 {} 开始处理关门逻辑", busNo);
             }
-            
+
             String openTimeStr = jedis.get("open_time:" + busNo);
             if (openTimeStr != null) {
                 // 幂等：该开门窗口是否已发过关门
@@ -1199,7 +1217,7 @@ public class KafkaConsumerService {
                 logger.info("[WebSocket发送跟踪] 车辆 {} 准备通过WebSocket发送消息到CV", busNo);
                 logger.info("  消息内容: {}", messageJson);
                 logger.info("  sqe_no: {}", sqeNo);
-                
+
                 // 检查WebSocket连接状态
                 WebSocketEndpoint.printConnectionStatus();
             }
@@ -1207,18 +1225,19 @@ public class KafkaConsumerService {
             // 检查WebSocket连接状态
             if (!WebSocketEndpoint.hasActiveConnections()) {
                 if (Config.LOG_ERROR) {
-                    logger.error("[WebSocket发送跟踪] 车辆 {} 没有活跃的WebSocket连接，无法发送{}信号", 
+                    logger.error("[WebSocket发送跟踪] 车辆 {} 没有活跃的WebSocket连接，无法发送{}信号",
                         busNo, action.equals("open") ? "开门" : "关门");
                 }
-                // 注意：这里不return，继续执行后续逻辑，确保数据库保存等操作正常进行
+                // 没有活跃连接时，跳过WebSocket发送，但继续执行后续逻辑
+                logger.info("[WebSocket发送跟踪] 跳过WebSocket发送，继续执行数据库保存等操作");
+            } else {
+                // 通过WebSocket发送给CV
+                WebSocketEndpoint.sendToAll(messageJson);
             }
-
-            // 通过WebSocket发送给CV
-            WebSocketEndpoint.sendToAll(messageJson);
 
             // 🔥 增强日志：发送完成确认
             if (Config.LOG_INFO) {
-                logger.info("[WebSocket发送跟踪] 车辆 {} {}信号已发送到CV系统: busId={}, sqe_no={}", 
+                logger.info("[WebSocket发送跟踪] 车辆 {} {}信号已发送到CV系统: busId={}, sqe_no={}",
                     busNo, action.equals("open") ? "开门" : "关门", busId, sqeNo);
             }
 
@@ -1238,14 +1257,14 @@ public class KafkaConsumerService {
             }
         } catch (Exception e) {
             if (Config.LOG_ERROR) {
-                logger.error("[WebSocket发送跟踪] 车辆 {} 发送{}信号到CV失败: {}", 
+                logger.error("[WebSocket发送跟踪] 车辆 {} 发送{}信号到CV失败: {}",
                     busNo, action.equals("open") ? "开门" : "关门", e.getMessage());
                 e.printStackTrace();
             }
         } finally {
             // 🔥 增强日志：发送流程结束
             if (Config.LOG_INFO) {
-                logger.info("[WebSocket发送跟踪] ========== {}信号发送流程结束 ==========", 
+                logger.info("[WebSocket发送跟踪] ========== {}信号发送流程结束 ==========",
                     action.equals("open") ? "开门" : "关门");
             }
         }

@@ -12,6 +12,8 @@ import org.apache.http.util.EntityUtils;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.TimeUnit;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import redis.clients.jedis.Jedis;
@@ -58,11 +60,27 @@ public class PassengerFlowProcessor {
 	}
 
 	public void processEvent(JSONObject eventJson) {
+		long processStartTime = System.currentTimeMillis();
 		String event = eventJson.optString("event");
 		JSONObject data = eventJson.optJSONObject("data");
 
+		// 生成处理ID用于跟踪
+		String processId = event + "_" + processStartTime;
+		if (data != null) {
+			String sqeNo = data.optString("sqe_no", "");
+			if (!sqeNo.isEmpty()) {
+				processId = event + "_" + sqeNo + "_" + processStartTime;
+			}
+		}
+
+		if (Config.LOG_INFO) {
+			logger.info("[PassengerFlowProcessor] 开始处理事件 - 处理ID: {}, 事件类型: {}", processId, event);
+		}
+
 		// 第一时间保存WebSocket消息到数据库
+		long saveStartTime = System.currentTimeMillis();
 		saveWebSocketMessage(eventJson, event, data);
+		long saveEndTime = System.currentTimeMillis();
 
 		// 关闭CV事件详细日志，避免大payload(如base64)刷屏
 		if (Config.PILOT_ROUTE_LOG_ENABLED) {
@@ -116,26 +134,26 @@ public class PassengerFlowProcessor {
 					}
 			}
 		} catch (Exception e) {
+			long errorTime = System.currentTimeMillis();
+			long totalTime = errorTime - processStartTime;
+
 			if (Config.LOG_ERROR) {
-				logger.error("[流程异常] 处理CV事件失败: " + e.getMessage());
+				logger.error("[流程异常] 处理CV事件失败 - 处理ID: {}, 总耗时: {}ms, 错误: {}",
+					processId, totalTime, e.getMessage(), e);
 			}
+		}
+
+		// 记录处理完成时间
+		long processEndTime = System.currentTimeMillis();
+		long totalTime = processEndTime - processStartTime;
+		long saveTime = saveEndTime - saveStartTime;
+
+		if (Config.LOG_INFO) {
+			logger.info("[PassengerFlowProcessor] 事件处理完成 - 处理ID: {}, 事件类型: {}, 总耗时: {}ms, 保存耗时: {}ms",
+				processId, event, totalTime, saveTime);
 		}
 	}
 
-    // 强绑定校验：除AI字段外，其余字段需同时非空/非默认
-    private boolean shouldCommitOd(BusOdRecord r) {
-        try {
-            boolean imagesOk = r.getPassengerImages() != null && !r.getPassengerImages().trim().isEmpty();
-            boolean featuresOk = r.getPassengerFeatures() != null && !r.getPassengerFeatures().trim().isEmpty();
-            boolean videoOk = r.getPassengerVideoUrl() != null && !r.getPassengerVideoUrl().trim().isEmpty();
-            boolean posOk = r.getPassengerPosition() != null && !r.getPassengerPosition().trim().isEmpty();
-            boolean countOk = r.getUpCount() != null && r.getDownCount() != null;
-            boolean rawOk = r.getRetrieveDownupMsg() != null && !r.getRetrieveDownupMsg().trim().isEmpty();
-            return imagesOk && featuresOk && videoOk && posOk && countOk && rawOk;
-        } catch (Exception e) {
-            return false;
-        }
-    }
 
     private int safeLen(String s) {
         return s == null ? -1 : s.length();
@@ -169,9 +187,15 @@ public class PassengerFlowProcessor {
     }
 
 	private void handleDownUpEvent(JSONObject data, String busNo, String busId, String cameraNo, Jedis jedis) throws IOException, SQLException {
+		long downupStartTime = System.currentTimeMillis();
 		String sqeNo = data.optString("sqe_no");  // 新增：获取开关门唯一批次号
 		LocalDateTime eventTime = LocalDateTime.parse(data.optString("timestamp").replace(" ", "T"));
 		JSONArray events = data.optJSONArray("events");
+
+		if (Config.LOG_DEBUG) {
+			logger.debug("[handleDownUpEvent] 开始处理downup事件 - sqeNo: {}, busNo: {}, events数量: {}",
+				sqeNo, busNo, events != null ? events.length() : 0);
+		}
 
 		if (events == null || events.length() == 0) {
 			return;
@@ -529,6 +553,15 @@ public class PassengerFlowProcessor {
 		// 汇总日志可按需开启，默认关闭
 		if (Config.PILOT_ROUTE_LOG_ENABLED) {
 			logger.info("[CV客流数据] 收到车牌号" + busNo + "的客流信息推送数据，开始收集");
+		}
+
+		// 记录downup事件处理完成时间
+		long downupEndTime = System.currentTimeMillis();
+		long downupTotalTime = downupEndTime - downupStartTime;
+
+		if (Config.LOG_INFO) {
+			logger.info("[handleDownUpEvent] downup事件处理完成 - sqeNo: {}, busNo: {}, 总耗时: {}ms, 上车: {}, 下车: {}",
+				sqeNo, busNo, downupTotalTime, upCount, downCount);
 		}
 	}
 
@@ -1141,23 +1174,14 @@ public class PassengerFlowProcessor {
 			if (Config.PILOT_ROUTE_LOG_ENABLED) {
 				logger.info("[CV业务完成] 准备落库，发送kafka:busNo=" + busNo);
 			}
-			// 统一落库：无downup则放行发送；有downup则执行强绑定校验
+			// 统一落库：直接发送到Kafka，不再进行强绑定校验
 			boolean hasDownup = hasDownupData(record);
-			if (!hasDownup || shouldCommitOd(record)) {
-				sendToKafka(record);
-				// 设置OD发送幂等标记
-				jedis.set(odSentKey, "1");
-				jedis.expire(odSentKey, Config.REDIS_TTL_OPEN_TIME);
-				if (Config.LOG_INFO) {
-					logger.info("[统一落库] 已发送到Kafka且设置幂等标记: sqeNo=" + sqeNo + ", hasDownup=" + hasDownup);
-				}
-			} else {
-				logger.warn("[统一落库] 强绑定字段不完整，跳过发送Kafka: sqeNo=" + sqeNo +
-					" images=" + safeLen(record.getPassengerImages()) +
-					" features=" + safeLen(record.getPassengerFeatures()) +
-					" video=" + safeLen(record.getPassengerVideoUrl()) +
-					" position=" + safeLen(record.getPassengerPosition()) +
-					" up=" + record.getUpCount() + ", down=" + record.getDownCount());
+			sendToKafka(record);
+			// 设置OD发送幂等标记
+			jedis.set(odSentKey, "1");
+			jedis.expire(odSentKey, Config.REDIS_TTL_OPEN_TIME);
+			if (Config.LOG_INFO) {
+				logger.info("[统一落库] 已发送到Kafka且设置幂等标记: sqeNo=" + sqeNo + ", hasDownup=" + hasDownup);
 			}
 
 			// 清理当前开门批次号，避免后续误用
@@ -1277,14 +1301,6 @@ public class PassengerFlowProcessor {
 	private void processImagesParallel(BusOdRecord record, Jedis jedis, String busNo, String windowId, LocalDateTime eventTime, String sqeNo) throws IOException, SQLException {
 		logger.info("[并行处理] 开始为车辆 " + busNo + " 并行处理图片，时间窗口: " + windowId);
 
-		// 基于 sqeNo 的就绪闸门：要求 up/down 图片集合与 features_set 就绪
-		if (sqeNo != null && !sqeNo.isEmpty()) {
-			boolean ready = waitReadyBySqeNo(jedis, sqeNo, Config.MEDIA_READY_TIMEOUT_MS, Config.MEDIA_RETRY_BACKOFF_MS);
-			if (!ready) {
-				logger.warn("[就绪闸门] sqeNo=" + sqeNo + " 在超时内未就绪（图片/特征不全），跳过本批处理");
-				return;
-			}
-		}
 
 		// 1. 分方向收集图片URL（sqeNo 优先，其次时间范围/精确窗口兜底），写入方向化 passengerImages
 		List<String> upImages;
@@ -1342,8 +1358,17 @@ public class PassengerFlowProcessor {
 				}
 			});
 
-			CompletableFuture.allOf(aiFuture, videoFuture).join();
-			logger.info("[并行处理] 并行处理完成，AI与视频均已结束");
+			// 使用超时等待，避免无限阻塞
+			try {
+				CompletableFuture.allOf(aiFuture, videoFuture).get(30, TimeUnit.SECONDS);
+				logger.info("[并行处理] 并行处理完成，AI与视频均已结束");
+			} catch (TimeoutException e) {
+				logger.error("[并行处理] AI分析或视频生成超时，取消任务");
+				aiFuture.cancel(true);
+				videoFuture.cancel(true);
+			} catch (Exception e) {
+				logger.error("[并行处理] 并行处理异常: " + e.getMessage());
+			}
 
 		} catch (Exception e) {
 			logger.error("[并行处理] 并行处理过程中发生异常: " + e.getMessage());
@@ -1617,14 +1642,6 @@ public class PassengerFlowProcessor {
 			LocalDateTime eventTime, List<String> imageUrls, String sqeNo) throws IOException, SQLException {
 		logger.info("[并行处理] 开始为车辆 " + busNo + " 并行处理图片(区间聚合)，时间窗口: " + windowId);
 
-		// 基于 sqeNo 的就绪闸门
-		if (sqeNo != null && !sqeNo.isEmpty()) {
-			boolean ready = waitReadyBySqeNo(jedis, sqeNo, Config.MEDIA_READY_TIMEOUT_MS, Config.MEDIA_RETRY_BACKOFF_MS);
-			if (!ready) {
-				logger.warn("[就绪闸门] sqeNo=" + sqeNo + " 在超时内未就绪（图片/特征不全），跳过本批处理");
-				return;
-			}
-		}
 
 		//  如果传入的图片列表为空，尝试增强收集（兜底方案）
 		if (imageUrls == null || imageUrls.isEmpty()) {
@@ -2010,35 +2027,71 @@ public class PassengerFlowProcessor {
 			return "{\"upCount\":0,\"downCount\":0,\"totalCount\":0,\"detail\":[]}";
 		}
 
-		// 优先使用sqeNo获取票务数据
-		String upCountKey, downCountKey, upDetailKey, downDetailKey;
+		// 🔥 兼容模式：尝试多种键格式，确保数据匹配
+		String[] keyFormats = new String[4];
+		String[] detailFormats = new String[4];
+
+		// 格式1：新格式 - 使用sqeNo（优先）
 		if (sqeNo != null && !sqeNo.isEmpty()) {
-			upCountKey = "ticket_count:" + sqeNo + ":up";
-			downCountKey = "ticket_count:" + sqeNo + ":down";
-			upDetailKey = "ticket_detail:" + sqeNo + ":up";
-			downDetailKey = "ticket_detail:" + sqeNo + ":down";
-			logger.info("   [票务计数获取] 使用sqeNo获取票务数据: " + sqeNo);
-		} else {
-			// 兜底：使用原有方式
-			upCountKey = "ticket_count:" + busNo + ":" + windowId + ":up";
-			downCountKey = "ticket_count:" + busNo + ":" + windowId + ":down";
-			upDetailKey = "ticket_detail:" + busNo + ":" + windowId + ":up";
-			downDetailKey = "ticket_detail:" + busNo + ":" + windowId + ":down";
-			logger.info("   [票务计数获取] 使用车辆+时间窗口获取票务数据");
+			keyFormats[0] = "ticket_count:" + sqeNo + ":up";
+			keyFormats[1] = "ticket_count:" + sqeNo + ":down";
+			detailFormats[0] = "ticket_detail:" + sqeNo + ":up";
+			detailFormats[1] = "ticket_detail:" + sqeNo + ":down";
 		}
 
-		String upCountStr = jedis.get(upCountKey);
-		String downCountStr = jedis.get(downCountKey);
+		// 格式2：旧格式 - 使用windowId（兜底）
+		keyFormats[2] = "ticket_count:" + busNo + ":" + windowId + ":up";
+		keyFormats[3] = "ticket_count:" + busNo + ":" + windowId + ":down";
+		detailFormats[2] = "ticket_detail:" + busNo + ":" + windowId + ":up";
+		detailFormats[3] = "ticket_detail:" + busNo + ":" + windowId + ":down";
 
-		int upCount = upCountStr != null ? Integer.parseInt(upCountStr) : 0;
-		int downCount = downCountStr != null ? Integer.parseInt(downCountStr) : 0;
+		// 尝试获取上车计数
+		int upCount = 0;
+		String upCountKey = null;
+		for (int i = 0; i < keyFormats.length; i += 2) {
+			if (keyFormats[i] != null) {
+				String countStr = jedis.get(keyFormats[i]);
+				if (countStr != null && !countStr.equals("0")) {
+					upCount = Integer.parseInt(countStr);
+					upCountKey = keyFormats[i];
+					logger.info("   [票务计数获取] 上车计数来源: " + upCountKey + " = " + upCount);
+					break;
+				}
+			}
+		}
+
+		// 尝试获取下车计数
+		int downCount = 0;
+		String downCountKey = null;
+		for (int i = 1; i < keyFormats.length; i += 2) {
+			if (keyFormats[i] != null) {
+				String countStr = jedis.get(keyFormats[i]);
+				if (countStr != null && !countStr.equals("0")) {
+					downCount = Integer.parseInt(countStr);
+					downCountKey = keyFormats[i];
+					logger.info("   [票务计数获取] 下车计数来源: " + downCountKey + " = " + downCount);
+					break;
+				}
+			}
+		}
+
 		int totalCount = upCount + downCount;
 
 		// 获取上下车详情
 		JSONArray detailArray = new JSONArray();
 
 		// 获取上车详情
-		Set<String> upDetails = jedis.smembers(upDetailKey);
+		Set<String> upDetails = null;
+		for (int i = 0; i < detailFormats.length; i += 2) {
+			if (detailFormats[i] != null) {
+				upDetails = jedis.smembers(detailFormats[i]);
+				if (upDetails != null && !upDetails.isEmpty()) {
+					logger.info("   [票务计数获取] 上车详情来源: " + detailFormats[i] + " = " + upDetails.size() + "条");
+					break;
+				}
+			}
+		}
+
 		if (upDetails != null) {
 			for (String detail : upDetails) {
 				try {
@@ -2050,7 +2103,17 @@ public class PassengerFlowProcessor {
 		}
 
 		// 获取下车详情
-		Set<String> downDetails = jedis.smembers(downDetailKey);
+		Set<String> downDetails = null;
+		for (int i = 1; i < detailFormats.length; i += 2) {
+			if (detailFormats[i] != null) {
+				downDetails = jedis.smembers(detailFormats[i]);
+				if (downDetails != null && !downDetails.isEmpty()) {
+					logger.info("   [票务计数获取] 下车详情来源: " + detailFormats[i] + " = " + downDetails.size() + "条");
+					break;
+				}
+			}
+		}
+
 		if (downDetails != null) {
 			for (String detail : downDetails) {
 				try {
@@ -2070,8 +2133,8 @@ public class PassengerFlowProcessor {
 
 		String resultJson = result.toString();
 
-		logger.info("   [票务计数获取] 上车计数: " + upCount + " (Redis键: " + upCountKey + ")");
-		logger.info("   [票务计数获取] 下车计数: " + downCount + " (Redis键: " + downCountKey + ")");
+		logger.info("   [票务计数获取] 上车计数: " + upCount + " (Redis键: " + (upCountKey != null ? upCountKey : "未找到") + ")");
+		logger.info("   [票务计数获取] 下车计数: " + downCount + " (Redis键: " + (downCountKey != null ? downCountKey : "未找到") + ")");
 		logger.info("   [票务计数获取] 总计数: " + totalCount);
 		logger.info("   [票务计数获取] 详情数量: " + detailArray.length());
 		logger.info("   [票务计数获取] JSON结果: " + resultJson);
@@ -3755,42 +3818,6 @@ public class PassengerFlowProcessor {
         return new int[]{lastUp, lastDown};
     }
 
-    /**
-     * 基于 sqeNo 的就绪闸门：等待 image_urls:{sqeNo}:up/down 和 features_set:{sqeNo} 就绪
-     */
-    private boolean waitReadyBySqeNo(Jedis jedis, String sqeNo, int timeoutMs, int backoffBaseMs) {
-        if (sqeNo == null || sqeNo.isEmpty()) return true;
-        long start = System.currentTimeMillis();
-        int attempt = 0;
-        while (System.currentTimeMillis() - start < Math.max(0, timeoutMs)) {
-            try {
-                Set<String> up = jedis.smembers("image_urls:" + sqeNo + ":up");
-                Set<String> down = jedis.smembers("image_urls:" + sqeNo + ":down");
-                long featureCount = jedis.scard("features_set:" + sqeNo);
-
-                boolean ok = up != null && !up.isEmpty() &&
-                             down != null && !down.isEmpty() &&
-                             featureCount > 0;
-                if (ok) {
-                    if (Config.LOG_DEBUG) {
-                        logger.info("[就绪闸门] sqeNo=" + sqeNo + " 就绪：up=" + up.size() + ", down=" + down.size() + ", features=" + featureCount);
-                    }
-                    return true;
-                }
-
-                attempt++;
-                int sleep = Math.max(50, backoffBaseMs) * attempt;
-                if (sleep > 2000) sleep = 2000; // 限制最大退避
-                try { Thread.sleep(sleep); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); return false; }
-            } catch (Exception e) {
-                if (Config.LOG_ERROR) {
-                    logger.error("[就绪闸门] 检查异常: " + e.getMessage());
-                }
-                return false;
-            }
-        }
-        return false;
-    }
 
 	/**
 	 * 区间分方向图片

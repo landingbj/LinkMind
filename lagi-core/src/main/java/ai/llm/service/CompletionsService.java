@@ -380,6 +380,15 @@ public class CompletionsService implements ChatCompletion {
         return getCompletionsRequest(messages, category);
     }
 
+    public ChatCompletionRequest getCompletionsRequest(String systemPrompt, String prompt, String category, int maxTokens) {
+        List<ChatMessage> messages = new ArrayList<>();
+        if (systemPrompt != null) {
+            messages.add(getChatMessage(systemPrompt, LagiGlobal.LLM_ROLE_SYSTEM));
+        }
+        messages.add(getChatMessage(prompt, LagiGlobal.LLM_ROLE_USER));
+        return getCompletionsRequest(messages, DEFAULT_TEMPERATURE, maxTokens,category);
+    }
+
     public ChatCompletionRequest getCompletionsRequest(List<ChatMessage> messages) {
         return getCompletionsRequest(messages, null);
     }

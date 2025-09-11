@@ -35,6 +35,26 @@ public class WorkflowApiServlet extends BaseServlet {
             this.taskRun(req, resp);
         } else if (method.equals("taskCancel")) {
             this.taskCancel(req, resp);
+        } else if(method.equals("txt2FlowSchema")) {
+            this.txt2FlowSchema(req, resp);
+        }
+    }
+
+    private void txt2FlowSchema(HttpServletRequest req, HttpServletResponse resp) throws IOException{
+        resp.setContentType("application/json;charset=utf-8");
+        JsonObject jsonObject = reqBodyToObj(req, JsonObject.class);
+        Integer agentId = jsonObject.get("agentId").getAsInt();
+        String input = jsonObject.get("input").toString();
+        String schema = WorkflowEngine.txt2FlowSchema(input);
+        if(schema != null) {
+            AgentConfig agentConfig = new AgentConfig();
+            agentConfig.setId(agentId);
+            agentConfig.setSchema(schema);
+            Response response = agentService.updateLagiAgent(agentConfig);
+            responsePrint(resp, gson.toJson(response));
+        } else {
+            Response failed = Response.builder().status("failed").msg("txt2FlowSchema failed").data(null).build();
+            responsePrint(resp, gson.toJson(failed));
         }
     }
 

@@ -1,5 +1,9 @@
 package ai.utils;
 
+import com.fasterxml.jackson.core.JsonParseException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Stack;
@@ -7,6 +11,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class JsonExtractor {
+
+    private static final ObjectMapper objectMapper = new ObjectMapper();
+
     /**
      * Extracts JSON strings from a given input string.
      * This method looks for content that appears to be valid JSON objects or arrays.
@@ -63,30 +70,86 @@ public class JsonExtractor {
         return results.isEmpty() ? null : results.get(0);
     }
 
+    /**
+     * 从字符串中提取第一个有效的JSON对象或数组
+     * @param input 包含JSON的字符串
+     * @return 提取到的有效JSON字符串，如果没有找到则返回null
+     */
     public static String extractJson(String input) {
-        Stack<Character> stack = new Stack<>();
+        if (input == null || input.isEmpty()) {
+            return null;
+        }
+
+        // 寻找JSON的起始位置
         int startIndex = -1;
+        char startChar = ' ';
         for (int i = 0; i < input.length(); i++) {
             char c = input.charAt(i);
             if (c == '{' || c == '[') {
-                if (stack.isEmpty()) {
-                    startIndex = i;
-                }
-                stack.push(c);
-            } else if (c == '}' || c == ']') {
-                if (!stack.isEmpty()) {
-                    char top = stack.pop();
-                    if ((top == '{' && c == '}') || (top == '[' && c == ']')) {
-                        if (stack.isEmpty()) {
-                            return input.substring(startIndex, i + 1);
-                        }
-                    }
-                }
+                startIndex = i;
+                startChar = c;
+                break;
             }
         }
-        return null;
+
+        if (startIndex == -1) {
+            return null; // 没有找到JSON起始标记
+        }
+
+        // 寻找匹配的结束标记，考虑嵌套情况
+        int endIndex = -1;
+        char endChar = (startChar == '{') ? '}' : ']';
+        int balance = 1; // 括号平衡计数器
+
+        for (int i = startIndex + 1; i < input.length(); i++) {
+            char c = input.charAt(i);
+
+            if (c == startChar) {
+                balance++;
+            } else if (c == endChar) {
+                balance--;
+            }
+
+            // 当平衡计数器为0时，找到匹配的结束标记
+            if (balance == 0) {
+                endIndex = i;
+                break;
+            }
+        }
+
+        if (endIndex == -1) {
+            return null; // 没有找到匹配的结束标记
+        }
+
+        // 提取候选JSON字符串
+        String candidateJson = input.substring(startIndex, endIndex + 1);
+
+        // 验证提取的字符串是否为有效的JSON
+        if (isJson(candidateJson)) {
+            return candidateJson;
+        } else {
+            return null;
+        }
     }
 
+
+    public static boolean isJson(String jsonString) {
+        if (jsonString == null || jsonString.trim().isEmpty()) {
+            return false;
+        }
+
+        try {
+            // 尝试解析JSON字符串
+            JsonNode jsonNode = objectMapper.readTree(jsonString);
+            return true;
+        } catch (JsonParseException e) {
+            // JSON解析异常，不是有效的JSON
+            return false;
+        } catch (Exception e) {
+            // 其他异常，也不是有效的JSON
+            return false;
+        }
+    }
 
 
 

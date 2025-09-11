@@ -1,5 +1,9 @@
 package ai.workflow;
 
+import ai.llm.service.CompletionsService;
+import ai.openai.pojo.ChatCompletionRequest;
+import ai.openai.pojo.ChatCompletionResult;
+import ai.utils.JsonExtractor;
 import ai.workflow.exception.WorkflowException;
 import ai.workflow.executor.*;
 import ai.workflow.pojo.*;
@@ -40,6 +44,7 @@ public class WorkflowEngine {
         nodeExecutors.put("end", new EndNodeExecutor());
         nodeExecutors.put("knowledge-base", new KnowledgeNodeExecutor());
         nodeExecutors.put("intent-recognition", new IntentNodeExecutor());
+        nodeExecutors.put("program", new GroovyScriptNodeExecutor());
     }
 
     public void executeAsync(String taskId, String workflowJson, Map<String, Object> inputData) {
@@ -267,4 +272,20 @@ public class WorkflowEngine {
             log.error("Failed to update end nodes status: {}", e.getMessage());
         }
     }
+
+    public static String txt2FlowSchema(String text) {
+        CompletionsService completionsService = new CompletionsService();
+//        ChatCompletionRequest request = completionsService.getCompletionsRequest(Prompt.USER_INFO_EXTRACT_PROMPT, text, "default");
+//        ChatCompletionResult completions = completionsService.completions(request);
+//        String prompt = completions.getChoices().get(0).getMessage().getContent();
+//        System.out.println(prompt);
+
+        ChatCompletionRequest request = completionsService.getCompletionsRequest(Prompt.PROMPT_TO_WORKFLOW_JSON, text, "default", 4096);
+        ChatCompletionResult completions = completionsService.completions(request);
+        String json = completions.getChoices().get(0).getMessage().getContent();
+        System.out.println(json);
+        json = JsonExtractor.extractJson(json);
+        return json;
+    }
+
 }

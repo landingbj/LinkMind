@@ -4,12 +4,8 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 import java.util.Base64;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public final class CosineSimilarity {
-
-    private static final Logger logger = LoggerFactory.getLogger(CosineSimilarity.class);
 
     /**
      * 计算两个向量的余弦相似度
@@ -32,7 +28,7 @@ public final class CosineSimilarity {
         double denom = Math.sqrt(na) * Math.sqrt(nb);
         double result = denom == 0.0 ? 0.0 : dot / denom;
         if (Config.LOG_DEBUG || Config.PILOT_ROUTE_LOG_ENABLED) {
-            logger.info("[CosineSimilarity] 余弦相似度计算: length={}, result={}", a.length, result);
+            System.out.println("[CosineSimilarity] 余弦相似度计算: length=" + a.length + ", result=" + result);
         }
         return result;
     }
@@ -56,14 +52,14 @@ public final class CosineSimilarity {
             floatBuffer.get(features);
             
             if (Config.LOG_DEBUG || Config.PILOT_ROUTE_LOG_ENABLED) {
-                logger.info("[CosineSimilarity] 特征向量解码: length={}, values={}", features.length, formatVector(features));
+                System.out.println("[CosineSimilarity] 特征向量解码: length=" + features.length + ", values=" + formatVector(features));
             }
             return features;
         } catch (Exception ignore) {
         }
         // 解析失败返回空数组
         if (Config.LOG_DEBUG || Config.PILOT_ROUTE_LOG_ENABLED) {
-            logger.info("[CosineSimilarity] 特征向量解码失败，返回空数组");
+            System.out.println("[CosineSimilarity] 特征向量解码失败，返回空数组");
         }
         return new float[0];
     }

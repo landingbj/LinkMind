@@ -2,8 +2,6 @@ package ai.servlet.passenger;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -15,7 +13,6 @@ import java.time.LocalDateTime;
  * 负责连接PolarDB并保存开关门消息到open_close_door_msg表
  */
 public class OpenCloseDoorMsgDbService {
-    private static final Logger logger = LoggerFactory.getLogger(OpenCloseDoorMsgDbService.class);
 
     // PolarDB连接配置
     private static final String DB_URL = "jdbc:mysql://20.17.39.67:3306/gjdev?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai";
@@ -49,7 +46,7 @@ public class OpenCloseDoorMsgDbService {
         this.dataSource = new HikariDataSource(config);
 
         if (Config.LOG_INFO) {
-            logger.info("[OpenCloseDoorMsgDbService] 数据库连接池初始化完成");
+            System.out.println("[OpenCloseDoorMsgDbService] 数据库连接池初始化完成");
         }
     }
 
@@ -81,7 +78,7 @@ public class OpenCloseDoorMsgDbService {
             int result = stmt.executeUpdate();
 
             if (Config.LOG_DEBUG) {
-                logger.info(String.format("[OpenCloseDoorMsgDbService] 🔥 保存开关门消息成功: 车辆=%s, 动作=%s, 站点=%s, sqe_no=%s",
+                System.out.println(String.format("[OpenCloseDoorMsgDbService] 🔥 保存开关门消息成功: 车辆=%s, 动作=%s, 站点=%s, sqe_no=%s",
                     doorMsg.getBusNo(), doorMsg.getAction(), doorMsg.getStationName(), doorMsg.getSqeNo()));
             }
 
@@ -89,8 +86,9 @@ public class OpenCloseDoorMsgDbService {
 
         } catch (SQLException e) {
             if (Config.LOG_ERROR) {
-                logger.error(String.format("[OpenCloseDoorMsgDbService] 保存开关门消息失败: 车辆=%s, 错误=%s",
-                    doorMsg.getBusNo(), e.getMessage()), e);
+                System.err.println(String.format("[OpenCloseDoorMsgDbService] 保存开关门消息失败: 车辆=%s, 错误=%s",
+                    doorMsg.getBusNo(), e.getMessage()));
+                e.printStackTrace();
             }
             return false;
         }
@@ -103,7 +101,7 @@ public class OpenCloseDoorMsgDbService {
         if (dataSource != null && !dataSource.isClosed()) {
             dataSource.close();
             if (Config.LOG_INFO) {
-                logger.info("[OpenCloseDoorMsgDbService] 数据库连接池已关闭");
+                System.out.println("[OpenCloseDoorMsgDbService] 数据库连接池已关闭");
             }
         }
     }
@@ -116,7 +114,7 @@ public class OpenCloseDoorMsgDbService {
             return conn.isValid(5);
         } catch (SQLException e) {
             if (Config.LOG_ERROR) {
-                logger.error("[OpenCloseDoorMsgDbService] 数据库连接测试失败: {}", e.getMessage(), e);
+                System.err.println("[OpenCloseDoorMsgDbService] 数据库连接测试失败: " + e.getMessage());
             }
             return false;
         }

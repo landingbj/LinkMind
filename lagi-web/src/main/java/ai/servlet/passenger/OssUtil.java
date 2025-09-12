@@ -81,7 +81,7 @@ public class OssUtil {
                     if (jsonResponse.optBoolean("ok") && jsonResponse.optInt("code") == 0) {
                         JSONObject data = jsonResponse.getJSONObject("data");
                         String ossFileName = data.getString("fileName");
-                        return Config.OSS_FILE_BASE_URL + "/admin/sys-file/oss/file?fileName=" + ossFileName;
+                        return Config.OSS_FILE_BASE_URL + "/sys-file/oss/file?fileName=" + ossFileName;
                     }
                 }
             }

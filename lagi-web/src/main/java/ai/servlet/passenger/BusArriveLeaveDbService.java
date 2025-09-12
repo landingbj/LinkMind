@@ -1,7 +1,5 @@
 package ai.servlet.passenger;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 
@@ -15,8 +13,6 @@ import java.time.LocalDateTime;
  * 负责连接PolarDB并保存到离站数据到bus_arrive_leave_logs表
  */
 public class BusArriveLeaveDbService {
-
-    private static final Logger logger = LoggerFactory.getLogger(BusArriveLeaveDbService.class);
 
     // PolarDB连接配置
     private static final String DB_URL = "jdbc:mysql://20.17.39.67:3306/gjdev?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai";
@@ -50,7 +46,7 @@ public class BusArriveLeaveDbService {
         this.dataSource = new HikariDataSource(config);
 
         if (Config.LOG_INFO) {
-            logger.info("[BusArriveLeaveDbService] 数据库连接池初始化完成");
+            System.out.println("[BusArriveLeaveDbService] 数据库连接池初始化完成");
         }
     }
 
@@ -86,7 +82,7 @@ public class BusArriveLeaveDbService {
             int result = stmt.executeUpdate();
 
             if (Config.LOG_DEBUG) {
-                logger.info(String.format("[BusArriveLeaveDbService] 保存到离站数据成功: 车辆=%s, 站点=%s, 状态=%s",
+                System.out.println(String.format("[BusArriveLeaveDbService] 保存到离站数据成功: 车辆=%s, 站点=%s, 状态=%s",
                     arriveLeaveData.getBusNo(), arriveLeaveData.getStationName(),
                     "1".equals(arriveLeaveData.getIsArriveOrLeft()) ? "到站" : "离站"));
             }
@@ -95,8 +91,9 @@ public class BusArriveLeaveDbService {
 
         } catch (SQLException e) {
             if (Config.LOG_ERROR) {
-                logger.error(String.format("[BusArriveLeaveDbService] 保存到离站数据失败: 车辆=%s, 错误=%s",
-                    arriveLeaveData.getBusNo(), e.getMessage()), e);
+                System.err.println(String.format("[BusArriveLeaveDbService] 保存到离站数据失败: 车辆=%s, 错误=%s",
+                    arriveLeaveData.getBusNo(), e.getMessage()));
+                e.printStackTrace();
             }
             return false;
         }
@@ -109,7 +106,7 @@ public class BusArriveLeaveDbService {
         if (dataSource != null && !dataSource.isClosed()) {
             dataSource.close();
             if (Config.LOG_INFO) {
-                logger.info("[BusArriveLeaveDbService] 数据库连接池已关闭");
+                System.out.println("[BusArriveLeaveDbService] 数据库连接池已关闭");
             }
         }
     }
@@ -122,7 +119,7 @@ public class BusArriveLeaveDbService {
             return conn.isValid(5);
         } catch (SQLException e) {
             if (Config.LOG_ERROR) {
-                logger.error("[BusArriveLeaveDbService] 数据库连接测试失败: " + e.getMessage());
+                System.err.println("[BusArriveLeaveDbService] 数据库连接测试失败: " + e.getMessage());
             }
             return false;
         }

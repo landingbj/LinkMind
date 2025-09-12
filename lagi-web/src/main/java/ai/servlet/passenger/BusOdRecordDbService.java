@@ -1,7 +1,5 @@
 package ai.servlet.passenger;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 
@@ -18,8 +16,6 @@ import java.time.format.DateTimeParseException;
  * 负责查询和更新bus_od_record表
  */
 public class BusOdRecordDbService {
-
-    private static final Logger logger = LoggerFactory.getLogger(BusOdRecordDbService.class);
 
     // PostgreSQL连接配置
     private static final String DB_URL = "jdbc:postgresql://20.17.39.40:5432/GJ_DW";
@@ -55,7 +51,7 @@ public class BusOdRecordDbService {
         this.dataSource = new HikariDataSource(config);
 
         if (Config.LOG_INFO) {
-            logger.info("[BusOdRecordDbService] 数据库连接池初始化完成");
+            System.out.println("[BusOdRecordDbService] 数据库连接池初始化完成");
         }
     }
 
@@ -125,7 +121,7 @@ public class BusOdRecordDbService {
                     }
 
                     if (Config.LOG_DEBUG) {
-                        logger.info(String.format("[BusOdRecordDbService] 查询到记录: id=%d, busNo=%s, tradeTime=%s",
+                        System.out.println(String.format("[BusOdRecordDbService] 查询到记录: id=%d, busNo=%s, tradeTime=%s",
                             record.getId(), busNo, tradeTime));
                     }
 
@@ -134,7 +130,7 @@ public class BusOdRecordDbService {
             }
 
             if (Config.LOG_DEBUG) {
-                logger.info(String.format("[BusOdRecordDbService] 未找到匹配记录: busNo=%s, tradeTime=%s",
+                System.out.println(String.format("[BusOdRecordDbService] 未找到匹配记录: busNo=%s, tradeTime=%s",
                     busNo, tradeTime));
             }
 
@@ -142,8 +138,9 @@ public class BusOdRecordDbService {
 
         } catch (SQLException e) {
             if (Config.LOG_ERROR) {
-                logger.error(String.format("[BusOdRecordDbService] 查询失败: busNo=%s, tradeTime=%s, 错误=%s",
-                    busNo, tradeTime, e.getMessage()), e);
+                System.err.println(String.format("[BusOdRecordDbService] 查询失败: busNo=%s, tradeTime=%s, 错误=%s",
+                    busNo, tradeTime, e.getMessage()));
+                e.printStackTrace();
             }
             return null;
         }
@@ -172,7 +169,7 @@ public class BusOdRecordDbService {
             // 记录更新时间和详细信息
             LocalDateTime updateTime = LocalDateTime.now();
             if (Config.LOG_INFO) {
-                logger.info(String.format("[BusOdRecordDbService] 🔥 更新ticket_json成功: id=%d, upCount=%d, downCount=%d, totalCount=%d, 更新时间=%s",
+                System.out.println(String.format("[BusOdRecordDbService] 🔥 更新ticket_json成功: id=%d, upCount=%d, downCount=%d, totalCount=%d, 更新时间=%s",
                     id, upCount, downCount, upCount + downCount, updateTime.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))));
             }
 
@@ -180,8 +177,9 @@ public class BusOdRecordDbService {
 
         } catch (SQLException e) {
             if (Config.LOG_ERROR) {
-                logger.error(String.format("[BusOdRecordDbService] 更新ticket_json失败: id=%d, 错误=%s",
-                    id, e.getMessage()), e);
+                System.err.println(String.format("[BusOdRecordDbService] 更新ticket_json失败: id=%d, 错误=%s",
+                    id, e.getMessage()));
+                e.printStackTrace();
             }
             return false;
         }
@@ -194,7 +192,7 @@ public class BusOdRecordDbService {
         if (dataSource != null && !dataSource.isClosed()) {
             dataSource.close();
             if (Config.LOG_INFO) {
-                logger.info("[BusOdRecordDbService] 数据库连接池已关闭");
+                System.out.println("[BusOdRecordDbService] 数据库连接池已关闭");
             }
         }
     }
@@ -207,7 +205,7 @@ public class BusOdRecordDbService {
             return conn.isValid(5);
         } catch (SQLException e) {
             if (Config.LOG_ERROR) {
-                logger.error("[BusOdRecordDbService] 数据库连接测试失败: " + e.getMessage());
+                System.err.println("[BusOdRecordDbService] 数据库连接测试失败: " + e.getMessage());
             }
             return false;
         }

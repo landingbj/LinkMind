@@ -4,8 +4,6 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.Properties;
 
@@ -13,7 +11,6 @@ import java.util.Properties;
  * Kafka配置类
  */
 public class KafkaConfig {
-    private static final Logger logger = LoggerFactory.getLogger(KafkaConfig.class);
 
     // 从环境变量或配置文件读取，如果没有则使用默认值
     public static final String BOOTSTRAP_SERVERS = System.getenv("KAFKA_BOOTSTRAP_SERVERS") != null ?

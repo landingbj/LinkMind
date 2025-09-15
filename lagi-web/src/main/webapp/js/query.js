@@ -80,9 +80,9 @@ async function textQuery() {
         let robotAnswerJq = await socialAgentsConversation(question);
     } else {
         let robotAnswerJq = await newConversation(conversation);
-        getTextResult(question.trim(), robotAnswerJq, conversation, agentId);
-        let request = await getRequest(question, agentId);
-        generateSelect(request, robotAnswerJq);
+        await getTextResult(question.trim(), robotAnswerJq, conversation, agentId);
+        // let request = await getRequest(question, agentId);
+        // generateSelect(request, robotAnswerJq);
     }
 
     currentAppId = null;

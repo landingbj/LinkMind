@@ -5,6 +5,7 @@ import ai.common.exception.RRException;
 import ai.common.utils.LRUCache;
 import ai.common.utils.ThreadPoolManager;
 import ai.config.pojo.AgentConfig;
+import ai.keywords.SubstitutionUtil;
 import ai.learn.questionAnswer.KShingle;
 import ai.openai.pojo.ChatCompletionRequest;
 import ai.openai.pojo.ChatCompletionResult;
@@ -336,6 +337,19 @@ public class SkillMap {
     }
 
     public IntentResponse intentDetect(String question) {
+        return nodeIntentDetect(question);
+    }
+
+    public IntentResponse nodeIntentDetect(String question) {
+        List<String> keywords = SubstitutionUtil.lookupNodeStr(question);
+        if (keywords.isEmpty()) {
+            return null;
+        }
+        IntentResponse intentResponse = IntentResponse.builder().keywords(keywords).build();
+        return intentResponse;
+    }
+
+    public IntentResponse llmIntentDetect(String question) {
         for (int i = 0;i < maxTry; i++) {
             try {
                 ChatCompletionResult chatCompletionResult = LlmUtil.callLLm(StrUtil.format(SkillMapPrompt.KEYWORD_PROMPT_TEMPLATE, question),
@@ -348,7 +362,6 @@ public class SkillMap {
         }
         return null;
     }
-
 
     public Double scoring(String question, String answer) {
         for (int i = 0;i < maxTry; i++) {

@@ -46,6 +46,27 @@
         </dependency>
         <dependency>
             <groupId>com.landingbj</groupId>
+            <artifactId>learning</artifactId>
+            <version>1.0</version>
+            <scope>system</scope>
+            <systemPath>${pom.basedir}/libs/ai_learning.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>com.landingbj</groupId>
+            <artifactId>eigens</artifactId>
+            <version>1.0</version>
+            <scope>system</scope>
+            <systemPath>${pom.basedir}/libs/ai_eigens.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>com.landingbj</groupId>
+            <artifactId>parallel</artifactId>
+            <version>1.0</version>
+            <scope>system</scope>
+            <systemPath>${pom.basedir}/libs/ai_parallel.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>com.landingbj</groupId>
             <artifactId>gather</artifactId>
             <version>1.0</version>
             <scope>system</scope>

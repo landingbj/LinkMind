@@ -575,7 +575,7 @@ public class ExcelSqlUtil {
         Connection conn = null;
         Statement stmt = null;
         try {
-            Class.forName(sqlJdbc.getDriverClassName());
+            Class.forName(sqlJdbc.getDriver());
             conn = DriverManager.getConnection(sqlJdbc.getJdbcUrl(), sqlJdbc.getUsername(), sqlJdbc.getPassword());
             stmt = conn.createStatement();
             DatabaseMetaData dbm = conn.getMetaData();

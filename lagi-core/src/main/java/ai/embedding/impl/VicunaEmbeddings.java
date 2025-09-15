@@ -1,6 +1,5 @@
 package ai.embedding.impl;
 
-import ai.common.client.AiServiceCall;
 import ai.common.pojo.EmbeddingConfig;
 import ai.embedding.EmbeddingConstant;
 import ai.embedding.Embeddings;
@@ -18,10 +17,10 @@ import java.util.concurrent.TimeUnit;
 public class VicunaEmbeddings implements Embeddings {
     private static final Cache<List<String>, List<List<Float>>> cache = EmbeddingConstant.getEmbeddingCache();
     private final Gson gson = new Gson();
-    private String openAIAPIKey;
-    private String modelName;
-    private String apiEndpoint;
-    private ConnectionPool connectionPool = new ConnectionPool(
+    private final String openAIAPIKey;
+    private final String modelName;
+    private final String apiEndpoint;
+    private final ConnectionPool connectionPool = new ConnectionPool(
             100, // 最大空闲连接数
             100, // 保持连接的时间
             TimeUnit.MINUTES
@@ -34,6 +33,17 @@ public class VicunaEmbeddings implements Embeddings {
     }
 
     public List<List<Float>> createEmbedding(List<String> docs) {
+        int batchSize = 25;
+        List<List<Float>> result = new ArrayList<>();
+        for (int i = 0; i < docs.size(); i += batchSize) {
+            List<String> batchDocs = docs.subList(i, Math.min(i + batchSize, docs.size()));
+            List<List<Float>> batchResult = createEmbeddingBatch(batchDocs);
+            result.addAll(batchResult);
+        }
+        return result;
+    }
+
+    public List<List<Float>> createEmbeddingBatch(List<String> docs) {
         List<List<Float>> result = cache.getIfPresent(docs);
         if (result != null) {
             return result;

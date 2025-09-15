@@ -15,7 +15,7 @@ public class EmbeddingFactory {
             return new QwenEmbeddings(config);
         } else if (EmbeddingConstant.EMBEDDING_TYPE_VICUNA.equalsIgnoreCase(type)) {
             return new VicunaEmbeddings(config);
-        } else if (EmbeddingConstant.EMBEDDING_TYPE_LANDING.equalsIgnoreCase(type)) {
+        } else if (EmbeddingConstant.EMBEDDING_TYPE_LANDING.equalsIgnoreCase(type) && config.getModel_path() == null) {
             return new LandingEmbeddings(config);
         } else if (EmbeddingConstant.EMBEDDING_TYPE_ZHIPU.equalsIgnoreCase(type)) {
             return new ZhipuEmbeddings(config);
@@ -23,6 +23,8 @@ public class EmbeddingFactory {
             return new BaichuanEmbeddings(config);
         } else if (EmbeddingConstant.EMBEDDING_TYPE_SENSECHAT.equalsIgnoreCase(type)){
             return new SenseChatEmbeddings(config);
+        } else if (EmbeddingConstant.EMBEDDING_TYPE_LANDING.equalsIgnoreCase(type) && config.getModel_path() != null) {
+            return new LinkMindEmbeddings(config);
         }
 
         throw new IllegalArgumentException("Invalid type: " + type);

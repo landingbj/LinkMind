@@ -270,17 +270,18 @@ public class AgentService {
     }
 
     public List<Agent<ChatCompletionRequest, ChatCompletionResult>> getAllAgents(LLmRequest llmRequest, String uri) throws IOException {
-        LagiAgentExpenseListResponse paidAgentByUser = getPaidAgentByUser(llmRequest.getUserId(), "1", "1000");
-        Map<Integer, Boolean> haveABalance = paidAgentByUser.getData().stream().collect(Collectors.toMap(AgentConfig::getId, agentConfig -> {
-            BigDecimal balance = agentConfig.getBalance();
-            BigDecimal pricePerReq = agentConfig.getPricePerReq();
-            return balance.doubleValue() >= pricePerReq.doubleValue();
-        }));
+//        LagiAgentExpenseListResponse paidAgentByUser = getPaidAgentByUser(llmRequest.getUserId(), "1", "1000");
+//        Map<Integer, Boolean> haveABalance = paidAgentByUser.getData().stream().collect(Collectors.toMap(AgentConfig::getId, agentConfig -> {
+//            BigDecimal balance = agentConfig.getBalance();
+//            BigDecimal pricePerReq = agentConfig.getPricePerReq();
+//            return balance.doubleValue() >= pricePerReq.doubleValue();
+//        }));
+//        LagiAgentListResponse lagiAgentList = getLagiAgentList(null, 1, 1000, "true");
+//        List<AgentConfig> agentConfigs = lagiAgentList.getData();
+//        List<Agent<ChatCompletionRequest, ChatCompletionResult>> agents = SkillMapUtil.convert2AgentList(agentConfigs, haveABalance);
 
+        List<Agent<ChatCompletionRequest, ChatCompletionResult>> agents = new ArrayList<>();
         List<Agent<ChatCompletionRequest, ChatCompletionResult>> llmAndAgentList = SkillMapUtil.getLlmAndAgentList();
-        LagiAgentListResponse lagiAgentList = getLagiAgentList(null, 1, 1000, "true");
-        List<AgentConfig> agentConfigs = lagiAgentList.getData();
-        List<Agent<ChatCompletionRequest, ChatCompletionResult>> agents = SkillMapUtil.convert2AgentList(agentConfigs, haveABalance);
         agents.addAll(llmAndAgentList);
         for (Agent<ChatCompletionRequest, ChatCompletionResult> agent : agents) {
             if (agent instanceof LocalRagAgent) {

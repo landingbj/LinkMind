@@ -49,7 +49,9 @@ public class IntentApiServlet extends RestfulServlet {
 
         LLmRequest llmRequest = reqBodyToObj(req, LLmRequest.class);
         String uri = req.getScheme() + "://" + req.getServerName() + ":" + req.getServerPort();
+        long startTime = System.currentTimeMillis();
         List<Agent<ChatCompletionRequest, ChatCompletionResult>> allAgents = getAllAgents(llmRequest, uri);
+        System.out.println("allAgents That took " + (System.currentTimeMillis() - startTime) + " milliseconds");
         List<ILlmAdapter> userLlmAdapters = getUserLlmAdapters(llmRequest.getUserId());
 
         IntentDetectParam intentDetectParam = new IntentDetectParam();
@@ -105,6 +107,7 @@ public class IntentApiServlet extends RestfulServlet {
         params.put(IntentGlobal.MAPPER_INTENT_PARAM, intentDetectParam);
 
         try (IRContainer contain = new IntentContainer()) {
+            long startTime = System.currentTimeMillis();
             IMapper modalDetectMapper = new ModalDetectMapper();
             modalDetectMapper.setParameters(params);
             contain.registerMapper(modalDetectMapper);
@@ -130,6 +133,7 @@ public class IntentApiServlet extends RestfulServlet {
             if (result != null && !result.isEmpty()) {
                 intentRouteResult = result.get(0);
             }
+            System.out.println("IntentRouteResult That took " + (System.currentTimeMillis() - startTime) + " milliseconds");
             return intentRouteResult;
         }
     }

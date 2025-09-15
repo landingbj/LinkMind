@@ -25,6 +25,7 @@ public class UserLlmMapper extends BaseMapper implements IMapper {
 
     @Override
     public List<?> myMapping() {
+        long startTime = System.currentTimeMillis();
         List<Object> result = new ArrayList<>();
         IntentDetectParam param = (IntentDetectParam) this.getParameters().get(IntentGlobal.MAPPER_INTENT_PARAM);
 
@@ -35,6 +36,7 @@ public class UserLlmMapper extends BaseMapper implements IMapper {
         intentResult.setAgents(llmAndAgentList);
         result.add(AiGlobalQA.M_LIST_RESULT_TEXT, intentResult);
         result.add(AiGlobalQA.M_LIST_RESULT_PRIORITY, priority);
+        System.out.println("UserLlmMapper That took " + (System.currentTimeMillis() - startTime) + " milliseconds");
         return result;
     }
 }

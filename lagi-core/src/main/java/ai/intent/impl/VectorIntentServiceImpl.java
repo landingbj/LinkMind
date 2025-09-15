@@ -24,6 +24,7 @@ public class VectorIntentServiceImpl extends SampleIntentServiceImpl {
 
     @Override
     public IntentResult detectIntent(ChatCompletionRequest chatCompletionRequest) {
+        long startTime = System.currentTimeMillis();
         IntentTypeEnum intentTypeEnum = IntentTypeEnum.TEXT;
         IntentResult intentResult = new IntentResult();
         intentResult.setType(intentTypeEnum.getName());
@@ -31,11 +32,13 @@ public class VectorIntentServiceImpl extends SampleIntentServiceImpl {
         intentResult.setContinuedIndex(chatCompletionRequest.getMessages().size() - 1);
         List<Integer> res = PromptCacheTrigger.analyzeChatBoundariesForIntent(chatCompletionRequest);
         if(res.size() == 1) {
+            System.out.println("VectorIntentServiceImpl detectIntent took " + (System.currentTimeMillis() - startTime) + " milliseconds");
             return intentResult;
         }
         String lastQ = ChatCompletionUtil.getLastMessage(chatCompletionRequest);
         boolean isStop = StoppingWordUtil.containsStoppingWorlds(lastQ);
         if(isStop) {
+            System.out.println("VectorIntentServiceImpl detectIntent took " + (System.currentTimeMillis() - startTime) + " milliseconds");
             return intentResult;
         }
         Integer lIndex = res.get(0);
@@ -43,9 +46,11 @@ public class VectorIntentServiceImpl extends SampleIntentServiceImpl {
         if(isContinue) {
             intentResult.setStatus(IntentStatusEnum.CONTINUE.getName());
             intentResult.setContinuedIndex(lIndex);
+            System.out.println("VectorIntentServiceImpl detectIntent took " + (System.currentTimeMillis() - startTime) + " milliseconds");
             return intentResult;
         }
         setIntentByVector(chatCompletionRequest, lIndex, lastQ, intentResult);
+        System.out.println("VectorIntentServiceImpl detectIntent took " + (System.currentTimeMillis() - startTime) + " milliseconds");
         return intentResult;
     }
 

@@ -1,16 +1,15 @@
 package ai.database.impl;
 
-import ai.common.pojo.Backend;
-import ai.config.ContextLoader;
-import ai.database.pojo.SQLJdbc;
 import ai.database.pojo.TableColumnInfo;
-import ai.utils.ExcelSqlUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Field;
 import java.sql.*;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class SqliteAdapter {
     private String url;
@@ -28,7 +27,7 @@ public class SqliteAdapter {
         Connection conn = null;
         Statement stmt = null;
         try {
-            conn = DriverManager.getConnection(url);
+            conn = getCon(url);
             stmt = conn.createStatement();
             DatabaseMetaData dbm = conn.getMetaData();
             ResultSet tables = dbm.getTables(null, null, "table_info", null);
@@ -67,12 +66,17 @@ public class SqliteAdapter {
         }
     }
 
+    public Connection getCon() {
+        return getCon(url);
+    }
+
     /**
      * 打开连接
      */
-    public Connection getCon() {
+    public Connection getCon(String url) {
         Connection con = null;
         try {
+            Class.forName("org.sqlite.JDBC");
             con = DriverManager.getConnection(url);
         } catch (Exception e) {
             e.printStackTrace();

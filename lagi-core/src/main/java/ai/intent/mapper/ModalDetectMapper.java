@@ -27,6 +27,7 @@ public class ModalDetectMapper extends BaseMapper implements IMapper {
 
     @Override
     public List<?> myMapping() {
+        long startTime = System.currentTimeMillis();
         List<Object> result = new ArrayList<>();
         IntentDetectParam param = (IntentDetectParam) this.getParameters().get(IntentGlobal.MAPPER_INTENT_PARAM);
         LLmRequest llmRequest = param.getLlmRequest();
@@ -40,6 +41,7 @@ public class ModalDetectMapper extends BaseMapper implements IMapper {
         intentResult.setModal(intentModal);
         result.add(AiGlobalQA.M_LIST_RESULT_TEXT, intentResult);
         result.add(AiGlobalQA.M_LIST_RESULT_PRIORITY, priority);
+        System.out.println("ModalDetectMapper That took " + (System.currentTimeMillis() - startTime) + " milliseconds");
         return result;
     }
 }

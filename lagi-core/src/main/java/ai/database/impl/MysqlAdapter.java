@@ -50,7 +50,7 @@ public class MysqlAdapter {
                         .filter(sqlJdbc -> sqlJdbc.getName().equals(this.name))
                         .findFirst()
                         .orElseThrow(() -> new NoSuchElementException("Database not found"));
-                driver = database.getDriverClassName();
+                driver = database.getDriver();
                 url = database.getJdbcUrl();
                 username = database.getUsername();
                 password = database.getPassword();

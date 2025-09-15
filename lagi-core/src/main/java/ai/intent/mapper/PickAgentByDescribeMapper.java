@@ -30,6 +30,7 @@ public class PickAgentByDescribeMapper extends BaseMapper implements IMapper {
 
     @Override
     public List<?> myMapping() {
+        long startTime = System.currentTimeMillis();
         List<Object> result = new ArrayList<>();
         IntentDetectParam param = (IntentDetectParam) this.getParameters().get(IntentGlobal.MAPPER_INTENT_PARAM);
 
@@ -53,7 +54,7 @@ public class PickAgentByDescribeMapper extends BaseMapper implements IMapper {
         intentResult.setAgents(pickAgentList);
         result.add(AiGlobalQA.M_LIST_RESULT_TEXT, intentResult);
         result.add(AiGlobalQA.M_LIST_RESULT_PRIORITY, priority);
-
+        System.out.println("PickAgentByDescribeMapper That took " + (System.currentTimeMillis() - startTime) + " milliseconds");
         return result;
     }
 }

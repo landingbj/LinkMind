@@ -17,4 +17,10 @@ public class RAGFunction {
     private String defaultText;
     private Boolean track;
     private Boolean html;
+    @JsonProperty("cache_size")
+    private Integer cacheSize;
+    @JsonProperty("preload_cache")
+    private Boolean preloadCache;
+    @JsonProperty("preload_cache_category")
+    private String preloadCacheCategory;
 }

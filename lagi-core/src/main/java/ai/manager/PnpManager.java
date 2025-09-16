@@ -22,6 +22,9 @@ public class PnpManager {
     private final Map<String, Pnp<?, ?>> pnpMap = new ConcurrentHashMap<>();
 
     public void register(List<PnpConfig> pnpConfigs) {
+        if (pnpConfigs == null) {
+            return;
+        }
         pnpConfigs.forEach(conf -> {
             String driver = conf.getDriver();
             String name = conf.getName();

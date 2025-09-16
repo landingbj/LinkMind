@@ -19,6 +19,9 @@ public class AgentManager {
     private final Map<String, Agent<?, ?>> agentsMap = new ConcurrentHashMap<>();
     public void register(List<AgentConfig> agentConfigs)
     {
+        if (agentConfigs == null) {
+            return;
+        }
         agentConfigs.forEach(conf -> {
         String driver = conf.getDriver();
         String name = conf.getName();

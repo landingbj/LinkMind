@@ -408,7 +408,7 @@ public class LlmApiServlet extends BaseServlet {
         observable.subscribe(
                 data -> {
                     lastResult[0] = data;
-                    ChatCompletionResult filter = SensitiveWordUtil.filter(data);
+                    ChatCompletionResult filter = SensitiveWordUtil.filter(data, true);
                     String msg = gson.toJson(filter);
                     out.print("data: " + msg + "\n\n");
                     out.flush();

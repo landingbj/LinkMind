@@ -9,6 +9,7 @@ import ai.openai.pojo.ChatCompletionChoice;
 import ai.openai.pojo.ChatCompletionResult;
 import ai.openai.pojo.ChatMessage;
 import cn.hutool.core.util.StrUtil;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.HashMap;
 import java.util.List;
@@ -18,6 +19,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+@Slf4j
 public class SensitiveWordUtil {
     private static final Map<String, WordRule> ruleMap = new HashMap<>();
     private static final Map<String, Pattern> patternCache = new HashMap<>();
@@ -124,6 +126,7 @@ public class SensitiveWordUtil {
             String message = chatMessage.getContent().toLowerCase();
             Matcher matcher = p.matcher(message);
             if (matcher.find()) {
+                log.info("sensitive message: {} match group: {}", message, matcher.group());
                 WordRule wordRule = ruleMap.get(rule);
                 if (wordRule != null) {
                     String replaceContent = "";

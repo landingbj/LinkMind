@@ -360,7 +360,7 @@ async function getSessionId() {
 let sessionId = null;
 
 async function getRequest(question, agentId) {
-    if (CONVERSATION_CONTEXT.length == 0) {
+    if (CONVERSATION_CONTEXT.length === 0) {
         sessionId = await getSessionId();
     }
     let paras = {
@@ -473,9 +473,6 @@ function convOutput(conversation, answer) {
 }
 
 async function getTextResult(question, robotAnswerJq, conversation, agentId) {
-    if (CONVERSATION_CONTEXT.length === 0) {
-        sessionId = await getSessionId();
-    }
     // debugger
     let result = '';
     let paras = await getRequest(question, agentId);
@@ -765,7 +762,7 @@ function streamOutput(paras, question, robootAnswerJq, url = "chat/go/stream") {
 
     generateStream(paras).then(r => {
         let lastAnswer = CONVERSATION_CONTEXT[CONVERSATION_CONTEXT.length - 1]["content"]
-        txtTovoice(lastAnswer.replace(/<think>[\s\S]*?<\/think>/g, ''), "default");
+        // txtTovoice(lastAnswer.replace(/<think>[\s\S]*?<\/think>/g, ''), "default");
         enableQueryBtn();
         querying = false;
         queryLock = false;

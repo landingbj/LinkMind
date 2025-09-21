@@ -200,7 +200,6 @@ function nextPrompt(action, prompt) {
                 if (action === GET_QR_CODE) {
                     let appIdList = res.appId.split(',');
                     SOCIAL_CHANEL["appIdList"] = JSON.parse(JSON.stringify(appIdList));
-                    ;
                     let username = res.username;
                     let channelId = res.channelId;
                     if (appIdList.length > 0) {

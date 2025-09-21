@@ -403,22 +403,22 @@ public class LlmApiServlet extends BaseServlet {
         String uri = req.getScheme() + "://" + req.getServerName() + ":" + req.getServerPort();
         List<Agent<ChatCompletionRequest, ChatCompletionResult>> allAgents = getAllAgents(llmRequest, uri);
         if (invokeAppointedAgent(req, resp, llmRequest, allAgents)) return;
-//        boolean think = Boolean.TRUE.equals(llmRequest.getThink());
-        boolean think = true;
-        if (think) {
-            out.println("data: " + gson.toJson(convertResponse("", "<think>")) + "\n\n");
-            out.flush();
-        }
         IntentRouteResult intentRouteResult = llmRequest.getIntent();
-        if (intentRouteResult!=null&&intentRouteResult.getInvoke() != null) {
-            String invoke = intentRouteResult.getInvoke();
-            SummaryUtil.setInvoke(llmRequest, invoke);
-            if (think) {
-                out.println("data: " + gson.toJson(convertResponse("", "用户的目标：" + invoke + "\n\n")) + "\n\n");
-                out.flush();
-            }
-            logger.info("Summary: {}", invoke);
-        }
+//        boolean think = Boolean.TRUE.equals(llmRequest.getThink());
+//        boolean think = true;
+//        if (think) {
+//            out.println("data: " + gson.toJson(convertResponse("", "<think>")) + "\n\n");
+//            out.flush();
+//        }
+//        if (intentRouteResult!=null&&intentRouteResult.getInvoke() != null) {
+//            String invoke = intentRouteResult.getInvoke();
+//            SummaryUtil.setInvoke(llmRequest, invoke);
+//            if (think) {
+//                out.println("data: " + gson.toJson(convertResponse("", "用户的目标：" + invoke + "\n\n")) + "\n\n");
+//                out.flush();
+//            }
+//            logger.info("Summary: {}", invoke);
+//        }
         List<Integer> agents = intentRouteResult==null?null:intentRouteResult.getAgents();
         List<Agent<ChatCompletionRequest, ChatCompletionResult>> pickAgentList = agentService.getAgentsById(agents, allAgents);
         Agent<ChatCompletionRequest, ChatCompletionResult> outputAgent = null;
@@ -436,16 +436,16 @@ public class LlmApiServlet extends BaseServlet {
         }
         IntentResponse intentDetect = getIntentResponse(llmRequest);
 
-        if (think) {
-            if(outputAgent instanceof LocalRagAgent) {
-                out.println("data: " + gson.toJson(convertResponse("", "为用户选用大模型：LLM" +   "\n\n")) + "\n\n");
-            } else {
-                out.println("data: " + gson.toJson(convertResponse("", "为用户选用智能体：" + outputAgent.getAgentConfig().getName() + "\n\n")) + "\n\n");
-            }
-            out.flush();
-            out.println("data: " + gson.toJson(convertResponse("", "</think>")) + "\n\n");
-            out.flush();
-        }
+//        if (think) {
+//            if(outputAgent instanceof LocalRagAgent) {
+//                out.println("data: " + gson.toJson(convertResponse("", "为用户选用大模型：LLM" +   "\n\n")) + "\n\n");
+//            } else {
+//                out.println("data: " + gson.toJson(convertResponse("", "为用户选用智能体：" + outputAgent.getAgentConfig().getName() + "\n\n")) + "\n\n");
+//            }
+//            out.flush();
+//            out.println("data: " + gson.toJson(convertResponse("", "</think>")) + "\n\n");
+//            out.flush();
+//        }
 
         if (outputAgent instanceof LocalRagAgent) {
             LocalRagAgent ragAgent = (LocalRagAgent) outputAgent;

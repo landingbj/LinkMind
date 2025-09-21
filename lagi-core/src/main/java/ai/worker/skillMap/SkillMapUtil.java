@@ -39,7 +39,7 @@ public class SkillMapUtil {
 
     static {
         llmAndAgentList = initAgents();
-        ThreadPoolManager.registerExecutor("SkillMapUtil");
+        ThreadPoolManager.registerExecutor("SkillMapUtil", 3, 3, 1000);
         executorService= ThreadPoolManager.getExecutor("SkillMapUtil");
     }
 
@@ -249,13 +249,6 @@ public class SkillMapUtil {
         return agent;
     }
 
-    public static void asyncScoreAgents(IntentResponse intentResponse, ChatCompletionRequest request, List<Agent<ChatCompletionRequest, ChatCompletionResult>> agentList) {
-        executorService.submit(() -> {
-            request.setStream(false);
-            saveAgents(intentResponse, request, agentList);
-        });
-    }
-
     private static void saveAgents(IntentResponse intentResponse, ChatCompletionRequest request, List<Agent<ChatCompletionRequest, ChatCompletionResult>> agentList) {
         for (Agent<ChatCompletionRequest, ChatCompletionResult> agent : agentList) {
             if (agent instanceof LocalRagAgent) {
@@ -273,6 +266,13 @@ public class SkillMapUtil {
         executorService.submit(() -> {
             request.setStream(false);
             IntentResponse intentResponse = skillMap.intentDetect(ChatCompletionUtil.getLastMessage(request));
+            saveAgents(intentResponse, request, agentList);
+        });
+    }
+
+    public static void asyncScoreAgents(IntentResponse intentResponse, ChatCompletionRequest request, List<Agent<ChatCompletionRequest, ChatCompletionResult>> agentList) {
+        executorService.submit(() -> {
+            request.setStream(false);
             saveAgents(intentResponse, request, agentList);
         });
     }

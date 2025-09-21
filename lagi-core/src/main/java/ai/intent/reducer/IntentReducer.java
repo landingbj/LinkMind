@@ -39,7 +39,7 @@ public class IntentReducer extends BaseReducer implements IReducer {
     @Override
     public void myReducing(List<?> list) {
         LLmRequest llmRequest = this.intentDetectParam.getLlmRequest();
-        SummaryUtil.setInvoke(llmRequest, SummaryUtil.invoke(llmRequest));
+//        SummaryUtil.setInvoke(llmRequest, SummaryUtil.invoke(llmRequest));
         IntentResult intentResult = intentService.detectIntent(this.intentDetectParam.getLlmRequest());
         List<Integer> agents = new ArrayList<>();
 

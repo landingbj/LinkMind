@@ -1,16 +1,17 @@
 package ai.servlet.api;
 
 import ai.agent.Agent;
+import ai.common.utils.LRUCache;
 import ai.intent.IntentGlobal;
 import ai.intent.container.IntentContainer;
 import ai.intent.mapper.ModalDetectMapper;
-import ai.intent.mapper.PickAgentByDescribeMapper;
 import ai.intent.mapper.RankAgentByKeywordMapper;
 import ai.intent.mapper.UserLlmMapper;
 import ai.intent.pojo.IntentDetectParam;
 import ai.intent.pojo.IntentRouteResult;
 import ai.intent.reducer.IntentReducer;
 import ai.llm.adapter.ILlmAdapter;
+import ai.llm.utils.ContextUtil;
 import ai.llm.utils.SummaryUtil;
 import ai.migrate.service.AgentService;
 import ai.mr.IMapper;
@@ -32,6 +33,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 public class IntentApiServlet extends RestfulServlet {
@@ -39,6 +41,8 @@ public class IntentApiServlet extends RestfulServlet {
     private final Gson gson = new Gson();
 
     private final AgentService agentService = new AgentService();
+
+    private static final LRUCache<String, IntentRouteResult> intentRouteResultCache = new LRUCache<>(1000, 120, TimeUnit.SECONDS);
 
 
     @Post("detect")
@@ -63,12 +67,23 @@ public class IntentApiServlet extends RestfulServlet {
         if (llmRequest.getAgentId() != null) {
             result = appointAgent(llmRequest.getAgentId());
         } else {
+            String sessionId = llmRequest.getSessionId();
+            IntentRouteResult cachedResult = intentRouteResultCache.get(sessionId);
             long count = llmRequest.getMessages().stream().filter(message -> message.getRole().equals("user")).count();
+            boolean isContinued = false;
             if (count > 1) {
-                String invoke = SummaryUtil.invoke(llmRequest);
-                intentDetectParam.setInvoke(invoke);
+                isContinued = ContextUtil.checkLastMsgContinuity(llmRequest);
             }
-            result = detect(intentDetectParam);
+            if (cachedResult != null && isContinued) {
+                result = cachedResult;
+            } else {
+//                if (count > 1) {
+//                    String invoke = SummaryUtil.invoke(llmRequest);
+//                    intentDetectParam.setInvoke(invoke);
+//                }
+                result = detect(intentDetectParam);
+                intentRouteResultCache.put(sessionId, result);
+            }
         }
 
         if (result == null) {
@@ -112,9 +127,9 @@ public class IntentApiServlet extends RestfulServlet {
             modalDetectMapper.setParameters(params);
             contain.registerMapper(modalDetectMapper);
 
-            IMapper pickAgentByDescribeMapper = new PickAgentByDescribeMapper();
-            pickAgentByDescribeMapper.setParameters(params);
-            contain.registerMapper(pickAgentByDescribeMapper);
+//            IMapper pickAgentByDescribeMapper = new PickAgentByDescribeMapper();
+//            pickAgentByDescribeMapper.setParameters(params);
+//            contain.registerMapper(pickAgentByDescribeMapper);
 
             IMapper rankAgentByKeywordMapper = new RankAgentByKeywordMapper();
             rankAgentByKeywordMapper.setParameters(params);

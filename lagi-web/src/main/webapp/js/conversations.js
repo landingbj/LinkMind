@@ -33,7 +33,9 @@ async function newConversation(conv, questionEnable = true, answerEnable = true)
     let robot = `
 <div class="robot-return w-full  group " data-index="${converation_index + 1}">
 <div class="text-area  text-base gap-4 md:gap-6 m-auto md:max-w-2xl lg:max-w-2xl xl:max-w-3xl p-4 md:py-6 flex lg:px-0">
-    
+    <div class="intent-prompt">
+        <span class="intent-prompt-text">正在为您匹配最佳的智能体或大模型</span>
+    </div>
     <div class="relative flex w-[calc(100%-50px)] flex-col gap-1 md:gap-3 lg:w-[calc(100%-115px)]">
         <div class="">
             <div class="chat-div">
@@ -55,7 +57,7 @@ async function newConversation(conv, questionEnable = true, answerEnable = true)
                 <svg t="1752982108403" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="12130" width="20" height="20"><path d="M158.072096 279.909205a38.39808 38.39808 0 0 1 27.710615 71.676416 171.319434 171.319434 0 0 0-97.275136 222.260887c5.183741 12.79936 3.135843 27.134643-5.247738 38.39808a38.910054 38.910054 0 0 1-36.094195 14.335283 38.270086 38.270086 0 0 1-29.822509-24.574771A248.307585 248.307585 0 0 1 158.072096 279.909205z m93.563322 103.418829a38.526074 38.526074 0 0 1 49.661517 21.502924 37.886106 37.886106 0 0 1-0.511974 29.182541 40.445978 40.445978 0 0 1-20.926954 20.478976 91.00345 91.00345 0 0 0-50.685466 49.149543 89.59552 89.59552 0 0 0-1.023948 70.652467 37.630118 37.630118 0 0 1-0.575972 29.182541 40.381981 40.381981 0 0 1-20.862956 20.478976h-0.639968a38.39808 38.39808 0 0 1-49.085546-22.014899 168.631568 168.631568 0 0 1 2.047897-129.529524 164.919754 164.919754 0 0 1 92.60337-89.083545zM833.686316 5.426929a45.245738 45.245738 0 0 1 35.582221-3.071847 46.077696 46.077696 0 0 1 7.807609 84.987751l-164.727763 87.035648v446.057697a199.670016 199.670016 0 0 1-199.222039 199.158042 199.350032 199.350032 0 0 1-199.286036-199.158042A199.670016 199.670016 0 0 1 513.126344 421.150142c37.630118 0 74.748263 10.751462 106.170691 30.718465V146.79586a46.717664 46.717664 0 0 1 24.574771-40.957952l189.81451-100.474976z m-13.567322 663.646817a38.59007 38.59007 0 0 1 48.637568 23.038848 169.143543 169.143543 0 0 1-104.634768 215.029249 38.014099 38.014099 0 0 1-48.061597-23.9988 38.39808 38.39808 0 0 1 23.038848-48.637568 92.79536 92.79536 0 0 0 56.957152-117.818109 38.39808 38.39808 0 0 1 24.062797-47.61362z m141.176941 13.823309a38.654067 38.654067 0 0 1 29.310535 1.535923 36.926154 36.926154 0 0 1 19.327033 22.0149 245.875706 245.875706 0 0 1-10.943453 189.430528 246.579671 246.579671 0 0 1-141.752912 126.0097h-0.511974a37.886106 37.886106 0 0 1-48.125594-24.062797 38.20609 38.20609 0 0 1 23.486826-48.637568 171.767412 171.767412 0 0 0 98.363082-87.035649 172.79136 172.79136 0 0 0 7.871606-131.129443 40.189991 40.189991 0 0 1 1.535923-29.182541 40.573971 40.573971 0 0 1 21.438928-18.943053z" fill="#2c2c2c" p-id="12131"></path></svg>
                 ${SOUNDS_HTML}
                 </button>
-                <button data-index="${converation_index}"  onclick="showRecommend(this, event)"  class="recommend p-1 rounded-md hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200 disabled:dark:hover:text-gray-400">
+                <button style="display: none;" data-index="${converation_index}"  onclick="showRecommend(this, event)"  class="recommend p-1 rounded-md hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200 disabled:dark:hover:text-gray-400">
                 <svg t="1752981885416" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="11087" width="20" height="20"><path d="M505.284 601.305c-103.659 0-187.992-84.333-187.992-187.992 0-103.659 84.333-187.992 187.992-187.992s187.992 84.333 187.992 187.992c0 103.659-84.333 187.992-187.992 187.992z m0-311.984c-68.37 0-123.992 55.623-123.992 123.992s55.623 123.992 123.992 123.992 123.992-55.623 123.992-123.992c0-68.37-55.623-123.992-123.992-123.992zM317.282 930.421l-82.075-142.858-143.301-21.24 131.835-197.712 53.248 35.506-75.816 113.702 74.084 10.98 44.231 76.989 60.713-97.515 54.33 33.827z" fill="" p-id="11088"></path><path d="M505.284 752.984c-45.841 0-90.328-8.985-132.225-26.706-40.452-17.109-76.774-41.597-107.959-72.781s-55.671-67.507-72.781-107.959c-17.721-41.897-26.706-86.384-26.706-132.225s8.985-90.328 26.706-132.226c17.11-40.452 41.597-76.774 72.781-107.958s67.507-55.672 107.958-72.781c41.897-17.721 86.384-26.707 132.226-26.707s90.328 8.985 132.226 26.707c40.452 17.109 76.774 41.597 107.959 72.781s55.672 67.507 72.781 107.958c17.721 41.897 26.706 86.384 26.706 132.226s-8.985 90.328-26.706 132.225c-17.109 40.452-41.597 76.774-72.781 107.959s-67.508 55.672-107.959 72.781c-41.898 17.721-86.384 26.706-132.226 26.706z m0-615.343c-152.006 0-275.671 123.666-275.671 275.672 0 152.005 123.666 275.671 275.671 275.671s275.672-123.666 275.672-275.671c0-152.006-123.666-275.672-275.672-275.672z" fill="" p-id="11089"></path><path d="M705.624 928.421L588.375 740.1l54.33-33.827 60.712 97.515 44.231-76.989 74.085-10.98-75.816-113.702 53.248-35.506 131.834 197.712-143.301 21.24z" fill="" p-id="11090"></path></svg>
                 ${RECOMMEND_HTML}
                 </button>
@@ -596,5 +598,29 @@ function playAudio(that) {
     } else {
         audio.pause();
         $(that).html(AUDIO_PLAY_ICON)
+    }
+}
+
+function hideIntentPrompt() {
+    // Get the last conversation element and find its intent-prompt
+    const conversationElements = document.querySelectorAll('.robot-return');
+    if (conversationElements.length > 0) {
+        const lastConversation = conversationElements[conversationElements.length - 1];
+        const intentPromptElement = lastConversation.querySelector('.intent-prompt');
+        if (intentPromptElement) {
+            intentPromptElement.style.display = 'none';
+        }
+    }
+}
+
+function showIntentPrompt() {
+    // Get the last conversation element and find its intent-prompt
+    const conversationElements = document.querySelectorAll('.robot-return');
+    if (conversationElements.length > 0) {
+        const lastConversation = conversationElements[conversationElements.length - 1];
+        const intentPromptElement = lastConversation.querySelector('.intent-prompt');
+        if (intentPromptElement) {
+            intentPromptElement.style.display = 'block';
+        }
     }
 }

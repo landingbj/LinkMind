@@ -2,7 +2,6 @@ package ai.llm.utils;
 
 import ai.common.utils.ObservableList;
 import ai.llm.pojo.LlmApiResponse;
-import ai.openai.pojo.ChatCompletionRequest;
 import ai.openai.pojo.ChatCompletionResult;
 import cn.hutool.core.text.StrFormatter;
 import com.google.gson.Gson;
@@ -139,19 +138,19 @@ public class OpenAiApiUtil {
             public void onOpen(@NotNull EventSource eventSource, @NotNull Response response) {
                 int code = response.code();
                 try {
-                    String bodyStr = response.body().string();
-                    if(code != 200) {
+                    if (code != 200) {
+                        String bodyStr = response.body().string();
                         result.setCode(convertErrorFunc.apply(response));
                         result.setMsg(bodyStr);
                         closeConnection(eventSource);
                     } else {
                         result.setCode(code);
-                        result.setMsg(bodyStr);
                     }
                 } catch (IOException e) {
 
                 }
             }
+
             @Override
             public void onEvent(@NotNull EventSource eventSource, @Nullable String id, @Nullable String type, @NotNull String data) {
                 ChatCompletionResult chatCompletionResult = convertResponseFunc.apply(data);
@@ -159,9 +158,10 @@ public class OpenAiApiUtil {
                     res.add(chatCompletionResult);
                 }
             }
+
             @Override
             public void onFailure(@NotNull EventSource eventSource, @Nullable Throwable t, @Nullable Response response) {
-                if(t instanceof SocketTimeoutException) {
+                if (t instanceof SocketTimeoutException) {
                     result.setCode(LLMErrorConstants.TIME_OUT);
                     result.setMsg(StrFormatter.format("{\"error\":\"{}\"}", t.getMessage()));
                 } else {
@@ -174,7 +174,7 @@ public class OpenAiApiUtil {
                         result.setMsg(StrFormatter.format("{\"error\":\"{}\"}", t.getMessage()));
                     }
                 }
-                if(t != null) {
+                if (t != null) {
                     log.error("model request failed error {}", t.getMessage());
                 }
                 closeConnection(eventSource);
@@ -188,12 +188,10 @@ public class OpenAiApiUtil {
             private void closeConnection(EventSource eventSource) {
                 res.onComplete();
                 eventSource.cancel();
-                client.dispatcher().executorService().shutdown();
+//                client.dispatcher().executorService().shutdown();
             }
         });
-        Iterable<ChatCompletionResult> iterable = res.getObservable().blockingIterable();
-        iterable.iterator().hasNext();
-        result.setStreamData(Observable.fromIterable(iterable));
+        result.setStreamData(Observable.fromIterable(res.getObservable().blockingIterable()));
         return result;
     }
 

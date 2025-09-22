@@ -985,8 +985,7 @@
                         class="absolute p-1 rounded-md text-gray-500   hover:bg-gray-100 dark:hover:text-gray-400 dark:hover:bg-ldbj-900 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent">
                         <div id="agent-container" class="absolute flex w-full flex-1 items-stretch md:flex-col hidden">
                           <div id="agentList" class="absolute left-0 z-50 agent-pannel w-32 ">
-                            <div id="agent-head" class="agent-head  pt-2 pb-1 text-center">智能体
-                            </div>
+                            <div id="agent-head" class="agent-head  pt-2 pb-1 text-center">智能体</div>
                             <!-- <ul id = "agent-tools" class="pb-2" style="max-height: 100px; overflow: auto"> -->
                             <ul id="agent-tools" class="pb-2">
                               <li class=" pl-5  not-available " onclick="openAgentModal(event)">发布智能体</li>

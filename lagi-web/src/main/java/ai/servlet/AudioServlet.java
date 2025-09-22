@@ -14,7 +14,6 @@ import ai.servlet.annotation.Body;
 import ai.servlet.annotation.Param;
 import ai.servlet.annotation.Post;
 import ai.utils.DownloadUtils;
-import ai.utils.LagiGlobal;
 import ai.utils.WhisperResponse;
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.util.StrUtil;
@@ -50,7 +49,7 @@ public class AudioServlet extends RestfulServlet {
     private static LoadingCache<Text2VoiceEntity, String> cache;
     private final static int CACHE_SIZE = 100;
     private final static long EXPIRE_SECONDS = 60 * 60 * 24 * 7;
-    
+
     static {
         cache = initCache(CACHE_SIZE, EXPIRE_SECONDS);
     }
@@ -61,18 +60,12 @@ public class AudioServlet extends RestfulServlet {
     @Post("text2Voice")
     public void text2Voice(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         Text2VoiceEntity text2VoiceEntity = gson.fromJson(requestToJson(req), Text2VoiceEntity.class);
-        
-        String json = cache.getIfPresent(text2VoiceEntity);
-        if (json != null) {
-            responsePrint(resp, json);
-        } else {
+        Map<String, String> map = new HashMap<>();
+        map.put("status", "success");
+        try {
             TTSRequestParam ttsRequestParam = new TTSRequestParam();
             BeanUtil.copyProperties(text2VoiceEntity, ttsRequestParam);
             TTSResult result = audioService.tts(ttsRequestParam);
-            if (result == null || result.getStatus() == LagiGlobal.TTS_STATUS_FAILURE) {
-                resp.sendError(500);
-                return;
-            }
             String voiceUrl = result.getResult();
             ServletContext context = req.getServletContext();
             String rootPath = context.getRealPath("");
@@ -81,18 +74,14 @@ public class AudioServlet extends RestfulServlet {
             if (!tempDir.exists()) {
                 tempDir.mkdirs();
             }
-            WhisperResponse whisperResponse = null;
             String filename = UUID.randomUUID() + "." + "wav";
-            whisperResponse = DownloadUtils.downloadVoiceFile(voiceUrl, "wav", filePath, filename);
-            if (whisperResponse.getCode() == 0) {
-                resp.sendError(500);
-            }
-            Map<String, String> map = new HashMap<>();
-            map.put("status", "success");
+            WhisperResponse whisperResponse = DownloadUtils.downloadVoiceFile(voiceUrl, "wav", filePath, filename);
             map.put("data", "static/voice/" + whisperResponse.getMsg());
-            json = gson.toJson(map);
-            cache.put(text2VoiceEntity, json);
+        } catch (Exception e) {
+            log.error("tts error: ", e);
+            map.put("data", "static/tts.wav");
         }
+        String json = gson.toJson(map);
         responsePrint(resp, json);
     }
 
@@ -110,7 +99,7 @@ public class AudioServlet extends RestfulServlet {
         File tempDir = new File(fileDirPath);
         if (!tempDir.exists()) {
             boolean mkdir = tempDir.mkdirs();
-            if(!mkdir) {
+            if (!mkdir) {
                 return RestfulResponse.error("创建文件夹失败");
             }
         }
@@ -144,14 +133,14 @@ public class AudioServlet extends RestfulServlet {
     }
 
     @Post("trainStatus")
-    public AudioTrainStatus audioTrainStatus(@Body AudioRequest audioRequest)  {
+    public AudioTrainStatus audioTrainStatus(@Body AudioRequest audioRequest) {
         return audioService.query(audioRequest);
     }
 
     @Post("getSpeakerIds")
-    public List<String> getSpeakerIds(@Param String model)  {
+    public List<String> getSpeakerIds(@Param String model) {
         String others = audioService.getOthers(model);
-        if(StrUtil.isBlank(others)) {
+        if (StrUtil.isBlank(others)) {
             return Collections.emptyList();
         }
         return Arrays.stream(others.split(",")).collect(Collectors.toList());

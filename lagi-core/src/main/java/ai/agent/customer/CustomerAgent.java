@@ -3,7 +3,10 @@ package ai.agent.customer;
 import ai.agent.Agent;
 import ai.agent.customer.pojo.*;
 import ai.agent.customer.prompt.Prompt;
-import ai.agent.customer.tools.*;
+import ai.agent.customer.tools.AbstractTool;
+import ai.agent.customer.tools.ToolManager;
+import ai.agent.customer.tools.ToolUtils;
+import ai.common.utils.LRUCache;
 import ai.config.ContextLoader;
 import ai.config.pojo.AgentConfig;
 import ai.llm.service.CompletionsService;
@@ -15,6 +18,7 @@ import cn.hutool.core.util.StrUtil;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
 import io.reactivex.Observable;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -24,11 +28,14 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+@Slf4j
 public class CustomerAgent extends Agent<ChatCompletionRequest, ChatCompletionResult> {
-    private final Integer maxTryTimes = 3;
+    private static final Integer maxTryTimes = 3;
     private final CompletionsService completionsService = new CompletionsService();
     private final Gson gson = new Gson();
     protected List<ToolInfo> toolInfoList;
+
+    private static final LRUCache<ToolLlmRequest, ChatCompletionResult> callLLmCache = new LRUCache<>(1000);
 
     public CustomerAgent(AgentConfig agentConfig) {
         this.agentConfig = agentConfig;
@@ -41,6 +48,14 @@ public class CustomerAgent extends Agent<ChatCompletionRequest, ChatCompletionRe
 
     public CustomerAgent(List<ToolInfo> toolInfoList) {
         this.toolInfoList = toolInfoList;
+    }
+
+    private ChatCompletionResult callLLm(ToolLlmRequest toolLlmRequest) {
+        ChatCompletionResult result = callLLmCache.get(toolLlmRequest);
+        if (result != null) {
+            return result;
+        }
+        return callLLm(toolLlmRequest.getPrompt(), toolLlmRequest.getHistory(), toolLlmRequest.getUserMsg());
     }
 
     private ChatCompletionResult callLLm(String prompt, List<List<String>> history, String userMsg) {
@@ -71,7 +86,6 @@ public class CustomerAgent extends Agent<ChatCompletionRequest, ChatCompletionRe
         request.setTemperature(0);
         request.setMessages(chatMessages);
         request.setStream(false);
-        System.out.println("request = " + gson.toJson(request));
         return completionsService.completions(request);
     }
 
@@ -94,13 +108,18 @@ public class CustomerAgent extends Agent<ChatCompletionRequest, ChatCompletionRe
         Set<String> toolNames = toolInfoList.stream().map(ToolInfo::getName).collect(Collectors.toSet());
         while (count-- > 0) {
             String prompt = genPrompt(question, agent_scratch.toString());
+
+            ToolLlmRequest toolLlmRequest = new ToolLlmRequest();
+            toolLlmRequest.setPrompt(prompt);
+            toolLlmRequest.setHistory(new ArrayList<>(history));
+            toolLlmRequest.setUserMsg(user_msg);
+
             long start = System.currentTimeMillis();
-            System.out.println("开始调用大模型");
-            ChatCompletionResult result = callLLm(prompt, history, user_msg);
-            System.out.println("结束调用大模型, 耗时：" + (System.currentTimeMillis() - start));
+            ChatCompletionResult result = callLLm(toolLlmRequest);
+            log.info("customer agent call llm time: {}", (System.currentTimeMillis() - start));
             String answer = result.getChoices().get(0).getMessage().getContent();
             answer = extractJson(answer);
-//            System.out.println(agentConfig.getName() + "调用结果：" + answer);
+
             ResponseTemplate responseTemplate;
             try {
                 responseTemplate = gson.fromJson(answer, ResponseTemplate.class);
@@ -109,11 +128,16 @@ public class CustomerAgent extends Agent<ChatCompletionRequest, ChatCompletionRe
                 continue;
             }
             Action action = responseTemplate.getAction();
-            if(action == null) {
+            if (action == null) {
                 continue;
             }
+
+            if (!callLLmCache.containsKey(toolLlmRequest)) {
+//                callLLmCache.put(toolLlmRequest, result);
+            }
+
             if ("finish".equals(action.getName())) {
-                finalAnswer = (String) action.getArgs().get("result").toString();
+                finalAnswer = action.getArgs().get("result").toString();
                 imageUrl = (List<String>) action.getArgs().get("imageUrl");
                 fileUrl = (List<String>) action.getArgs().get("fileUrl");
                 break;
@@ -127,7 +151,7 @@ public class CustomerAgent extends Agent<ChatCompletionRequest, ChatCompletionRe
                     call_result = func.apply(args);
                 }
             } catch (Exception e) {
-
+                e.printStackTrace();
             }
             assistant_msg = parseThoughts(responseTemplate.getThoughts());
             agent_scratch.append(StrUtil.format("\nobservation: {} \nexecute action results: {}", observation, call_result == null ? "查询失败" : "查询成功"));
@@ -197,7 +221,6 @@ public class CustomerAgent extends Agent<ChatCompletionRequest, ChatCompletionRe
     public ChatCompletionResult receive() {
         return null;
     }
-
 
 
     public static String extractJson(String input) {

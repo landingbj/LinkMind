@@ -3,14 +3,10 @@ package ai.intent.reducer;
 import ai.agent.Agent;
 import ai.config.pojo.AgentConfig;
 import ai.intent.IntentGlobal;
-import ai.intent.IntentService;
-import ai.intent.enums.IntentStatusEnum;
-import ai.intent.impl.VectorIntentServiceImpl;
 import ai.intent.pojo.IntentDetectParam;
 import ai.intent.pojo.IntentDetectResult;
 import ai.intent.pojo.IntentResult;
 import ai.intent.pojo.IntentRouteResult;
-import ai.llm.utils.SummaryUtil;
 import ai.mr.IReducer;
 import ai.mr.reduce.BaseReducer;
 import ai.openai.pojo.ChatCompletionRequest;
@@ -30,7 +26,6 @@ public class IntentReducer extends BaseReducer implements IReducer {
     private final List<IntentRouteResult> result = new ArrayList<>();
     private static final LRUCache<String, Pair<Integer, Agent<ChatCompletionRequest, ChatCompletionResult>>> agentLRUCache = IntentGlobal.AGENT_LRU_CACHE;
     private final IntentDetectParam intentDetectParam;
-    private final IntentService intentService = new VectorIntentServiceImpl();
 
     public IntentReducer(IntentDetectParam intentDetectParam) {
         this.intentDetectParam = intentDetectParam;
@@ -39,13 +34,11 @@ public class IntentReducer extends BaseReducer implements IReducer {
     @Override
     public void myReducing(List<?> list) {
         LLmRequest llmRequest = this.intentDetectParam.getLlmRequest();
-//        SummaryUtil.setInvoke(llmRequest, SummaryUtil.invoke(llmRequest));
-        IntentResult intentResult = intentService.detectIntent(this.intentDetectParam.getLlmRequest());
         List<Integer> agents = new ArrayList<>();
 
         String modal = "text";
         String status = "completion";
-        int continuedIndex = intentResult.getContinuedIndex();
+        int continuedIndex = llmRequest.getMessages().size() - 1;
         Map<AgentConfig, Double> priorityMap = new HashMap<>();
         Map<Integer, Boolean> streamFlagMap = new HashMap<>();
 
@@ -73,15 +66,7 @@ public class IntentReducer extends BaseReducer implements IReducer {
                 }
             }
         }
-        if(IntentStatusEnum.CONTINUE.getName().equals(intentResult.getStatus())) {
-            status = intentResult.getStatus();
-            Agent<ChatCompletionRequest, ChatCompletionResult> outputAgent = getRecordOutputAgent(llmRequest, intentResult, null);
-            if (outputAgent != null) {
-                agents.add(outputAgent.getAgentConfig().getId());
-            }
-        } else {
-            agents = sortAgents(priorityMap);
-        }
+        agents = sortAgents(priorityMap);
 
         IntentRouteResult intentRouteResult = new IntentRouteResult();
         intentRouteResult.setModal(modal);

@@ -41,7 +41,7 @@ public class SampleIntentServiceImpl implements IntentService {
         return Arrays.stream(split).filter(StrUtil::isNotBlank).collect(Collectors.toList());
     }
 
-    private IntentTypeEnum detectType(ChatCompletionRequest chatCompletionRequest) {
+    public IntentTypeEnum detectType(ChatCompletionRequest chatCompletionRequest) {
         String lastMessage = ChatCompletionUtil.getLastMessage(chatCompletionRequest);
         List<String> segments = splitByPunctuation(lastMessage);
         IntentTypeEnum[] enums = IntentTypeEnum.values();

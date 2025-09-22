@@ -59,15 +59,11 @@ public class SummaryUtil {
     }
 
     public static String invoke(ChatCompletionRequest request) {
-        long startTime = System.currentTimeMillis();
-
-
         List<String> userMsgs = request.getMessages().stream().filter(chatMessage -> chatMessage.getRole().equals("user")).map(ChatMessage::getContent).collect(Collectors.toList());
         String key = String.join(",", userMsgs);
         String question  = cache.get(key);
         if(question != null) {
             log.info("summary cache 1 hit {}", request);
-            System.out.println("SummaryUtil invoke That took " + (System.currentTimeMillis() - startTime) + " milliseconds");
             return question;
         }
         try {
@@ -75,7 +71,6 @@ public class SummaryUtil {
             question = cache.get(key);
             if(question != null) {
                 log.info("summary cache 2 hit {}", request);
-                System.out.println("SummaryUtil invoke That took " + (System.currentTimeMillis() - startTime) + " milliseconds");
                 return question;
             }
             question = ChatCompletionUtil.getLastMessage(request);
@@ -88,7 +83,6 @@ public class SummaryUtil {
                 question = summary.getSupplemented_question();
                 cache.put(key, summary.getSupplemented_question());
             }
-            System.out.println("SummaryUtil invoke That took " + (System.currentTimeMillis() - startTime) + " milliseconds");
             return question;
         } finally {
             lock.unlock();

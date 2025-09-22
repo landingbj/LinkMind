@@ -1,21 +1,22 @@
 package ai.llm.utils;
 
+import ai.config.ContextLoader;
 import ai.llm.service.CompletionsService;
 import ai.openai.pojo.ChatCompletionRequest;
 import ai.openai.pojo.ChatCompletionResult;
 import ai.openai.pojo.ChatMessage;
 import ai.utils.LagiGlobal;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
 
+@Slf4j
 public class ContextUtil {
-    private static final Logger log = LoggerFactory.getLogger(ContextUtil.class);
     private static final CompletionsService completionsService = new CompletionsService();
+    private static final String agentGeneralModel = ContextLoader.configuration.getAgentGeneralConfiguration().getModel();
 
     public static final String SUMMARY_PROMPT = "你是一名对话分析助手。你的任务是判断在以下对话中，**最后一句话**是否和之前出现过的某一句话属于同一轮会话（即语义上是直接延续或回应）。\n" +
             "### 判断标准\n" +
@@ -85,6 +86,7 @@ public class ContextUtil {
         return false;
     }
 
+
     private static ChatCompletionRequest getChatCompletionRequest(String prompt) {
         ChatCompletionRequest chatCompletionRequest = new ChatCompletionRequest();
         chatCompletionRequest.setTemperature(0.3);
@@ -96,7 +98,7 @@ public class ContextUtil {
         message.setContent(prompt);
         messages.add(message);
         chatCompletionRequest.setMessages(messages);
-//        chatCompletionRequest.setModel("qwen-turbo");
+        chatCompletionRequest.setModel(agentGeneralModel);
         return chatCompletionRequest;
     }
 }

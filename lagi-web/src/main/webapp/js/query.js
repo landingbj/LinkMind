@@ -22,6 +22,8 @@ const words = [
     "环保数据", "气候变化", "星座运势", "心理测试", "名人信息"
 ];
 
+const ERROR_MESSAGE = "很抱歉，现在暂时无法回答您的问题。我们会持续学习和改进，努力为您带来更好的服务体验。";
+
 // 绑定页面回车事件
 $('#queryContent').keydown(function (event) {
     // console.log("event:" + event)
@@ -390,12 +392,12 @@ function multimodalProcess(paras, question, robotAnswerJq, conversation, onSucce
         url: "multimodal/process",
         data: JSON.stringify(paras),
         success: function (res) {
+            hideIntentPrompt()
             if (res.code === 500) {
-                errorOutput(robotAnswerJq, conversation);
+                errorOutput(robotAnswerJq, conversation, ERROR_MESSAGE);
             } else {
                 if (res.status === "failed") {
-                    let errorMessage = res.errorMessage || "调用失败！";
-                    errorOutput(robotAnswerJq, conversation, errorMessage);
+                    errorOutput(robotAnswerJq, conversation, ERROR_MESSAGE);
                 } else {
                     let result = onSuccess(res, question, robotAnswerJq);
                     convOutput(conversation, result);
@@ -403,7 +405,8 @@ function multimodalProcess(paras, question, robotAnswerJq, conversation, onSucce
             }
         },
         error: function () {
-            errorOutput(robotAnswerJq, conversation, "调用失败！");
+            hideIntentPrompt()
+            errorOutput(robotAnswerJq, conversation, ERROR_MESSAGE);
         }
     });
 }
@@ -427,8 +430,8 @@ function instructionCallback(res, question, robotAnswerJq) {
 }
 
 function image2textCallback(res, question, robotAnswerJq) {
-    let result = "您所上传的图片的意思是：<br><b>类别</b>：" + res.classification + "<br><b>描述</b>：" + res.caption + "<br>" +
-        "<b>分割后的图片</b>：  <img src='" + res.samUrl + "' alt='Image' style='width:80%;height:60%'><br>";
+    let result = "您所上传的图片描述：<br><b>描述</b>：" + res.caption + "<br>" +
+        "<b>图片</b>：  <img src='" + res.samUrl + "' alt='Image' style='width:80%;height:60%'><br>";
     robotAnswerJq.html(result);
     let p = robotAnswerJq.parent().parent().parent();
     p.children('.idx').children('.appendVoice').children('audio').hide();
@@ -475,8 +478,8 @@ async function getTextResult(question, robotAnswerJq, conversation, agentId) {
     // debugger
     let result = '';
     let paras = await getRequest(question, agentId);
-
     const queryUrl = "intent/detect";
+    showIntentPrompt()
     $.ajax({
         type: "POST",
         contentType: "application/json;charset=utf-8",
@@ -533,7 +536,8 @@ async function getTextResult(question, robotAnswerJq, conversation, agentId) {
             // }
         },
         error: function () {
-            errorOutput(robotAnswerJq, conversation, '调用失败!')
+            hideIntentPrompt()
+            errorOutput(robotAnswerJq, conversation, ERROR_MESSAGE)
         }
     });
     return result;
@@ -545,6 +549,7 @@ function errorOutput(robotAnswerJq, conversation, errorMessage) {
     robotAnswerJq.html(errorMessage);
     conversation.robot.answer = errorMessage;
     addConv(conversation);
+    console.log("errorMessage", errorMessage)
 }
 
 function generalOutput(paras, question, robootAnswerJq, url = "chat/go") {
@@ -666,6 +671,7 @@ function streamOutput(paras, question, robootAnswerJq, url = "chat/go/stream") {
             body: JSON.stringify(paras),
         });
 
+        hideIntentPrompt()
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -705,8 +711,7 @@ function streamOutput(paras, question, robootAnswerJq, url = "chat/go/stream") {
                 let json = JSON.parse(chunk);
                 if (json.choices === undefined) {
                     queryLock = false;
-                    robootAnswerJq.html("调用失败！");
-                    break
+                    throw new Error('response is not valid');
                 }
                 if (json.choices.length === 0) {
                     continue;
@@ -744,15 +749,15 @@ function streamOutput(paras, question, robootAnswerJq, url = "chat/go/stream") {
                 result = `
                         ${fullText}
                         ${chatMessage.imageList && chatMessage.imageList.length > 0 ? chatMessage.imageList.map(image => `<img src='${image}' alt='Image' style="max-width:100%; height:auto; margin-bottom:10px;">`).join('') : ""}                        
-                        ${chatMessage.filename !== undefined ? `<div style="display: flex;"><div style="width:50px;flex:1">附件:</div><div style="width:600px;flex:17 padding-left:5px">${a}</div></div>` : ""}
+                        ${chatMessage.filename !== undefined ? `<div style="display: flex;"><div>附件:</div><div>${a}</div></div>` : ""}
                         ${chatMessage.context || chatMessage.contextChunkIds ? `<div class="context-box"><div class="loading-box">正在索引文档&nbsp;&nbsp;<span></span></div><a style="float: right; cursor: pointer; color:cornflowerblue" onClick="retry(${CONVERSATION_CONTEXT.length + 1})">更多通用回答</a></div>` : ""}
                 `;
                 // ${json.source !== undefined ? `<div style="display: flex;"><div style="width:300px;flex:1"><small>来源:${json.source}</small></div></div><br>` : ""}`
-                if (chatMessage.contextChunkIds) {
-                    if (chatMessage.contextChunkIds instanceof Array) {
-                        getCropRect(chatMessage.contextChunkIds, fullText, robootAnswerJq);
-                    }
-                }
+                // if (chatMessage.contextChunkIds) {
+                //     if (chatMessage.contextChunkIds instanceof Array) {
+                //         getCropRect(chatMessage.contextChunkIds, fullText, robootAnswerJq);
+                //     }
+                // }
                 robootAnswerJq.html(result);
                 $('#item-content').scrollTop($('#item-content').prop('scrollHeight'));
             }
@@ -761,20 +766,28 @@ function streamOutput(paras, question, robootAnswerJq, url = "chat/go/stream") {
 
     generateStream(paras).then(r => {
         let lastAnswer = CONVERSATION_CONTEXT[CONVERSATION_CONTEXT.length - 1]["content"]
-        // txtTovoice(lastAnswer.replace(/<think>[\s\S]*?<\/think>/g, ''), "default");
         enableQueryBtn();
         querying = false;
         queryLock = false;
         let betterResult = robootAnswerJq.parent().children('.better-result')
         betterResult.show();
+        let audioText = lastAnswer;
+        if (lastAnswer.trim().length === 0) {
+            robootAnswerJq.html(ERROR_MESSAGE);
+            CONVERSATION_CONTEXT[CONVERSATION_CONTEXT.length - 1]["content"] = ERROR_MESSAGE
+            audioText = ERROR_MESSAGE;
+        }
+        txtTovoice(audioText.replace(/<think>[\s\S]*?<\/think>/g, ''), "default");
     }).catch((err) => {
+        hideIntentPrompt()
         console.error(err);
         enableQueryBtn();
         querying = false;
         queryLock = false;
-        robootAnswerJq.html("系统繁忙，请稍后再试！");
+        robootAnswerJq.html(ERROR_MESSAGE);
     });
 }
+
 
 async function filterChunk(filenames, filePaths, contextChunkIds, result, jqObj) {
     return new Promise((resolve, reject) => {

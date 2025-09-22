@@ -14,7 +14,7 @@
 
 #queryBox button {
     width: 40px;
-    height: 30px;
+    height: 40px;
     bottom: 0.5rem;
 }
 
@@ -267,12 +267,13 @@ pre .key {
 
 
 .loading-box {
-    display: inline-block;
+    /*display: inline-block;*/
+    display: none;
     text-align: center;
     font-size: 12px;
     width: 120px;
     height: 16px;
-    margin: 0px auto;
+    margin: 0 auto;
 }
 
 .loading-box > span {
@@ -2172,4 +2173,47 @@ pre .key {
 
 .search-save-btn:hover {
     background-color: #0e4bb3;
+}
+
+.intent-prompt {
+    display: none;
+    order: -1;
+    flex-basis: 100%; 
+    flex-shrink: 0;
+    flex-grow: 0;
+    position: relative;
+    overflow: hidden;
+}
+
+.intent-prompt-text {
+    position: relative;
+    display: inline-block;
+    color: #999;
+    background: linear-gradient(
+        90deg,
+        #999 0%,
+        #999 40%,
+        #ddd 50%,
+        #999 60%,
+        #999 100%
+    );
+    background-size: 200% 100%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: shimmer 2s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+    0% {
+        background-position: 200% 0;
+    }
+    100% {
+        background-position: -200% 0;
+    }
+}
+
+.text-area:has(.intent-prompt) {
+    flex-wrap: wrap;
+    flex-direction: column;
 }

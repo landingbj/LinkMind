@@ -283,12 +283,6 @@ public class AgentService {
         List<Agent<ChatCompletionRequest, ChatCompletionResult>> agents = new ArrayList<>();
         List<Agent<ChatCompletionRequest, ChatCompletionResult>> llmAndAgentList = SkillMapUtil.getLlmAndAgentList();
         agents.addAll(llmAndAgentList);
-        for (Agent<ChatCompletionRequest, ChatCompletionResult> agent : agents) {
-            if (agent instanceof LocalRagAgent) {
-                LocalRagAgent ragAgent = (LocalRagAgent) agent;
-                ragAgent.getAgentConfig().setEndpoint(uri);
-            }
-        }
         return agents;
     }
 

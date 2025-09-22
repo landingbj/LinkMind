@@ -422,8 +422,7 @@ function handleUploadResponse(json, fileStatus, selectedFile) {
     if (fileStatus == 'pic') {
         if (json.status === "success") {
             var question = selectedFile ? "您所上传的图片名称为：" + selectedFile.name : "您批量上传的图片";
-            var result = "已经收到您上传的图片。如果您想生成视频，请输入\"视频生成\"。" +
-                "如果您想增强图片，请输入\"图像增强\"。如果您想使用AI描述图片，请输入\"看图说话\"。";
+            var result = "已经收到您上传的图片。如果您想增强图片，请输入\"图像增强\"。如果您想使用AI描述图片，请输入\"看图说话\"。";
             lastFilePath = json.filePath;
             textQuery1(question, result, fileStatus);
         } else {
@@ -836,7 +835,6 @@ async function voiceToTxt(selectedFile) {
 }
 
 function textToVoice(emotionSelect) {
-    
     let text = CONVERSATION_CONTEXT[ $(emotionSelect).closest('.robot-return').data('index')].content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
     let emotion = $(emotionSelect).find("option:selected").val();
 
@@ -847,9 +845,7 @@ function textToVoice(emotionSelect) {
     const audioplay = $(emotionSelect).closest('.appendVoice').find('.audioplay')[0];
     audioplay.innerHTML = MUTE_ICON;
     audioplay.disabled = true;
-
     // const audioSource = $(emotionSelect).parent().find("audioSource1")[0];
-    audioElement.src = "";
 
     $.ajax({
         type: "POST",
@@ -861,34 +857,18 @@ function textToVoice(emotionSelect) {
             "category": window.category
         }),
         success: function (res) {
-            if (res.status == "success") {
-                console.log(res.data);
-                audioElement.src = res.data;
+            if (res.status === "success") {
+                // audioElement.src = res.data;
                 audioElement.load();
                 audioplay.disabled = false;
                 audioplay.innerHTML = AUDIO_PLAY_ICON;
-                // 添加点击事件处理程序来控制音频的播放和暂停
-                // playButton.addEventListener('click', function () {
-                //     console.log("点击了")
-                //     if (audioElement.paused) {
-                //         // 如果音频暂停，播放音频
-                //         audioElement.play();
-
-                //     } else {
-                //         // 如果音频正在播放，暂停音频
-                //         audioElement.pause();
-
-                //     }
-                // });
             }
         },
         error: function (res) {
 
         }
     });
-    return;
 }
-
 
 const record_save_type = 'audio/mp3';
 

@@ -40,10 +40,10 @@ public class OpenAIStandardAdapter extends ModelService implements ILlmAdapter {
         setDefaultModel(chatCompletionRequest);
         LlmApiResponse completions = OpenAiApiUtil.streamCompletions(apiKey, getApiAddress(), HTTP_TIMEOUT, chatCompletionRequest,
                 GptConvert::convertSteamLine2ChatCompletionResult, GptConvert::convertByResponse);
-        if(completions.getCode() != 200) {
-            logger.error("openai  stream api : code{}  error  {}", completions.getCode(), completions.getMsg());
-            throw new RRException(completions.getCode(), completions.getMsg());
-        }
+//        if(completions.getCode() != 200) {
+//            logger.error("openai  stream api : code{}  error  {}", completions.getCode(), completions.getMsg());
+//            throw new RRException(completions.getCode(), completions.getMsg());
+//        }
         return completions.getStreamData();
     }
 

@@ -66,10 +66,10 @@ public class LocalRagAgent extends BaseChatAgent {
         }
         LlmApiResponse completions = OpenAiApiUtil.streamCompletions("", endpoint + "/v1/chat/completions", HTTP_TIMEOUT, (LLmRequest) data,
                 this::convertSteamLine2ChatCompletionResult, GptConvert::convertByResponse);
-        if (completions.getCode() != 200) {
-            log.error("LocalRagAgent  stream api : code {}  error  {}", completions.getCode(), completions.getMsg());
-            throw new RRException(completions.getCode(), completions.getMsg());
-        }
+//        if (completions.getCode() != 200) {
+//            log.error("LocalRagAgent  stream api : code {}  error  {}", completions.getCode(), completions.getMsg());
+//            throw new RRException(completions.getCode(), completions.getMsg());
+//        }
         return completions.getStreamData();
     }
 

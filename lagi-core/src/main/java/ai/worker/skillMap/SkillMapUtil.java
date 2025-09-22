@@ -9,9 +9,11 @@ import ai.common.utils.ThreadPoolManager;
 import ai.config.pojo.AgentConfig;
 import ai.llm.adapter.ILlmAdapter;
 import ai.llm.service.FreezingService;
+import ai.llm.utils.SummaryUtil;
 import ai.manager.LlmManager;
 import ai.openai.pojo.ChatCompletionRequest;
 import ai.openai.pojo.ChatCompletionResult;
+import ai.router.pojo.LLmRequest;
 import ai.utils.LagiGlobal;
 import ai.utils.qa.ChatCompletionUtil;
 import ai.worker.pojo.AgentIntentScore;
@@ -22,6 +24,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.lang.reflect.Constructor;
 import java.util.*;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
@@ -137,6 +140,34 @@ public class SkillMapUtil {
             List<Agent<ChatCompletionRequest, ChatCompletionResult>> agentList,
             IntentResponse intent) {
         return rankAgentByIntentKeyword(agentList, intent,  THRESHOLD);
+    }
+
+    private static List<Integer> pickAgentByDescribe(LLmRequest llmRequest, List<Agent<ChatCompletionRequest, ChatCompletionResult>> allAgents) {
+        List<Integer> agents;
+        if(llmRequest.getIntent().getAgents() != null) {
+            agents = llmRequest.getIntent().getAgents();
+        } else {
+            agents = new ArrayList<>();
+        }
+
+        String invoke = SummaryUtil.invoke(llmRequest);
+        System.out.println("invoke: " + invoke);
+        if (invoke != null && !invoke.isEmpty()) {
+            SummaryUtil.setInvoke(llmRequest, invoke);
+        }
+        List<Agent<ChatCompletionRequest, ChatCompletionResult>> pickAgentList = null;
+        Future<List<Agent<ChatCompletionRequest, ChatCompletionResult>>> future = SkillMapUtil.asyncPickAgentByDescribe(ChatCompletionUtil.getLastMessage(llmRequest), allAgents);
+        try {
+            pickAgentList = future.get();
+        } catch (InterruptedException | ExecutionException e) {
+            log.error("pick up agent error", e);
+        }
+        if (pickAgentList != null) {
+            for (Agent<ChatCompletionRequest, ChatCompletionResult> agent : pickAgentList) {
+                agents.add(agent.getAgentConfig().getId());
+            }
+        }
+        return agents;
     }
 
     public static List<Agent<ChatCompletionRequest, ChatCompletionResult>> pickAgentByDescribe(
@@ -262,7 +293,8 @@ public class SkillMapUtil {
         }
     }
 
-    public static void asyncScoreAgents(ChatCompletionRequest request, List<Agent<ChatCompletionRequest, ChatCompletionResult>> agentList) {
+    public static void asyncScoreAgents(ChatCompletionRequest request, List<Agent<ChatCompletionRequest, ChatCompletionResult>> agentList,
+                                        Agent<ChatCompletionRequest, ChatCompletionResult> outputAgent) {
         executorService.submit(() -> {
             request.setStream(false);
             IntentResponse intentResponse = skillMap.intentDetect(ChatCompletionUtil.getLastMessage(request));
@@ -270,10 +302,21 @@ public class SkillMapUtil {
         });
     }
 
-    public static void asyncScoreAgents(IntentResponse intentResponse, ChatCompletionRequest request, List<Agent<ChatCompletionRequest, ChatCompletionResult>> agentList) {
+    public static void asyncScoreAgents(IntentResponse intentResponse, LLmRequest llmRequest,
+                                        final List<Agent<ChatCompletionRequest, ChatCompletionResult>> allAgents, Agent<ChatCompletionRequest, ChatCompletionResult> outputAgent) {
         executorService.submit(() -> {
-            request.setStream(false);
-            saveAgents(intentResponse, request, agentList);
+            List<Integer> agents = pickAgentByDescribe(llmRequest, allAgents);
+
+            List<Agent<ChatCompletionRequest, ChatCompletionResult>> pickedAgents = allAgents.stream()
+                .filter(agent -> (agent instanceof LocalRagAgent) || agents.contains(agent.getAgentConfig().getId()))
+                .collect(Collectors.toList());
+
+            pickedAgents = pickedAgents.stream().filter(agent ->
+                            !Objects.equals(outputAgent.getAgentConfig().getId(), agent.getAgentConfig().getId())
+            ).collect(Collectors.toList());
+
+            llmRequest.setStream(false);
+            saveAgents(intentResponse, llmRequest, pickedAgents);
         });
     }
 

@@ -21,10 +21,12 @@ import org.yaml.snakeyaml.Yaml;
 public class TrainArgsParser {
 
 
-    private FineTuneArgs fineTuneArgs;
+    private final FineTuneArgs fineTuneArgs;
+    private final String baseDir;
 
-    public TrainArgsParser(FineTuneArgs fineTuneArgs) {
+    public TrainArgsParser(String baseDir, FineTuneArgs fineTuneArgs) {
         this.fineTuneArgs = fineTuneArgs;
+        this.baseDir = baseDir;
     }
 
     class SMap<k, v> extends HashMap<k, v> {
@@ -210,7 +212,7 @@ public class TrainArgsParser {
         if (StrUtil.isNotBlank(fineTuneArgs.getDs_stage())) {
             String dsStage = fineTuneArgs.getDs_stage();
             String dsOffload = Boolean.TRUE.equals(fineTuneArgs.getDs_offload()) ? "offload_" : "";
-            args.put("deepspeed", Paths.get(DEFAULT_CACHE_DIR, String.format("ds_z%s_%sconfig.json", dsStage, dsOffload)).toAbsolutePath().toString());
+            args.put("deepspeed", Paths.get(baseDir, DEFAULT_CACHE_DIR, String.format("ds_z%s_%sconfig.json", dsStage, dsOffload)).toAbsolutePath().toString());
         }
         return args;
     }
@@ -256,12 +258,12 @@ public class TrainArgsParser {
 
     private static final Map<String, Object> TRAINING_STAGES = new HashMap<>();
     private static final List<String> PEFT_METHODS = Lists.newArrayList("method1", "method2");  // Replace with actual methods
-    private static final String DEFAULT_CACHE_DIR = "/media/data0/LLaMA-Factory/examples/deepspeed";  // Replace with actual cache directory
+    private static final String DEFAULT_CACHE_DIR = "/examples/deepspeed";  // Replace with actual cache directory
 
     // ConfigManager class
     public static void main(String[] args) {
         FineTuneArgs fineTuneArgs1 = new FineTuneArgs();
-        TrainArgsParser parser = new TrainArgsParser(fineTuneArgs1);
+        TrainArgsParser parser = new TrainArgsParser("", fineTuneArgs1);
         Map<String, Object> trainArgs = parser.parseTrainArgs();
         System.out.println(trainArgs);
     }

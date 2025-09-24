@@ -489,7 +489,7 @@ async function doTrain(el) {
             params["fineTuneArgs"]["lora_alpha"] = lora_alpha;
         }
         if(lora_dropout && lora_dropout.length > 0) {
-            params["fineTuneArgs"]["lora_dropout"] = lora_dropout;
+            params["fineTuneArgs"]["lora_dropout"] = Number(lora_dropout);
         }
         if(loraplus_lr_ratio && loraplus_lr_ratio.length > 0) {
             params["fineTuneArgs"]["loraplus_lr_ratio"] = loraplus_lr_ratio;

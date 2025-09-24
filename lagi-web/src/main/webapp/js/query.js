@@ -679,6 +679,12 @@ function streamOutput(paras, question, robootAnswerJq, url = "chat/go/stream") {
         robootAnswerJq.html('<p></p>');
         while (flag) {
             const {value, done} = await reader.read();
+            if (done) {
+                flag = false;
+                CONVERSATION_CONTEXT.push({"role": "user", "content": question});
+                CONVERSATION_CONTEXT.push({"role": "assistant", "content": sourceContent});
+                break;
+            }
             let res = new TextDecoder().decode(value);
             if (res.startsWith("error:")) {
                 robootAnswerJq.html(res.replaceAll('error:', ''));
@@ -772,7 +778,8 @@ function streamOutput(paras, question, robootAnswerJq, url = "chat/go/stream") {
         enableQueryBtn();
         querying = false;
         queryLock = false;
-        robootAnswerJq.html("系统繁忙，请稍后再试！");
+        // robootAnswerJq.html("系统繁忙，请稍后再试！");
+        alert("系统繁忙，请稍后再试！");
     });
 }
 

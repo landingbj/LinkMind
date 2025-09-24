@@ -44,7 +44,7 @@ public class QwenAdapter extends ModelService implements ILlmAdapter {
         }
         List<ChatMessage> messages = chatCompletionRequest.getMessages();
         List<ChatMessage> filteredMessages = messages.stream()
-                .filter(message -> message != null && message.getContent() != null && !message.getContent().isEmpty())
+                .filter(message -> message != null && message.getContent() != null)
                 .collect(Collectors.toList());
 
         chatCompletionRequest.setMessages(filteredMessages);

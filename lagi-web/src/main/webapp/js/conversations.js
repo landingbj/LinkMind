@@ -109,13 +109,13 @@ async function newConversation(conv, questionEnable = true, answerEnable = true)
 const SOUNDS_HTML = `
 <div  class="sounds-selector absolute z-50 selector" style="display:none; bottom:24px !important; left:10px; width: 80px;" style="">
 <ul  class="">
-    <li class=" not-available " value="neutral" onclick="selectSound(this, event);">默认</li>
-    <li class=" not-available " value="happy" onclick="selectSound(this, event);">快乐</li>
-    <li class=" not-available " value="angry" onclick="selectSound(this, event);">生气</li>
-    <li class=" not-available " value="sad" onclick="selectSound(this, event);">伤心</li>
-    <li class=" not-available " value="fear" onclick="selectSound(this, event);">害怕</li>
-    <li class=" not-available " value="hate" onclick="selectSound(this, event);">憎恨</li>
-    <li class=" not-available " value="surprise" onclick="selectSound(this, event);">惊讶</li>
+    <li class=" not-available " data-value="neutral" onclick="selectSound(this, event);">默认</li>
+    <li class=" not-available " data-value="happy" onclick="selectSound(this, event);">快乐</li>
+    <li class=" not-available " data-value="angry" onclick="selectSound(this, event);">生气</li>
+    <li class=" not-available " data-value="sad" onclick="selectSound(this, event);">伤心</li>
+    <li class=" not-available " data-value="fear" onclick="selectSound(this, event);">害怕</li>
+    <li class=" not-available " data-value="hate" onclick="selectSound(this, event);">憎恨</li>
+    <li class=" not-available " data-value="surprise" onclick="selectSound(this, event);">惊讶</li>
 </ul>
 </div>
 `;

@@ -836,7 +836,7 @@ async function voiceToTxt(selectedFile) {
 
 function textToVoice(emotionSelect) {
     let text = CONVERSATION_CONTEXT[ $(emotionSelect).closest('.robot-return').data('index')].content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-    let emotion = $(emotionSelect).find("option:selected").val();
+    let emotion = $(emotionSelect).attr('value') || $(emotionSelect).data('value');
 
     // const audioElement = $(emotionSelect).parent().find('.myAudio1')[0];
     // const playButton = $(emotionSelect).parent().find('.playIcon1')[0];
@@ -850,6 +850,7 @@ function textToVoice(emotionSelect) {
     $.ajax({
         type: "POST",
         url: "audio/text2Voice",
+        contentType: "application/json;charset=utf-8",
         data: JSON.stringify({
             "model": "default",
             "emotion": emotion,
@@ -858,14 +859,16 @@ function textToVoice(emotionSelect) {
         }),
         success: function (res) {
             if (res.status === "success") {
-                // audioElement.src = res.data;
-                audioElement.load();
-                audioplay.disabled = false;
-                audioplay.innerHTML = AUDIO_PLAY_ICON;
+                audioElement.src = res.data;
             }
+            audioElement.load();
+            audioplay.disabled = false;
+            audioplay.innerHTML = AUDIO_PLAY_ICON;
         },
         error: function (res) {
-
+            audioElement.load();
+            audioplay.disabled = false;
+            audioplay.innerHTML = AUDIO_PLAY_ICON;
         }
     });
 }

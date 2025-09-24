@@ -289,7 +289,7 @@ public class ModelManagerServlet extends RestfulServlet{
 
 
         // parser args
-        TrainArgsParser trainArgsParser = new TrainArgsParser(fineTuneArgs);
+        TrainArgsParser trainArgsParser = new TrainArgsParser(llamaFactoryConfig.getLlamaFactoryDir(), fineTuneArgs);
         trainArgsParser.saveMapToYaml(trainYamlPath);
 
         // run trains

@@ -52,15 +52,16 @@ public class BeiDianDeployImpl implements ModelDeployment {
     private ModelDevelopInfoDao modelDevelopInfoDao = new ModelDevelopInfoDao();
 
     public BeiDianDeployImpl(BeiDianPaasConfig beiDianPaasConfig) {
-        account = beiDianPaasConfig.getAccount();
-        password = beiDianPaasConfig.getPassword();
-        baseUrl = beiDianPaasConfig.getBaseUrl();
-        spaceId = beiDianPaasConfig.getSpaceId();
-        traceId = UUID.randomUUID().toString();
-        acceptLanguage = beiDianPaasConfig.getAcceptLanguage();
-        projectId = beiDianPaasConfig.getProjectId();
-        imageId = beiDianPaasConfig.getImageId();
-
+        if(beiDianPaasConfig != null)  {
+            account = beiDianPaasConfig.getAccount();
+            password = beiDianPaasConfig.getPassword();
+            baseUrl = beiDianPaasConfig.getBaseUrl();
+            spaceId = beiDianPaasConfig.getSpaceId();
+            traceId = UUID.randomUUID().toString();
+            acceptLanguage = beiDianPaasConfig.getAcceptLanguage();
+            projectId = beiDianPaasConfig.getProjectId();
+            imageId = beiDianPaasConfig.getImageId();
+        }
     }
 
 

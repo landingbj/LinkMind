@@ -1,6 +1,7 @@
 package ai.openai.pojo;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.google.gson.JsonObject;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 
@@ -13,4 +14,5 @@ public class Property {
     @SerializedName("enum")
     @JsonProperty("enum")
     private List<String> enums;
+    private JsonObject items;
 }

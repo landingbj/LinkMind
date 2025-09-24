@@ -415,23 +415,23 @@ async function doTrain(el) {
             "template" : inputValues["template"], //"qwen",
             "lora_target":"all",
             "dataset" : datasets,
-            "cutoff_len" : inputValues["cutoff-length"], //1024,
-            "max_samples": inputValues["max-samples"], //1000,
+            "cutoff_len" : Number(inputValues["cutoff-length"]), //1024,
+            "max_samples": Number(inputValues["max-samples"]), //1000,
             "overwrite_cache" : true,
             // "preprocessing_num_workers" : 16,
             "logging_steps":10,
             "save_steps":500,
             "plot_loss":true,
             "overwrite_output_dir": true,
-            "batch_size": inputValues["batch-size"], //1,
-            "gradient_accumulation_steps": inputValues["gradient-accumulation"], //2,
-            "learning_rate" : inputValues["learning-rate"], // 0.0001,
-            "num_train_epochs" : inputValues["epochs"], //3.0,
+            "batch_size": Number(inputValues["batch-size"]), //1,
+            "gradient_accumulation_steps": Number(inputValues["gradient-accumulation"]), //2,
+            "learning_rate" : Number(inputValues["learning-rate"]), // 0.0001,
+            "num_train_epochs" : Number(inputValues["epochs"]), //3.0,
             "lr_scheduler_type" : selectValues["LR-scheduler"] , // "cosine",
             "warmup_steps" : 1,
-            "maximum_gradient_norm" : inputValues["maximum-gradient-norm"], // 1.0
+            "maximum_gradient_norm" : Number(inputValues["maximum-gradient-norm"]), // 1.0
             "compute_type" : selectValues["compute-type"], //"fp16",
-            "val_size" : inputValues["val-size"], //0.1,
+            "val_size" : Number(inputValues["val-size"]), //0.1,
             "per_device_eval_batch_size": 1,
             "evaluation_strategy" : "steps",
             "eval_steps" : 500,
@@ -440,9 +440,9 @@ async function doTrain(el) {
         }
     }
     // extra arguments
-    let logging_steps =  inputValues["logging_steps"];
-    let save_steps =  inputValues["save_steps"];
-    let warmup_steps =  inputValues["warmup_steps"];
+    let logging_steps =  Number(inputValues["logging_steps"]);
+    let save_steps =  Number(inputValues["save_steps"]);
+    let warmup_steps =  Number(inputValues["warmup_steps"]);
     let NEFTune_alpha =  inputValues["NEFTune_alpha"];
     let extra_arguments =  inputValues["extra_arguments"];
     let enable_thinking =  inputValues["enable_thinking"];
@@ -461,10 +461,10 @@ async function doTrain(el) {
     }
     // freeze 配置
     if(finetuning_type == "freeze") {
-        let freeze_trainable_layers =  inputValues["freeze_trainable_layers"];
+        let freeze_trainable_layers =  Number(inputValues["freeze_trainable_layers"]);
         let freeze_trainable_modules =  inputValues["freeze_trainable_modules"];
         let freeze_extra_modules =  inputValues["freeze_extra_modules"];
-        if(freeze_trainable_layers && freeze_trainable_layers.length > 0) {
+        if(freeze_trainable_layers) {
             params["fineTuneArgs"]["freeze_trainable_layers"] = freeze_trainable_layers;
         }
         if(freeze_trainable_modules && freeze_trainable_modules.length > 0) {
@@ -477,21 +477,21 @@ async function doTrain(el) {
     
     // lora 配置
     if(finetuning_type == "lora") {
-        let lora_rank =  inputValues["lora_rank"];
-        let lora_alpha =  inputValues["lora_alpha"];
-        let lora_dropout =  inputValues["lora_dropout"];
-        let loraplus_lr_ratio =  inputValues["loraplus_lr_ratio"];
+        let lora_rank =  Number(inputValues["lora_rank"]);
+        let lora_alpha =  Number(inputValues["lora_alpha"]);
+        let lora_dropout =  Number(inputValues["lora_dropout"]);
+        let loraplus_lr_ratio =  Number(inputValues["loraplus_lr_ratio"]);
         let create_new_adapter =  inputValues["create_new_adapter"];
-        if(lora_rank && lora_rank.length > 0) {
+        if(lora_rank ) {
             params["fineTuneArgs"]["lora_rank"] = lora_rank;
         }
-        if(lora_alpha && lora_alpha.length > 0) {
+        if(lora_alpha) {
             params["fineTuneArgs"]["lora_alpha"] = lora_alpha;
         }
-        if(lora_dropout && lora_dropout.length > 0) {
+        if(lora_dropout) {
             params["fineTuneArgs"]["lora_dropout"] = lora_dropout;
         }
-        if(loraplus_lr_ratio && loraplus_lr_ratio.length > 0) {
+        if(loraplus_lr_ratio) {
             params["fineTuneArgs"]["loraplus_lr_ratio"] = loraplus_lr_ratio;
         }
         if(create_new_adapter && create_new_adapter.length > 0) {
@@ -521,14 +521,14 @@ async function doTrain(el) {
     console.log("params", params);
     // RLHF 配置
     if(stage == "rm") {
-        let pref_beta =  inputValues["pref_beta"];
-        let pref_ftx =  inputValues["pref_ftx"];
+        let pref_beta =  Number(inputValues["pref_beta"]);
+        let pref_ftx =  Number(inputValues["pref_ftx"]);
         let pref_loss =  selectValues["pref_loss"];
         let ref_model =  inputValues["ref_model"];
-        if(pref_beta && pref_beta.length > 0) {
+        if(pref_beta) {
             params["fineTuneArgs"]["pref_beta"] = pref_beta;
         }
-        if(pref_ftx && pref_ftx.length > 0) {
+        if(pref_ftx) {
             params["fineTuneArgs"]["pref_ftx"] = pref_ftx;
         }
         if(pref_loss && pref_loss.length > 0) {
@@ -540,10 +540,10 @@ async function doTrain(el) {
         let ppo_score_norm =  inputValues["ppo_score_norm"];
         let ppo_whiten_rewards =  inputValues["ppo_whiten_rewards"];
         if(ppo_score_norm && ppo_score_norm.length > 0) {
-            params["fineTuneArgs"]["ppo_score_norm"] = ppo_score_norm;
+            params["fineTuneArgs"]["ppo_score_norm"] = true;
         }
         if(ppo_whiten_rewards && ppo_whiten_rewards.length > 0) {
-            params["fineTuneArgs"]["ppo_whiten_rewards"] = ppo_whiten_rewards;
+            params["fineTuneArgs"]["ppo_whiten_rewards"] = true;
         }
     }
 

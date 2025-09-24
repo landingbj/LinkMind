@@ -577,13 +577,14 @@ async function doTrain(el) {
             },
             body: JSON.stringify(params),
         });
-        
+
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         $('#train-view-content').empty();
         const reader = response.body.getReader();
         const decoder = new TextDecoder('utf-8');
+        let buffer = "";
 
         function readStream(params, el) {
             return reader.read().then(({ done, value }) => {
@@ -593,26 +594,38 @@ async function doTrain(el) {
                     enableTrain(el);
                     return;
                 }
-                let msg = decoder.decode(value, { stream: true });
-                msg =  msg.slice(5);
-                if(msg.includes('[DONE]') ) {
-                    console.log('Connection closed by server');
+                let res = decoder.decode(value, { stream: true });
+                buffer += res;
+                const chunkArray = buffer.split(/(\r?\n){2}/)
+                    // 过滤分割后可能产生的空字符串（如开头/结尾的分隔符导致）
+                    .filter(chunk => chunk.trim() !== "");
+                for (let chunk of chunkArray) {
+                    let msg = chunk.replaceAll('data: ', '').trim();
+                    if(msg.includes('[DONE]') ) {
+                        console.log('Connection closed by server');
+                        $('#train-view-content').append(`<p>${msg}</p>`);
+                        scrollToButton();
+                        enableTrain(el);
+                        return;
+                    }
+                    if (chunk.length === 0) {
+                        buffer = chunk;
+                        break;
+                    } else {
+                        buffer = '';
+                    }
+                    try {
+                        let json =  JSON.parse(msg.replaceAll("'", "\""));
+                        let loss = json["loss"];
+                        let epoch = json["epoch"];
+                        if(loss && epoch) {
+                            lossChart.drawPoint(loss, epoch);
+                        }
+                    } catch (e) {
+                    }
                     $('#train-view-content').append(`<p>${msg}</p>`);
                     scrollToButton();
-                    enableTrain(el);
-                    return;
                 }
-                try {
-                    let json =  JSON.parse(msg.replaceAll("'", "\""));
-                    let loss = json["loss"];
-                    let epoch = json["epoch"];
-                    if(loss && epoch) {
-                        lossChart.drawPoint(loss, epoch);
-                    }
-                } catch (e) {
-                }
-                $('#train-view-content').append(`<p>${msg}</p>`);
-                scrollToButton();
                 return readStream(params, el);
             }).catch(error => {
                 console.error('Connection error:', error);

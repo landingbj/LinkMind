@@ -631,7 +631,7 @@
                                   </div>
                                   <div class="train-args-row">
                                     <label for="enable_thinking ">Enable thinking</label>
-                                    <input name="enable_thinking" type="checkbox" checked>
+                                    <input name="enable_thinking" type="checkbox" >
                                   </div>
                                 </div>
                               </div>
@@ -685,7 +685,7 @@
                                     <label for="pissa_init ">Use PiSSA</label>
                                     <input name="pissa_init" type="checkbox">
                                     <label for="lora_target">LoRA modules (optional)</label>
-                                    <input style="width: 6rem;" name="lora_target" type="text" value="all">
+                                    <input style="width: 6rem;" name="lora_target" type="text" value="q_proj,v_proj">
                                     <label for="additional_target">Additional modules (optional)</label>
                                     <input style="width: 6rem;" name="additional_target" type="text" value="">
                                   </div>

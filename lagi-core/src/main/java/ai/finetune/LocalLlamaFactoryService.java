@@ -21,8 +21,8 @@ import java.util.concurrent.Future;
 @Slf4j
 @AllArgsConstructor
 public class LocalLlamaFactoryService {
-    private String condaPath;
-    private String condaEnv;
+    private String condaPath="";
+    private String condaEnv="";
     private String masterAddr = "127.0.0.1";
     private String masterPort = "7007";
     private String trainCmd = " {} torchrun --nproc_per_node 1 \\\n" +
@@ -43,7 +43,7 @@ public class LocalLlamaFactoryService {
             "            --export_legacy_format False";
 
     private String runEnv = " USE_MODELSCOPE_HUB=1 ASCEND_RT_VISIBLE_DEVICES={}";
-    private String llamaFactoryDir;
+    private String llamaFactoryDir="";
     private static final ExecutorService executor;
 
     public LocalLlamaFactoryService() {

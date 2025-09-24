@@ -453,6 +453,7 @@ public class ModelManagerServlet extends RestfulServlet{
             return Boolean.FALSE;
         }
         modelDevelopInfo.setRunning(1);
+        modelDevelopInfo.setApiAddress("http://127.0.0.1:" + modelDevelopInfo.getPort());
         modelDevelopInfoDao.update(modelDevelopInfo);
         return Boolean.TRUE;
     }

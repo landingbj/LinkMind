@@ -45,6 +45,8 @@ public class WorkflowEngine {
         nodeExecutors.put("knowledge-base", new KnowledgeNodeExecutor());
         nodeExecutors.put("intent-recognition", new IntentNodeExecutor());
         nodeExecutors.put("program", new GroovyScriptNodeExecutor());
+        nodeExecutors.put("api", new ApiCallNodeExecutor());
+//        nodeExecutors.put("asr", new ASRNodeExecutor());
     }
 
     public void executeAsync(String taskId, String workflowJson, Map<String, Object> inputData) {

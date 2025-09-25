@@ -52,8 +52,6 @@ public class ContextUtil {
             "只需输出：`是` 或 `否`，不要输出其它内容。";
 
     public static boolean checkLastMsgContinuity(ChatCompletionRequest request) {
-        long startTime = System.currentTimeMillis();
-
         List<ChatMessage> allMessages = request.getMessages();
         List<ChatMessage> lastMessages = allMessages.subList(Math.max(0, allMessages.size() - 5), allMessages.size());
 
@@ -77,12 +75,10 @@ public class ContextUtil {
         try {
             ChatCompletionResult summaryResult = completionsService.completions(chatCompletionRequest);
             String summary = summaryResult.getChoices().get(0).getMessage().getContent();
-            System.out.println("ContextUtil took " + summary + " " + (System.currentTimeMillis() - startTime) + " milliseconds");
             return !summary.contains("否");
         } catch (Exception e) {
             log.error("ContextUtil checkLastMsgContinuity error", e);
         }
-        System.out.println("ContextUtil invoke That took " + (System.currentTimeMillis() - startTime) + " milliseconds");
         return false;
     }
 

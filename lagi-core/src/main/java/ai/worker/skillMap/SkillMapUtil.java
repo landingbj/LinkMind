@@ -157,7 +157,6 @@ public class SkillMapUtil {
         }
 
         String invoke = SummaryUtil.invoke(llmRequest);
-        System.out.println("invoke: " + invoke);
         if (invoke != null && !invoke.isEmpty()) {
             SummaryUtil.setInvoke(llmRequest, invoke);
         }

@@ -133,7 +133,7 @@ public class CustomerAgent extends Agent<ChatCompletionRequest, ChatCompletionRe
             }
 
             if (!callLLmCache.containsKey(toolLlmRequest)) {
-//                callLLmCache.put(toolLlmRequest, result);
+                callLLmCache.put(toolLlmRequest, result);
             }
 
             if ("finish".equals(action.getName())) {

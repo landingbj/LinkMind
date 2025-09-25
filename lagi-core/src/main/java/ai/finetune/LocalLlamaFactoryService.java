@@ -45,6 +45,7 @@ public class LocalLlamaFactoryService {
     private String runEnv = " USE_MODELSCOPE_HUB=1 ASCEND_RT_VISIBLE_DEVICES={}";
     private String llamaFactoryDir="";
     private static final ExecutorService executor;
+    private String devices;
 
     public LocalLlamaFactoryService() {
         try {
@@ -53,7 +54,7 @@ public class LocalLlamaFactoryService {
                 this.condaPath = llamaFactoryConfig.getEnvPath();
                 this.condaEnv = llamaFactoryConfig.getEnv();
                 this.llamaFactoryDir = llamaFactoryConfig.getLlamaFactoryDir();
-                String devices = StrUtil.isBlank(llamaFactoryConfig.getDevices()) ? "0" : llamaFactoryConfig.getDevices();
+                devices = StrUtil.isBlank(llamaFactoryConfig.getDevices()) ? "0" : llamaFactoryConfig.getDevices();
                 this.runEnv = StrUtil.format(runEnv, devices);
                 this.masterPort = llamaFactoryConfig.getMasterPort() == null ? "7007" : llamaFactoryConfig.getMasterPort();
             }
@@ -170,7 +171,7 @@ public class LocalLlamaFactoryService {
         if(finetuningType == null) {
             finetuningType = "";
         }
-        String cmd = StrUtil.format("bash {} {} {} {} {} {} {} {} {} &", scriptPath, condaPath,  condaEnv, modelPath, template,  "1", port, adapterPath, finetuningType);
+        String cmd = StrUtil.format("bash {} {} {} {} {} {} {} {} {} &", scriptPath, condaPath,  condaEnv, modelPath, template,  devices, port, adapterPath, finetuningType);
         System.out.println(cmd);
         return cmd;
     }

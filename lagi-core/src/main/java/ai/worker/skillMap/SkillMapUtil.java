@@ -39,6 +39,7 @@ public class SkillMapUtil {
     private static final ExecutorService executorService;
     private static final List<Agent<ChatCompletionRequest, ChatCompletionResult>> llmAndAgentList;
     private static Agent<ChatCompletionRequest, ChatCompletionResult> highestPriorityLlm;
+    private static final Map<String, Integer> ragAgentMap = skillMap.getRagAgentIdName();
 
     static {
         llmAndAgentList = initAgents();
@@ -47,7 +48,6 @@ public class SkillMapUtil {
     }
 
     public static List<Agent<ChatCompletionRequest, ChatCompletionResult>> initAgents() {
-        Map<String, Integer> ragAgentMap = skillMap.getRagAgentIdName();
         List<AgentConfig> llmAndAgentConfigList = new ArrayList<>();
         List<AgentConfig> agentConfigList = LagiGlobal.getConfig().getAgents();
         llmAndAgentConfigList.addAll(agentConfigList);
@@ -112,6 +112,12 @@ public class SkillMapUtil {
             ModelService modelService = (ModelService) adapter;
             agentConfig.setDriver(RAG_AGENT);
             agentConfig.setName(modelService.getModel());
+            Integer agentId = ragAgentMap.get(agentConfig.getName());
+            if (agentId != null) {
+                agentConfig.setId(agentId);
+            } else {
+                agentConfig.setId(skillMap.getRandomRagAgentId());
+            }
             return agentConfig;
         }).collect(Collectors.toList());
         return convert2AgentList(collect, new HashMap<>());
@@ -288,7 +294,7 @@ public class SkillMapUtil {
             try {
                 saveScore(intentResponse, request, agent);
             } catch (Exception e) {
-                log.error("scoreAgents error");
+                log.error("scoreAgents error", e);
             }
         }
     }

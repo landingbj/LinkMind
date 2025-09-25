@@ -32,10 +32,10 @@ public class PageInfoServlet extends RestfulServlet{
 		prompts.add(new Prompt("家常菜谱","请告诉我红烧猪蹄的做法和注意事项", null, null));
 		prompts.add(new Prompt("社恐交际","应酬时想以茶代酒该怎么高情商发言？", null, null));
 		prompts.add(new Prompt("“社恐”交际","如何不带脏字的骂人？", null, null));
-		agentPrompts.add(new Prompt("天气助手","今天北京天气如何", "weather", -8));
-		agentPrompts.add(new Prompt("油价助手","湖北省的最近的油价如何", "oil", -9));
-		agentPrompts.add(new Prompt("历史今日","历史上的今天有什么事件发生", "history", -14));
-		agentPrompts.add(new Prompt("有道翻译", "将我要吃面条翻译为泰文", "youdao", -15));
+		agentPrompts.add(new Prompt("天气助手","今天北京天气如何", "weather", 1010108));
+		agentPrompts.add(new Prompt("油价助手","湖北省的最近的油价如何", "oil", 1010109));
+//		agentPrompts.add(new Prompt("历史今日","历史上的今天有什么事件发生", "history", -14));
+//		agentPrompts.add(new Prompt("有道翻译", "将我要吃面条翻译为泰文", "youdao", -15));
 		VectorStoreConfig vectorStoreConfig = new VectorStoreService().getVectorStoreConfig();
 		// 智能问答 配置检测
 

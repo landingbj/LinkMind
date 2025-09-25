@@ -728,9 +728,7 @@ function streamOutput(paras, question, robootAnswerJq, url = "chat/go/stream") {
                     continue;
                 }
                 // console.log("content:", chatMessage);
-                if(json.source) {
-                    sourceContent  +=  chatMessage.content;
-                }
+                sourceContent  +=  chatMessage.content;
                 pageContent += chatMessage.content;
                 let temp = pageContent;
                 temp = marked.parse(temp);

@@ -1183,6 +1183,7 @@ function updatePlaceholder(id, subId) {
     // loadModelSelect(nav);
     const el = document.getElementById('queryContent');
     el.setAttribute('placeholder', subNav.operation);
+    currentPromptDialog = subNav;
 }
 
 

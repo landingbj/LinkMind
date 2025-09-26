@@ -469,7 +469,7 @@
                       模型管理
                     </button>
 
-                    <button class="model-modules-title model-modules-nav-not-active"
+                    <button style="display: none;" class="model-modules-title model-modules-nav-not-active"
                             onclick="loadUserModule(this, 'user-upload-model', 'loadUserUploadModelData')">
                       模型上传
                     </button>

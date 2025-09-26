@@ -86,6 +86,9 @@ async function newConversation(conv, questionEnable = true, answerEnable = true)
     replaceConversationAttached();
     $('#item-content').scrollTop($('#item-content').prop('scrollHeight'));
     let markdown =  $($(' .markdown')[$('.markdown').length - 1]);
+    if (currentPromptDialog !== undefined && currentPromptDialog.key === SOCIAL_NAV_KEY) {
+        return markdown;
+    }
     const soundSelectors = document.querySelectorAll('.sound');
     const recommendSelectors = document.querySelectorAll('.recommend');
     const soundSelector = soundSelectors[soundSelectors.length-1];

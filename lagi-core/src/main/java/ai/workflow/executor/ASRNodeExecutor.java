@@ -80,12 +80,9 @@ public class ASRNodeExecutor implements INodeExecutor {
         }
 
         if (inputs.containsKey("sample_rate")) {
-            param.setSample_rate((Integer) inputs.get("sample_rate"));
+            param.setSample_rate(((Double) inputs.get("sample_rate")).intValue());
         }
 
-        if (inputs.containsKey("appkey")) {
-            param.setAppkey((String) inputs.get("appkey"));
-        }
 
         String audioFilePath = audioUrl;
         File tempFile = null;

@@ -46,10 +46,25 @@ public class WorkflowEngine {
         nodeExecutors.put("intent-recognition", new IntentNodeExecutor());
         nodeExecutors.put("program", new GroovyScriptNodeExecutor());
         nodeExecutors.put("api", new ApiCallNodeExecutor());
-//        nodeExecutors.put("asr", new ASRNodeExecutor());
+        nodeExecutors.put("asr", new ASRNodeExecutor());
+        nodeExecutors.put("image2text", new Image2TextNodeExecutor());
+        // TODO 2025/9/28 模拟 安全帽识别、 工作服识别 节点
+        // TODO 2025/9/28 并行节点
+        // TODO 2025/9/28 agent 节点
+        // TODO 2025/9/28 数据库查询、存储节点
+        // TODO 2025/9/28 工作流能运用到agent实际调用
     }
 
     public void executeAsync(String taskId, String workflowJson, Map<String, Object> inputData) {
+        // TODO 2025/9/28 上下文相关
+        // TODO 2025/9/28 1.用户上下文
+        // TODO 2025/9/28 2.支持历史上下文 最近30条
+        // TODO 2025/9/28 3. 执行状态管理 ( 后续支持)
+
+
+        // TODO 2025/9/28 平台相关
+        // TODO 2025/9/28 优化文本转工作流生成结果，  支持历史上下文生成编排
+        // TODO 2025/9/28 工作流模版管理 。 支持模版的导入导出 (暂不做)
         THREAD_POOL_EXECUTOR.execute(() -> {
             try {
                 WorkflowResult result = execute(taskId, workflowJson, inputData);

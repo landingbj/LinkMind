@@ -1,6 +1,6 @@
 [简体中文](README_zh.md)| English
-
-## **Introduction**
+## Welcome to LinkMind!
+### **What is it**
 
 LinkMind is a solution carefully developed by Beijing Liandong North Technology Co., Ltd. to address the significant gap between the rapid development of open source big model technology and its actual application in enterprises. It is an enterprise-level composite multimodal big model middleware that aims to bridge this gap and enable enterprises to customize and deploy big models in a low-cost and efficient manner by providing a secure and professional platform.
 
@@ -80,7 +80,7 @@ The following database types are supported but not limited to:
     </div>
 </div>
 
-## Product Features
+### Product Features
 This product provides efficient, stable and easy-to-use functions through a series of advanced technologies and optimized designs to meet diverse user needs. The following are the main features:
 
 **More accurate retrieval enhancement (RAG)**
@@ -118,15 +118,15 @@ Quickly analyze user input to ensure accurate, stable and easy-to-use responses.
 Supports one-time writing to adapt to multiple models, significantly reducing duplication of work in development.
 
 Reduces development and maintenance difficulties and improves overall development efficiency.
-## Online Demo
+### Online Demo
 
 To allow users to intuitively experience the powerful functionality and convenience of LinkMind, we offer an online demo. You can visit and experience it through the following link: [https://lagi.landingbj.com](https://lagi.landingbj.com/).
 
-## Quick Start
+### Quick Start
 
 For developers, we provide a simple way to compile and run the LinkMind application. You can choose to use the Maven command-line tool to package, or run it through mainstream Integrated Development Environments (IDEs) like IntelliJ IDEA. Please make sure you are using JDK version 8 or above.
 
-### Method 1: Using Maven
+#### Method 1: Using Maven
 
 First, you need to clone the LinkMind project repository and switch to the project directory:
 
@@ -154,11 +154,11 @@ mvn package
 
 Finally, deploy the generated war package to the Tomcat server. After starting Tomcat, you can view the specific page of LinkMind by accessing the corresponding port through a browser.
 
-### Method 2: Using IDE
+#### Method 2: Using IDE
 
 If you prefer to use an IDE for development, you can directly open the LinkMind project with mainstream IDEs like IntelliJ IDEA. After publishing the project as a web project to the Tomcat server, you can view the interface of LinkMind by accessing the respective port through a browser.
 
-### Method 3: Docker
+#### Method 3: Docker
 
 - Image Name: landingbj/lagi
 
@@ -174,27 +174,27 @@ If you prefer to use an IDE for development, you can directly open the LinkMind 
   docker run -d --name lagi-web -p 8080:8080 landingbj/lagi
   ```
 
-## Tutorial
+### Tutorial
 
 To help you efficiently become familiar with and utilize LinkMind, we have prepared a comprehensive set of  [Tutorial presentations](docs/tutor_en.md). Through this tutorial, whether you are a beginner or an experienced developer, you can quickly get started. The tutorial also covers the setup of the LinkMind basic environmental vector database, guiding you step by step from the download, installation, and configuration of LinkMind, to actual operation, allowing you to easily start learning and quickly master the operational skills of LinkMind.
 
-## API
+### API
 
 The LinkMind project also provides multiple RESTful API interfaces, facilitating users to integrate AI services into their own applications. We have prepared detailed [API documentation](docs/API_en.md) for developers, which you can refer to understand how to use these APIs to enrich your application features.
 
-## Integration
+### Integration
 
 In order to help you better understand and use LinkMind, we provide you with detailed [Guide documentation](docs/guide_en.md). You can refer to this document to understand the structure and content of the project, so that you can quickly invoke relevant features and develop large model applications efficiently. It helps you understand and use a variety of AI features provided in the project. With this guide, you can easily integrate AI features such as text conversation, speech recognition, text-to-speech, and image generation into your applications, achieving a more intelligent and user-friendly interaction experience.
 
 If you wish to integrate LinkMind into your project, you can refer to our [Integration documentation](https://github.com/landingbj/lagi/blob/main/docs/guide_en.md#quick-integrate-into-your-existing-project). This document will guide you through the process of seamlessly integrating LinkMind into your project. In addition, we provide frequently asked questions and best practices to help you avoid common pitfalls during integration, ensuring a smooth progress of your project. It covers comprehensive guidance from setting up the environment to implementing features. Whether you are a beginner or an experienced developer, you will be able to quickly integrate LinkMind into your project.
 
-## Extension
+### Extension
 
 If you are not satisfied with the adapted large model for LinkMind, you can also refer to our [Extension documentation](docs/extend_en.md) to extend LinkMind, adapting it to your preferred large model. This document not only covers the methods for adapting and extending functional models and vector databases but also provides expansion examples to help you quickly grasp the methods for extending LinkMind, meeting your specific requirements.
 
 If you find the vector databases currently integrated with LinkMind to be less than satisfactory for your needs, you can also refer to our [Extension documentation](https://github.com/landingbj/lagi/blob/main/docs/extend_en.md#Database-Extension) to expand LinkMind and adapt it to your preferred vector database. This will meet your diverse business requirements, enhance the overall performance and reliability of your system, and provide a more enriching and efficient data management experience.
 
-## Security
+### Security
 
 In order to better integrate LinkMind into your business, you can add the keywords you need to filter in the [sensitive_word.json](lagi-web/src/main/resources/sensitive_word.json) file, specify the priority keywords in the [priority_word.json](lagi-web/src/main/resources/priority_word.json) file, and set the stopping keywords in the [stopping_word.json](lagi-web/src/main/resources/stopping_word.json) file to change the return results of the conversation, guide the conversation in a specific direction, and automatically stop the conversation when needed.
 
@@ -226,7 +226,7 @@ Example：Set priority keywords and stop keywords:
 
 Here’s the English translation of your document:
 
-## Rerank and Embedding Models
+### Rerank and Embedding Models
 
 Download the [AI database](https://downloads.landingbj.com/lagi/ai-sqlite.zip) and the [Embedding model](https://downloads.landingbj.com/lagi/embedding_2048.model), then configure the AI database and embedding model in the configuration file accordingly.
 
@@ -257,7 +257,7 @@ The **Rerank** feature only requires the AI database file, while the **Embedding
 
 For API references, see [API Documentation](docs/API_en.md).
 
-## Downloads
+### Downloads
 
 Thank you for your support of LinkMind ! To help you get started quickly and easily, we have provided a pre-packaged LinkMind application that is ready for immediate use.
 

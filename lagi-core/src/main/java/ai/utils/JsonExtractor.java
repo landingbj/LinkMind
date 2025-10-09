@@ -6,7 +6,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Stack;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -72,6 +71,7 @@ public class JsonExtractor {
 
     /**
      * 从字符串中提取第一个有效的JSON对象或数组
+     *
      * @param input 包含JSON的字符串
      * @return 提取到的有效JSON字符串，如果没有找到则返回null
      */
@@ -151,7 +151,18 @@ public class JsonExtractor {
         }
     }
 
-
+    public static String removeSpaces(String json) {
+        if (json == null || json.isEmpty()) {
+            return json;
+        }
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            Object obj = mapper.readValue(json, Object.class);
+            return mapper.writeValueAsString(obj);
+        } catch (Exception e) {
+            throw new RuntimeException("Invalid JSON string: " + e.getMessage(), e);
+        }
+    }
 
     // Example usage
     public static void main(String[] args) {

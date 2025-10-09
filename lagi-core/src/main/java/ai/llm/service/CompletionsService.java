@@ -8,16 +8,13 @@
 
 package ai.llm.service;
 
-import java.util.*;
-import java.util.stream.Collectors;
-
 import ai.common.ModelService;
 import ai.common.exception.RRException;
+import ai.common.pojo.Backend;
 import ai.common.pojo.IndexSearchData;
 import ai.config.ContextLoader;
 import ai.config.pojo.Policy;
 import ai.llm.adapter.ILlmAdapter;
-import ai.common.pojo.Backend;
 import ai.llm.pojo.EnhanceChatCompletionRequest;
 import ai.llm.pojo.GetRagContext;
 import ai.llm.utils.LLMErrorConstants;
@@ -27,7 +24,7 @@ import ai.llm.utils.PriorityLock;
 import ai.manager.AIManager;
 import ai.manager.LlmManager;
 import ai.mr.IMapper;
-import ai.mr.mapper.llm.*;
+import ai.mr.mapper.llm.UniversalMapper;
 import ai.openai.pojo.ChatCompletionRequest;
 import ai.openai.pojo.ChatCompletionResult;
 import ai.openai.pojo.ChatMessage;
@@ -41,6 +38,12 @@ import cn.hutool.core.bean.BeanUtil;
 import io.reactivex.Observable;
 import lombok.extern.slf4j.Slf4j;
 import weixin.tools.TulingThread;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 public class CompletionsService implements ChatCompletion {
@@ -79,7 +82,7 @@ public class CompletionsService implements ChatCompletion {
         RRException r = new RRException(LLMErrorConstants.OTHER_ERROR, "{\"error\":\"backend is not enabled.\"}");
         if (chatCompletionRequest.getModel() != null) {
             ILlmAdapter appointAdapter = llmAdapterAIManager.getAdapter(chatCompletionRequest.getModel());
-            if(appointAdapter == null) {
+            if (appointAdapter == null) {
                 Map<String, ILlmAdapter> userAdapterMap = userAdapters.stream().collect(Collectors.toMap(a -> ((ModelService) a).getModel(), a -> a));
                 appointAdapter = userAdapterMap.get(chatCompletionRequest.getModel());
             }
@@ -120,11 +123,11 @@ public class CompletionsService implements ChatCompletion {
         return streamCompletions(chatCompletionRequest, Collections.emptyList(), null);
     }
 
-    public Observable<ChatCompletionResult> streamCompletions(ChatCompletionRequest chatCompletionRequest,  List<ILlmAdapter> userAdapters, List<IndexSearchData> indexSearchDataList) {
+    public Observable<ChatCompletionResult> streamCompletions(ChatCompletionRequest chatCompletionRequest, List<ILlmAdapter> userAdapters, List<IndexSearchData> indexSearchDataList) {
         RRException r = new RRException(LLMErrorConstants.NO_AVAILABLE_MODEL, "{\"error\":\"Stream backend is not enabled.\"}");
         if (chatCompletionRequest.getModel() != null) {
             ILlmAdapter adapter = llmAdapterAIManager.getAdapter(chatCompletionRequest.getModel());
-            if(adapter == null) {
+            if (adapter == null) {
                 Map<String, ILlmAdapter> userAdapterMap = userAdapters.stream().collect(Collectors.toMap(a -> ((ModelService) a).getModel(), a -> a));
                 adapter = userAdapterMap.get(chatCompletionRequest.getModel());
             }
@@ -220,7 +223,7 @@ public class CompletionsService implements ChatCompletion {
         if (indexSearchDataList != null && !indexSearchDataList.isEmpty()) {
             adapters.addAll(LlmRouterDispatcher.getRagAdapter(llmAdapterAIManager, indexSearchDataList.get(0).getText()));
         } else {
-            adapters.addAll( llmAdapterAIManager.getAdapters());
+            adapters.addAll(llmAdapterAIManager.getAdapters());
         }
         List<ILlmAdapter> notFreezingAdapters =
                 adapters.stream().filter(adapter -> adapter != null && notFreezingAdapter(adapter)).collect(Collectors.toList());
@@ -361,7 +364,7 @@ public class CompletionsService implements ChatCompletion {
 
     public ChatCompletionRequest getCompletionsRequestByPrompts(List<String> prompts) {
         List<ChatMessage> messages = new ArrayList<>();
-        prompts.forEach(prompt->{
+        prompts.forEach(prompt -> {
             messages.add(getChatMessage(prompt, LagiGlobal.LLM_ROLE_USER));
             messages.add(getChatMessage(" ", LagiGlobal.LLM_ROLE_ASSISTANT));
         });
@@ -372,21 +375,20 @@ public class CompletionsService implements ChatCompletion {
     }
 
     public ChatCompletionRequest getCompletionsRequest(String systemPrompt, String prompt, String category) {
-        List<ChatMessage> messages = new ArrayList<>();
-        if (systemPrompt != null) {
-            messages.add(getChatMessage(systemPrompt, LagiGlobal.LLM_ROLE_SYSTEM));
-        }
-        messages.add(getChatMessage(prompt, LagiGlobal.LLM_ROLE_USER));
-        return getCompletionsRequest(messages, category);
+        return getCompletionsRequest(systemPrompt, prompt, DEFAULT_TEMPERATURE, DEFAULT_MAX_TOKENS, category);
     }
 
-    public ChatCompletionRequest getCompletionsRequest(String systemPrompt, String prompt, String category, int maxTokens) {
+    public ChatCompletionRequest getCompletionsRequest(String systemPrompt, String prompt, double temperature, int maxTokens) {
+        return getCompletionsRequest(systemPrompt, prompt, temperature, maxTokens, null);
+    }
+
+    public ChatCompletionRequest getCompletionsRequest(String systemPrompt, String prompt, double temperature, int maxTokens, String category) {
         List<ChatMessage> messages = new ArrayList<>();
         if (systemPrompt != null) {
             messages.add(getChatMessage(systemPrompt, LagiGlobal.LLM_ROLE_SYSTEM));
         }
         messages.add(getChatMessage(prompt, LagiGlobal.LLM_ROLE_USER));
-        return getCompletionsRequest(messages, DEFAULT_TEMPERATURE, maxTokens,category);
+        return getCompletionsRequest(messages, temperature, maxTokens, category);
     }
 
     public ChatCompletionRequest getCompletionsRequest(List<ChatMessage> messages) {

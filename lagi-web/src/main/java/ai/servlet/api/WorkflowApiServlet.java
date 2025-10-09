@@ -2,12 +2,16 @@ package ai.servlet.api;
 
 import ai.common.pojo.Response;
 import ai.config.pojo.AgentConfig;
-import ai.workflow.WorkflowEngine;
-import ai.workflow.TaskStatusManager;
-import ai.workflow.pojo.*;
 import ai.migrate.service.AgentService;
 import ai.servlet.BaseServlet;
 import ai.servlet.dto.LagiAgentResponse;
+import ai.workflow.TaskStatusManager;
+import ai.workflow.WorkflowEngine;
+import ai.workflow.WorkflowGenerator;
+import ai.workflow.pojo.TaskCancelInput;
+import ai.workflow.pojo.TaskCancelOutput;
+import ai.workflow.pojo.TaskReportOutput;
+import ai.workflow.pojo.TaskRunInput;
 import com.google.gson.JsonObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,7 +20,9 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.util.*;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
 
 public class WorkflowApiServlet extends BaseServlet {
     private static final Logger logger = LoggerFactory.getLogger(WorkflowApiServlet.class);
@@ -35,26 +41,8 @@ public class WorkflowApiServlet extends BaseServlet {
             this.taskRun(req, resp);
         } else if (method.equals("taskCancel")) {
             this.taskCancel(req, resp);
-        } else if(method.equals("txt2FlowSchema")) {
+        } else if (method.equals("txt2FlowSchema")) {
             this.txt2FlowSchema(req, resp);
-        }
-    }
-
-    private void txt2FlowSchema(HttpServletRequest req, HttpServletResponse resp) throws IOException{
-        resp.setContentType("application/json;charset=utf-8");
-        JsonObject jsonObject = reqBodyToObj(req, JsonObject.class);
-        Integer agentId = jsonObject.get("agentId").getAsInt();
-        String input = jsonObject.get("input").toString();
-        String schema = WorkflowEngine.txt2FlowSchema(input);
-        if(schema != null) {
-            AgentConfig agentConfig = new AgentConfig();
-            agentConfig.setId(agentId);
-            agentConfig.setSchema(schema);
-            Response response = agentService.updateLagiAgent(agentConfig);
-            responsePrint(resp, gson.toJson(response));
-        } else {
-            Response failed = Response.builder().status("failed").msg("txt2FlowSchema failed").data(null).build();
-            responsePrint(resp, gson.toJson(failed));
         }
     }
 
@@ -72,6 +60,25 @@ public class WorkflowApiServlet extends BaseServlet {
             this.taskResult(req, resp);
         }
     }
+
+    private void txt2FlowSchema(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        JsonObject jsonObject = reqBodyToObj(req, JsonObject.class);
+        Integer agentId = jsonObject.get("agentId").getAsInt();
+        String input = jsonObject.get("input").toString();
+        try {
+            String schema = WorkflowGenerator.txt2FlowSchema(input);
+            AgentConfig agentConfig = new AgentConfig();
+            agentConfig.setId(agentId);
+            agentConfig.setSchema(schema);
+            Response response = agentService.updateLagiAgent(agentConfig);
+            responsePrint(resp, gson.toJson(response));
+        } catch (Exception e) {
+            Response failed = Response.builder().status("failed").msg("txt2FlowSchema failed").data(null).build();
+            responsePrint(resp, gson.toJson(failed));
+        }
+    }
+
 
     private void saveFlowSchema(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json;charset=utf-8");
@@ -103,7 +110,6 @@ public class WorkflowApiServlet extends BaseServlet {
     }
 
 
-    
     /**
      * 运行工作流任务
      */

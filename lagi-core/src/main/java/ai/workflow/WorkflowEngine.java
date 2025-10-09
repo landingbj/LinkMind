@@ -290,19 +290,6 @@ public class WorkflowEngine {
         }
     }
 
-    public static String txt2FlowSchema(String text) {
-        CompletionsService completionsService = new CompletionsService();
-//        ChatCompletionRequest request = completionsService.getCompletionsRequest(Prompt.USER_INFO_EXTRACT_PROMPT, text, "default");
-//        ChatCompletionResult completions = completionsService.completions(request);
-//        String prompt = completions.getChoices().get(0).getMessage().getContent();
-//        System.out.println(prompt);
 
-        ChatCompletionRequest request = completionsService.getCompletionsRequest(Prompt.PROMPT_TO_WORKFLOW_JSON, text, "default", 4096);
-        ChatCompletionResult completions = completionsService.completions(request);
-        String json = completions.getChoices().get(0).getMessage().getContent();
-        System.out.println(json);
-        json = JsonExtractor.extractJson(json);
-        return json;
-    }
 
 }

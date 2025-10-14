@@ -6,6 +6,7 @@ import ai.common.utils.LRUCache;
 import ai.config.ContextLoader;
 import ai.config.pojo.FilterConfig;
 import ai.openai.pojo.ChatCompletionChoice;
+import ai.openai.pojo.ChatCompletionRequest;
 import ai.openai.pojo.ChatCompletionResult;
 import ai.openai.pojo.ChatMessage;
 import cn.hutool.core.util.StrUtil;
@@ -29,6 +30,9 @@ public class SensitiveWordUtil {
     private static final LRUCache<String, String> filterSlidingWindow = new LRUCache<>(10000, 30, TimeUnit.MINUTES);
     private static final LRUCache<String, Boolean> blockMap = new LRUCache<>(10000, 30, TimeUnit.MINUTES);
 
+    private static boolean enableRequestFilter = false;
+    private static String requestFilterMessage = "您的输入中似乎包含部分敏感内容，请您稍作修改后再试。";
+
     static {
         WordRules wordRules = JsonFileLoadUtil.readWordLRulesList("/sensitive_word.json", WordRules.class);
         pushWordRule(wordRules);
@@ -39,6 +43,20 @@ public class SensitiveWordUtil {
                 }
             }
         }
+        if (wordRules != null) {
+            enableRequestFilter = wordRules.isEnableRequestFilter();
+            if (wordRules.getRequestFilterMessage() != null) {
+                requestFilterMessage = wordRules.getRequestFilterMessage();
+            }
+        }
+    }
+
+    public static boolean enableRequestFilter() {
+        return enableRequestFilter;
+    }
+
+    public static String getRequestFilterMessage() {
+        return requestFilterMessage;
     }
 
     public static void pushWordRule(WordRules wordRules) {
@@ -157,5 +175,49 @@ public class SensitiveWordUtil {
             filterSlidingWindow.put(id, tempContent);
         }
         return chatCompletionResult;
+    }
+
+    public static boolean isBlocked(ChatCompletionResult chatCompletionResult) {
+        if (chatCompletionResult == null || chatCompletionResult.getChoices() == null || chatCompletionResult.getChoices().isEmpty()) {
+            return false;
+        }
+        return blockMap.containsKey(chatCompletionResult.getId());
+    }
+
+    /**
+     * Filter sensitive words in ChatCompletionRequest
+     * @param request ChatCompletionRequest object to check
+     * @return true if contains sensitive words that should be blocked, false otherwise
+     */
+    public static boolean filter(ChatCompletionRequest request) {
+        if (request == null || request.getMessages() == null || request.getMessages().isEmpty()) {
+            return false;
+        }
+
+        List<ChatMessage> messages = request.getMessages();
+
+        for (ChatMessage message : messages) {
+            if (message.getContent() == null || message.getContent().isEmpty()) {
+                continue;
+            }
+
+            String lowerContent = message.getContent().toLowerCase();
+            Set<String> rules = ruleMap.keySet();
+
+            for (String rule : rules) {
+                Pattern p = getCompiledPattern(rule);
+                Matcher matcher = p.matcher(lowerContent);
+
+                if (matcher.find()) {
+                    WordRule wordRule = ruleMap.get(rule);
+                    if (wordRule != null && wordRule.getLevel() == 1) {
+                        log.info("sensitive message in request: {} match group: {}", lowerContent, matcher.group());
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 }

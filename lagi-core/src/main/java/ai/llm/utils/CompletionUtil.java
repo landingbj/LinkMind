@@ -42,6 +42,24 @@ public class CompletionUtil {
         return gson.fromJson(json, ChatCompletionResult.class);
     }
 
+    public static ChatCompletionResult generateStreamCompletionResult(String id, String delta, String model) {
+        String json = "{\"id\":\"" + id + "\",\"object\":\"chat.completion.chunk\",\"created\":" + (System.currentTimeMillis() / 1000L) +
+                ",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"," +
+            "\"content\":\"" + delta + "\"}}]}";
+        ChatCompletionResult chatCompletionResult = gson.fromJson(json, ChatCompletionResult.class);
+        chatCompletionResult.setModel(model);
+        return chatCompletionResult;
+    }
+
+    public static ChatCompletionResult generateStreamCompletionResult(String id, String message, String finishReason, String model) {
+        String json = "{\"id\":\"" + id + "\",\"object\":\"chat.completion.chunk\",\"created\":" + (System.currentTimeMillis() / 1000L) +
+                ",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"," +
+            "\"content\":\"" + message + "\"},\"finish_reason\":\"" + finishReason + "\"}]}";
+        ChatCompletionResult chatCompletionResult = gson.fromJson(json, ChatCompletionResult.class);
+        chatCompletionResult.setModel(model);
+        return chatCompletionResult;
+    }
+
     public static void populateContext(ChatCompletionResult result, List<IndexSearchData> indexSearchDataList, String context) {
         if (result != null && !result.getChoices().isEmpty()
                 && indexSearchDataList != null && !indexSearchDataList.isEmpty()) {

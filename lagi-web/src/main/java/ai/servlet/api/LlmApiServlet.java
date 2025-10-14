@@ -196,6 +196,17 @@ public class LlmApiServlet extends BaseServlet {
         out.close();
     }
 
+    private void sensitiveWordStreamOutPrint( ChatCompletionRequest chatCompletionRequest, HttpServletResponse resp, PrintWriter out) {
+        resp.setHeader("Content-Type", "text/event-stream;charset=utf-8");
+        String id = "chatcmpl-" + UUID.randomUUID().toString().replace("-", "");
+        out.print("data: " + gson.toJson(CompletionUtil.generateStreamCompletionResult(id, SensitiveWordUtil.getRequestFilterMessage(), chatCompletionRequest.getModel())) + "\n\n");
+        out.flush();
+        out.print("data: " + gson.toJson(CompletionUtil.generateStreamCompletionResult(id, "", "content_filter", chatCompletionRequest.getModel())) + "\n\n");
+        out.flush();
+        out.print("data: " + "[DONE]" + "\n\n");
+        out.flush();
+        out.close();
+    }
 
     private void completions(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json;charset=utf-8");
@@ -205,6 +216,12 @@ public class LlmApiServlet extends BaseServlet {
             RAG_ENABLE = RAG_CONFIG.getEnable();
         }
         ChatCompletionRequest chatCompletionRequest = setCustomerModel(req, session);
+
+        if (chatCompletionRequest.getStream() != null && chatCompletionRequest.getStream() &&
+                SensitiveWordUtil.enableRequestFilter() && SensitiveWordUtil.filter(chatCompletionRequest)) {
+            sensitiveWordStreamOutPrint(chatCompletionRequest, resp, out);
+            return;
+        }
 
         boolean isMultiModal = CompletionUtil.isMultiModal(chatCompletionRequest);
 
@@ -419,7 +436,11 @@ public class LlmApiServlet extends BaseServlet {
                         chatCompletionChoice.setFinish_reason(null);
                         String msg = gson.toJson(filter);
                         outputChunk(out, msg);
-                        chatCompletionChoice.setFinish_reason(finishReason);
+                        if (SensitiveWordUtil.isBlocked(filter)) {
+                            chatCompletionChoice.setFinish_reason("content_filter");
+                        } else {
+                            chatCompletionChoice.setFinish_reason(finishReason);
+                        }
                         chatCompletionChoice.getDelta().setContent("");
                         msg = gson.toJson(filter);
                         outputChunk(out, msg);

@@ -3,18 +3,18 @@ package ai.response;
 import java.io.Serializable;
 
 /**
-* @program: RestfulResponse
-*
-* @description: restful response
-*
-* @author: linzhen
-*
-* @create: 2023-06-29 09:00
-**/
+ * @program: RestfulResponse
+ *
+ * @description: restful response
+ *
+ * @author: linzhen
+ *
+ * @create: 2023-06-29 09:00
+ **/
 public class RestfulResponse <T> implements Serializable{
-	
+
 	private static final long serialVersionUID = 1L;
-	
+
 	private Integer code;
 	private String message;
 	private T data;
@@ -43,16 +43,20 @@ public class RestfulResponse <T> implements Serializable{
 	public void setErrorMsg(String errorMsg) {
 		this.errorMsg = errorMsg;
 	}
-	
-	
+
+
 	public static RestfulResponse<Object> error(String errorMsg) {
+		return error(500, errorMsg);
+	}
+
+	public static RestfulResponse<Object> error(int code , String errorMsg) {
 		RestfulResponse<Object> response = new RestfulResponse<>();
-		response.setCode(500);
+		response.setCode(code);
 		response.setErrorMsg(errorMsg);
 		response.setMessage("failed");
 		return response;
 	}
-	
+
 	public static <T>RestfulResponse<T> sucecced(T data) {
 		RestfulResponse<T> response = new RestfulResponse<>();
 		response.setCode(0);

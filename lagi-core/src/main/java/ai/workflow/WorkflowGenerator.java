@@ -1,5 +1,6 @@
 package ai.workflow;
 
+import ai.config.ContextLoader;
 import ai.llm.service.CompletionsService;
 import ai.openai.pojo.ChatCompletionRequest;
 import ai.openai.pojo.ChatCompletionResult;
@@ -9,6 +10,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -69,7 +71,7 @@ public class WorkflowGenerator {
 
             log.info("Stage 3: Matching required nodes based on process");
             String stage3PromptWithVariables = injectVariablesIntoPrompt(
-                    WorkflowPromptUtil.NODE_MATCHING_PROMPT,
+                    WorkflowPromptUtil.getNodeMatchingPrompt(Collections.emptyList()),
                     variableDescription
             );
             ChatCompletionRequest stage3Request = completionsService.getCompletionsRequest(
@@ -84,7 +86,7 @@ public class WorkflowGenerator {
 
             log.info("Stage 4: Generating workflow JSON configuration");
             String stage4PromptWithVariables = injectVariablesIntoPrompt(
-                    WorkflowPromptUtil.PROMPT_TO_WORKFLOW_JSON,
+                    WorkflowPromptUtil.getPromptToWorkflowJson(Collections.emptyList()),
                     variableDescription
             );
             // Combine structured description, node matching, and variables for final stage
@@ -369,6 +371,11 @@ public class WorkflowGenerator {
         } catch (Exception e) {
             throw new IllegalArgumentException("JSON validation failed: " + e.getMessage(), e);
         }
+    }
+
+    public static void main(String[] args) {
+        ContextLoader.loadContext();
+        System.out.println(WorkflowGenerator.txt2FlowSchema("帮我生成一个调用天气api的的工作流"));
     }
 
 }

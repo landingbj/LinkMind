@@ -1,6 +1,9 @@
 package ai.workflow.executor;
 
 import ai.common.pojo.IndexSearchData;
+import ai.config.ContextLoader;
+import ai.config.GlobalConfigurations;
+import ai.config.pojo.StoreConfig;
 import ai.llm.pojo.GetRagContext;
 import ai.llm.service.CompletionsService;
 import ai.openai.pojo.ChatCompletionRequest;
@@ -26,6 +29,17 @@ public class KnowledgeNodeExecutor implements INodeExecutor {
     private final TaskStatusManager taskStatusManager = TaskStatusManager.getInstance();
     private final VectorStoreService vectorStoreService = new VectorStoreService();
     private final CompletionsService completionsService = new CompletionsService();
+
+
+    @Override
+    public boolean isValid() {
+        GlobalConfigurations configuration = ContextLoader.configuration;
+        if(configuration != null && configuration.getStores() != null ) {
+            StoreConfig stores = configuration.getStores();
+            return stores.getRag().getEnable();
+        }
+        return false;
+    }
 
     @Override
     public NodeResult execute(String taskId, Node node, WorkflowContext context) throws Exception {

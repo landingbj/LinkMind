@@ -1,6 +1,7 @@
 package ai.workflow.executor;
 
 import ai.llm.service.CompletionsService;
+import ai.manager.LlmManager;
 import ai.openai.pojo.ChatCompletionRequest;
 import ai.openai.pojo.ChatCompletionResult;
 import ai.workflow.TaskStatusManager;
@@ -23,6 +24,12 @@ public class LLMNodeExecutor implements INodeExecutor {
 
     private final TaskStatusManager taskStatusManager = TaskStatusManager.getInstance();
     private final CompletionsService completionsService = new CompletionsService();
+
+    @Override
+    public boolean isValid() {
+        boolean empty = LlmManager.getInstance().getAdapters().isEmpty();
+        return !empty;
+    }
 
     @Override
     public NodeResult execute(String taskId, Node node, WorkflowContext context) throws Exception {

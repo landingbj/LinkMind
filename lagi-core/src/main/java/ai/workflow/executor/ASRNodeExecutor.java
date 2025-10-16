@@ -3,6 +3,7 @@ package ai.workflow.executor;
 import ai.audio.service.AudioService;
 import ai.common.pojo.AsrResult;
 import ai.common.pojo.AudioRequestParam;
+import ai.manager.ASRManager;
 import ai.utils.FileUtil;
 import ai.workflow.TaskStatusManager;
 import ai.workflow.exception.WorkflowException;
@@ -26,6 +27,11 @@ public class ASRNodeExecutor implements INodeExecutor {
 
     private final TaskStatusManager taskStatusManager = TaskStatusManager.getInstance();
     private final AudioService audioService = new AudioService();
+
+    public boolean isValid() {
+        boolean empty = ASRManager.getInstance().getAdapters().isEmpty();
+        return !empty;
+    }
 
     @Override
     public NodeResult execute(String taskId, Node node, WorkflowContext context) throws Exception {

@@ -1,12 +1,9 @@
 package ai.workflow;
 
-import ai.llm.service.CompletionsService;
-import ai.openai.pojo.ChatCompletionRequest;
-import ai.openai.pojo.ChatCompletionResult;
-import ai.utils.JsonExtractor;
 import ai.workflow.exception.WorkflowException;
 import ai.workflow.executor.*;
 import ai.workflow.pojo.*;
+import ai.workflow.utils.DefaultNodeEnum;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -37,17 +34,13 @@ public class WorkflowEngine {
     }
 
     private void registerDefaultExecutors() {
-        nodeExecutors.put("start", new StartNodeExecutor());
-        nodeExecutors.put("condition", new ConditionNodeExecutor());
-        nodeExecutors.put("loop", new LoopNodeExecutor());
-        nodeExecutors.put("llm", new LLMNodeExecutor());
-        nodeExecutors.put("end", new EndNodeExecutor());
-        nodeExecutors.put("knowledge-base", new KnowledgeNodeExecutor());
-        nodeExecutors.put("intent-recognition", new IntentNodeExecutor());
-        nodeExecutors.put("program", new GroovyScriptNodeExecutor());
-        nodeExecutors.put("api", new ApiCallNodeExecutor());
-        nodeExecutors.put("asr", new ASRNodeExecutor());
-        nodeExecutors.put("image2text", new Image2TextNodeExecutor());
+        // 已过滤无效功能节点， 同时已提供接口 供前端同步
+        List<DefaultNodeEnum> valIdNodeEnum = DefaultNodeEnum.getValIdNodeEnum();
+        for (DefaultNodeEnum nodeEnum : valIdNodeEnum) {
+            nodeExecutors.put(nodeEnum.getName(), nodeEnum.getINodeExecutor());
+            log.info("Node executor register: " + nodeEnum.getName());
+        }
+
         // TODO 2025/9/28 模拟 安全帽识别、 工作服识别 节点
         // TODO 2025/9/28 并行节点
         // TODO 2025/9/28 agent 节点

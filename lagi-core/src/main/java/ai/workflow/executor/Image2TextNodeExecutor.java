@@ -4,6 +4,7 @@ import ai.common.exception.RRException;
 import ai.common.pojo.FileRequest;
 import ai.common.pojo.ImageToTextResponse;
 import ai.image.service.AllImageService;
+import ai.manager.Image2TextManger;
 import ai.workflow.TaskStatusManager;
 import ai.workflow.exception.WorkflowException;
 import ai.workflow.pojo.Node;
@@ -26,6 +27,12 @@ public class Image2TextNodeExecutor implements INodeExecutor {
 
     private final TaskStatusManager taskStatusManager = TaskStatusManager.getInstance();
     private final AllImageService imageService = new AllImageService();
+
+    @Override
+    public boolean isValid() {
+        boolean empty = Image2TextManger.getInstance().getAdapters().isEmpty();
+        return !empty;
+    }
 
     @Override
     public NodeResult execute(String taskId, Node node, WorkflowContext context) throws Exception {

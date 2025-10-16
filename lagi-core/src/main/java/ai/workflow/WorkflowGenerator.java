@@ -6,11 +6,11 @@ import ai.openai.pojo.ChatCompletionRequest;
 import ai.openai.pojo.ChatCompletionResult;
 import ai.openai.pojo.ChatMessage;
 import ai.utils.JsonExtractor;
+import ai.workflow.utils.DefaultNodeEnum;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -36,7 +36,7 @@ public class WorkflowGenerator {
         // TODO 修改提示词，补全所有的节点类型
         // TODO 需要测试一些复杂的生成指令，修改提示词以提高生成效果。
         log.info("Generating workflow from text: {}", text);
-
+        List<String> notValidNodeName = DefaultNodeEnum.getNotValidNodeName();
         try {
             log.info("Stage 1: Extracting start and end node variables");
             ChatCompletionRequest stage1Request = completionsService.getCompletionsRequest(
@@ -71,7 +71,7 @@ public class WorkflowGenerator {
 
             log.info("Stage 3: Matching required nodes based on process");
             String stage3PromptWithVariables = injectVariablesIntoPrompt(
-                    WorkflowPromptUtil.getNodeMatchingPrompt(Collections.emptyList()),
+                    WorkflowPromptUtil.getNodeMatchingPrompt(notValidNodeName),
                     variableDescription
             );
             ChatCompletionRequest stage3Request = completionsService.getCompletionsRequest(
@@ -86,7 +86,7 @@ public class WorkflowGenerator {
 
             log.info("Stage 4: Generating workflow JSON configuration");
             String stage4PromptWithVariables = injectVariablesIntoPrompt(
-                    WorkflowPromptUtil.getPromptToWorkflowJson(Collections.emptyList()),
+                    WorkflowPromptUtil.getPromptToWorkflowJson(notValidNodeName),
                     variableDescription
             );
             // Combine structured description, node matching, and variables for final stage

@@ -3,6 +3,7 @@ package ai.servlet.api;
 import ai.common.pojo.Response;
 import ai.config.pojo.AgentConfig;
 import ai.migrate.service.AgentService;
+import ai.response.RestfulResponse;
 import ai.servlet.BaseServlet;
 import ai.servlet.dto.LagiAgentResponse;
 import ai.workflow.TaskStatusManager;
@@ -12,6 +13,7 @@ import ai.workflow.pojo.TaskCancelInput;
 import ai.workflow.pojo.TaskCancelOutput;
 import ai.workflow.pojo.TaskReportOutput;
 import ai.workflow.pojo.TaskRunInput;
+import ai.workflow.utils.DefaultNodeEnum;
 import com.google.gson.JsonObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,8 +23,10 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 public class WorkflowApiServlet extends BaseServlet {
     private static final Logger logger = LoggerFactory.getLogger(WorkflowApiServlet.class);
@@ -58,8 +62,12 @@ public class WorkflowApiServlet extends BaseServlet {
             this.taskReport(req, resp);
         } else if (method.equals("taskResult")) {
             this.taskResult(req, resp);
+        } else if (method.equals("getValidNodes")) {
+            this.getValidNodes(req, resp);
         }
     }
+
+
 
     private void txt2FlowSchema(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json;charset=utf-8");
@@ -224,4 +232,13 @@ public class WorkflowApiServlet extends BaseServlet {
         TaskReportOutput taskReportOutput = taskStatusManager.getTaskReport(taskId);
         responsePrint(resp, gson.toJson(taskReportOutput));
     }
+
+    private void getValidNodes(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        List<DefaultNodeEnum> valIdNodeEnum = DefaultNodeEnum.getValIdNodeEnum();
+        List<String> validNodeName = valIdNodeEnum.stream().map(DefaultNodeEnum::getName).collect(Collectors.toList());
+        RestfulResponse<List<String>> sucecced = RestfulResponse.sucecced(validNodeName);
+        responsePrint(resp, gson.toJson(sucecced));
+    }
+
 }

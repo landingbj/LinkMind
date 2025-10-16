@@ -5,8 +5,10 @@ import ai.common.exception.RRException;
 import ai.common.utils.LRUCache;
 import ai.common.utils.ThreadPoolManager;
 import ai.config.pojo.AgentConfig;
+import ai.database.DatabaseGlobal;
 import ai.keywords.SubstitutionUtil;
 import ai.learn.questionAnswer.KShingle;
+import ai.manager.DatabaseManager;
 import ai.openai.pojo.ChatCompletionRequest;
 import ai.openai.pojo.ChatCompletionResult;
 import ai.utils.JsonExtractor;
@@ -337,7 +339,10 @@ public class SkillMap {
     }
 
     public IntentResponse intentDetect(String question) {
-        return nodeIntentDetect(question);
+        if (DatabaseManager.isDbExists(DatabaseGlobal.AI_DB)) {
+            return nodeIntentDetect(question);
+        }
+        return llmIntentDetect(question);
     }
 
     public IntentResponse nodeIntentDetect(String question) {

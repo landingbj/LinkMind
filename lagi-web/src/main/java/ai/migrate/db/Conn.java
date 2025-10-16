@@ -70,7 +70,6 @@ public class Conn implements Serializable, IConn {
 	private String connName;
 	private static int defaultDBPool = AiGlobalDB.DEFAULT_DB_POOL;
 	public static String defaultDB = MigrateGlobal.DEFAULT_DB;
-	public static boolean isTransactionSupported = AiGlobalDB.isTransactionSupported;
 	private boolean closed;
 
 	private static ThreadLocal<AtomicInteger> tracker = new ThreadLocal<AtomicInteger>() {

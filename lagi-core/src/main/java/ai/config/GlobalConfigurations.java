@@ -55,6 +55,7 @@ public class GlobalConfigurations extends AbstractConfiguration {
         WorkerManager.getInstance().register(workers);
         registerFilter();
         McpManager.getInstance().register(mcps);
+        DatabaseManager.getInstance().register(stores.getDatabase());
         if(agentGeneralConfiguration == null) {
             agentGeneralConfiguration = Backend.builder()
                     .model("qwen-turbo")

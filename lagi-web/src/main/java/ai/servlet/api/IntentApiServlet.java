@@ -14,7 +14,7 @@ import ai.intent.pojo.IntentRouteResult;
 import ai.intent.reducer.IntentReducer;
 import ai.llm.adapter.ILlmAdapter;
 import ai.llm.utils.ContextUtil;
-import ai.migrate.service.AgentService;
+import ai.agent.AgentService;
 import ai.mr.IMapper;
 import ai.mr.IRContainer;
 import ai.mr.IReducer;
@@ -23,6 +23,7 @@ import ai.openai.pojo.ChatCompletionResult;
 import ai.router.pojo.LLmRequest;
 import ai.servlet.RestfulServlet;
 import ai.servlet.annotation.Post;
+import ai.sevice.ModelManagerService;
 import com.google.gson.Gson;
 import lombok.extern.slf4j.Slf4j;
 
@@ -160,6 +161,6 @@ public class IntentApiServlet extends RestfulServlet {
     }
 
     public List<ILlmAdapter> getUserLlmAdapters(String userId) {
-        return agentService.getUserLlmAdapters(userId);
+        return new ModelManagerService().getUserLlmAdapters(userId);
     }
 }

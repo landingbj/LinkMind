@@ -95,7 +95,7 @@ public class GroovyScriptNodeExecutor implements INodeExecutor {
             TaskReportOutput.Snapshot snapshot = taskStatusManager.createNodeSnapshot(nodeId, inputs, outputResult, null, null);
             taskStatusManager.updateNodeReport(taskId, nodeId, "succeeded", startTime, endTime, timeCost, snapshot);
 
-            nodeResult = new NodeResult(outputResult, null);
+            nodeResult = new NodeResult(node.getType(), node.getId(), outputResult, null);
         } catch (Exception e) {
             // 添加安全审计日志（错误情况）
             taskStatusManager.addExecutionLog(taskId, nodeId,

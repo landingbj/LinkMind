@@ -2,13 +2,13 @@ package ai.servlet.api;
 
 import ai.agent.Agent;
 import ai.agent.chat.rag.LocalRagAgent;
+import ai.agent.dto.*;
 import ai.common.ModelService;
 import ai.common.exception.RRException;
 import ai.common.pojo.*;
 import ai.config.ContextLoader;
 import ai.config.pojo.AgentConfig;
 import ai.config.pojo.RAGFunction;
-import ai.dto.DeductExpensesRequest;
 import ai.dto.ModelPreferenceDto;
 import ai.embedding.EmbeddingFactory;
 import ai.embedding.Embeddings;
@@ -34,18 +34,16 @@ import ai.medusa.pojo.PromptInput;
 import ai.medusa.utils.PromptCacheTrigger;
 import ai.medusa.utils.PromptInputUtil;
 import ai.migrate.dao.UserModelPreferenceDao;
-import ai.migrate.service.AgentService;
+import ai.agent.AgentService;
 import ai.migrate.service.TraceService;
 import ai.openai.pojo.ChatCompletionRequest;
 import ai.openai.pojo.ChatCompletionResult;
 import ai.openai.pojo.ChatMessage;
 import ai.router.pojo.LLmRequest;
 import ai.servlet.BaseServlet;
-import ai.servlet.dto.LagiAgentExpenseListResponse;
-import ai.servlet.dto.LagiAgentListResponse;
-import ai.servlet.dto.LagiAgentResponse;
-import ai.servlet.dto.PaidLagiAgent;
+import ai.agent.dto.PaidLagiAgent;
 import ai.sevice.KnowledgeBaseService;
+import ai.sevice.ModelManagerService;
 import ai.utils.*;
 import ai.utils.qa.ChatCompletionUtil;
 import ai.vector.VectorCacheLoader;
@@ -387,7 +385,7 @@ public class LlmApiServlet extends BaseServlet {
     }
 
     public List<ILlmAdapter> getUserLlmAdapters(String userId) {
-        return agentService.getUserLlmAdapters(userId);
+        return new ModelManagerService().getUserLlmAdapters(userId);
     }
 
     private static final LRUCache<LLmRequest, IntentResponse> intentKeywordCache = IntentGlobal.INTENT_KEYWORD_CACHE;

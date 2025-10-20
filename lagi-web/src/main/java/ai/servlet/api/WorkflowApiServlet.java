@@ -2,10 +2,10 @@ package ai.servlet.api;
 
 import ai.common.pojo.Response;
 import ai.config.pojo.AgentConfig;
-import ai.migrate.service.AgentService;
+import ai.agent.AgentService;
 import ai.response.RestfulResponse;
 import ai.servlet.BaseServlet;
-import ai.servlet.dto.LagiAgentResponse;
+import ai.agent.dto.LagiAgentResponse;
 import ai.workflow.TaskStatusManager;
 import ai.workflow.WorkflowEngine;
 import ai.workflow.WorkflowGenerator;

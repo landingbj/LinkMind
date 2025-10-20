@@ -7,7 +7,9 @@ import ai.medusa.utils.PromptCacheConfig;
 import ai.ocr.OcrConfig;
 import ai.router.Routers;
 import ai.utils.*;
+import ai.workflow.utils.DefaultNodeEnum;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.google.gson.Gson;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
@@ -115,7 +117,9 @@ public class GlobalConfigurations extends AbstractConfiguration {
 
     public static void main(String[] args) {
         ContextLoader.loadContext();
-        System.out.println(ContextLoader.configuration);
+        System.out.println(new Gson().toJson(ContextLoader.configuration));
+        System.out.println(ImageObjectDetectManager.getInstance().getAdapters());
+        System.out.println(DefaultNodeEnum.getNotValidNodeName());
     }
 
 }

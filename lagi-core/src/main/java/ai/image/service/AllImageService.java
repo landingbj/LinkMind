@@ -3,15 +3,19 @@ package ai.image.service;
 import ai.common.pojo.*;
 import ai.image.adapter.IImage2TextAdapter;
 import ai.image.adapter.IImageGenerationAdapter;
+import ai.image.adapter.IImageObjectDetectAdapter;
 import ai.image.adapter.ImageEnhanceAdapter;
+import ai.image.pojo.ImageDetectParam;
 import ai.image.pojo.ImageEnhanceRequest;
+import ai.image.pojo.ObjectDetectResult;
 import ai.manager.Image2TextManger;
 import ai.manager.ImageEnhanceManager;
 import ai.manager.ImageGenerationManager;
+import ai.manager.ImageObjectDetectManager;
 
 import java.util.List;
 
-public class AllImageService implements IImage2TextAdapter, ImageEnhanceAdapter, IImageGenerationAdapter {
+public class AllImageService implements IImage2TextAdapter, ImageEnhanceAdapter, IImageGenerationAdapter, IImageObjectDetectAdapter {
 
     @Override
     public ImageToTextResponse toText(FileRequest param) {
@@ -59,6 +63,23 @@ public class AllImageService implements IImage2TextAdapter, ImageEnhanceAdapter,
         for (IImageGenerationAdapter adapter : adapters) {
             if(adapter != null) {
                 return adapter.generations(request);
+            }
+        }
+        return null;
+    }
+
+    @Override
+    public ObjectDetectResult detect(ImageDetectParam param) {
+        if(param.getModel() != null) {
+            IImageObjectDetectAdapter adapter = ImageObjectDetectManager.getInstance().getAdapter(param.getModel());
+            if(adapter != null) {
+                return adapter.detect(param);
+            }
+        }
+        List<IImageObjectDetectAdapter> adapters = ImageObjectDetectManager.getInstance().getAdapters();
+        for (IImageObjectDetectAdapter adapter : adapters) {
+            if(adapter != null) {
+                return adapter.detect(param);
             }
         }
         return null;

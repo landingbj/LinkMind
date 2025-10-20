@@ -70,7 +70,7 @@ public class KnowledgeNodeExecutor implements INodeExecutor {
             TaskReportOutput.Snapshot snapshot = taskStatusManager.createNodeSnapshot(nodeId, inputs, outputResult, null, null);
             taskStatusManager.updateNodeReport(taskId, nodeId, "succeeded", startTime, endTime, timeCost, snapshot);
             taskStatusManager.addExecutionLog(taskId, nodeId, "知识库节点执行成功，查询: " + inputs, startTime);
-            nodeResult = new NodeResult(outputResult, null);
+            nodeResult = new NodeResult(node.getType(), node.getId(), outputResult, null);
         } catch (Exception e) {
             NodeExecutorUtil.handleException(taskId, nodeId, startTime, "知识库节点", e);
         }

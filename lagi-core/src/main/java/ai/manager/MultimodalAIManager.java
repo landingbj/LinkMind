@@ -9,6 +9,7 @@ import ai.config.pojo.ModelFunctions;
 import ai.image.adapter.IImage2TextAdapter;
 import ai.image.adapter.IImageGenerationAdapter;
 import ai.image.adapter.ImageEnhanceAdapter;
+import ai.image.adapter.impl.ImageObjectDetectAdapter;
 import ai.llm.adapter.ILlmAdapter;
 import ai.vl.adapter.VlAdapter;
 import ai.wrapper.IWrapper;
@@ -72,6 +73,9 @@ public class MultimodalAIManager {
             }
             if(modelService instanceof Image2VideoAdapter) {
                 register(modelNameList, Image2VideoManager.getInstance(), (Image2VideoAdapter) modelService, modelFunctions.getImage2video());
+            }
+            if(modelService instanceof ImageObjectDetectAdapter) {
+                register(modelNameList, ImageObjectDetectManager.getInstance(), (ImageObjectDetectAdapter) modelService, modelFunctions.getImage2detect());
             }
             if(modelService instanceof IOcr) {
 //                register(modelNameList, OcrManager.getInstance(), (IOcr) modelService, modelFunctions.getImage2ocr());

@@ -1,5 +1,6 @@
 package ai.servlet;
 
+import ai.agent.dto.ManagerModel;
 import ai.common.utils.ObservableList;
 import ai.config.ContextLoader;
 import ai.config.pojo.FineTuneConfig;

@@ -56,7 +56,7 @@ public class StartNodeExecutor implements INodeExecutor {
             TaskReportOutput.Snapshot snapshot = taskStatusManager.createNodeSnapshot(nodeId, result, result, null, null);
             taskStatusManager.updateNodeReport(taskId, nodeId, "succeeded", startTime, endTime, timeCost, snapshot);
             taskStatusManager.addExecutionLog(taskId, nodeId, "开始节点执行成功", startTime);
-            nodeResult= new NodeResult(result, null);
+            nodeResult= new NodeResult(node.getType(), node.getId(),result, null);
         } catch (Exception e) {
             NodeExecutorUtil.handleException(taskId, nodeId, startTime, "开始节点", e);
         } return nodeResult;

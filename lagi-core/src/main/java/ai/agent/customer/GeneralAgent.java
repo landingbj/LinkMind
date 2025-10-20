@@ -10,18 +10,25 @@ import ai.config.pojo.AgentConfig;
 import ai.image.service.AllImageService;
 import ai.llm.service.CompletionsService;
 import ai.openai.pojo.*;
+import ai.utils.OkHttpUtil;
+import ai.utils.qa.ChatCompletionUtil;
+import ai.workflow.LagiAgentResponse;
+import ai.workflow.WorkflowEngine;
+import ai.workflow.pojo.NodeResult;
+import ai.workflow.pojo.WorkflowResult;
+import ai.workflow.utils.DefaultNodeEnum;
 import cn.hutool.json.JSONUtil;
 import com.google.common.collect.Lists;
 import com.google.gson.*;
 import io.reactivex.Observable;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.io.IOException;
+import java.util.*;
 
 public class GeneralAgent extends Agent<ChatCompletionRequest, ChatCompletionResult> {
     private final CompletionsService completionsService = new CompletionsService();
     protected List<ToolInfo> toolInfoList;
+    private static Gson gson = new Gson();
 
     public GeneralAgent(AgentConfig agentConfig) {
         this.agentConfig = agentConfig;
@@ -96,127 +103,68 @@ public class GeneralAgent extends Agent<ChatCompletionRequest, ChatCompletionRes
 
     @Override
     public ChatCompletionResult communicate(ChatCompletionRequest data) {
-        String question = data.getMessages().get(data.getMessages().size() - 1).getContent();
-        String questionResult = parsingQuestion(question);
-
-        JsonObject jsonResponse = JsonParser.parseString(questionResult).getAsJsonObject();
-        String action = jsonResponse.get("action").getAsString();
-        List<ChatMessage> messages = data.getMessages();
-        List<ChatMessage> temp = new ArrayList<>();
-        ChatMessage chatMessage = new ChatMessage();
-        chatMessage.setRole("system");
-        chatMessage.setContent(agentConfig.getCharacter());
-        temp.add(chatMessage);
-
-        if ("multi_part_question".equals(action)) {
-            JsonArray questionsArray = jsonResponse.getAsJsonArray("questions");
-            for (JsonElement questionElement : questionsArray) {
-                String subQuestion = questionElement.getAsString();
-
-                if (subQuestion.contains("生成")||subQuestion.contains("画")) {
-                    ImageGenerationRequest imageGenerationRequest = new ImageGenerationRequest();
-                    imageGenerationRequest.setPrompt(subQuestion);
-
-                    AllImageService allImageService = new AllImageService();
-                    ImageGenerationResult generations = allImageService.generations(imageGenerationRequest);
-
-                    ChatMessage imageMessage = new ChatMessage();
-                    imageMessage.setRole("system");
-
-                    if (generations != null && generations.getData() != null && !generations.getData().isEmpty()) {
-                        ImageGenerationData imageData = generations.getData().get(0);
-
-                        if (imageData.getUrl() != null && !imageData.getUrl().isEmpty()) {
-                            String imageUrl = imageData.getUrl();
-                            ChatCompletionResult chatCompletionResult = new ChatCompletionResult();
-                            ChatCompletionChoice choice = new ChatCompletionChoice();
-                            List<String> imageList = new ArrayList<>();
-                            imageList.add(imageUrl);
-                            chatMessage.setImageList(imageList);
-                            chatMessage.setContent("根据您的要求：\"" + subQuestion + "\"，我们为您生成了以下图像。请查看，看看它是否符合您的期望！");
-                            choice.setMessage(chatMessage);
-                            List<ChatCompletionChoice> choices = new ArrayList<>();
-                            choices.add(choice);
-                            chatCompletionResult.setChoices(choices);
-                            return chatCompletionResult;
-                        }else {
-                            imageMessage.setContent("Image generated, but no valid URL or Base64 data found.");
-                        }
+        String schema = agentConfig.getSchema();
+        JsonObject schemaObj = gson.fromJson(schema, JsonObject.class);
+        JsonArray nodes = schemaObj.getAsJsonArray("nodes");
+        Map<String, Object> inputData = new HashMap<>();
+        List<JsonElement> list = nodes.asList();
+        String lastUserContent = ChatCompletionUtil.getLastUserContent(data);
+        for(JsonElement node : list) {
+            JsonObject asJsonObject = node.getAsJsonObject();
+            if(asJsonObject.get("type").getAsString().equals(DefaultNodeEnum.StartNode.getName())) {
+                JsonObject asJsonObject1 = asJsonObject.getAsJsonObject("data");
+                JsonObject asJsonObject2 = asJsonObject1.getAsJsonObject("outputs").getAsJsonObject("properties");
+                Set<String> propertyNames = asJsonObject2.keySet();
+                for(String propertyName : propertyNames) {
+                    if( "query".equals(propertyName) || "userInput".equals(lastUserContent)) {
+                        inputData.put(propertyName, lastUserContent);
                     } else {
-                        imageMessage.setContent("Failed to generate the image.");
+                        inputData.put(propertyName, "");
                     }
-
-                    temp.add(imageMessage);
-                } else {
-                    ChatMessage subQuestionMessage = new ChatMessage();
-                    subQuestionMessage.setRole("user");
-                    subQuestionMessage.setContent(subQuestion);
-                    temp.add(subQuestionMessage);
                 }
-            }
-        } else if ("image_generation_needed".equals(action)) {
-            String imageGenerationPrompt = jsonResponse.get("questions").getAsString();
-            String chineseImageGenerationPrompt = jsonResponse.get("chinese_questions").getAsString();
-            ImageGenerationRequest imageGenerationRequest = new ImageGenerationRequest();
-            imageGenerationRequest.setPrompt(imageGenerationPrompt);
-
-            AllImageService allImageService = new AllImageService();
-            ImageGenerationResult generations = allImageService.generations(imageGenerationRequest);
-
-            ChatMessage imageMessage = new ChatMessage();
-            imageMessage.setRole("system");
-
-            if (generations != null && generations.getData() != null && !generations.getData().isEmpty()) {
-                ImageGenerationData imageData = generations.getData().get(0);
-
-                if (imageData.getUrl() != null && !imageData.getUrl().isEmpty()) {
-                    String imageUrl = imageData.getUrl();
-                    ChatCompletionResult chatCompletionResult = new ChatCompletionResult();
-                    ChatCompletionChoice choice = new ChatCompletionChoice();
-                    List<String> imageList = new ArrayList<>();
-                    imageList.add(imageUrl);
-                    chatMessage.setImageList(imageList);
-                    chatMessage.setContent("根据您的要求：\"" + chineseImageGenerationPrompt + "\"，我们已经为您生成了以下图像。请查看并告诉我们，图像是否符合您的期望，或者是否有任何细节需要进一步调整。我们将根据您的反馈进行优化，确保最终效果更贴近您的需求。感谢您的支持与合作！");
-                    choice.setMessage(chatMessage);
-                    List<ChatCompletionChoice> choices = new ArrayList<>();
-                    choices.add(choice);
-                    chatCompletionResult.setChoices(choices);
-                    System.out.println("chatCompletionResult = " + chatCompletionResult);
-                    return chatCompletionResult;
-                } else {
-                    imageMessage.setContent("Image generated, but no valid URL or Base64 data found.");
-                }
-            } else {
-                imageMessage.setContent("Failed to generate the image.");
+                break;
             }
 
-            temp.add(imageMessage);
-
-            ChatCompletionChoice choice = new ChatCompletionChoice();
-            choice.setIndex(0);
-            choice.setMessage(imageMessage);
-            choice.setFinish_reason("stop");
-
-            ChatCompletionResult chatCompletionResult = new ChatCompletionResult();
-            chatCompletionResult.setId("image-generation-result-id");
-            chatCompletionResult.setObject("chat.completion");
-            chatCompletionResult.setCreated(System.currentTimeMillis());
-            chatCompletionResult.setChoices(Collections.singletonList(choice));
-            chatCompletionResult.setUsage(new Usage());
-
-            return chatCompletionResult;
-        } else if ("single_question".equals(action)) {
-            String singleQuestion = jsonResponse.get("questions").getAsString();
-            ChatMessage singleQuestionMessage = new ChatMessage();
-            singleQuestionMessage.setRole("user");
-            singleQuestionMessage.setContent(singleQuestion);
-            temp.add(singleQuestionMessage);
         }
+        WorkflowEngine workflowEngine = new WorkflowEngine();
+        String taskId = UUID.randomUUID().toString();
+        WorkflowResult result = workflowEngine.execute(taskId, schema, inputData);
+        System.out.println(gson.toJson(result));
+        ChatCompletionResult chatCompletionResult = null;
+        String s = detectEndNodeResult(result);
+        if(s != null) {
+            chatCompletionResult = ChatCompletionUtil.toChatCompletionResult(s, null);
+        }
+        return chatCompletionResult;
+    }
 
-        temp.addAll(messages);
-        data.setMessages(temp);
-
-        return completionsService.completions(data, Collections.emptyList(), null);
+    public String detectEndNodeResult(WorkflowResult result) {
+        if(!result.isSuccess()) {
+            return null;
+        }
+        NodeResult nodeResult = (NodeResult)result.getResult();
+        if(nodeResult.getNodeType().equals(DefaultNodeEnum.EndNode.getName())) {
+            if(DefaultNodeEnum.EndNode.getName().equals(nodeResult.getNodeType())) {
+                String res = null;
+                Map<String, Object> outputs = (Map<String, Object>) nodeResult.getData();
+                Set<String> strings = outputs.keySet();
+                for (String string : strings) {
+                    Object output = outputs.get(string);
+                    if(output instanceof String && (res == null || string.equals("result"))) {
+                        res = (String) output;
+                    }
+                }
+                return res;
+            }
+        }
+        List<WorkflowResult> subResults = result.getSubResults();
+        for (WorkflowResult subResult : subResults) {
+            String res = detectEndNodeResult(subResult);
+            if(res != null) {
+                return res;
+            }
+        }
+        return null;
     }
 
 
@@ -252,7 +200,7 @@ public class GeneralAgent extends Agent<ChatCompletionRequest, ChatCompletionRes
 
     @Override
     public boolean canStream() {
-        return false;
+        return true;
     }
 
     public static void main(String[] args) {

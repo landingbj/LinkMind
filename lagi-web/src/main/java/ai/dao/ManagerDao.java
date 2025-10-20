@@ -1,6 +1,8 @@
 package ai.dao;
 
-import ai.dto.ManagerModel;
+import ai.agent.dto.ManagerModel;
+import ai.llm.adapter.ILlmAdapter;
+import ai.llm.utils.LlmAdapterFactory;
 import ai.migrate.db.Conn;
 
 import java.sql.Connection;
@@ -9,6 +11,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 public class ManagerDao {
 
@@ -207,4 +211,14 @@ public class ManagerDao {
         }
         return managerModels;
     }
+
+    public List<ILlmAdapter> getUserLlmAdapters(String userId) {
+        // TODO 2025/3/4  support invoke remote service
+        ManagerDao managerDao = new ManagerDao();
+        List<ManagerModel> managerModels = managerDao.getManagerModels(userId, 1);
+        return managerModels.stream().map(m -> {
+            return LlmAdapterFactory.getLlmAdapter(m.getModelType(), m.getModelName(), 999, m.getApiKey(), m.getEndpoint());
+        }).filter(Objects::nonNull).collect(Collectors.toList());
+    }
+    
 }

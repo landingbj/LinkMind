@@ -43,7 +43,7 @@ public class EndNodeExecutor implements INodeExecutor {
             context.setVariable("end_node_" + nodeId + "_result", result);
             context.setVariable("end_node_" + nodeId + "_result_size", result.size());
             
-            return new NodeResult(result, null);
+            return new NodeResult(node.getType(), node.getId(),result, null);
             
         } catch (Exception e) {
             // 记录错误但不立即更新状态

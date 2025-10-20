@@ -40,12 +40,13 @@ public class WorkflowEngine {
             nodeExecutors.put(nodeEnum.getName(), nodeEnum.getINodeExecutor());
             log.info("Node executor register: " + nodeEnum.getName());
         }
-
-        // TODO 2025/9/28 模拟 安全帽识别、 工作服识别 节点
+        // Done 2025/9/28 模拟 安全帽识别、 工作服识别 节点 (图片目标检测节点)
         // TODO 2025/9/28 并行节点
-        // TODO 2025/9/28 agent 节点
+        // Done 2025/9/28 agent 节点
+        // TODO 2025/10/17 优化 agent节点用户体验
         // TODO 2025/9/28 数据库查询、存储节点
-        // TODO 2025/9/28 工作流能运用到agent实际调用
+
+        // Done 2025/9/28 工作流能运用到agent实际调用
     }
 
     public void executeAsync(String taskId, String workflowJson, Map<String, Object> inputData) {
@@ -198,7 +199,7 @@ public class WorkflowEngine {
 
             // 如果是结束节点，返回结果但不立即更新状态
             if ("end".equals(node.getType())) {
-                return new WorkflowResult(true, result.getData(), null);
+                return new WorkflowResult(true, result, null);
             }
 
             // 找到下一个要执行的节点
@@ -227,7 +228,7 @@ public class WorkflowEngine {
 
             // 如果有任何子节点成功，则整体成功
             if (hasSuccess) {
-                return new WorkflowResult(true, result.getData(), null, subResults);
+                return new WorkflowResult(true, result, null, subResults);
             } else {
                 return new WorkflowResult(false, null, "所有后续节点执行失败", subResults);
             }

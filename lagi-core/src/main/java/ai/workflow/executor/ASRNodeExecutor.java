@@ -62,7 +62,7 @@ public class ASRNodeExecutor implements INodeExecutor {
             TaskReportOutput.Snapshot snapshot = taskStatusManager.createNodeSnapshot(nodeId, output, output, null, null);
             taskStatusManager.updateNodeReport(taskId, nodeId, "succeeded", startTime, endTime, timeCost, snapshot);
             taskStatusManager.addExecutionLog(taskId, nodeId, "ASR节点执行成功", startTime);
-            nodeResult = new NodeResult(output, null);
+            nodeResult = new NodeResult(node.getType(), node.getId(), output, null);
 
         } catch (Exception e) {
             NodeExecutorUtil.handleException(taskId, nodeId, startTime, "ASR节点", e);

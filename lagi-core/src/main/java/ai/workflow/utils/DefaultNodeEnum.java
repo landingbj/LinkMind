@@ -19,7 +19,10 @@ public enum DefaultNodeEnum {
     GroovyScriptNode("program", new GroovyScriptNodeExecutor()),
     ApiCallNode("api", new ApiCallNodeExecutor()),
     ASRNode("asr", new ASRNodeExecutor()),
-    Image2TextNode("image2text", new Image2TextNodeExecutor());
+    Image2TextNode("image2text", new Image2TextNodeExecutor()),
+    Image2DetectNode("image2detect", new ImageObjectDetectExecutor()),
+    AgentNode("agent", new AgentNodeExecutor())
+    ;
 
 
     private final String name;

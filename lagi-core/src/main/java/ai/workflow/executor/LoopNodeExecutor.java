@@ -81,7 +81,7 @@ public class LoopNodeExecutor implements INodeExecutor {
             TaskReportOutput.Snapshot snapshot = taskStatusManager.createNodeSnapshot(nodeId, result, result, null, null);
             taskStatusManager.updateNodeReport(taskId, nodeId, "succeeded", startTime, endTime, timeCost, snapshot);
             taskStatusManager.addExecutionLog(taskId, nodeId, "循环节点执行成功，处理了 " + dataList.size() + " 个项目", startTime);
-            finalNodeResult = new NodeResult(result, null);
+            finalNodeResult = new NodeResult(node.getType(), node.getId(), result, null);
         } catch (Exception e) {
             NodeExecutorUtil.handleException(taskId, nodeId, startTime, "循环节点", e);
         }
@@ -231,7 +231,7 @@ public class LoopNodeExecutor implements INodeExecutor {
     private static class BlockStartNodeExecutor implements INodeExecutor {
         @Override
         public NodeResult execute(String taskId, Node node, WorkflowContext context) throws Exception {
-            return new NodeResult(null, null);
+            return new NodeResult(node.getType(), node.getId(), null, null);
         }
     }
 
@@ -241,7 +241,7 @@ public class LoopNodeExecutor implements INodeExecutor {
     private static class BlockEndNodeExecutor implements INodeExecutor {
         @Override
         public NodeResult execute(String taskId, Node node, WorkflowContext context) throws Exception {
-            return new NodeResult(null, null);
+            return new NodeResult(node.getType(), node.getId(), null, null);
         }
     }
 

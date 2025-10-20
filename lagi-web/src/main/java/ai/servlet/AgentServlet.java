@@ -1,14 +1,14 @@
 package ai.servlet;
 
 import ai.agent.Agent;
+import ai.agent.dto.*;
 import ai.common.exception.RRException;
 import ai.common.pojo.Response;
 import ai.config.pojo.AgentConfig;
 import ai.dto.*;
 import ai.manager.AgentManager;
-import ai.migrate.service.AgentService;
+import ai.agent.AgentService;
 import ai.migrate.service.PayService;
-import ai.servlet.dto.*;
 import ai.worker.skillMap.SkillMap;
 import cn.hutool.core.util.StrUtil;
 import com.google.common.reflect.TypeToken;

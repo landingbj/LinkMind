@@ -1,10 +1,10 @@
 package ai.workflow.executor;
 
 import ai.common.exception.RRException;
-import ai.common.pojo.FileRequest;
-import ai.common.pojo.ImageToTextResponse;
+import ai.image.pojo.ImageDetectParam;
+import ai.image.pojo.ObjectDetectResult;
 import ai.image.service.AllImageService;
-import ai.manager.Image2TextManger;
+import ai.manager.ImageObjectDetectManager;
 import ai.workflow.TaskStatusManager;
 import ai.workflow.exception.WorkflowException;
 import ai.workflow.pojo.Node;
@@ -17,20 +17,19 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
 
-public class Image2TextNodeExecutor implements INodeExecutor {
+public class ImageObjectDetectExecutor implements INodeExecutor {
 
-    private static final Logger logger = LoggerFactory.getLogger(Image2TextNodeExecutor.class);
+    private static final Logger logger = LoggerFactory.getLogger(ImageObjectDetectExecutor.class);
 
     private final TaskStatusManager taskStatusManager = TaskStatusManager.getInstance();
     private final AllImageService imageService = new AllImageService();
 
     @Override
     public boolean isValid() {
-        boolean empty = Image2TextManger.getInstance().getAdapters().isEmpty();
+        boolean empty = ImageObjectDetectManager.getInstance().getAdapters().isEmpty();
         return !empty;
     }
 
@@ -52,8 +51,8 @@ public class Image2TextNodeExecutor implements INodeExecutor {
             // 解析输入值
             Map<String, Object> inputs = InputValueParser.parseInputs(inputsValues, context);
 
-            // 执行图像转文字
-            ImageToTextResponse result = callImage2Text(inputs);
+            // 执行object detect
+            ObjectDetectResult result = callImageObjectDetect(inputs);
 
             Map<String, Object> output = new HashMap<>();
             output.put("result", result);
@@ -62,19 +61,19 @@ public class Image2TextNodeExecutor implements INodeExecutor {
             long timeCost = endTime - startTime;
             TaskReportOutput.Snapshot nodeSnapshot = taskStatusManager.createNodeSnapshot(nodeId, output, output, null, null);
             taskStatusManager.updateNodeReport(taskId, nodeId, "succeeded", startTime, endTime, timeCost, nodeSnapshot);
-            taskStatusManager.addExecutionLog(taskId, nodeId, "Image2Text节点执行成功", startTime);
+            taskStatusManager.addExecutionLog(taskId, nodeId, "ImageObjectDetect节点执行成功", startTime);
             nodeResult = new NodeResult(node.getType(), node.getId(), output, null);
 
         } catch (Exception e) {
-            NodeExecutorUtil.handleException(taskId, nodeId, startTime, "Image2Text节点", e);
+            NodeExecutorUtil.handleException(taskId, nodeId, startTime, "ImageObjectDetect节点", e);
         }
 
         return nodeResult;
     }
 
-    private ImageToTextResponse callImage2Text(Map<String, Object> inputs) {
+    private ObjectDetectResult callImageObjectDetect(Map<String, Object> inputs) {
         String imageUrl = (String) inputs.get("imageUrl");
-        FileRequest param = FileRequest.builder().build();
+        ImageDetectParam param = ImageDetectParam.builder().build();
 
         // 设置模型参数（如果提供）
         if (inputs.containsKey("model")) {
@@ -83,11 +82,9 @@ public class Image2TextNodeExecutor implements INodeExecutor {
 
         param.setImageUrl(imageUrl);
 
-        File tempFile = null;
-
         if (imageUrl != null && (imageUrl.startsWith("http://") || imageUrl.startsWith("https://"))) {
             param.setImageUrl(imageUrl);
-            return imageService.toText(param);
+            return imageService.detect(param);
         }
         throw new RRException("图片路径不合法请使用网络路径");
 

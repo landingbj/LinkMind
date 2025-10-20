@@ -95,7 +95,7 @@ public class ApiCallNodeExecutor implements INodeExecutor {
                 TaskReportOutput.Snapshot snapshot = taskStatusManager.createNodeSnapshot(nodeId, inputs, outputResult, null, null);
                 taskStatusManager.updateNodeReport(taskId, nodeId, "succeeded", startTime, endTime, timeCost, snapshot);
                 taskStatusManager.addExecutionLog(taskId, nodeId, "API调用节点执行成功，状态码: " + response.code(), startTime);
-                nodeResult = new NodeResult(outputResult, null);
+                nodeResult = new NodeResult(node.getType(), nodeId,outputResult, null);
             }
         } catch (Exception e) {
             NodeExecutorUtil.handleException(taskId, nodeId, startTime, "API调用节点", e);

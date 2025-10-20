@@ -11,6 +11,7 @@ import ai.workflow.pojo.Node;
 import ai.workflow.pojo.NodeResult;
 import ai.workflow.pojo.TaskReportOutput;
 import ai.workflow.pojo.WorkflowContext;
+import ai.workflow.utils.DefaultNodeEnum;
 import ai.workflow.utils.InputValueParser;
 import ai.workflow.utils.NodeExecutorUtil;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -51,7 +52,7 @@ public class IntentNodeExecutor implements INodeExecutor {
             TaskReportOutput.Snapshot snapshot = taskStatusManager.createNodeSnapshot(nodeId, inputData, result, null, null);
             taskStatusManager.updateNodeReport(taskId, nodeId, "succeeded", startTime, endTime, timeCost, snapshot);
             taskStatusManager.addExecutionLog(taskId, nodeId, "意图识别节点执行成功，识别意图: " + intent, startTime);
-            nodeResult = new NodeResult(result, null);
+            nodeResult = new NodeResult(node.getType(), node.getId(), result, null);
         } catch (Exception e) {
             NodeExecutorUtil.handleException(taskId, nodeId, startTime, "意图识别节点", e);
         }

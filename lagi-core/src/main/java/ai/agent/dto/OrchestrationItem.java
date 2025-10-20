@@ -1,9 +1,7 @@
-package ai.servlet.dto;
+package ai.agent.dto;
 
 import ai.config.pojo.AgentConfig;
 import lombok.Data;
-
-import java.math.BigDecimal;
 
 @Data
 public class OrchestrationItem extends AgentConfig {

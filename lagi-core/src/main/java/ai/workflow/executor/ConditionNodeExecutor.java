@@ -80,7 +80,7 @@ public class ConditionNodeExecutor implements INodeExecutor {
             TaskReportOutput.Snapshot snapshot = taskStatusManager.createNodeSnapshot(nodeId, inputData, inputData, finalBranch, null);
             taskStatusManager.updateNodeReport(taskId, nodeId, "succeeded", startTime, endTime, timeCost, snapshot);
             taskStatusManager.addExecutionLog(taskId, nodeId, "条件节点执行成功，匹配条件: " + outputPorts, startTime);
-            nodeResult = new NodeResult(result, outputPorts);
+            nodeResult = new NodeResult(node.getType(), node.getId(), result, outputPorts);
         } catch (Exception e) {
             NodeExecutorUtil.handleException(taskId, nodeId, startTime, "条件节点", e);
         }

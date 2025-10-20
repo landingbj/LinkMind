@@ -16,6 +16,17 @@ public class ChatCompletionUtil {
         return content;
     }
 
+    public static String getLastUserContent(ChatCompletionRequest chatCompletionRequest) {
+        List<ChatMessage> chatMessages = chatCompletionRequest.getMessages();
+        for (int i = chatMessages.size()-1; i >= 0; i--) {
+            ChatMessage chatMessage = chatMessages.get(i);
+            if (chatMessage.getRole().equals("user")) {
+                return chatMessage.getContent();
+            }
+        }
+        return null;
+    }
+
     public static void setLastMessage(ChatCompletionRequest chatCompletionRequest, String lastMessage) {
         List<ChatMessage> messages = chatCompletionRequest.getMessages();
         messages.get(messages.size() - 1).setContent(lastMessage);

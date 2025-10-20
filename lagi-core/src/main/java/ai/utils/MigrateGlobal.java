@@ -2,7 +2,6 @@ package ai.utils;
 
 
 import ai.common.pojo.Configuration;
-import ai.config.ContextLoader;
 import ai.qa.LLMConfig;
 
 public class MigrateGlobal {

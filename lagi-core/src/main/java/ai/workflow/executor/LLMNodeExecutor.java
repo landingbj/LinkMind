@@ -4,6 +4,7 @@ import ai.llm.service.CompletionsService;
 import ai.manager.LlmManager;
 import ai.openai.pojo.ChatCompletionRequest;
 import ai.openai.pojo.ChatCompletionResult;
+import ai.openai.pojo.ChatMessage;
 import ai.workflow.TaskStatusManager;
 import ai.workflow.exception.WorkflowException;
 import ai.workflow.pojo.Node;
@@ -14,7 +15,9 @@ import ai.workflow.utils.InputValueParser;
 import ai.workflow.utils.NodeExecutorUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -48,7 +51,7 @@ public class LLMNodeExecutor implements INodeExecutor {
             // 解析输入值
             Map<String, Object> inputs = InputValueParser.parseInputs(inputsValues, context);
             // 模拟LLM调用
-            String result = callLLM(inputs);
+            String result = callLLM(inputs, context.getMemories());
             Map<String, Object> output = new HashMap<>();
             output.put("result", result);
 
@@ -64,11 +67,17 @@ public class LLMNodeExecutor implements INodeExecutor {
         } return nodeResult;
     }
 
-    private String callLLM(Map<String, Object> inputs) {
+    private String callLLM(Map<String, Object> inputs, Map<String, Object> memories) {
         String prompt = (String) inputs.get("prompt");
         String model = (String) inputs.get("model");
         ChatCompletionRequest request = completionsService.getCompletionsRequest(prompt);
         request.setModel(model);
+        List<ChatMessage> chatMessages = new ArrayList<>();
+        Object o = memories.get("workflow");
+        if(o instanceof List && !((List<?>) o).isEmpty() && ((List<?>) o).get(0) instanceof ChatMessage) {
+            chatMessages.addAll((List<ChatMessage>) o);
+        }
+        request.getMessages().addAll(0, chatMessages);
         ChatCompletionResult response = completionsService.completions(request);
         return response.getChoices().get(0).getMessage().getContent();
     }

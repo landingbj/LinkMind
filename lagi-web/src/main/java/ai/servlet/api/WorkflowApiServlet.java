@@ -9,10 +9,7 @@ import ai.agent.dto.LagiAgentResponse;
 import ai.workflow.TaskStatusManager;
 import ai.workflow.WorkflowEngine;
 import ai.workflow.WorkflowGenerator;
-import ai.workflow.pojo.TaskCancelInput;
-import ai.workflow.pojo.TaskCancelOutput;
-import ai.workflow.pojo.TaskReportOutput;
-import ai.workflow.pojo.TaskRunInput;
+import ai.workflow.pojo.*;
 import ai.workflow.utils.DefaultNodeEnum;
 import com.google.gson.JsonObject;
 import org.slf4j.Logger;
@@ -128,7 +125,7 @@ public class WorkflowApiServlet extends BaseServlet {
         String taskId = UUID.randomUUID().toString();
         result.put("taskID", taskId);
         WorkflowEngine engine = new WorkflowEngine();
-        engine.executeAsync(taskId, taskRunInput.getSchema(), taskRunInput.getInputs());
+        engine.executeAsync(taskId, taskRunInput.getSchema(), new WorkflowContext(taskRunInput.getInputs()));
         responsePrint(resp, gson.toJson(result));
     }
 

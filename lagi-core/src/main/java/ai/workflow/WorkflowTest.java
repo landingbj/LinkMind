@@ -1,6 +1,8 @@
 package ai.workflow;
 
+import ai.config.ContextLoader;
 import ai.utils.OkHttpUtil;
+import ai.workflow.pojo.WorkflowContext;
 import ai.workflow.pojo.WorkflowResult;
 import com.google.gson.Gson;
 
@@ -16,22 +18,22 @@ public class WorkflowTest {
     private static final Gson gson = new Gson();
 
     public static void main(String[] args) throws IOException {
+        ContextLoader.loadContext();
+        System.out.println(gson.toJson(ContextLoader.configuration));
         System.out.println("workflowJson started...");
-        LagiAgentResponse lagiAgentResponse = getLagiAgent(null, "1");
+        LagiAgentResponse lagiAgentResponse = getLagiAgent(null, "114");
         WorkflowEngine engine = new WorkflowEngine();
 
         Map<String, Object> inputData = new HashMap<>();
         inputData.put("query", "Hello LinkMind.");
-        List<String> arrayObj = new ArrayList<>();
-        arrayObj.add("item1");
-        arrayObj.add("item2");
-        inputData.put("array_obj", arrayObj);
-        inputData.put("modelName", "lagi_0912");
+        inputData.put("modelName", "qwen-turbo");
 
         String workflowJson = lagiAgentResponse.getData().getSchema();
         System.out.println(workflowJson);
         String taskId = UUID.randomUUID().toString();
-        WorkflowResult result = engine.execute(taskId, workflowJson, inputData);
+        WorkflowContext workflowContext = new WorkflowContext(inputData);
+        WorkflowResult result = engine.execute(taskId, workflowJson, workflowContext);
+        System.out.println(gson.toJson(result));
         if (result.isSuccess()) {
             System.out.println("工作流执行成功: " + result.getResult());
         } else {

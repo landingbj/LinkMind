@@ -15,6 +15,7 @@ import ai.utils.qa.ChatCompletionUtil;
 import ai.workflow.LagiAgentResponse;
 import ai.workflow.WorkflowEngine;
 import ai.workflow.pojo.NodeResult;
+import ai.workflow.pojo.WorkflowContext;
 import ai.workflow.pojo.WorkflowResult;
 import ai.workflow.utils.DefaultNodeEnum;
 import cn.hutool.json.JSONUtil;
@@ -24,6 +25,7 @@ import io.reactivex.Observable;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class GeneralAgent extends Agent<ChatCompletionRequest, ChatCompletionResult> {
     private final CompletionsService completionsService = new CompletionsService();
@@ -128,8 +130,11 @@ public class GeneralAgent extends Agent<ChatCompletionRequest, ChatCompletionRes
         }
         WorkflowEngine workflowEngine = new WorkflowEngine();
         String taskId = UUID.randomUUID().toString();
-        WorkflowResult result = workflowEngine.execute(taskId, schema, inputData);
-        System.out.println(gson.toJson(result));
+        Map<String, Object> memories = new ConcurrentHashMap<>();
+        List<ChatMessage> chatMessages = data.getMessages().subList(0, data.getMessages().size() - 1);
+        memories.put("workflow", chatMessages);
+        WorkflowContext workflowContext = new WorkflowContext(inputData, memories);
+        WorkflowResult result = workflowEngine.execute(taskId, schema, workflowContext);
         ChatCompletionResult chatCompletionResult = null;
         String s = detectEndNodeResult(result);
         if(s != null) {

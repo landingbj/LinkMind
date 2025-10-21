@@ -112,7 +112,7 @@ public class ConditionNodeExecutor implements INodeExecutor {
     }
 
     private boolean evaluateCondition(JsonNode conditionValue, WorkflowContext context) {
-        if (conditionValue.has("type") && "expression".equals(conditionValue.get("type").asText())) {
+        if (conditionValue.has("left") && conditionValue.has("operator") && conditionValue.has("right")) {
             JsonNode left = conditionValue.get("left");
             String operator = conditionValue.get("operator").asText();
             JsonNode right = conditionValue.get("right");

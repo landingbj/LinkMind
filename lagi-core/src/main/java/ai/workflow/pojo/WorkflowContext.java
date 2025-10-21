@@ -1,5 +1,7 @@
 package ai.workflow.pojo;
 
+import lombok.Getter;
+
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -7,20 +9,31 @@ import java.util.concurrent.ConcurrentHashMap;
  * 工作流执行上下文
  */
 public class WorkflowContext {
+    @Getter
     private final Map<String, Object> inputData;
     private final Map<String, Object> nodeResults;
     private final Map<String, Object> variables;
+    @Getter
+    private final Map<String, Object> memories;
     
     public WorkflowContext(Map<String, Object> inputData) {
         this.inputData = inputData != null ? inputData : new ConcurrentHashMap<>();
         this.nodeResults = new ConcurrentHashMap<>();
         this.variables = new ConcurrentHashMap<>();
+        this.memories = new ConcurrentHashMap<>();
+    }
+
+    public WorkflowContext(Map<String, Object> inputData, Map<String, Object> memories) {
+        this.inputData = inputData != null ? inputData : new ConcurrentHashMap<>();
+        this.nodeResults = new ConcurrentHashMap<>();
+        this.variables = new ConcurrentHashMap<>();
+        this.memories =  memories != null ? memories : new ConcurrentHashMap<>();
     }
     
     public Object getInputData(String key) {
         return inputData.get(key);
     }
-    
+
     public void setNodeResult(String nodeId, Object result) {
         nodeResults.put(nodeId, result);
     }

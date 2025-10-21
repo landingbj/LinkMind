@@ -49,7 +49,7 @@ public class WorkflowEngine {
         // TODO 2025/10/17 优化 agent节点用户体验
     }
 
-    public void executeAsync(String taskId, String workflowJson, Map<String, Object> inputData) {
+    public void executeAsync(String taskId, String workflowJson, WorkflowContext workflowContext) {
         // TODO 2025/9/28 上下文相关
         // TODO 2025/9/28 1.用户上下文
         // TODO 2025/9/28 2.支持历史上下文 最近30条
@@ -61,7 +61,7 @@ public class WorkflowEngine {
         // TODO 2025/9/28 工作流模版管理 。 支持模版的导入导出 (暂不做)
         THREAD_POOL_EXECUTOR.execute(() -> {
             try {
-                WorkflowResult result = execute(taskId, workflowJson, inputData);
+                WorkflowResult result = execute(taskId, workflowJson, workflowContext);
                 if (result.isSuccess()) {
                     taskStatusManager.updateTaskStatus(taskId, "succeeded");
                 } else {
@@ -74,17 +74,15 @@ public class WorkflowEngine {
         });
     }
 
-    /**
-     * 执行工作流
-     */
-    public WorkflowResult execute(String taskId, String workflowJson, Map<String, Object> inputData) {
+
+    public WorkflowResult execute(String taskId, String workflowJson, WorkflowContext context) {
         try {
             // 创建初始任务报告
-            TaskReportOutput initialTaskReport = taskStatusManager.createInitialTaskReport(taskId, workflowJson, inputData);
+            TaskReportOutput initialTaskReport = taskStatusManager.createInitialTaskReport(taskId, workflowJson, context.getInputData());
             taskStatusManager.createTask(initialTaskReport);
 
             JsonNode workflowConfig = objectMapper.readTree(workflowJson);
-            WorkflowContext context = new WorkflowContext(inputData);
+
             // 解析节点和边
             Workflow workflow = parseWorkflow(workflowConfig);
             // 找到开始节点

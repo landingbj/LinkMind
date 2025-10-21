@@ -73,6 +73,11 @@
             <systemPath>${pom.basedir}/libs/ai_gather.jar</systemPath>
         </dependency>
         <dependency>
+            <groupId>com.zaxxer</groupId>
+            <artifactId>HikariCP</artifactId>
+            <version>4.0.3</version>
+        </dependency>
+        <dependency>
             <groupId>com.ibm.icu</groupId>
             <artifactId>icu4j</artifactId>
             <version>65.1</version>

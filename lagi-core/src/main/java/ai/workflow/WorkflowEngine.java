@@ -41,12 +41,12 @@ public class WorkflowEngine {
             log.info("Node executor register: " + nodeEnum.getName());
         }
         // Done 2025/9/28 模拟 安全帽识别、 工作服识别 节点 (图片目标检测节点)
-        // TODO 2025/9/28 并行节点
+        // Done 2025/9/28 并行节点 不需要任何节点都可以连接多节点
         // Done 2025/9/28 agent 节点
-        // TODO 2025/10/17 优化 agent节点用户体验
-        // TODO 2025/9/28 数据库查询、存储节点
+        // Donne 2025/9/28 数据库查询、存储节点
 
         // Done 2025/9/28 工作流能运用到agent实际调用
+        // TODO 2025/10/17 优化 agent节点用户体验
     }
 
     public void executeAsync(String taskId, String workflowJson, Map<String, Object> inputData) {

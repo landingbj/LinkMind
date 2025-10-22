@@ -24,6 +24,7 @@ public enum DefaultNodeEnum {
     AgentNode("agent", new AgentNodeExecutor()),
     DatabaseQueryNode("database-query", new DatabaseQueryNodeExecutor()),
     DatabaseUpdateNode("database-update", new DatabaseUpdateNodeExecutor()),
+    ParallelNode("parallel", new ParallelNodeExecutor()),
     ;
 
 
@@ -56,6 +57,17 @@ public enum DefaultNodeEnum {
         }
         return nodeNames;
     }
+
+
+    public static INodeExecutor getValidNodeExecutor(String nodeName) {
+        for (DefaultNodeEnum nodeEnum : DefaultNodeEnum.values()) {
+            if(nodeEnum.iNodeExecutor.isValid() && nodeEnum.getName().equals(nodeName)) {
+                return nodeEnum.getINodeExecutor();
+            }
+        }
+        return null;
+    }
+
 
 
 }

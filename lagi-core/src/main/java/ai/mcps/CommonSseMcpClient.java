@@ -20,7 +20,7 @@ public class CommonSseMcpClient implements SyncMcpClient{
         this.name = mcpBackend.getName();
         HttpClientSseClientTransport httpClientSseClientTransport = new HttpClientSseClientTransport(mcpBackend.getUrl());
         this.client = McpClient.sync(httpClientSseClientTransport)
-                .requestTimeout(Duration.ofSeconds(60))
+                .requestTimeout(Duration.ofSeconds(120))
                 .capabilities(ClientCapabilities.builder()
                         .roots(true)
                         .sampling().build())
@@ -151,8 +151,9 @@ public class CommonSseMcpClient implements SyncMcpClient{
 
 
     public static void main(String[] args) throws Exception {
-        McpBackend build = McpBackend.builder().url("https://mcp.amap.com/sse?key=").build();
+//        McpBackend build = McpBackend.builder().url("https://mcp.amap.com/sse?key=").build();
 //        McpBackend build = McpBackend.builder().url("http://appbuilder.baidu.com/v2/ai_search/mcp/sse?api_key=").build();
+        McpBackend build = McpBackend.builder().url("http://localhost:8082/mcp/sse").build();
         try (CommonSseMcpClient commonSseMcpClient = new CommonSseMcpClient(build)){
             commonSseMcpClient.initialize();
             commonSseMcpClient.setLoggingLevel(LoggingLevel.DEBUG);

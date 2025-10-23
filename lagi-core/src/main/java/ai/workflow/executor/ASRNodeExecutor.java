@@ -55,7 +55,7 @@ public class ASRNodeExecutor implements INodeExecutor {
             AsrResult result = callASR(inputs);
 
             Map<String, Object> output = new HashMap<>();
-            output.put("result", result);
+            output.put("result", result.getResult());
 
             long endTime = System.currentTimeMillis();
             long timeCost = endTime - startTime;

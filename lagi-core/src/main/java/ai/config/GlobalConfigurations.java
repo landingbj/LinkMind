@@ -40,6 +40,9 @@ public class GlobalConfigurations extends AbstractConfiguration {
     @JsonProperty("agent_general_config")
     private Backend agentGeneralConfiguration;
 
+    @JsonProperty("server_root")
+    private String serverRoot;
+
     private McpConfig mcps;
     private List<ApiConfig> apis;
 

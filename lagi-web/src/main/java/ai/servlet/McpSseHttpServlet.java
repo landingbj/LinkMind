@@ -1,9 +1,11 @@
 package ai.servlet;
 
+import ai.config.ContextLoader;
 import ai.mcps.server.McpServer;
 import ai.mcps.server.McpServerFeatures;
 import ai.mcps.spec.*;
 import ai.mcps.spec.McpSchema.Resource;
+import ai.utils.MarkdownToDocxConverter;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.var;
@@ -21,6 +23,8 @@ import javax.servlet.http.HttpServletResponse;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.Map;
 import java.util.UUID;
@@ -88,6 +92,48 @@ public class McpSseHttpServlet extends HttpServlet implements McpServerTransport
             var callResponse = new McpSchema.CallToolResult(Collections.singletonList(new McpSchema.TextContent(response)), null);
             return callResponse;
         });
+        // 在 init() 方法中添加以下代码
+        McpServerFeatures.SyncToolSpecification markdownToWordTool = new McpServerFeatures.SyncToolSpecification(
+                new McpSchema.Tool("markdown_to_word", "Markdown to Word Converter",
+                        "{\n" +
+                                "    \"$schema\": \"http://json-schema.org/draft-07/schema#\",\n" +
+                                "    \"type\": \"object\",\n" +
+                                "    \"properties\": {\n" +
+                                "        \"markdown\": {\n" +
+                                "            \"type\": \"string\",\n" +
+                                "            \"description\": \"The markdown content to convert to Word document\"\n" +
+                                "        }\n" +
+                                "    },\n" +
+                                "    \"required\": [\"markdown\"]\n" +
+                                "}"),
+                (exchange, request) -> {
+                    // 获取传入的markdown参数
+                    String response = "";
+                    String markdownContent = (String) request.get("markdown");
+                    MarkdownToDocxConverter markdownToDocxConverter = new MarkdownToDocxConverter();
+                    try {
+                        String string = UUID.randomUUID().toString();
+                        String dir = getServletContext().getRealPath("/static/gen/docx");
+                        boolean exists = Paths.get(dir).toFile().exists();
+                        if(!exists) {
+                            Paths.get(dir).toFile().mkdirs();
+                        }
+                        Path path = Paths.get(dir, string + ".docx");
+                        markdownToDocxConverter.convertToFile(markdownContent, path.toString());
+                        String serverRoot = "http://localhost";
+                        if(ContextLoader.configuration != null && ContextLoader.configuration.getServerRoot() != null) {
+                            serverRoot = ContextLoader.configuration.getServerRoot();
+                        }
+                        response = serverRoot +"/static/gen/docx/" + string + ".docx";
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                    return new McpSchema.CallToolResult(
+                            Collections.singletonList(new McpSchema.TextContent(response)),
+                            null);
+                }
+        );
+
         Resource resource = new Resource("test://resource", "Test Resource",  "Test resource description","text/plain", null);
         McpServerFeatures.SyncResourceSpecification specificaiton = new McpServerFeatures.SyncResourceSpecification(
                 resource, (exchange, req) -> {
@@ -99,7 +145,7 @@ public class McpSseHttpServlet extends HttpServlet implements McpServerTransport
         });
         var mcpServer = McpServer.sync(this)
                 .capabilities(McpSchema.ServerCapabilities.builder().tools(true).resources(true, true).build())
-                .tools(tool1)
+                .tools(tool1, markdownToWordTool)
                 .resources(specificaiton)
                 .build();
 

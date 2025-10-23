@@ -338,6 +338,15 @@
         <url-pattern>/dataset/*</url-pattern>
     </servlet-mapping>
 
+    <servlet>
+        <servlet-name>modelapi</servlet-name>
+        <servlet-class>ai.servlet.api.ModelApiServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>modelapi</servlet-name>
+        <url-pattern>/modelapi/*</url-pattern>
+    </servlet-mapping>
+
 
     <servlet>
         <servlet-name>SkillMapApiServlet</servlet-name>

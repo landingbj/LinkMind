@@ -13,6 +13,7 @@ import ai.worker.skillMap.SkillMap;
 import cn.hutool.core.util.StrUtil;
 import com.google.common.reflect.TypeToken;
 import com.google.gson.Gson;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 
 import javax.servlet.ServletException;
@@ -45,6 +46,8 @@ public class AgentServlet extends BaseServlet {
             this.getAgentChargeDetail(req, resp);
         } else if (method.equals("getPaidAgentByUser")) {
             this.getPaidAgentByUser(req, resp);
+        } else if(method.equals("getAgentLabel")) {
+            this.getAgentLabel(req, resp);
         }
     }
 
@@ -123,6 +126,23 @@ public class AgentServlet extends BaseServlet {
         String publishStatus = req.getParameter("publishStatus");
         LagiAgentListResponse lagiAgentResponse = agentService.getLagiAgentList(lagiUserId, pageNumber, pageSize, publishStatus);
         responsePrint(resp, gson.toJson(lagiAgentResponse));
+    }
+
+    private void getAgentLabel(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        String lagiUserId = req.getParameter("lagiUserId");
+        LagiAgentListResponse lagiAgentResponse = agentService.getLagiAgentList(lagiUserId, 1, 1000, "true");
+        List<AgentConfig> data = lagiAgentResponse.getData();
+        JsonArray jsonElements = new JsonArray();
+        data.forEach(agentConfig -> {
+            JsonObject jsonObject = new JsonObject();
+            jsonObject.addProperty("label", agentConfig.getName());
+            jsonObject.addProperty("value", agentConfig.getId());
+            jsonElements.add(jsonObject);
+        });
+        JsonObject jsonObject = new JsonObject();
+        jsonObject.add("data", jsonElements);
+        responsePrint(resp, gson.toJson(jsonObject));
     }
 
     private void getPaidAgentByUser(HttpServletRequest req, HttpServletResponse resp) throws IOException {

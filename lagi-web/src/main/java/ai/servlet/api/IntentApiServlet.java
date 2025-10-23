@@ -64,7 +64,7 @@ public class IntentApiServlet extends RestfulServlet {
             result.setModal(modalEnum.getName());
         } else {
             String uri = req.getScheme() + "://" + req.getServerName() + ":" + req.getServerPort();
-            List<Agent<ChatCompletionRequest, ChatCompletionResult>> allAgents = getAllAgents(llmRequest, uri);
+            List<Agent<ChatCompletionRequest, ChatCompletionResult>> allAgents = getAllAgents(llmRequest, uri, false);
             List<ILlmAdapter> userLlmAdapters = getUserLlmAdapters(llmRequest.getUserId());
 
             IntentDetectParam intentDetectParam = new IntentDetectParam();
@@ -156,8 +156,8 @@ public class IntentApiServlet extends RestfulServlet {
         }
     }
 
-    private List<Agent<ChatCompletionRequest, ChatCompletionResult>> getAllAgents(LLmRequest llmRequest, String uri) throws IOException {
-        return agentService.getAllAgents(llmRequest, uri);
+    private List<Agent<ChatCompletionRequest, ChatCompletionResult>> getAllAgents(LLmRequest llmRequest, String uri, boolean containsOnline) throws IOException {
+        return agentService.getAllAgents(llmRequest, uri, containsOnline);
     }
 
     public List<ILlmAdapter> getUserLlmAdapters(String userId) {

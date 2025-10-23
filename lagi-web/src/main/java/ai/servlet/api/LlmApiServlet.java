@@ -380,8 +380,8 @@ public class LlmApiServlet extends BaseServlet {
         }
     }
 
-    private List<Agent<ChatCompletionRequest, ChatCompletionResult>> getAllAgents(LLmRequest llmRequest, String uri) throws IOException {
-        return agentService.getAllAgents(llmRequest, uri);
+    private List<Agent<ChatCompletionRequest, ChatCompletionResult>> getAllAgents(LLmRequest llmRequest, String uri, boolean containsOnline) throws IOException {
+        return agentService.getAllAgents(llmRequest, uri, containsOnline);
     }
 
     public List<ILlmAdapter> getUserLlmAdapters(String userId) {
@@ -397,10 +397,11 @@ public class LlmApiServlet extends BaseServlet {
         LLmRequest llmRequest = reqBodyToObj(req, LLmRequest.class);
         PrintWriter out = resp.getWriter();
         String uri = req.getScheme() + "://" + req.getServerName() + ":" + req.getServerPort();
-        List<Agent<ChatCompletionRequest, ChatCompletionResult>> allAgents = getAllAgents(llmRequest, uri);
+        List<Agent<ChatCompletionRequest, ChatCompletionResult>> allAgents;
 
         boolean invokeAppointedAgentStatus = false;
         if (llmRequest.getAgentId() != null) {
+            allAgents = getAllAgents(llmRequest, uri,  true);
             try {
                 invokeAppointedAgentStatus = invokeAppointedAgent(req, resp, llmRequest, allAgents);
             } catch (Exception e) {
@@ -410,6 +411,7 @@ public class LlmApiServlet extends BaseServlet {
                 return;
             }
         } else {
+            allAgents = getAllAgents(llmRequest, uri,  false);
             invokeAppointedAgentStatus = true;
         }
         IntentRouteResult intentRouteResult = llmRequest.getIntent();
@@ -623,7 +625,7 @@ public class LlmApiServlet extends BaseServlet {
         String uri = req.getScheme() + "://" + req.getServerName() + ":" + req.getServerPort();
 
         LLmRequest llmRequest = reqBodyToObj(req, LLmRequest.class);
-        List<Agent<ChatCompletionRequest, ChatCompletionResult>> allAgents = getAllAgents(llmRequest, uri);
+        List<Agent<ChatCompletionRequest, ChatCompletionResult>> allAgents = getAllAgents(llmRequest, uri, true);
 
         List<Agent<ChatCompletionRequest, ChatCompletionResult>> pickAgentList = agentService.getAgentsById(llmRequest.getIntent().getAgents(), allAgents);
         if (pickAgentList == null || pickAgentList.isEmpty()) {

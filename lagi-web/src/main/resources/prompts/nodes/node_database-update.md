@@ -1,0 +1,22 @@
+database-update（数据库更新节点）
+- **功能描述**：执行数据库更新或插入操作，支持配置操作类型和数据。
+- **输入**：databaseName(数据库连接名称)、operationType(操作类型)、tableName(操作的表名)、data(操作数据)、where(更新的变量筛选条件)
+- **输出**：操作结果（包含影响行数等信息）
+- **使用场景**：执行数据库的插入或更新操作，通过配置操作类型、目标表名、操作数据及筛选条件（更新时）实现数据库内容的修改
+- **注意事项**：databaseName、operationType、tableName、data为必填参数；where参数在operationType为update时建议填写，用于指定更新的筛选条件
+  ============================
+  database-update（数据库更新）
+
+| 字段路径                          | 类型     | 必填 | 规范要求                                                                                                                                                                                                                            |
+|-------------------------------|--------|----|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| id                            | string | 是  | 遵循类似规则，如db_update_1或db_update_ABCDE                                                                                                                                                                                        |
+| type                          | string | 是  | 固定为"database-update"                                                                                                                                                                                                           |
+| meta                          | object | 是  | 含`size`：{ width: 360, height: 450 }                                                                                                                                                                                               |
+| data                          | object | 是  | 含`title`、`inputsValues`、`inputs`、`outputs`：<br>`title`：默认"数据库操作_序号"（如数据库操作_1）<br>`inputsValues`：输入参数（databaseName、operationType、tableName、data、where）<br>`inputs`：输入定义（`required`=["databaseName", "operationType", "tableName", "data"]）<br>`outputs`：输出定义（`required`=["result"]） |
+| data.inputsValues.databaseName | string | 是  | 数据库连接名称：<br>`type`："constant"<br>`content`：具体的数据库连接名称字符串                                                                                                                                                               |
+| data.inputsValues.operationType | string | 是  | 操作类型：<br>`type`："constant"<br>`content`：可选值为'update'或'insert'，初始值为'insert'                                                                                                                                                 |
+| data.inputsValues.tableName    | string | 是  | 操作的表名：<br>`type`："constant"<br>`content`：具体的表名字符串                                                                                                                                                                     |
+| data.inputsValues.data         | string | 是  | 操作数据（JSON格式，支持模板变量）：<br>`type`："template"<br>`content`：JSON格式的字符串，如'{"key": "value"}'<br>extra：{ formComponent: 'prompt-editor', language: 'json' }                                                                       |
+| data.inputsValues.where        | string | 否  | 所需更新的变量筛选条件（JSON格式，支持模板变量）：<br>`type`："template"<br>`content`：JSON格式的字符串，如'{"key": "value"}'<br>extra：{ formComponent: 'prompt-editor', language: 'json' }                                                             |
+| data.inputs                   | object | 是  | 输入定义：<br>`type`："object"<br>`required`：["databaseName", "operationType", "tableName", "data"]<br>`properties`：包含各输入参数的详细描述，其中：<br>- databaseName：字符串类型（描述：数据库连接名称）<br>- operationType：字符串类型，枚举值['update', 'insert']（描述：操作类型）<br>- tableName：字符串类型（描述：操作的表名）<br>- data：字符串类型（描述：操作数据（JSON格式，支持模板变量），extra含formComponent: 'prompt-editor', language: 'json'）<br>- where：字符串类型（描述：所需更新的变量筛选条件（JSON格式，支持模板变量），extra含formComponent: 'prompt-editor', language: 'json'） |
+| data.outputs                  | object | 是  | 输出定义：<br>`type`："object"<br>`properties`：{ result: { type: 'string', description: '操作结果（包含影响行数等信息）' } }<br>`required`：["result"]                                                                                                                            |

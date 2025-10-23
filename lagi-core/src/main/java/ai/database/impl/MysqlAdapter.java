@@ -4,6 +4,9 @@ import ai.common.pojo.Backend;
 import ai.config.ContextLoader;
 import ai.database.pojo.SQLJdbc;
 import ai.database.pojo.TableColumnInfo;
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
+
 
 import java.lang.reflect.Field;
 import java.sql.*;
@@ -12,12 +15,17 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class MysqlAdapter {
+    private HikariDataSource dataSource;
     private  String name;
     private  String driver;
     private  String url;
     private  String username;
     private  String password;
     public  String model;
+    private Integer maximumPoolSize;
+    private Long idleTimeout;
+    private Long maxLifetime;
+
     public MysqlAdapter(String databaseName,String storageName){
         init(storageName);
         if (databaseName!=null&&url!=null){
@@ -55,6 +63,23 @@ public class MysqlAdapter {
                 username = database.getUsername();
                 password = database.getPassword();
                 model = maxBackend.getModel();
+                maximumPoolSize = database.getMaximumPoolSize();
+                idleTimeout = database.getIdleTimeout();
+                maxLifetime = database.getMaxLifetime();
+
+                // 初始化HikariCP连接池
+                HikariConfig config = new HikariConfig();
+                config.setJdbcUrl(url);
+                config.setUsername(username);
+                config.setPassword(password);
+                config.setDriverClassName(driver);
+                // 连接池配置
+                config.setMaximumPoolSize(maximumPoolSize);
+                config.setMinimumIdle(5);
+                config.setConnectionTimeout(30000);
+                config.setIdleTimeout(idleTimeout);
+                config.setMaxLifetime(maxLifetime);
+                dataSource = new HikariDataSource(config);
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -63,26 +88,39 @@ public class MysqlAdapter {
     /**
      * 打开连接
      */
+//    public Connection getCon() {
+//        Connection con = null;
+//
+//        try {
+//            Class.forName(driver);
+//            con = DriverManager.getConnection(url,username,password);
+//        } catch (Exception e) {
+//            System.out.println("数据库连接失败:"+e);
+//        }
+//        return con;}
     public Connection getCon() {
-        Connection con = null;
-
         try {
-            Class.forName(driver);
-            con = DriverManager.getConnection(url,username,password);
-        } catch (Exception e) {
+            return dataSource.getConnection();
+        } catch (SQLException e) {
             System.out.println("数据库连接失败:"+e);
+            return null;
         }
-        return con;}
+    }
 
     /**
      * 关闭连接
      */
-    public void close(Connection con) {
-        try {
-            if (con != null)
-                con.close();
-        } catch (SQLException e) {
-            e.printStackTrace();
+//    public void close(Connection con) {
+//        try {
+//            if (con != null)
+//                con.close();
+//        } catch (SQLException e) {
+//            e.printStackTrace();
+//        }
+//    }
+    public void close() {
+        if (dataSource != null && !dataSource.isClosed()) {
+            dataSource.close();
         }
     }
 

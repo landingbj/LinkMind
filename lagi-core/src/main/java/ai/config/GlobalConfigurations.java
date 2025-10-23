@@ -41,6 +41,7 @@ public class GlobalConfigurations extends AbstractConfiguration {
     private Backend agentGeneralConfiguration;
 
     private McpConfig mcps;
+    private List<ApiConfig> apis;
 
     @Override
     public void init() {

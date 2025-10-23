@@ -9,7 +9,18 @@ public class ImageObjectDetectAdapter extends ModelService implements IImageObje
 
     @Override
     public ObjectDetectResult detect(ImageDetectParam param) {
-        return ObjectDetectResult.builder().result("object detect result" + param.getImageUrl()).build();
+        String model1 = param.getModel();
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        if("helmet".equals(model1)) {
+            return ObjectDetectResult.builder().result("1人未佩戴安全帽").build();
+        } else if("uniform".equals(model1)) {
+            return ObjectDetectResult.builder().result("1人未穿工作服").build();
+        }
+        return ObjectDetectResult.builder().result("检测失败").build();
     }
 
 }

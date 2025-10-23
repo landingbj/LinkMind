@@ -329,6 +329,15 @@
         <url-pattern>/sql/*</url-pattern>
     </servlet-mapping>
 
+    <servlet>
+        <servlet-name>dataset</servlet-name>
+        <servlet-class>ai.servlet.api.DatasetApiServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>dataset</servlet-name>
+        <url-pattern>/dataset/*</url-pattern>
+    </servlet-mapping>
+
 
     <servlet>
         <servlet-name>SkillMapApiServlet</servlet-name>

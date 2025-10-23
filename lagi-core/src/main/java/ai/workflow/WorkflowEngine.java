@@ -46,13 +46,13 @@ public class WorkflowEngine {
         // Donne 2025/9/28 数据库查询、存储节点
 
         // Done 2025/9/28 工作流能运用到agent实际调用
-        // TODO 2025/10/17 优化 agent节点用户体验
+        // Done 2025/10/17 优化 agent节点用户体验
     }
 
     public void executeAsync(String taskId, String workflowJson, WorkflowContext workflowContext) {
         // TODO 2025/9/28 上下文相关
         // TODO 2025/9/28 1.用户上下文
-        // TODO 2025/9/28 2.支持历史上下文 最近30条
+        // Done 2025/9/28 2.支持历史上下文 最近30条 agent 支持上下文
         // TODO 2025/9/28 3. 执行状态管理 ( 后续支持)
 
 
@@ -137,7 +137,7 @@ public class WorkflowEngine {
         node.setMeta(meta);
 
         // 解析循环节点的内部块
-        if ("loop".equals(type)) {
+        if ("loop".equals(type) || "parallel".equals(type)) {
             JsonNode blocks = nodeJson.get("blocks");
             if (blocks != null && blocks.isArray()) {
                 List<Node> blockNodes = new ArrayList<>();
@@ -176,7 +176,7 @@ public class WorkflowEngine {
 
     private WorkflowResult executeNode(String taskId, Workflow workflow, Node node, WorkflowContext context, Set<String> visitedNodes) {
         // 防止无限循环
-        if (visitedNodes.contains(node.getId()) && !"loop".equals(node.getType())) {
+        if (visitedNodes.contains(node.getId()) && !"loop".equals(node.getType()) && !"parallel".equals(node.getType())) {
             throw new WorkflowException("检测到循环依赖: " + node.getId());
         }
 

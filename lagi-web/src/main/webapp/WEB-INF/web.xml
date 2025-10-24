@@ -426,4 +426,14 @@
         <url-pattern>/knowledge/*</url-pattern>
     </servlet-mapping>
 
+    <servlet>
+        <servlet-name>TrainTaskServlet</servlet-name>
+        <servlet-class>ai.servlet.api.TrainTaskServlet</servlet-class>
+        <load-on-startup>1</load-on-startup>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>TrainTaskServlet</servlet-name>
+        <url-pattern>/api/yolo/train/*</url-pattern>
+    </servlet-mapping>
+
 </web-app>

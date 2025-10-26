@@ -25,6 +25,7 @@ public enum DefaultNodeEnum {
     DatabaseQueryNode("database-query", new DatabaseQueryNodeExecutor()),
     DatabaseUpdateNode("database-update", new DatabaseUpdateNodeExecutor()),
     ParallelNode("parallel", new ParallelNodeExecutor()),
+    MCPAgentNode("mcp-agent",new McpAgentExecutor())
     ;
 
 

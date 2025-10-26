@@ -338,6 +338,15 @@
         <url-pattern>/dataset/*</url-pattern>
     </servlet-mapping>
 
+    <servlet>
+        <servlet-name>modelapi</servlet-name>
+        <servlet-class>ai.servlet.api.ModelApiServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>modelapi</servlet-name>
+        <url-pattern>/modelapi/*</url-pattern>
+    </servlet-mapping>
+
 
     <servlet>
         <servlet-name>SkillMapApiServlet</servlet-name>
@@ -415,6 +424,16 @@
     <servlet-mapping>
         <servlet-name>CorpusApiServlet</servlet-name>
         <url-pattern>/knowledge/*</url-pattern>
+    </servlet-mapping>
+
+    <servlet>
+        <servlet-name>TrainTaskServlet</servlet-name>
+        <servlet-class>ai.servlet.api.TrainTaskServlet</servlet-class>
+        <load-on-startup>1</load-on-startup>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>TrainTaskServlet</servlet-name>
+        <url-pattern>/api/yolo/train/*</url-pattern>
     </servlet-mapping>
 
 </web-app>

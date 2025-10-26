@@ -404,6 +404,15 @@
     </servlet-mapping>
 
     <servlet>
+        <servlet-name>coding</servlet-name>
+        <servlet-class>ai.servlet.api.CodingApiServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>coding</servlet-name>
+        <url-pattern>/coding/*</url-pattern>
+    </servlet-mapping>
+
+    <servlet>
         <servlet-name>modelUploadServlet</servlet-name>
         <servlet-class>ai.servlet.ModelUploadServlet</servlet-class>
     </servlet>

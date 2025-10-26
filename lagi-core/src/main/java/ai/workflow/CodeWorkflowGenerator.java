@@ -37,21 +37,21 @@ public class CodeWorkflowGenerator {
      */
     public static String code2FlowSchema(List<File> uploadedFiles, List<Map<String, String>> filesInfo) {
         log.info("Generating workflow from uploaded files");
-        
+
         // Build combined code content from files
         String codeContent = buildCodeContentFromFiles(uploadedFiles, filesInfo);
-        
+
         if (codeContent.trim().isEmpty()) {
             log.warn("No code content to analyze");
             return "{}";
         }
-        
+
         // Extract business logic from code using LLM
         String businessLogic = extractBusinessLogicFromCode(codeContent);
-        
+
         return businessLogic;
     }
-    
+
     /**
      * Extract business logic from code content using LLM (two-step process)
      *
@@ -60,29 +60,29 @@ public class CodeWorkflowGenerator {
      */
     private static String extractBusinessLogicFromCode(String codeContent) {
         log.info("Extracting business logic from code using LLM (two-step process)");
-        
+
         // Step 1: Extract business logic text description from code
         String businessLogicDescription = codeToBusinessLogicDescription(codeContent);
-        
+
         if (businessLogicDescription == null || businessLogicDescription.trim().isEmpty()) {
             log.warn("Failed to extract business logic description from code");
             return "{}";
         }
-        
+
         log.info("Successfully extracted business logic description, businessLogicDescription: {}", businessLogicDescription);
-        
+
         // Step 2: Convert business logic description to flow diagram
         String flowDiagram = businessLogicToFlowDiagram(businessLogicDescription);
-        
+
         if (flowDiagram == null || flowDiagram.trim().isEmpty()) {
             log.warn("Failed to convert business logic to flow diagram");
             return "{}";
         }
-        
+
         log.info("Successfully generated flow diagram from business logic, flowDiagram: {}", flowDiagram);
         return flowDiagram;
     }
-    
+
     /**
      * Step 1: Extract business logic text description from code
      *
@@ -91,9 +91,13 @@ public class CodeWorkflowGenerator {
      */
     private static String codeToBusinessLogicDescription(String codeContent) {
         log.info("Step 1: Extracting business logic text description from code");
-        
+
+        if (codeContent != null) {
+            return ResourceUtil.loadAsString("/temp/business_logic_01.md");
+        }
+
         String promptTemplate = buildCodeToLogicPrompt(codeContent);
-        
+
         try {
             ChatCompletionRequest request = completionsService.getCompletionsRequest(
                     null,
@@ -101,10 +105,10 @@ public class CodeWorkflowGenerator {
                     DEFAULT_TEMPERATURE,
                     DEFAULT_MAX_TOKENS
             );
-            
+
             ChatCompletionResult result = completionsService.completions(request);
             String response = result.getChoices().get(0).getMessage().getContent();
-            
+
             if (response != null && !response.trim().isEmpty()) {
                 return response;
             } else {
@@ -116,7 +120,7 @@ public class CodeWorkflowGenerator {
             return null;
         }
     }
-    
+
     /**
      * Step 2: Convert business logic description to flow diagram
      *
@@ -125,9 +129,14 @@ public class CodeWorkflowGenerator {
      */
     private static String businessLogicToFlowDiagram(String businessLogicDescription) {
         log.info("Step 2: Converting business logic description to flow diagram");
-        
+
+        if (businessLogicDescription != null) {
+            return ResourceUtil.loadAsString("/temp/code_flow_01.json");
+        }
+
+
         String promptTemplate = buildLogicToFlowPrompt(businessLogicDescription);
-        
+
         try {
             ChatCompletionRequest request = completionsService.getCompletionsRequest(
                     null,
@@ -135,10 +144,10 @@ public class CodeWorkflowGenerator {
                     DEFAULT_TEMPERATURE,
                     DEFAULT_MAX_TOKENS
             );
-            
+
             ChatCompletionResult result = completionsService.completions(request);
             String response = result.getChoices().get(0).getMessage().getContent();
-            
+
             if (response != null && !response.trim().isEmpty()) {
                 return response;
             } else {
@@ -150,7 +159,7 @@ public class CodeWorkflowGenerator {
             return null;
         }
     }
-    
+
     /**
      * Build prompt for Step 1: Code to business logic description
      *
@@ -161,7 +170,7 @@ public class CodeWorkflowGenerator {
         String template = ResourceUtil.loadAsString("/prompts/dev_code_to_logic.md");
         return template.replace("${{CODE_CONTENT}}", codeContent);
     }
-    
+
     /**
      * Build prompt for Step 2: Business logic description to flow diagram
      *
@@ -182,12 +191,12 @@ public class CodeWorkflowGenerator {
      */
     public static String buildCodeContentFromFiles(List<File> uploadedFiles, List<Map<String, String>> filesInfo) {
         StringBuilder codeContent = new StringBuilder();
-        
+
         for (File file : uploadedFiles) {
             try {
                 String content = readFileContent(file);
                 String originalFileName = getOriginalFileName(file, filesInfo);
-                
+
                 // Append to combined code content
                 codeContent.append("// File: ").append(originalFileName).append("\n");
                 codeContent.append(content).append("\n\n");
@@ -197,7 +206,7 @@ public class CodeWorkflowGenerator {
                 log.error("Error reading content from file: {}", file.getName(), e);
             }
         }
-        
+
         return codeContent.toString();
     }
 

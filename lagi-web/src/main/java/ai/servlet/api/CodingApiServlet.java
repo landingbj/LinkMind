@@ -120,7 +120,7 @@ public class CodingApiServlet extends BaseServlet {
             log.info("Received request - knowledgeBase: {}, files: {}", knowledgeBase, uploadedFiles.size());
 
             // Generate workflow schema from code
-            String workflowSchema = CodeWorkflowGenerator.code2FlowSchema(uploadedFiles, filesInfo);
+            String workflowSchema = CodeWorkflowGenerator.code2FlowSchema(uploadedFiles, filesInfo, knowledgeBase);
 
             // Clean up uploaded files
             for (File file : uploadedFiles) {

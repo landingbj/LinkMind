@@ -1,9 +1,12 @@
 package ai.workflow;
 
+import ai.common.pojo.IndexSearchData;
 import ai.llm.service.CompletionsService;
 import ai.openai.pojo.ChatCompletionRequest;
 import ai.openai.pojo.ChatCompletionResult;
+import ai.utils.JsonExtractor;
 import ai.utils.ResourceUtil;
+import ai.vector.VectorStoreService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 
@@ -13,8 +16,10 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Code workflow generator for analyzing code structure and generating flow diagrams
@@ -24,19 +29,29 @@ import java.util.Map;
 public class CodeWorkflowGenerator {
     private static final CompletionsService completionsService = new CompletionsService();
     private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final VectorStoreService vectorStoreService = new VectorStoreService();
 
     private static final double DEFAULT_TEMPERATURE = 0.3;
-    private static final int DEFAULT_MAX_TOKENS = 4096;
+    private static final int DEFAULT_MAX_TOKENS = 8192;
+
+    // Knowledge base search parameters
+    private static final int SIMILARITY_TOP_K = 5;
+    private static final double SIMILARITY_CUTOFF = 0.3;
 
     /**
      * Generate workflow schema from uploaded files
      *
      * @param uploadedFiles list of uploaded files
      * @param filesInfo     list of file information maps
+     * @param knowledgeBase knowledge base category for vector search
      * @return Workflow JSON string representing code flow
      */
-    public static String code2FlowSchema(List<File> uploadedFiles, List<Map<String, String>> filesInfo) {
-        log.info("Generating workflow from uploaded files");
+    public static String code2FlowSchema(List<File> uploadedFiles, List<Map<String, String>> filesInfo, String knowledgeBase) {
+//        if (uploadedFiles != null) {
+//            return ResourceUtil.loadAsString("/temp/debug/code_flow_debug_01.json");
+//        }
+
+        log.info("Generating workflow from uploaded files, knowledgeBase: {}", knowledgeBase);
 
         // Build combined code content from files
         String codeContent = buildCodeContentFromFiles(uploadedFiles, filesInfo);
@@ -47,19 +62,20 @@ public class CodeWorkflowGenerator {
         }
 
         // Extract business logic from code using LLM
-        String businessLogic = extractBusinessLogicFromCode(codeContent);
+        String businessLogic = extractBusinessLogicFromCode(codeContent, knowledgeBase);
 
         return businessLogic;
     }
 
     /**
-     * Extract business logic from code content using LLM (two-step process)
+     * Extract business logic from code content using LLM
      *
-     * @param codeContent the code content to analyze
+     * @param codeContent   the code content to analyze
+     * @param knowledgeBase knowledge base category for vector search
      * @return JSON string representing the workflow diagram
      */
-    private static String extractBusinessLogicFromCode(String codeContent) {
-        log.info("Extracting business logic from code using LLM (two-step process)");
+    private static String extractBusinessLogicFromCode(String codeContent, String knowledgeBase) {
+        log.info("Extracting business logic from code using LLM");
 
         // Step 1: Extract business logic text description from code
         String businessLogicDescription = codeToBusinessLogicDescription(codeContent);
@@ -69,9 +85,36 @@ public class CodeWorkflowGenerator {
             return "{}";
         }
 
-        log.info("Successfully extracted business logic description, businessLogicDescription: {}", businessLogicDescription);
+        log.info("Successfully extracted business logic description");
 
-        // Step 2: Convert business logic description to flow diagram
+        // Step 2: Summarize business logic to key texts for knowledge base search
+        String summaryTexts = summarizeBusinessLogicToKeyTexts(businessLogicDescription);
+
+        if (summaryTexts != null && !summaryTexts.trim().isEmpty()) {
+            log.info("Successfully summarized business logic to key texts: {}", summaryTexts);
+
+            // Step 3: Search knowledge base with key texts
+            String knowledgeBaseContext = searchKnowledgeBase(summaryTexts, knowledgeBase);
+
+            if (knowledgeBaseContext != null && !knowledgeBaseContext.trim().isEmpty()) {
+                log.info("Successfully retrieved knowledge base context");
+
+                // Step 4: Enhance business logic description with knowledge base context
+                String enhancedLogicDescription = enhanceBusinessLogicWithKnowledge(
+                        businessLogicDescription, knowledgeBaseContext);
+
+                if (enhancedLogicDescription != null && !enhancedLogicDescription.trim().isEmpty()) {
+                    log.info("Successfully enhanced business logic description with knowledge base");
+                    businessLogicDescription = enhancedLogicDescription;
+                }
+            } else {
+                log.info("No relevant knowledge base context found, using original business logic");
+            }
+        } else {
+            log.warn("Failed to summarize business logic, using original description");
+        }
+
+        // Step 5: Convert business logic description to flow diagram
         String flowDiagram = businessLogicToFlowDiagram(businessLogicDescription);
 
         if (flowDiagram == null || flowDiagram.trim().isEmpty()) {
@@ -79,7 +122,9 @@ public class CodeWorkflowGenerator {
             return "{}";
         }
 
-        log.info("Successfully generated flow diagram from business logic, flowDiagram: {}", flowDiagram);
+        flowDiagram = JsonExtractor.extractJson(flowDiagram);
+
+        log.info("Successfully generated flow diagram from business logic");
         return flowDiagram;
     }
 
@@ -93,7 +138,7 @@ public class CodeWorkflowGenerator {
         log.info("Step 1: Extracting business logic text description from code");
 
         if (codeContent != null) {
-            return ResourceUtil.loadAsString("/temp/business_logic_01.md");
+            return ResourceUtil.loadAsString("/temp/debug/code_logic_debug_01.md");
         }
 
         String promptTemplate = buildCodeToLogicPrompt(codeContent);
@@ -122,17 +167,148 @@ public class CodeWorkflowGenerator {
     }
 
     /**
-     * Step 2: Convert business logic description to flow diagram
+     * Step 2: Summarize business logic to key texts for knowledge base search
+     *
+     * @param businessLogicDescription the business logic text description
+     * @return key texts for knowledge base search, one per line
+     */
+    private static String summarizeBusinessLogicToKeyTexts(String businessLogicDescription) {
+        log.info("Step 2: Summarizing business logic to key texts");
+
+        String promptTemplate = buildLogicToSummaryPrompt(businessLogicDescription);
+
+        try {
+            ChatCompletionRequest request = completionsService.getCompletionsRequest(
+                    null,
+                    promptTemplate,
+                    DEFAULT_TEMPERATURE,
+                    DEFAULT_MAX_TOKENS
+            );
+
+            ChatCompletionResult result = completionsService.completions(request);
+            String response = result.getChoices().get(0).getMessage().getContent();
+
+            if (response != null && !response.trim().isEmpty()) {
+                return response.trim();
+            } else {
+                log.warn("LLM returned empty response for summary texts");
+                return null;
+            }
+        } catch (Exception e) {
+            log.error("Error summarizing business logic to key texts", e);
+            return null;
+        }
+    }
+
+    /**
+     * Step 3: Search knowledge base with key texts
+     *
+     * @param summaryTexts  key texts from business logic summary, one per line
+     * @param knowledgeBase knowledge base category for vector search
+     * @return concatenated knowledge base search results
+     */
+    private static String searchKnowledgeBase(String summaryTexts, String knowledgeBase) {
+        log.info("Step 3: Searching knowledge base with key texts, category: {}", knowledgeBase);
+
+        try {
+            // Use provided knowledgeBase or fall back to default
+            String category = knowledgeBase;
+
+            String[] queries = summaryTexts.split("\n");
+            StringBuilder knowledgeContext = new StringBuilder();
+
+            Set<String> addedTexts = new HashSet<>();
+
+            for (String query : queries) {
+                query = query.trim();
+                if (query.isEmpty() || query.startsWith("```") || query.startsWith("#")) {
+                    continue;
+                }
+
+                log.info("Searching knowledge base with query: {}", query);
+
+                List<IndexSearchData> searchResults = vectorStoreService.search(
+                        query,
+                        SIMILARITY_TOP_K,
+                        SIMILARITY_CUTOFF,
+                        null,
+                        category
+                );
+
+                if (searchResults != null && !searchResults.isEmpty()) {
+                    knowledgeContext.append("\n### Query: ").append(query).append("\n");
+                    for (IndexSearchData result : searchResults) {
+                        String text = result.getText();
+                        if (text != null && !addedTexts.contains(text)) {
+                            knowledgeContext.append("- ").append(text).append("\n");
+                            addedTexts.add(text);
+                        }
+                    }
+                }
+            }
+
+            String context = knowledgeContext.toString().trim();
+            if (!context.isEmpty()) {
+                log.info("Successfully retrieved {} characters of knowledge base context", context.length());
+                return context;
+            } else {
+                log.info("No relevant knowledge base results found");
+                return null;
+            }
+        } catch (Exception e) {
+            log.error("Error searching knowledge base", e);
+            return null;
+        }
+    }
+
+    /**
+     * Step 4: Enhance business logic description with knowledge base context
+     *
+     * @param businessLogicDescription original business logic description
+     * @param knowledgeBaseContext     context from knowledge base search
+     * @return enhanced business logic description
+     */
+    private static String enhanceBusinessLogicWithKnowledge(String businessLogicDescription,
+                                                            String knowledgeBaseContext) {
+        log.info("Step 4: Enhancing business logic with knowledge base context");
+
+        String promptTemplate = buildLogicEnhancePrompt(businessLogicDescription, knowledgeBaseContext);
+
+        try {
+            ChatCompletionRequest request = completionsService.getCompletionsRequest(
+                    null,
+                    promptTemplate,
+                    DEFAULT_TEMPERATURE,
+                    DEFAULT_MAX_TOKENS
+            );
+
+            ChatCompletionResult result = completionsService.completions(request);
+            String response = result.getChoices().get(0).getMessage().getContent();
+
+            if (response != null && !response.trim().isEmpty()) {
+                return response;
+            } else {
+                log.warn("LLM returned empty response for enhanced logic");
+                return null;
+            }
+        } catch (Exception e) {
+            log.error("Error enhancing business logic with knowledge", e);
+            return null;
+        }
+    }
+
+    /**
+     * Step 5: Convert business logic description to flow diagram
      *
      * @param businessLogicDescription the business logic text description
      * @return JSON string representing the flow diagram
      */
     private static String businessLogicToFlowDiagram(String businessLogicDescription) {
-        log.info("Step 2: Converting business logic description to flow diagram");
+        log.info("Step 5: Converting business logic description to flow diagram");
 
-        if (businessLogicDescription != null) {
-            return ResourceUtil.loadAsString("/temp/code_flow_01.json");
-        }
+//        if (businessLogicDescription != null) {
+//            return ResourceUtil.loadAsString("/temp/code_flow_01.json");
+//        }
 
 
         String promptTemplate = buildLogicToFlowPrompt(businessLogicDescription);
@@ -172,7 +348,31 @@ public class CodeWorkflowGenerator {
     }
 
     /**
-     * Build prompt for Step 2: Business logic description to flow diagram
+     * Build prompt for Step 2: Business logic to summary key texts
+     *
+     * @param businessLogicDescription the business logic text description
+     * @return formatted prompt for LLM
+     */
+    private static String buildLogicToSummaryPrompt(String businessLogicDescription) {
+        String template = ResourceUtil.loadAsString("/prompts/dev_logic_to_summary.md");
+        return template.replace("${{BUSINESS_LOGIC_DESCRIPTION}}", businessLogicDescription);
+    }
+
+    /**
+     * Build prompt for Step 4: Enhance logic with knowledge base
+     *
+     * @param businessLogicDescription original business logic description
+     * @param knowledgeBaseContext     context from knowledge base
+     * @return formatted prompt for LLM
+     */
+    private static String buildLogicEnhancePrompt(String businessLogicDescription, String knowledgeBaseContext) {
+        String template = ResourceUtil.loadAsString("/prompts/dev_logic_enhance.md");
+        return template.replace("${{BUSINESS_LOGIC_DESCRIPTION}}", businessLogicDescription)
+                .replace("${{KNOWLEDGE_BASE_CONTEXT}}", knowledgeBaseContext);
+    }
+
+    /**
+     * Build prompt for Step 5: Business logic description to flow diagram
      *
      * @param businessLogicDescription the business logic text description
      * @return formatted prompt for LLM

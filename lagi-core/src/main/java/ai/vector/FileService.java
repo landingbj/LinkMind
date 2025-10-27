@@ -319,11 +319,8 @@ public class FileService {
     public static String getString(String filePath) {
         StringBuilder content = new StringBuilder();
         try {
-            BufferedReader reader = Files.newBufferedReader(Paths.get(filePath), Charset.forName("GBK"));
-            String line;
-            while ((line = reader.readLine()) != null) {
-                content.append(line).append("\n");
-            }
+            content.append(Files.lines(Paths.get(filePath))
+                    .collect(Collectors.joining("\n")));
         } catch (IOException e) {
             e.printStackTrace();
         }

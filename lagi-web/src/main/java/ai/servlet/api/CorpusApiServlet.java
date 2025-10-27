@@ -1,5 +1,7 @@
 package ai.servlet.api;
 
+import ai.agent.AgentService;
+import ai.agent.dto.LagiAgentResponse;
 import ai.common.pojo.Backend;
 import ai.common.pojo.KnowledgeBase;
 import ai.common.pojo.VectorStoreConfig;
@@ -14,6 +16,7 @@ import ai.servlet.annotation.Post;
 import ai.sevice.KnowledgeBaseService;
 import cn.hutool.core.util.StrUtil;
 
+import java.io.IOException;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
@@ -21,8 +24,8 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 public class CorpusApiServlet extends RestfulServlet {
-
     private KnowledgeBaseService service = new KnowledgeBaseService();
+    private final AgentService agentService = new AgentService();
 
     @Get("region")
     public String getRegion() {
@@ -134,6 +137,14 @@ public class CorpusApiServlet extends RestfulServlet {
         return null;
     }
 
-
+    @Get("getBasicInfo")
+    public KnowledgeBase getKnowledgeBase(@Param("agentId") String agentId) throws IOException {
+        LagiAgentResponse lagiAgentResponse = agentService.getLagiAgent(null, agentId);
+        String region = service.getRegion();
+        KnowledgeBase result = new KnowledgeBase();
+        result.setUserId(lagiAgentResponse.getData().getLagiUserId());
+        result.setRegion(region);
+        return result;
+    }
 
 }

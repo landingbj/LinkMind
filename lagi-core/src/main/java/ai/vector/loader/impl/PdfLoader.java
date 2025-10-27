@@ -64,7 +64,7 @@ public class PdfLoader implements DocumentLoader {
                         .replaceAll("(\r?\n){2,}", "\n")
                         .replaceAll("(?<=\r?\n)\\s*", "")
                         .replaceAll("(?<![.!?;:。！？；：\\s\\d])\r?\n", "");
-                if (StrUtil.isBlank(content)) {
+                if (StrUtil.isNotBlank(content)) {
                     content = FileService.removeDirectory(content);
                 } else {
                     return FileService.getChunkDocumentScannedPDF(file, splitConfig.getChunkSizeForMixUp());

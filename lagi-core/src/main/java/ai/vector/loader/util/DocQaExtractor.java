@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.stream.Collectors;
 
 @Slf4j
 public class DocQaExtractor {
@@ -124,6 +125,12 @@ public class DocQaExtractor {
             long endTimeMillis = System.currentTimeMillis();
             long durationMillis = endTimeMillis - startTimeMillis;
             System.out.println("上传文件总耗时（毫秒）： " + durationMillis);
+            for (int i = 0; i < result.size(); i++) {
+                List<FileChunkResponse.Document> documents = result.get(i);
+                List<FileChunkResponse.Document> collect = documents.stream().filter(document -> document.getText() != null).collect(Collectors.toList());
+                result.set(i, collect);
+            }
+            result = result.stream().filter(list -> !list.isEmpty()).collect(Collectors.toList());
             return result;
         } catch (Exception e) {
             e.printStackTrace();

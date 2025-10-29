@@ -67,6 +67,7 @@ public class CodingApiServlet extends BaseServlet {
 
             // Parse form data
             String knowledgeBase = null;
+            String description = null;
             List<File> uploadedFiles = new ArrayList<>();
             List<Map<String, String>> filesInfo = new ArrayList<>();
 
@@ -82,6 +83,8 @@ public class CodingApiServlet extends BaseServlet {
 
                     if ("knowledgeBase".equals(fieldName)) {
                         knowledgeBase = fieldValue;
+                    } else if ("description".equals(fieldName)) {
+                        description = fieldValue;
                     }
                 } else {
                     // Handle file fields
@@ -117,10 +120,11 @@ public class CodingApiServlet extends BaseServlet {
                 return;
             }
 
-            log.info("Received request - knowledgeBase: {}, files: {}", knowledgeBase, uploadedFiles.size());
+            log.info("Received request - knowledgeBase: {}, description: {}, files: {}", 
+                    knowledgeBase, description, uploadedFiles.size());
 
             // Generate workflow schema from code
-            String workflowSchema = CodeWorkflowGenerator.code2FlowSchema(uploadedFiles, filesInfo, knowledgeBase);
+            CodeWorkflowGenerator.CodeFlowResult workflowResult = CodeWorkflowGenerator.code2FlowSchema(uploadedFiles, filesInfo, knowledgeBase, description);
 
             // Clean up uploaded files
             for (File file : uploadedFiles) {
@@ -133,9 +137,16 @@ public class CodingApiServlet extends BaseServlet {
                 }
             }
 
-            // Build success response
-            result.put("status", "success");
-            result.put("data", workflowSchema);
+            // Detect missing information returned by generator
+            if (workflowResult != null && workflowResult.getMissingInfoMessage() != null && !workflowResult.getMissingInfoMessage().trim().isEmpty()) {
+                String msg = workflowResult.getMissingInfoMessage().trim();
+                result.put("status", "failed");
+                result.put("msg", msg.isEmpty() ? "Missing required information for business logic extraction" : msg);
+            } else {
+                // Build success response
+                result.put("status", "success");
+                result.put("data", workflowResult == null ? null : workflowResult.getData());
+            }
         } catch (Exception e) {
             log.error("Error in code2FlowSchema", e);
             result.put("status", "failed");

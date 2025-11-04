@@ -1,9 +1,11 @@
 package ai.vector.loader.impl;
 
+import ai.common.exception.RRException;
 import ai.common.pojo.FileChunkResponse;
 import ai.utils.*;
 import ai.utils.word.WordUtils;
 import ai.vector.FileService;
+import ai.vector.loader.ContentLoader;
 import ai.vector.loader.DocumentLoader;
 import ai.vector.loader.pojo.Document;
 import ai.vector.loader.pojo.DocumentParagraph;
@@ -25,7 +27,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Slf4j
-public class DocLoader implements DocumentLoader {
+public class DocLoader implements DocumentLoader, ContentLoader {
 
     @Override
     public List<List<FileChunkResponse.Document>> load(String path, SplitConfig splitConfig) {
@@ -302,6 +304,16 @@ public class DocLoader implements DocumentLoader {
             return sb.toString();
         }
         return "";
+    }
+
+    @Override
+    public String load(String path) {
+        try {
+            return new WordToMarkdownConverter().convertToMarkdown(path);
+        } catch (Exception e) {
+            log.error("convert to markdown error", e);
+        }
+        throw new RRException("convert to markdown error");
     }
 
     public static void main(String[] args) {

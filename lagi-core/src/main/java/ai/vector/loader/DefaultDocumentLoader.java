@@ -1,13 +1,12 @@
 package ai.vector.loader;
 
 import ai.common.pojo.FileChunkResponse;
-import ai.vector.loader.DocumentLoader;
 import ai.vector.loader.pojo.SplitConfig;
 
 import java.util.ArrayList;
 import java.util.List;
 
-public class DefaultDocumentLoader implements DocumentLoader {
+public class DefaultDocumentLoader implements DocumentLoader, ContentLoader {
 
     @Override
     public List<List<FileChunkResponse.Document>> load(String path, SplitConfig splitConfig) {
@@ -22,5 +21,10 @@ public class DefaultDocumentLoader implements DocumentLoader {
 
         result.add(chunk);
         return result;
+    }
+
+    @Override
+    public String load(String path) {
+        return "";
     }
 }

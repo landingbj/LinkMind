@@ -2,18 +2,18 @@ package ai.workflow;
 
 import ai.config.ContextLoader;
 import ai.llm.service.CompletionsService;
-import ai.openai.pojo.ChatCompletionRequest;
-import ai.openai.pojo.ChatCompletionResult;
-import ai.openai.pojo.ChatMessage;
+import ai.openai.pojo.*;
 import ai.utils.JsonExtractor;
 import ai.workflow.utils.DefaultNodeEnum;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
@@ -373,9 +373,186 @@ public class WorkflowGenerator {
         }
     }
 
+    public static String txt2FlowSchema1(String text) {
+        JsonObject workflow = new JsonObject();
+        JsonArray nodes = new JsonArray();
+        workflow.add("nodes", nodes);
+        List<String> notValidNodeName = DefaultNodeEnum.getNotValidNodeName();
+        try {
+            log.info("Stage 1: Extracting start and end node variables");
+            ChatCompletionRequest stage1Request = completionsService.getCompletionsRequest(
+                    WorkflowPromptUtil.VARIABLE_EXTRACT_PROMPT,
+                    text,
+                    DEFAULT_TEMPERATURE,
+                    DEFAULT_MAX_TOKENS
+            );
+
+            ChatCompletionResult stage1Result = completionsService.completions(stage1Request);
+            String variablesJson = stage1Result.getChoices().get(0).getMessage().getContent();
+            variablesJson = JsonExtractor.extractJson(variablesJson);
+            log.info("Stage 1 - Variables extracted: {}", variablesJson);
+
+            // Build variable description for injection into subsequent prompts
+            String variableDescription = buildVariableDescription(variablesJson);
+
+            log.info("Stage 2: Extracting structured process description");
+            String stage2PromptWithVariables = injectVariablesIntoPrompt(
+                    WorkflowPromptUtil.USER_INFO_EXTRACT_PROMPT,
+                    variableDescription
+            );
+            ChatCompletionRequest stage2Request = completionsService.getCompletionsRequest(
+                    stage2PromptWithVariables,
+                    text,
+                    DEFAULT_TEMPERATURE,
+                    DEFAULT_MAX_TOKENS
+            );
+            ChatCompletionResult stage2Result = completionsService.completions(stage2Request);
+            String structuredDescription = stage2Result.getChoices().get(0).getMessage().getContent();
+            log.info("Stage 2 - Structured description: {}", structuredDescription);
+
+            log.info("Stage 3: Matching required nodes based on process");
+            String stage3PromptWithVariables = injectVariablesIntoPrompt(
+                    WorkflowPromptUtil.getNodeMatchingPrompt(notValidNodeName),
+                    variableDescription
+            );
+            ChatCompletionRequest stage3Request = completionsService.getCompletionsRequest(
+                    stage3PromptWithVariables,
+                    structuredDescription,
+                    DEFAULT_TEMPERATURE,
+                    DEFAULT_MAX_TOKENS
+            );
+            ChatCompletionResult stage3Result = completionsService.completions(stage3Request);
+            String nodeMatching = stage3Result.getChoices().get(0).getMessage().getContent();
+            log.info("Stage 3 - Node matching result: {}", nodeMatching);
+
+            log.info("Stage 4: Generating workflow JSON configuration");
+            String stage4PromptWithVariables = injectVariablesIntoPrompt(
+                    WorkflowPromptUtil.getPromptToWorkflowStepByStepJson(notValidNodeName),
+                    variableDescription
+            );
+            // Combine structured description, node matching, and variables for final stage
+            String combinedInput = "【提取的变量】\n" + variablesJson +
+                    "\n\n【流程描述】\n" + structuredDescription +
+                    "\n\n【节点匹配结果】\n" + nodeMatching;
+            ChatCompletionRequest stage4Request = completionsService.getCompletionsRequest(
+                    stage4PromptWithVariables,
+                    combinedInput,
+                    DEFAULT_TEMPERATURE,
+                    DEFAULT_MAX_TOKENS
+            );
+
+            int maxLoopTime = 50;
+            Gson gson = new Gson();
+            while (maxLoopTime-- > 0){
+                System.out.println(gson.toJson(stage4Request));
+                ChatCompletionResult stage4Result = completionsService.completions(stage4Request);
+                String json = stage4Result.getChoices().get(0).getMessage().getContent();
+                System.out.println("Stage 4 - Workflow JSON: " + json);
+                json = JsonExtractor.extractJson(json);
+                if(!JsonExtractor.isJson( json)) {
+                    continue;
+                }
+                JsonObject jsonObject = gson.fromJson(json, JsonObject.class);
+                JsonElement finished = jsonObject.get("finished");
+                if(finished == null) {
+                    continue;
+                }
+                boolean finish  = finished.getAsBoolean();
+                JsonElement node = jsonObject.get("node");
+                JsonArray edges = jsonObject.getAsJsonArray("edges");
+                if(node != null) {
+                    nodes.add(node);
+                }
+                if(edges != null) {
+                    workflow.add("edges", edges);
+                }
+                if(finish) {
+                    return workflow.toString();
+                }
+                ChatMessage assistant = ChatMessage.builder().content(json).role("assistant").build();
+                ChatMessage user = ChatMessage.builder().content("继续生成节点或是边列表").role("user").build();
+                stage4Request.getMessages().add(assistant);
+                stage4Request.getMessages().add(user);
+            }
+
+        } catch (Exception e) {
+            log.error("Failed to generate workflow: {}", e.getMessage(), e);
+            throw new RuntimeException("Workflow generation failed", e);
+        }
+        throw new RuntimeException("Workflow generation failed");
+    }
+
+    public static String txt2FlowSchema(String text, List<ChatMessage> history, List<String> docsContents) {
+        StringBuilder docBuilder = new StringBuilder();
+        StringBuilder dialogBuilder = new StringBuilder();
+        if(!history.isEmpty()) {
+            dialogBuilder.append("历史记录：\n");
+        }
+        for (ChatMessage chatMessage : history) {
+            dialogBuilder.append(chatMessage.getRole()).append(": ").append(chatMessage.getContent()).append("\n");
+        }
+        dialogBuilder.append("用户当前输入:\n").append(text);
+        if(docsContents != null && !docsContents.isEmpty()) {
+            for (String docContent : docsContents) {
+                docBuilder.append("文档内容：").append(docContent).append("\n");
+            }
+            String docPrompt = WorkflowPromptUtil.getWorkflowDocPrompt();
+            ChatCompletionRequest docRequest = completionsService.getCompletionsRequest(
+                    docPrompt,
+                    docBuilder.append(dialogBuilder).toString(),
+                    DEFAULT_TEMPERATURE,
+                    DEFAULT_MAX_TOKENS
+            );
+            ChatCompletionResult completions = completionsService.completions(docRequest);
+            dialogBuilder = new StringBuilder(completions.getChoices().get(0).getMessage().getContent());
+        }
+        System.out.println("对话内容：" +  dialogBuilder);
+        return txt2FlowSchema1(dialogBuilder.toString());
+//        ChatCompletionRequest genRequest = completionsService.getCompletionsRequest(
+//                WorkflowPromptUtil.getWorkflowReActPrompt(),
+//                dialogBuilder.toString(),
+//                DEFAULT_TEMPERATURE,
+//                DEFAULT_MAX_TOKENS
+//        );
+//        genRequest.setTools(WorkerFlowToolService.getTools());
+//        ChatCompletionResult result = completionsService.completions(genRequest);
+//        System.out.println(new Gson().toJson(result));
+//        ChatMessage assistantMessage = result.getChoices().get(0).getMessage();
+//        List<ToolCall> functionCalls = assistantMessage.getTool_calls();
+//        List<ChatMessage> chatMessages = genRequest.getMessages();
+//        chatMessages.add(assistantMessage);
+//        while (functionCalls != null && !functionCalls.isEmpty()) {
+//            List<ToolCall> loopFunctionCalls =  new ArrayList<>(functionCalls);
+//            List<ToolCall> nextFunctionCalls =  new ArrayList<>();
+//            for (ToolCall functionCall: loopFunctionCalls) {
+//                String callToolResult = WorkerFlowToolService.invokeTool(functionCall.getFunction().getName(), functionCall.getFunction().getArguments());
+//                ChatMessage toolChatMessage = new ChatMessage();
+//                toolChatMessage.setRole("tool");
+//                toolChatMessage.setTool_call_id(functionCall.getId());
+//                toolChatMessage.setContent(callToolResult);
+//                chatMessages.add(toolChatMessage);
+//                ChatCompletionResult temp = completionsService.completions(genRequest);
+//                System.out.println(new Gson().toJson(temp));
+//                assistantMessage = temp.getChoices().get(0).getMessage();
+//                chatMessages.add(assistantMessage);
+//                if (assistantMessage.getTool_calls() != null) {
+//                    nextFunctionCalls.addAll(assistantMessage.getTool_calls());
+//                }
+//                if(temp.getChoices().get(0).getMessage().getContent() != null) {
+//                    result.getChoices().get(0).setMessage(assistantMessage);
+//                }
+//            }
+//            functionCalls = nextFunctionCalls;
+//        }
+//        return "";
+    }
+
+
+
     public static void main(String[] args) {
         ContextLoader.loadContext();
-        System.out.println(WorkflowGenerator.txt2FlowSchema("帮我生成一个调用天气api的的工作流"));
+        String s = WorkflowGenerator.txt2FlowSchema("帮我生成一个调用天气api的的工作流", Collections.emptyList(), Collections.emptyList());
+        System.out.println(s);
     }
 
 }

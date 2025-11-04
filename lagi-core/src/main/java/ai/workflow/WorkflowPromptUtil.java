@@ -40,6 +40,28 @@ public class WorkflowPromptUtil {
         }, new String[]{nodesJson.toString()});
     }
 
+    public static String getPromptToWorkflowStepByStepJson(List<String> ignoreNodes) {
+        String template = ResourceUtil.loadAsString("/prompts/workflow_text_to_json_step_by_step.md");
+        Map<String, String> map = ResourceUtil.loadMultipleFromDirectory("/prompts/nodes", "node_", ".md");
+        StringBuilder nodesJson = new StringBuilder();
+        Set<String> strings = map.keySet();
+        int count = 1;
+        for (String key : strings) {
+            if(ignoreNodes.contains(key)) {
+                continue;
+            }
+            String value = map.getOrDefault(key, "");
+            String[] split = value.split("={5,100}");
+            String json = split[1];
+            nodesJson.append("\n\n").append("### 2.").append(count).append(" ").append(json);
+            count++;
+        }
+        return StringUtils.replaceEach(template, new String[]{"${{node-list-template}}",
+        }, new String[]{nodesJson.toString()});
+    }
+
+
+
     public static String getNodeMatchingPrompt(List<String> ignoreNodes) {
         String template = ResourceUtil.loadAsString("/prompts/workflow_node_matching.md");
         Map<String, String> map = ResourceUtil.loadMultipleFromDirectory("/prompts/nodes", "node_", ".md");
@@ -59,4 +81,9 @@ public class WorkflowPromptUtil {
         return StringUtils.replaceEach(template, new String[]{"${{node-list-template}}",
         }, new String[]{nodesJson.toString()});
     }
+
+    public static String getWorkflowDocPrompt() {
+        return ResourceUtil.loadAsString("/prompts/workflow_doc_prompt.md");
+    }
+
 }

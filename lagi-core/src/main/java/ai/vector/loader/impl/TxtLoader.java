@@ -6,6 +6,7 @@ import ai.utils.OrdinanceExtractorUtil;
 import ai.utils.QaExtractorUtil;
 import ai.utils.SectionExtractorUtil;
 import ai.vector.FileService;
+import ai.vector.loader.ContentLoader;
 import ai.vector.loader.DocumentLoader;
 import ai.vector.loader.pojo.SplitConfig;
 import lombok.extern.slf4j.Slf4j;
@@ -16,7 +17,7 @@ import java.util.Collections;
 import java.util.List;
 
 @Slf4j
-public class TxtLoader implements DocumentLoader {
+public class TxtLoader implements DocumentLoader, ContentLoader {
     @Override
     public List<List<FileChunkResponse.Document>> load(String path, SplitConfig splitConfig) {
         List<FileChunkResponse.Document> documents = txtLoad(path, splitConfig);
@@ -46,5 +47,11 @@ public class TxtLoader implements DocumentLoader {
             log.error("load txt file error", e);
         }
         return Collections.emptyList();
+    }
+
+    @Override
+    public String load(String path) {
+        File file = new File(path);
+        return FileService.getString(file.getPath());
     }
 }

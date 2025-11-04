@@ -9,6 +9,7 @@ import ai.workflow.utils.NodeExecutorUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -16,6 +17,12 @@ import java.util.Map;
  */
 public class StartNodeExecutor implements INodeExecutor {
     private final TaskStatusManager taskStatusManager = TaskStatusManager.getInstance();
+    
+    @Override
+    public List<String> getStandardOutputFields() {
+        // start 节点的输出字段是动态的，不需要验证
+        return null;
+    }
 
     @Override
     public NodeResult execute(String taskId, Node node, WorkflowContext context) throws Exception {

@@ -53,7 +53,7 @@ public class Text2ImageNodeExecutor implements INodeExecutor {
             ImageGenerationResult result = callText2Image(inputs);
 
             Map<String, Object> output = new HashMap<>();
-            output.put("result", result);
+            output.put("result", result.getData().get(0));
 
             long endTime = System.currentTimeMillis();
             long timeCost = endTime - startTime;

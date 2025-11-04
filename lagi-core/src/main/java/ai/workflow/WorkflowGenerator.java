@@ -5,6 +5,7 @@ import ai.llm.service.CompletionsService;
 import ai.openai.pojo.*;
 import ai.utils.JsonExtractor;
 import ai.workflow.utils.DefaultNodeEnum;
+import ai.workflow.utils.NodeReferenceValidator;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.gson.Gson;
@@ -25,6 +26,7 @@ public class WorkflowGenerator {
 
     private static final double DEFAULT_TEMPERATURE = 0.3;
     private static final int DEFAULT_MAX_TOKENS = 4096;
+    private static final int MAX_RETRIES = 3;
 
     /**
      * Workflow generation.
@@ -109,6 +111,9 @@ public class WorkflowGenerator {
             if (json == null || json.isEmpty()) {
                 throw new IllegalStateException("Failed to extract JSON from LLM response");
             }
+            
+            // Validate node references and log issues
+            validateAndLogWorkflowReferences(json, "txt2FlowSchema");
 
             return json;
 
@@ -373,181 +378,70 @@ public class WorkflowGenerator {
         }
     }
 
-    public static String txt2FlowSchema1(String text) {
-        JsonObject workflow = new JsonObject();
-        JsonArray nodes = new JsonArray();
-        workflow.add("nodes", nodes);
-        List<String> notValidNodeName = DefaultNodeEnum.getNotValidNodeName();
-        try {
-            log.info("Stage 1: Extracting start and end node variables");
-            ChatCompletionRequest stage1Request = completionsService.getCompletionsRequest(
-                    WorkflowPromptUtil.VARIABLE_EXTRACT_PROMPT,
-                    text,
-                    DEFAULT_TEMPERATURE,
-                    DEFAULT_MAX_TOKENS
-            );
 
-            ChatCompletionResult stage1Result = completionsService.completions(stage1Request);
-            String variablesJson = stage1Result.getChoices().get(0).getMessage().getContent();
-            variablesJson = JsonExtractor.extractJson(variablesJson);
-            log.info("Stage 1 - Variables extracted: {}", variablesJson);
 
-            // Build variable description for injection into subsequent prompts
-            String variableDescription = buildVariableDescription(variablesJson);
-
-            log.info("Stage 2: Extracting structured process description");
-            String stage2PromptWithVariables = injectVariablesIntoPrompt(
-                    WorkflowPromptUtil.USER_INFO_EXTRACT_PROMPT,
-                    variableDescription
-            );
-            ChatCompletionRequest stage2Request = completionsService.getCompletionsRequest(
-                    stage2PromptWithVariables,
-                    text,
-                    DEFAULT_TEMPERATURE,
-                    DEFAULT_MAX_TOKENS
-            );
-            ChatCompletionResult stage2Result = completionsService.completions(stage2Request);
-            String structuredDescription = stage2Result.getChoices().get(0).getMessage().getContent();
-            log.info("Stage 2 - Structured description: {}", structuredDescription);
-
-            log.info("Stage 3: Matching required nodes based on process");
-            String stage3PromptWithVariables = injectVariablesIntoPrompt(
-                    WorkflowPromptUtil.getNodeMatchingPrompt(notValidNodeName),
-                    variableDescription
-            );
-            ChatCompletionRequest stage3Request = completionsService.getCompletionsRequest(
-                    stage3PromptWithVariables,
-                    structuredDescription,
-                    DEFAULT_TEMPERATURE,
-                    DEFAULT_MAX_TOKENS
-            );
-            ChatCompletionResult stage3Result = completionsService.completions(stage3Request);
-            String nodeMatching = stage3Result.getChoices().get(0).getMessage().getContent();
-            log.info("Stage 3 - Node matching result: {}", nodeMatching);
-
-            log.info("Stage 4: Generating workflow JSON configuration");
-            String stage4PromptWithVariables = injectVariablesIntoPrompt(
-                    WorkflowPromptUtil.getPromptToWorkflowStepByStepJson(notValidNodeName),
-                    variableDescription
-            );
-            // Combine structured description, node matching, and variables for final stage
-            String combinedInput = "【提取的变量】\n" + variablesJson +
-                    "\n\n【流程描述】\n" + structuredDescription +
-                    "\n\n【节点匹配结果】\n" + nodeMatching;
-            ChatCompletionRequest stage4Request = completionsService.getCompletionsRequest(
-                    stage4PromptWithVariables,
-                    combinedInput,
-                    DEFAULT_TEMPERATURE,
-                    DEFAULT_MAX_TOKENS
-            );
-
-            int maxLoopTime = 50;
-            Gson gson = new Gson();
-            while (maxLoopTime-- > 0){
-                System.out.println(gson.toJson(stage4Request));
-                ChatCompletionResult stage4Result = completionsService.completions(stage4Request);
-                String json = stage4Result.getChoices().get(0).getMessage().getContent();
-                System.out.println("Stage 4 - Workflow JSON: " + json);
-                json = JsonExtractor.extractJson(json);
-                if(!JsonExtractor.isJson( json)) {
-                    continue;
-                }
-                JsonObject jsonObject = gson.fromJson(json, JsonObject.class);
-                JsonElement finished = jsonObject.get("finished");
-                if(finished == null) {
-                    continue;
-                }
-                boolean finish  = finished.getAsBoolean();
-                JsonElement node = jsonObject.get("node");
-                JsonArray edges = jsonObject.getAsJsonArray("edges");
-                if(node != null) {
-                    nodes.add(node);
-                }
-                if(edges != null) {
-                    workflow.add("edges", edges);
-                }
-                if(finish) {
-                    return workflow.toString();
-                }
-                ChatMessage assistant = ChatMessage.builder().content(json).role("assistant").build();
-                ChatMessage user = ChatMessage.builder().content("继续生成节点或是边列表").role("user").build();
-                stage4Request.getMessages().add(assistant);
-                stage4Request.getMessages().add(user);
-            }
-
-        } catch (Exception e) {
-            log.error("Failed to generate workflow: {}", e.getMessage(), e);
-            throw new RuntimeException("Workflow generation failed", e);
-        }
-        throw new RuntimeException("Workflow generation failed");
-    }
-
+    /**
+     * Generate workflow from text with history and document context (New Agent-like version)
+     * 
+     * 使用新的智能体式生成器，提供更稳定的生成结果：
+     * 1. 多阶段推理：任务分析 -> 节点选择 -> 配置生成 -> 边连接 -> 验证修正
+     * 2. 自我验证：每个阶段都进行验证，发现问题自动重试
+     * 3. 节点可扩展：节点定义与生成逻辑分离，新增节点无需修改代码
+     * 
+     * @param text User input text
+     * @param history Conversation history
+     * @param docsContents Document contents
+     * @return Workflow JSON string
+     */
     public static String txt2FlowSchema(String text, List<ChatMessage> history, List<String> docsContents) {
-        StringBuilder docBuilder = new StringBuilder();
-        StringBuilder dialogBuilder = new StringBuilder();
-        if(!history.isEmpty()) {
-            dialogBuilder.append("历史记录：\n");
-        }
-        for (ChatMessage chatMessage : history) {
-            dialogBuilder.append(chatMessage.getRole()).append(": ").append(chatMessage.getContent()).append("\n");
-        }
-        dialogBuilder.append("用户当前输入:\n").append(text);
-        if(docsContents != null && !docsContents.isEmpty()) {
-            for (String docContent : docsContents) {
-                docBuilder.append("文档内容：").append(docContent).append("\n");
+        log.info("Generating workflow with agent-like generator");
+        log.info("User input: {}", text);
+        log.info("History messages: {}", history != null ? history.size() : 0);
+        log.info("Document contents: {}", docsContents != null ? docsContents.size() : 0);
+        int retries = 0;
+        while (retries <= MAX_RETRIES) {
+            try {
+                // 使用新的智能体式生成器
+                String workflowJson = AgentLikeWorkflowGenerator.generate(text, history, docsContents);
+
+                log.info("Workflow generation completed");
+                return workflowJson;
+            } catch (Exception e) {
+                log.error("Agent-like generation failed, retry times: {} message: {}",retries,  e.getMessage());
             }
-            String docPrompt = WorkflowPromptUtil.getWorkflowDocPrompt();
-            ChatCompletionRequest docRequest = completionsService.getCompletionsRequest(
-                    docPrompt,
-                    docBuilder.append(dialogBuilder).toString(),
-                    DEFAULT_TEMPERATURE,
-                    DEFAULT_MAX_TOKENS
-            );
-            ChatCompletionResult completions = completionsService.completions(docRequest);
-            dialogBuilder = new StringBuilder(completions.getChoices().get(0).getMessage().getContent());
+            retries++;
         }
-        System.out.println("对话内容：" +  dialogBuilder);
-        return txt2FlowSchema1(dialogBuilder.toString());
-//        ChatCompletionRequest genRequest = completionsService.getCompletionsRequest(
-//                WorkflowPromptUtil.getWorkflowReActPrompt(),
-//                dialogBuilder.toString(),
-//                DEFAULT_TEMPERATURE,
-//                DEFAULT_MAX_TOKENS
-//        );
-//        genRequest.setTools(WorkerFlowToolService.getTools());
-//        ChatCompletionResult result = completionsService.completions(genRequest);
-//        System.out.println(new Gson().toJson(result));
-//        ChatMessage assistantMessage = result.getChoices().get(0).getMessage();
-//        List<ToolCall> functionCalls = assistantMessage.getTool_calls();
-//        List<ChatMessage> chatMessages = genRequest.getMessages();
-//        chatMessages.add(assistantMessage);
-//        while (functionCalls != null && !functionCalls.isEmpty()) {
-//            List<ToolCall> loopFunctionCalls =  new ArrayList<>(functionCalls);
-//            List<ToolCall> nextFunctionCalls =  new ArrayList<>();
-//            for (ToolCall functionCall: loopFunctionCalls) {
-//                String callToolResult = WorkerFlowToolService.invokeTool(functionCall.getFunction().getName(), functionCall.getFunction().getArguments());
-//                ChatMessage toolChatMessage = new ChatMessage();
-//                toolChatMessage.setRole("tool");
-//                toolChatMessage.setTool_call_id(functionCall.getId());
-//                toolChatMessage.setContent(callToolResult);
-//                chatMessages.add(toolChatMessage);
-//                ChatCompletionResult temp = completionsService.completions(genRequest);
-//                System.out.println(new Gson().toJson(temp));
-//                assistantMessage = temp.getChoices().get(0).getMessage();
-//                chatMessages.add(assistantMessage);
-//                if (assistantMessage.getTool_calls() != null) {
-//                    nextFunctionCalls.addAll(assistantMessage.getTool_calls());
-//                }
-//                if(temp.getChoices().get(0).getMessage().getContent() != null) {
-//                    result.getChoices().get(0).setMessage(assistantMessage);
-//                }
-//            }
-//            functionCalls = nextFunctionCalls;
-//        }
-//        return "";
+        throw new RuntimeException("Workflow generation failed after " + MAX_RETRIES + " retries");
     }
+    
 
 
+
+
+    /**
+     * 验证并记录工作流引用问题
+     * @param workflowJson 工作流JSON字符串
+     * @param methodName 调用方法名（用于日志）
+     */
+    private static void validateAndLogWorkflowReferences(String workflowJson, String methodName) {
+        try {
+            NodeReferenceValidator.ValidationResult validationResult = NodeReferenceValidator.validate(workflowJson);
+            
+            if (validationResult.hasWarnings()) {
+                log.warn("[{}] Workflow JSON has reference warnings:\n{}", methodName, validationResult);
+            }
+            
+            if (validationResult.hasErrors()) {
+                log.error("[{}] Workflow JSON has reference errors:\n{}", methodName, validationResult);
+            }
+            
+            if (!validationResult.hasWarnings() && !validationResult.hasErrors()) {
+                log.info("[{}] Workflow JSON validation passed successfully", methodName);
+            }
+        } catch (Exception e) {
+            log.error("[{}] Failed to validate workflow references: {}", methodName, e.getMessage(), e);
+        }
+    }
 
     public static void main(String[] args) {
         ContextLoader.loadContext();

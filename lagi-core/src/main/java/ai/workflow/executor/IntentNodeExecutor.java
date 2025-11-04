@@ -16,7 +16,9 @@ import ai.workflow.utils.InputValueParser;
 import ai.workflow.utils.NodeExecutorUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -26,6 +28,12 @@ public class IntentNodeExecutor implements INodeExecutor {
     private final TaskStatusManager taskStatusManager = TaskStatusManager.getInstance();
     private final IntentService sampleIntentService = new SampleIntentServiceImpl();
     private final CompletionsService completionsService = new CompletionsService();
+    
+    @Override
+    public List<String> getStandardOutputFields() {
+        // intent-recognition 节点输出 "intent" 字段
+        return Collections.singletonList("intent");
+    }
 
     @Override
     public NodeResult execute(String taskId, Node node, WorkflowContext context) throws Exception {

@@ -95,7 +95,9 @@ public class TTSNodeExecutor implements INodeExecutor {
         if (inputs.containsKey("format")) {
             param.setFormat((String) inputs.get("format"));
         }
-
+        if(param.getEmotion() == null) {
+            param.setEmotion("default");
+        }
         // 执行TTS合成
         return audioService.tts(param);
     }

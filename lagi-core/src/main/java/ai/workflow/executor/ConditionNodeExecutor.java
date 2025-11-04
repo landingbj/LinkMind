@@ -23,6 +23,12 @@ import java.util.stream.Collectors;
 public class ConditionNodeExecutor implements INodeExecutor {
 
     private final TaskStatusManager taskStatusManager = TaskStatusManager.getInstance();
+    
+    @Override
+    public List<String> getStandardOutputFields() {
+        // condition 节点没有固定输出字段，不需要验证
+        return null;
+    }
 
     @Override
     public NodeResult execute(String taskId, Node node, WorkflowContext context) throws Exception {

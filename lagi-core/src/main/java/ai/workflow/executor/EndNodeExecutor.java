@@ -9,6 +9,7 @@ import ai.workflow.utils.InputValueParser;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -19,6 +20,12 @@ import java.util.Map;
 public class EndNodeExecutor implements INodeExecutor {
 
     private final TaskStatusManager taskStatusManager = TaskStatusManager.getInstance();
+    
+    @Override
+    public List<String> getStandardOutputFields() {
+        // end 节点没有输出字段，不需要验证
+        return null;
+    }
 
     @Override
     public NodeResult execute(String taskId, Node node, WorkflowContext context) throws Exception {

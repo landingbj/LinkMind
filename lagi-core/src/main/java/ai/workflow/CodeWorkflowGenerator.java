@@ -1,12 +1,14 @@
 package ai.workflow;
 
 import ai.common.pojo.IndexSearchData;
+import ai.common.utils.LRUCache;
 import ai.llm.service.CompletionsService;
 import ai.openai.pojo.ChatCompletionRequest;
 import ai.openai.pojo.ChatCompletionResult;
 import ai.utils.JsonExtractor;
 import ai.utils.ResourceUtil;
 import ai.vector.VectorStoreService;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
@@ -21,6 +23,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Code workflow generator for analyzing code structure and generating flow diagrams
@@ -30,13 +33,44 @@ import java.util.Set;
 public class CodeWorkflowGenerator {
     private static final CompletionsService completionsService = new CompletionsService();
     private static final VectorStoreService vectorStoreService = new VectorStoreService();
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private static final double DEFAULT_TEMPERATURE = 0;
-    private static final int DEFAULT_MAX_TOKENS = 8192;
+    private static final int DEFAULT_MAX_TOKENS = 16384;
 
     // Knowledge base search parameters
     private static final int SIMILARITY_TOP_K = 5;
-    private static final double SIMILARITY_CUTOFF = 0.1;
+    private static final double SIMILARITY_CUTOFF = 0.3;
+    private static final LRUCache<String, String> COMPLETION_CACHE = new LRUCache<>(4096, 30, TimeUnit.DAYS);
+
+    private static String executeCompletion(String prompt, long sleepMillis) throws InterruptedException {
+        String cached = COMPLETION_CACHE.get(prompt);
+        if (cached != null) {
+            log.info("Using cached completion response");
+            Thread.sleep(sleepMillis);
+            return cached;
+        }
+
+        ChatCompletionRequest request = completionsService.getCompletionsRequest(
+                null,
+                prompt,
+                DEFAULT_TEMPERATURE,
+                DEFAULT_MAX_TOKENS
+        );
+
+        ChatCompletionResult result = completionsService.completions(request);
+        if (result == null || result.getChoices() == null || result.getChoices().isEmpty()) {
+            return null;
+        }
+        if (result.getChoices().get(0).getMessage() == null) {
+            return null;
+        }
+        String response = result.getChoices().get(0).getMessage().getContent();
+        if (response != null) {
+            COMPLETION_CACHE.put(prompt, response);
+        }
+        return response;
+    }
 
     /**
      * Generate workflow schema from uploaded files
@@ -44,17 +78,13 @@ public class CodeWorkflowGenerator {
      * @param uploadedFiles list of uploaded files
      * @param filesInfo     list of file information maps
      * @param knowledgeBase knowledge base category for vector search
-     * @param description   additional description for understanding the code context
+     * @param message   additional message for understanding the code context
      * @return Workflow JSON string representing code flow
      */
     public static CodeFlowResult code2FlowSchema(List<File> uploadedFiles, List<Map<String, String>> filesInfo,
-                                                 String knowledgeBase, String description) {
-//        if (uploadedFiles != null) {
-//            return ResourceUtil.loadAsString("/temp/debug/code_flow_debug_01.json");
-//        }
-
+                                                 String knowledgeBase, String message) {
         log.info("Generating workflow from uploaded files, knowledgeBase: {}, description: {}",
-                knowledgeBase, description);
+                knowledgeBase, message);
 
         // Build combined code content from files
         String codeContent = buildCodeContentFromFiles(uploadedFiles, filesInfo);
@@ -65,6 +95,14 @@ public class CodeWorkflowGenerator {
             result.setData("{}");
             return result;
         }
+
+//        if (uploadedFiles != null) {
+//            CodeFlowResult result = new CodeFlowResult();
+//            result.setData(ResourceUtil.loadAsString("/temp/debug/code_flow_debug_01.json"));
+//            return result;
+//        }
+
+        String description = summarizeChatDescription(message);
 
         // Pre-check: Assess whether the provided code has sufficient information
         String missingInfoMessage = assessCodeCompleteness(codeContent, description);
@@ -83,6 +121,31 @@ public class CodeWorkflowGenerator {
         return result;
     }
 
+    private static String summarizeChatDescription(String message) {
+        if (message == null || message.trim().isEmpty()) {
+            return null;
+        }
+
+        try {
+            List<String> chatMessages = OBJECT_MAPPER.readValue(message, new TypeReference<List<String>>() {
+            });
+            if (chatMessages == null || chatMessages.isEmpty()) {
+                return null;
+            }
+
+            String prompt = buildChatSummaryPrompt(chatMessages);
+            String response = executeCompletion(prompt, 3 * 1000);
+            if (response != null && !response.trim().isEmpty()) {
+                String trimmed = response.trim();
+                log.info("Successfully summarized chat description: {}", trimmed);
+                return trimmed;
+            }
+        } catch (Exception e) {
+            log.error("Failed to summarize chat description", e);
+        }
+        return null;
+    }
+
     /**
      * Assess if the provided code content includes the necessary information to extract business logic.
      * Returns null/empty if sufficient; otherwise returns a human-readable message describing what is missing.
@@ -96,15 +159,7 @@ public class CodeWorkflowGenerator {
                 .replace("${{CODE_CONTENT}}", codeContent);
 
         try {
-            ChatCompletionRequest request = completionsService.getCompletionsRequest(
-                    null,
-                    prompt,
-                    DEFAULT_TEMPERATURE,
-                    DEFAULT_MAX_TOKENS
-            );
-
-            ChatCompletionResult result = completionsService.completions(request);
-            String response = result.getChoices().get(0).getMessage().getContent();
+            String response = executeCompletion(prompt, 3 * 1000);
 
             if (response == null || response.trim().isEmpty()) {
                 log.warn("LLM returned empty response for completeness assessment; assuming sufficient");
@@ -116,8 +171,8 @@ public class CodeWorkflowGenerator {
                 return null;
             }
 
-            if (trimmed.toUpperCase().startsWith("MISSING:")) {
-                return trimmed.substring("MISSING:".length()).trim();
+            if (trimmed.toUpperCase().startsWith("ISSUES:")) {
+                return trimmed.substring("ISSUES:".length()).trim();
             }
 
             // Fallback: if not clearly sufficient, treat response as missing rationale
@@ -148,7 +203,7 @@ public class CodeWorkflowGenerator {
             return "{}";
         }
 
-        log.info("Successfully extracted business logic description");
+        log.info("Successfully extracted business logic description: {}", businessLogicDescription);
 
         String summaryTexts = null;
         if (knowledgeBase != null && !knowledgeBase.isEmpty()) {
@@ -185,9 +240,8 @@ public class CodeWorkflowGenerator {
             return "{}";
         }
 
+        log.info("Successfully generated flow diagram from business logic: {}", flowDiagram);
         flowDiagram = JsonExtractor.extractJson(flowDiagram);
-
-        log.info("Successfully generated flow diagram from business logic");
         return flowDiagram;
     }
 
@@ -202,21 +256,13 @@ public class CodeWorkflowGenerator {
         log.info("Step 1: Extracting business logic text description from code");
 
 //        if (codeContent != null) {
-//            return ResourceUtil.loadAsString("/temp/debug/code_logic_debug_01.md");
+//            return ResourceUtil.loadAsString("/temp/business_logic_01.md");
 //        }
 
         String promptTemplate = buildCodeToLogicPrompt(codeContent, description);
 
         try {
-            ChatCompletionRequest request = completionsService.getCompletionsRequest(
-                    null,
-                    promptTemplate,
-                    DEFAULT_TEMPERATURE,
-                    DEFAULT_MAX_TOKENS
-            );
-
-            ChatCompletionResult result = completionsService.completions(request);
-            String response = result.getChoices().get(0).getMessage().getContent();
+            String response = executeCompletion(promptTemplate, 20 * 1000);
 
             if (response != null && !response.trim().isEmpty()) {
                 return response;
@@ -242,15 +288,7 @@ public class CodeWorkflowGenerator {
         String promptTemplate = buildLogicToSummaryPrompt(businessLogicDescription);
 
         try {
-            ChatCompletionRequest request = completionsService.getCompletionsRequest(
-                    null,
-                    promptTemplate,
-                    DEFAULT_TEMPERATURE,
-                    DEFAULT_MAX_TOKENS
-            );
-
-            ChatCompletionResult result = completionsService.completions(request);
-            String response = result.getChoices().get(0).getMessage().getContent();
+            String response = executeCompletion(promptTemplate, 5 * 1000);
 
             if (response != null && !response.trim().isEmpty()) {
                 return response.trim();
@@ -342,15 +380,7 @@ public class CodeWorkflowGenerator {
         String promptTemplate = buildLogicEnhancePrompt(businessLogicDescription, knowledgeBaseContext);
 
         try {
-            ChatCompletionRequest request = completionsService.getCompletionsRequest(
-                    null,
-                    promptTemplate,
-                    DEFAULT_TEMPERATURE,
-                    DEFAULT_MAX_TOKENS
-            );
-
-            ChatCompletionResult result = completionsService.completions(request);
-            String response = result.getChoices().get(0).getMessage().getContent();
+            String response = executeCompletion(promptTemplate, 15 * 1000);
 
             if (response != null && !response.trim().isEmpty()) {
                 return response;
@@ -382,15 +412,7 @@ public class CodeWorkflowGenerator {
         String promptTemplate = buildLogicToFlowPrompt(businessLogicDescription, description);
 
         try {
-            ChatCompletionRequest request = completionsService.getCompletionsRequest(
-                    null,
-                    promptTemplate,
-                    DEFAULT_TEMPERATURE,
-                    DEFAULT_MAX_TOKENS
-            );
-
-            ChatCompletionResult result = completionsService.completions(request);
-            String response = result.getChoices().get(0).getMessage().getContent();
+            String response = executeCompletion(promptTemplate, 20 * 1000);
 
             if (response != null && !response.trim().isEmpty()) {
                 return response;
@@ -456,6 +478,19 @@ public class CodeWorkflowGenerator {
                 ? description : "无额外描述";
         return template.replace("${{BUSINESS_LOGIC_DESCRIPTION}}", businessLogicDescription)
                 .replace("${{DESCRIPTION}}", descriptionText);
+    }
+
+    private static String buildChatSummaryPrompt(List<String> chatMessages) {
+        String template = ResourceUtil.loadAsString("/prompts/dev_chat_summary.md");
+        StringBuilder conversationBuilder = new StringBuilder();
+        for (int i = 0; i < chatMessages.size(); i++) {
+            conversationBuilder.append("消息")
+                    .append(i + 1)
+                    .append("：")
+                    .append(chatMessages.get(i))
+                    .append("\n");
+        }
+        return template.replace("${{CHAT_MESSAGES}}", conversationBuilder.toString().trim());
     }
 
     /**

@@ -45,7 +45,11 @@ public class UploadFileDao {
         ps.setString(4, entity.getCategory());
         ps.setLong(5, entity.getCreateTime());
         ps.setString(6, entity.getUserId());
-        ps.setLong(7, entity.getKnowledgeBaseId());
+        if (entity.getKnowledgeBaseId() == null) {
+            ps.setNull(7, java.sql.Types.NULL);
+        } else {
+            ps.setLong(7, entity.getKnowledgeBaseId());
+        }
         result = ps.executeUpdate();
         BaseIndex.closeConnection(ps, conn);
         return result;

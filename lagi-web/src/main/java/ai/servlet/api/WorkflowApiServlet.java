@@ -137,6 +137,7 @@ public class WorkflowApiServlet extends BaseServlet {
         String input = jsonObject.get("input").toString();
         String docs = jsonObject.get("flowDocList").toString();
         String his = jsonObject.get("history").toString();
+        String lastWorkFlow = jsonObject.get("lastWorkFlow").toString();
         List<FileResponse> flowDocList = gson.fromJson(docs, new TypeToken<List<FileResponse>>() {
         }.getType());
         List<String> contents = flowDocList.stream().map(fileResponse -> {
@@ -156,7 +157,7 @@ public class WorkflowApiServlet extends BaseServlet {
         }.getType());
         System.out.println(flowDocList);
         try {
-            String schema = WorkflowGenerator.txt2FlowSchema(input,  history, contents);
+            String schema = WorkflowGenerator.txt2FlowSchema(input,  history, contents,  lastWorkFlow);
             AgentConfig agentConfig = new AgentConfig();
             agentConfig.setId(agentId);
             agentConfig.setSchema(schema);

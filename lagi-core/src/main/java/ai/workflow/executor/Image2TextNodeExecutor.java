@@ -5,6 +5,7 @@ import ai.common.pojo.FileRequest;
 import ai.common.pojo.ImageToTextResponse;
 import ai.image.service.AllImageService;
 import ai.manager.Image2TextManger;
+import ai.utils.ImageUtil;
 import ai.workflow.TaskStatusManager;
 import ai.workflow.exception.WorkflowException;
 import ai.workflow.pojo.Node;
@@ -18,6 +19,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -83,11 +87,20 @@ public class Image2TextNodeExecutor implements INodeExecutor {
 
         param.setImageUrl(imageUrl);
 
-        File tempFile = null;
-
         if (imageUrl != null && (imageUrl.startsWith("http://") || imageUrl.startsWith("https://"))) {
-            param.setImageUrl(imageUrl);
-            return imageService.toText(param);
+            File tempFile = null;
+            if ((imageUrl.startsWith("http://") || imageUrl.startsWith("https://"))) {
+                try {
+                    Path tempPath = Files.createTempFile("image-2-text",  ".jpg");
+                    tempFile = ImageUtil.urlToFile(imageUrl, tempPath.toFile().getAbsolutePath());
+                    if(tempFile != null) {
+                        param.setImageUrl(tempFile.getAbsolutePath());
+                        return imageService.toText(param);
+                    }
+                } catch (IOException e) {
+                }
+            }
+
         }
         throw new RRException("图片路径不合法请使用网络路径");
 

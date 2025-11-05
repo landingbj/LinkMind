@@ -7,15 +7,15 @@ agent（Agent节点）
 ============================
 agent节点（Agent调用）
 
-| 字段路径                      | 类型     | 必填 | 规范要求                                                                                                                                                                                                                              |
-|---------------------------|--------|----|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| id                        | string | 是  | 遵循1.1规则，如agent_1或agent_BRQB8                                                                                                                                                                                                      |
-| type                      | string | 是  | 固定为"agent"                                                                                                                                                                                                                      |
-| meta                      | object | 是  | 含`position`（x≈2300，y≈500，参考demo）                                                                                                                                                                                                  |
+| 字段路径                      | 类型     | 必填 | 规范要求                                                                                                                                                                                                      |
+|---------------------------|--------|----|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| id                        | string | 是  | 遵循1.1规则，如agent_1或agent_BRQB8                                                                                                                                                                              |
+| type                      | string | 是  | 固定为"agent"                                                                                                                                                                                                |
+| meta                      | object | 是  | 含`position`（x≈2300，y≈500，参考demo）                                                                                                                                                                          |
 | data                      | object | 是  | 含`title`、`inputsValues`、`inputs`、`outputs`：<br>`title`：默认"Agent_序号"（如Agent_1）<br>`inputsValues`：输入参数（query和agent）<br>`inputs`：输入定义（`required`=["query","agent"]）<br>`outputs`：输出定义（`required`=["result"]） |
-| data.inputsValues.query   | object | 是  | 用户问题：<br>`type`："template"（模板，含{{变量}}）或"ref"（引用其他节点输出）或"constant"（固定值）<br>`content`：模板内容（如"{{start_0.query}}"）或引用值                                                                                                                           |
-| data.inputsValues.agent   | object | 是  | Agent ID：<br>`type`："constant"（固定值，如"1"）或"ref"<br>`content`：Agent ID值                                                                                                                                                        |
-| data.outputs.properties.result | object | 是  | Agent返回结果：<br>`type`："string" <br>`description` : Agent处理后的文本结果                                                                                                                                                            |
+| data.inputsValues.query   | object | 是  | 用户问题：<br>`type`："template"（模板，含{{变量}}）模板内容（如"{{start_0.query}}"）                                                                                                                                          |
+| data.inputsValues.agent   | object | 是  | Agent ID：<br>`type`："constant"（固定值，如"1"）或"ref"<br>`content`：Agent ID值                                                                                                                                     |
+| data.outputs.properties.result | object | 是  | Agent返回结果：<br>`type`："string" <br>`description` : Agent处理后的文本结果                                                                                                                                           |
 
 #### agent节点data示例（参考demo）
 ```json

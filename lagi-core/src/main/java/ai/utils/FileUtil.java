@@ -6,6 +6,13 @@ import java.net.URL;
 
 public class FileUtil {
 
+    public static String getFileExtension(String fileName) {
+        if (fileName == null || fileName.lastIndexOf(".") == -1) {
+            return "";
+        }
+        return fileName.substring(fileName.lastIndexOf(".") + 1);
+    }
+
     /**
      * 读取文件内容，作为字符串返回
      */

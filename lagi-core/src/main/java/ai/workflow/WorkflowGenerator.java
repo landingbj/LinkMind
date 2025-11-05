@@ -2,18 +2,15 @@ package ai.workflow;
 
 import ai.config.ContextLoader;
 import ai.llm.service.CompletionsService;
-import ai.openai.pojo.ChatCompletionRequest;
-import ai.openai.pojo.ChatCompletionResult;
-import ai.openai.pojo.ChatMessage;
+import ai.openai.pojo.*;
 import ai.utils.JsonExtractor;
 import ai.workflow.utils.DefaultNodeEnum;
+import ai.workflow.utils.NodeReferenceValidator;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
@@ -25,6 +22,7 @@ public class WorkflowGenerator {
 
     private static final double DEFAULT_TEMPERATURE = 0.3;
     private static final int DEFAULT_MAX_TOKENS = 4096;
+    private static final int MAX_RETRIES = 3;
 
     /**
      * Workflow generation.
@@ -109,6 +107,9 @@ public class WorkflowGenerator {
             if (json == null || json.isEmpty()) {
                 throw new IllegalStateException("Failed to extract JSON from LLM response");
             }
+            
+            // Validate node references and log issues
+            validateAndLogWorkflowReferences(json, "txt2FlowSchema");
 
             return json;
 
@@ -373,9 +374,252 @@ public class WorkflowGenerator {
         }
     }
 
+
+
+    /**
+     * Generate workflow from text with history and document context (New Agent-like version)
+     * 
+     * 使用新的智能体式生成器，提供更稳定的生成结果：
+     * 1. 多阶段推理：任务分析 -> 节点选择 -> 配置生成 -> 边连接 -> 验证修正
+     * 2. 自我验证：每个阶段都进行验证，发现问题自动重试
+     * 3. 节点可扩展：节点定义与生成逻辑分离，新增节点无需修改代码
+     * 
+     * @param text User input text
+     * @param history Conversation history
+     * @param docsContents Document contents
+     * @param lastWorkflow Last generated workflow JSON (可选，如果用户需要修改现有工作流)
+     * @return Workflow JSON string
+     */
+    public static String txt2FlowSchema(String text, List<ChatMessage> history, List<String> docsContents, String lastWorkflow) {
+        log.info("Generating/Modifying workflow with agent-like generator");
+        log.info("User input: {}", text);
+        log.info("History messages: {}", history != null ? history.size() : 0);
+        log.info("Document contents: {}", docsContents != null ? docsContents.size() : 0);
+        log.info("Has last workflow: {}", lastWorkflow != null && !lastWorkflow.isEmpty());
+        
+        int retries = 0;
+        while (retries <= MAX_RETRIES) {
+            try {
+                // 步骤1: 分析用户意图 - 是生成新工作流还是修改现有工作流
+                UserIntent intent = analyzeUserIntent(text, history, lastWorkflow);
+                log.info("User intent detected: {}", intent);
+                
+                String workflowJson;
+                
+                if (intent == UserIntent.MODIFY_WORKFLOW && lastWorkflow != null && !lastWorkflow.isEmpty()) {
+                    // 使用智能体式工作流修改器
+                    log.info("Using workflow modifier to update existing workflow");
+                    workflowJson = AgentLikeWorkflowModifier.modify(text, history, docsContents, lastWorkflow);
+                } else {
+                    // 使用智能体式生成器生成新工作流
+                    log.info("Using workflow generator to create new workflow");
+                    workflowJson = AgentLikeWorkflowGenerator.generate(text, history, docsContents);
+                }
+
+                log.info("Workflow generation/modification completed");
+                return workflowJson;
+            } catch (Exception e) {
+                log.error("Agent-like generation/modification failed, retry times: {} message: {}", retries, e.getMessage());
+            }
+            retries++;
+        }
+        throw new RuntimeException("Workflow generation/modification failed after " + MAX_RETRIES + " retries");
+    }
+
+    
+    /**
+     * 用户意图枚举
+     */
+    private enum UserIntent {
+        GENERATE_NEW_WORKFLOW,  // 生成新的工作流
+        MODIFY_WORKFLOW         // 修改现有工作流
+    }
+    
+    /**
+     * 分析用户意图：判断用户是想生成新工作流还是修改现有工作流
+     * 
+     * @param text 用户输入
+     * @param history 对话历史
+     * @param lastWorkflow 上一个工作流（如果有）
+     * @return 用户意图
+     */
+    private static UserIntent analyzeUserIntent(String text, List<ChatMessage> history, String lastWorkflow) {
+        // 如果没有上一个工作流，只能生成新的
+        if (lastWorkflow == null || lastWorkflow.isEmpty()) {
+            return UserIntent.GENERATE_NEW_WORKFLOW;
+        }
+        
+        // 使用 LLM 分析用户意图
+        try {
+            String prompt = buildIntentAnalysisPrompt();
+            String userContext = buildUserContext(text, history);
+            
+            ChatCompletionRequest request = completionsService.getCompletionsRequest(
+                    prompt,
+                    userContext,
+                    DEFAULT_TEMPERATURE,
+                    512  // 意图分析不需要太多 tokens
+            );
+            
+            ChatCompletionResult result = completionsService.completions(request);
+            String response = result.getChoices().get(0).getMessage().getContent().trim().toLowerCase();
+            
+            log.debug("Intent analysis response: {}", response);
+            
+            // 解析响应
+            if (response.contains("modify") || response.contains("修改") || 
+                response.contains("update") || response.contains("更新") ||
+                response.contains("change") || response.contains("改变") ||
+                response.contains("add") || response.contains("添加") || response.contains("增加") ||
+                response.contains("delete") || response.contains("删除") || response.contains("移除") ||
+                response.contains("remove") || response.contains("调整")) {
+                return UserIntent.MODIFY_WORKFLOW;
+            }
+            
+        } catch (Exception e) {
+            log.warn("Failed to analyze user intent using LLM, falling back to keyword matching: {}", e.getMessage());
+        }
+        
+        // 回退到关键词匹配
+        String lowerText = text.toLowerCase();
+        
+        // 修改意图的关键词
+        String[] modifyKeywords = {
+            "修改", "更新", "update", "modify", "change", "调整",
+            "添加", "add", "增加", "新增", "append",
+            "删除", "delete", "remove", "移除", "去掉",
+            "替换", "replace", "改成",
+            "连接", "connect", "断开", "disconnect"
+        };
+        
+        for (String keyword : modifyKeywords) {
+            if (lowerText.contains(keyword)) {
+                return UserIntent.MODIFY_WORKFLOW;
+            }
+        }
+        
+        // 生成新工作流的关键词
+        String[] generateKeywords = {
+            "生成", "generate", "create", "创建", "新建",
+            "帮我做", "我需要", "我想要"
+        };
+        
+        for (String keyword : generateKeywords) {
+            if (lowerText.contains(keyword)) {
+                return UserIntent.GENERATE_NEW_WORKFLOW;
+            }
+        }
+        
+        // 默认：如果有明确的工作流描述且没有修改关键词，倾向于生成新的
+        return UserIntent.GENERATE_NEW_WORKFLOW;
+    }
+    
+    /**
+     * 构建意图分析的提示词
+     */
+    private static String buildIntentAnalysisPrompt() {
+        return "# 用户意图分析任务\n\n" +
+                "你是一个工作流系统的意图分析器。你需要判断用户的输入是想要：\n" +
+                "1. **生成新的工作流** (GENERATE)\n" +
+                "2. **修改现有的工作流** (MODIFY)\n\n" +
+                "## 判断标准\n\n" +
+                "### MODIFY（修改现有工作流）的特征：\n" +
+                "- 用户提到修改、更新、调整现有流程\n" +
+                "- 用户要添加、删除、替换某个节点\n" +
+                "- 用户要改变节点之间的连接关系\n" +
+                "- 用户要修改某个节点的配置或参数\n" +
+                "- 用户在对话历史中已经有一个工作流，现在要基于它做改动\n\n" +
+                "### GENERATE（生成新工作流）的特征：\n" +
+                "- 用户描述了一个全新的业务流程\n" +
+                "- 用户明确说要创建、生成一个新的工作流\n" +
+                "- 用户的需求与之前的工作流无关\n\n" +
+                "## 输出格式\n\n" +
+                "只输出一个词：`GENERATE` 或 `MODIFY`\n\n" +
+                "## 示例\n\n" +
+                "用户输入：\"帮我在刚才的工作流中添加一个数据库查询节点\"\n" +
+                "输出：MODIFY\n\n" +
+                "用户输入：\"帮我生成一个调用天气API的工作流\"\n" +
+                "输出：GENERATE\n\n" +
+                "用户输入：\"把LLM节点删掉\"\n" +
+                "输出：MODIFY\n\n" +
+                "用户输入：\"创建一个处理用户订单的流程\"\n" +
+                "输出：GENERATE\n";
+    }
+    
+    /**
+     * 构建用户上下文（包含当前输入和历史）
+     */
+    private static String buildUserContext(String text, List<ChatMessage> history) {
+        StringBuilder context = new StringBuilder();
+        
+        if (history != null && !history.isEmpty()) {
+            context.append("【对话历史】\n");
+            // 只取最近的几条历史，避免context过长
+            int startIdx = Math.max(0, history.size() - 5);
+            for (int i = startIdx; i < history.size(); i++) {
+                ChatMessage msg = history.get(i);
+                context.append(msg.getRole()).append(": ").append(msg.getContent()).append("\n");
+            }
+            context.append("\n");
+        }
+        
+        context.append("【当前用户输入】\n");
+        context.append(text);
+        
+        return context.toString();
+    }
+    
+
+
+
+
+    /**
+     * 验证并记录工作流引用问题
+     * @param workflowJson 工作流JSON字符串
+     * @param methodName 调用方法名（用于日志）
+     */
+    private static void validateAndLogWorkflowReferences(String workflowJson, String methodName) {
+        try {
+            NodeReferenceValidator.ValidationResult validationResult = NodeReferenceValidator.validate(workflowJson);
+            
+            if (validationResult.hasWarnings()) {
+                log.warn("[{}] Workflow JSON has reference warnings:\n{}", methodName, validationResult);
+            }
+            
+            if (validationResult.hasErrors()) {
+                log.error("[{}] Workflow JSON has reference errors:\n{}", methodName, validationResult);
+            }
+            
+            if (!validationResult.hasWarnings() && !validationResult.hasErrors()) {
+                log.info("[{}] Workflow JSON validation passed successfully", methodName);
+            }
+        } catch (Exception e) {
+            log.error("[{}] Failed to validate workflow references: {}", methodName, e.getMessage(), e);
+        }
+    }
+
     public static void main(String[] args) {
         ContextLoader.loadContext();
-        System.out.println(WorkflowGenerator.txt2FlowSchema("帮我生成一个调用天气api的的工作流"));
+        
+        // 示例1: 生成新的工作流
+        System.out.println("=== 示例1: 生成新工作流 ===");
+        String workflow1 = WorkflowGenerator.txt2FlowSchema(
+                "帮我生成一个调用天气api的工作流", 
+                Collections.emptyList(), 
+                Collections.emptyList(),
+                null  // 没有上一个工作流
+        );
+        System.out.println(workflow1);
+        
+        // 示例2: 修改现有工作流
+        System.out.println("\n=== 示例2: 修改现有工作流 ===");
+        String workflow2 = WorkflowGenerator.txt2FlowSchema(
+                "在工作流中添加一个LLM节点来总结天气信息", 
+                Collections.emptyList(), 
+                Collections.emptyList(),
+                workflow1  // 传入上一个工作流
+        );
+        System.out.println(workflow2);
     }
 
 }

@@ -123,9 +123,9 @@
 {
   "startNodeVariables": [
     {
-      "name": "userInput",
+      "name": "fileUrl",
       "type": "string",
-      "desc": "用户输入（文本或图片URL）",
+      "desc": "用户文件输入输入（文本或图片URL）",
       "required": true
     },
     {
@@ -155,16 +155,17 @@
 ## 变量命名规范
 
 ### 开始节点常见变量
-- `query` - 用户问题/查询
-- `userInput` - 用户输入
+- `query` - 用户输入/问题/查询
 - `documentList` / `documents` - 文档列表
 - `imageUrl` / `image` - 图片相关
+- `audioUrl` - 音频输入
+- `videoUrl` - 视频输入
 - `modelName` - 指定使用的模型
 - `knowledgeBaseId` - 指定知识库ID
 - `systemParams` - 系统参数对象
 
 ### 结束节点常见变量
-- `answer` / `result` - 最终回答/结果
+- `result` - 最终回答/结果
 - `response` - 响应内容
 - `summary` - 摘要
 - `report` - 报告
@@ -186,7 +187,7 @@
 
 ### 场景1：用户描述较简单，只提到问答
 - 开始节点默认包含：query（用户问题）
-- 结束节点默认包含：answer（最终回答）
+- 结束节点默认包含：result（最终回答）
 
 ### 场景2：涉及知识库检索
 - 可以在开始节点添加可选的knowledgeBaseId

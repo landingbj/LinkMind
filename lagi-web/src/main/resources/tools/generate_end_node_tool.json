@@ -1,0 +1,76 @@
+{
+  "name": "generate_end_node",
+  "description": "生成工作流结束节点的JSON配置，包含位置信息、输入属性及关联值",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "nodeId": {
+        "type": "string",
+        "description": "节点的唯一标识符，通常格式为end_数字，如end_0"
+      },
+      "position": {
+        "type": "object",
+        "description": "节点在画布上的位置坐标",
+        "properties": {
+          "x": {
+            "type": "number",
+            "description": "节点的X轴坐标"
+          },
+          "y": {
+            "type": "number",
+            "description": "节点的Y轴坐标"
+          }
+        },
+        "required": ["x", "y"]
+      },
+      "title": {
+        "type": "string",
+        "description": "节点的标题，通常为'结束'",
+        "default": "结束"
+      },
+      "inputsProperties": {
+        "type": "array",
+        "description": "节点输入的属性列表（定义属性类型）",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "输入属性名称，如result、batch_result等"
+            },
+            "type": {
+              "type": "string",
+              "description": "属性的数据类型",
+              "enum": ["string", "number", "boolean", "array", "object"]
+            }
+          },
+          "required": ["name", "type"]
+        }
+      },
+      "inputsValues": {
+        "type": "array",
+        "description": "输入属性关联的值（通常引用其他节点的输出）",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "与inputsProperties中名称对应的属性名"
+            },
+            "content": {
+              "type": "array",
+              "description": "引用的节点ID和属性名，格式为[节点ID, 属性名]",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "required": ["name", "content"]
+        }
+      }
+    },
+    "required": ["nodeId", "position", "inputsProperties", "inputsValues"]
+  }
+}

@@ -166,13 +166,15 @@ public class SensitiveWordUtil {
             return chatCompletionResult;
         }
 
-        String tempContent = chatMessage.getContent();
-        if (tempContent.length() > filterWindowLength) {
-            chatMessage.setContent(tempContent.substring(0, tempContent.length() - filterWindowLength));
-            filterSlidingWindow.put(id, tempContent.substring(tempContent.length() - filterWindowLength));
-        } else {
-            chatMessage.setContent("");
-            filterSlidingWindow.put(id, tempContent);
+        if (stream) {
+            String tempContent = chatMessage.getContent();
+            if (tempContent.length() > filterWindowLength) {
+                chatMessage.setContent(tempContent.substring(0, tempContent.length() - filterWindowLength));
+                filterSlidingWindow.put(id, tempContent.substring(tempContent.length() - filterWindowLength));
+            } else {
+                chatMessage.setContent("");
+                filterSlidingWindow.put(id, tempContent);
+            }
         }
         return chatCompletionResult;
     }
@@ -195,25 +197,35 @@ public class SensitiveWordUtil {
         }
 
         List<ChatMessage> messages = request.getMessages();
-
-        for (ChatMessage message : messages) {
-            if (message.getContent() == null || message.getContent().isEmpty()) {
-                continue;
+        ChatMessage message = null;
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            ChatMessage candidate = messages.get(i);
+            if ("user".equalsIgnoreCase(candidate.getRole())) {
+                message = candidate;
+                break;
             }
+        }
 
-            String lowerContent = message.getContent().toLowerCase();
-            Set<String> rules = ruleMap.keySet();
+        if (message == null) {
+            return false;
+        }
 
-            for (String rule : rules) {
-                Pattern p = getCompiledPattern(rule);
-                Matcher matcher = p.matcher(lowerContent);
+        if (message.getContent() == null || message.getContent().isEmpty()) {
+            return false;
+        }
 
-                if (matcher.find()) {
-                    WordRule wordRule = ruleMap.get(rule);
-                    if (wordRule != null && wordRule.getLevel() == 1) {
-                        log.info("sensitive message in request: {} match group: {}", lowerContent, matcher.group());
-                        return true;
-                    }
+        String lowerContent = message.getContent().toLowerCase();
+        Set<String> rules = ruleMap.keySet();
+
+        for (String rule : rules) {
+            Pattern p = getCompiledPattern(rule);
+            Matcher matcher = p.matcher(lowerContent);
+
+            if (matcher.find()) {
+                WordRule wordRule = ruleMap.get(rule);
+                if (wordRule != null && wordRule.getLevel() >= 1 && wordRule.getLevel() <= 3) {
+                    log.info("sensitive message in request: {} match group: {}", lowerContent, matcher.group());
+                    return true;
                 }
             }
         }

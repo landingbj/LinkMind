@@ -79,6 +79,8 @@ public class PromptCacheConfig {
 
     public static String LOCATE_ALGORITHM = "hash";
     public static boolean MEDUSA_ENABLE = false;
+    public static boolean MEDUSA_CACHE_ENABLE = false;
+    public static boolean MEDUSA_MEMORY_ENABLE = false;
     public static String MEDUSA_CATEGORY = "medusa";
     public static boolean MEDUSA_FLUSH = true;
     public static String MEDUSA_TREE_CATEGORY = "medusa_tree";
@@ -121,6 +123,8 @@ public class PromptCacheConfig {
     public static void init(List<VectorStoreConfig> vectorStoreList, Medusa config) {
         if (vectorStoreList != null && !vectorStoreList.isEmpty() && config != null) {
             MEDUSA_ENABLE = config.getEnable() != null ? config.getEnable() : MEDUSA_ENABLE;
+            MEDUSA_CACHE_ENABLE = config.getCache() != null ? config.getCache() : MEDUSA_CACHE_ENABLE;
+            MEDUSA_MEMORY_ENABLE = config.getMemory() != null ? config.getMemory() : MEDUSA_MEMORY_ENABLE;
             LOCATE_ALGORITHM = StrUtil.isBlank(config.getAlgorithm()) ? LOCATE_ALGORITHM : config.getAlgorithm();
             String defaultCategory = vectorStoreList.get(0).getDefaultCategory();
             reasonModel = config.getReasonModel();

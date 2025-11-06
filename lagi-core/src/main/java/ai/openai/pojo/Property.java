@@ -13,4 +13,5 @@ public class Property {
     @SerializedName("enum")
     @JsonProperty("enum")
     private List<String> enums;
+    private Parameters items;
 }

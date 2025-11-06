@@ -31,6 +31,7 @@ import ai.medusa.MedusaService;
 import ai.medusa.pojo.CacheItem;
 import ai.medusa.pojo.PromptInput;
 import ai.medusa.MedusaMonitor;
+import ai.medusa.utils.PromptCacheConfig;
 import ai.medusa.utils.PromptCacheTrigger;
 import ai.medusa.utils.PromptInputUtil;
 import ai.openai.pojo.ChatCompletionChoice;
@@ -76,10 +77,10 @@ public class LlmApiServlet extends BaseServlet {
     private static MedusaMonitor medusaMonitor;
 
     static {
-        if (MEDUSA_CONFIG.getEnable()) {
+        if (MEDUSA_CONFIG.getEnable() && MEDUSA_CONFIG.getCache()) {
             medusaMonitor = MedusaMonitor.getInstance();
+            VectorCacheLoader.load();
         }
-        VectorCacheLoader.load();
     }
 
     @Override
@@ -208,6 +209,31 @@ public class LlmApiServlet extends BaseServlet {
         out.close();
     }
 
+    private void sensitiveWordOutPrint(ChatCompletionRequest chatCompletionRequest, HttpServletResponse resp, PrintWriter out) {
+        resp.setContentType("application/json;charset=utf-8");
+        String id = "chatcmpl-" + UUID.randomUUID().toString().replace("-", "");
+
+        ChatCompletionChoice choice = new ChatCompletionChoice();
+        choice.setIndex(0);
+        ChatMessage message = ChatMessage.builder()
+                .role("assistant")
+                .content(SensitiveWordUtil.getRequestFilterMessage())
+                .build();
+        choice.setMessage(message);
+        choice.setFinish_reason("content_filter");
+
+        ChatCompletionResult result = new ChatCompletionResult();
+        result.setId(id);
+        result.setObject("chat.completion");
+        result.setCreated(System.currentTimeMillis() / 1000L);
+        result.setModel(chatCompletionRequest.getModel());
+        result.setChoices(Collections.singletonList(choice));
+
+        out.print(gson.toJson(result));
+        out.flush();
+        out.close();
+    }
+
     private void completions(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json;charset=utf-8");
         PrintWriter out = resp.getWriter();
@@ -217,10 +243,17 @@ public class LlmApiServlet extends BaseServlet {
         }
         ChatCompletionRequest chatCompletionRequest = setCustomerModel(req, session);
 
-        if (chatCompletionRequest.getStream() != null && chatCompletionRequest.getStream() &&
-                SensitiveWordUtil.enableRequestFilter() && SensitiveWordUtil.filter(chatCompletionRequest)) {
-            sensitiveWordStreamOutPrint(chatCompletionRequest, resp, out);
+        if (SensitiveWordUtil.enableRequestFilter() && SensitiveWordUtil.filter(chatCompletionRequest)) {
+            if (chatCompletionRequest.getStream() != null && chatCompletionRequest.getStream()) {
+                sensitiveWordStreamOutPrint(chatCompletionRequest, resp, out);
+            } else {
+                sensitiveWordOutPrint(chatCompletionRequest, resp, out);
+            }
             return;
+        }
+
+        if(Boolean.TRUE.equals(MEDUSA_ENABLE) && PromptCacheConfig.MEDUSA_MEMORY_ENABLE) {
+            medusaService.enhanceMemory(chatCompletionRequest);
         }
 
         boolean isMultiModal = CompletionUtil.isMultiModal(chatCompletionRequest);
@@ -246,7 +279,7 @@ public class LlmApiServlet extends BaseServlet {
         if (MEDUSA_ENABLE==null){
             MEDUSA_ENABLE = MEDUSA_CONFIG.getEnable();
         }
-        if(Boolean.TRUE.equals(MEDUSA_ENABLE)) {
+        if(Boolean.TRUE.equals(MEDUSA_ENABLE) && PromptCacheConfig.MEDUSA_CACHE_ENABLE) {
             PromptInput promptInput = medusaService.getPromptInput(chatCompletionRequest);
             chatCompletionResult = medusaService.locate(promptInput);
             if (chatCompletionResult != null) {
@@ -284,10 +317,10 @@ public class LlmApiServlet extends BaseServlet {
             } else {
                 indexSearchDataList = null;
             }
-            if(!hasTruncate) {
-                List<ChatMessage> chatMessages = CompletionUtil.truncateChatMessages(chatCompletionRequest.getMessages());
-                chatCompletionRequest.setMessages(chatMessages);
-            }
+//            if(!hasTruncate) {
+//                List<ChatMessage> chatMessages = CompletionUtil.truncateChatMessages(chatCompletionRequest.getMessages());
+//                chatCompletionRequest.setMessages(chatMessages);
+//            }
         }
 
         EnhanceChatCompletionRequest enhance = EnhanceChatCompletionRequest.builder()

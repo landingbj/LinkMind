@@ -3,6 +3,8 @@ package ai.openai.pojo;
 import lombok.Data;
 
 import java.util.List;
+import java.util.Map;
+
 @Data
 public class ChatCompletionRequest {
     private String sessionId;
@@ -18,5 +20,7 @@ public class ChatCompletionRequest {
     private Double presence_penalty;
     private Double frequency_penalty;
     private Double top_p;
+    private ResponseFormat response_format;
+    private Map<String, Object> stream_options;
     private Boolean logprobs;
 }

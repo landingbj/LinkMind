@@ -6,6 +6,8 @@ import lombok.Data;
 @Data
 public class Medusa {
     private Boolean enable;
+    private Boolean cache = true;
+    private Boolean memory = false;
     private String algorithm;
     private Boolean enableL2;
     private Boolean enableReasonDiver;

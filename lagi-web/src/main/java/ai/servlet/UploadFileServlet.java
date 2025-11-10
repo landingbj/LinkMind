@@ -318,8 +318,10 @@ public class UploadFileServlet extends HttpServlet {
 
     private void uploadLearningFile(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         HttpSession session = req.getSession();
-        String category = req.getParameter("category");
-        String level = req.getParameter("level");
+        String category = null;
+        String level = null;
+        String description = null;
+        String userId = null;
         JsonObject jsonResult = new JsonObject();
         jsonResult.addProperty("status", "success");
         DiskFileItemFactory factory = new DiskFileItemFactory();
@@ -338,7 +340,19 @@ public class UploadFileServlet extends HttpServlet {
             List<?> fileItems = upload.parseRequest(req);
             for (Object fileItem : fileItems) {
                 FileItem fi = (FileItem) fileItem;
-                if (!fi.isFormField()) {
+                if (fi.isFormField()) {
+                    String fieldName = fi.getFieldName();
+                    String fieldValue = fi.getString("UTF-8");
+                    if ("category".equals(fieldName)) {
+                        category = fieldValue;
+                    } else if ("level".equals(fieldName)) {
+                        level = fieldValue;
+                    } else if ("description".equals(fieldName)) {
+                        description = fieldValue;
+                    } else if ("userId".equals(fieldName)) {
+                        userId = fieldValue;
+                    }
+                } else if (!fi.isFormField()) {
                     String fileName = fi.getName();
                     File file;
                     String newName;
@@ -371,6 +385,9 @@ public class UploadFileServlet extends HttpServlet {
             for (File file : files) {
                 if (file.exists() && file.isFile()) {
                     String filename = realNameMap.get(file.getName());
+                    if (category == null || category.trim().isEmpty()) {
+                        category = "default";
+                    }
 //                    Future<?> future =uploadExecutorService.submit(new AddDocIndex(file, category, filename, level ,taskId));
 //                    futures.add(future);
                     AddDocIndex addDocIndex = new AddDocIndex(file, category, filename, level, taskId);
@@ -547,19 +564,23 @@ public class UploadFileServlet extends HttpServlet {
         }
 
         public JsonObject handleAddDocIndexes() throws IOException{
-            // 1) 先生成 fileId，后面直接返回
             String fileId = UUID.randomUUID().toString().replace("-", "");
-            List<List<String>> vectorIds = addDocIndexes(fileId);
-            // 将文件名和vectorIds转成json返回
-            if (vectorIds == null) {
-                throw new IOException("Failed to add document indexes for file: " + file.getName());
+            try {
+                List<List<String>> vectorIds = addDocIndexes(fileId);
+                if (vectorIds == null) {
+                    log.error("addDocIndexes returned null for file: {}, category: {}", file.getName(), category);
+                    throw new IOException("Failed to add document indexes for file: " + file.getName() + ", category: " + category);
+                }
+                JsonObject jsonObject = new JsonObject();
+                jsonObject.addProperty("fileId", fileId);
+                jsonObject.add("vectorIds", gson.toJsonTree(vectorIds));
+                return jsonObject;
+            } catch (Exception e) {
+                log.error("Error in handleAddDocIndexes for file: {}, category: {}", file.getName(), category, e);
+                throw new IOException("Failed to add document indexes for file: " + file.getName() + ", category: " + category + ", error: " + e.getMessage(), e);
             }
-            JsonObject jsonObject = new JsonObject();
-            jsonObject.addProperty("fileId", fileId);
-            jsonObject.add("vectorIds", gson.toJsonTree(vectorIds));
-            return jsonObject;
         }
-        private List<List<String>> addDocIndexes(String fileId) {
+        private List<List<String>> addDocIndexes(String fileId) throws IOException {
             Map<String, Object> metadatas = new HashMap<>();
             String filepath = file.getName();
 
@@ -579,26 +600,51 @@ public class UploadFileServlet extends HttpServlet {
                     LRUCacheUtil.put(taskId, tracker);
                 }
 
+                if (category == null || category.trim().isEmpty()) {
+                    log.error("Category is null or empty for file: {}", file.getName());
+                    throw new IOException("Category is required for file upload");
+                }
+
+                log.info("Adding file vectors for file: {}, category: {}", file.getName(), category);
                 List<List<String>> vectorIds = vectorDbService.addFileVectors(this.file, metadatas, category);
-                UploadFile entity = new UploadFile();
-                entity.setCategory(category);
-                entity.setFilename(filename);
-                entity.setFilepath(filepath);
-                entity.setFileId(fileId);
-                entity.setCreateTime(new Date().getTime());
-                uploadFileService.addUploadFile(entity);
+                
+                if (vectorIds == null) {
+                    log.error("vectorDbService.addFileVectors returned null for file: {}, category: {}", file.getName(), category);
+                    throw new IOException("Failed to add file vectors, returned null");
+                }
+
+                try {
+                    UploadFile entity = new UploadFile();
+                    entity.setCategory(category);
+                    entity.setFilename(filename);
+                    entity.setFilepath(filepath);
+                    entity.setFileId(fileId);
+                    entity.setCreateTime(new Date().getTime());
+                    uploadFileService.addUploadFile(entity);
+                } catch (SQLException e) {
+                    log.warn("Failed to save upload file record to database: {}", e.getMessage());
+                }
 
                 if (tracker != null) {
                     tracker.setProgress(100);
                     LRUCacheUtil.put(taskId, tracker);
                 }
                 return vectorIds;
-            } catch (IOException | SQLException e) {
-                tracker.setProgress(-1);
-                LRUCacheUtil.put(taskId, tracker);
-                e.printStackTrace();
+            } catch (IOException e) {
+                if (tracker != null) {
+                    tracker.setProgress(-1);
+                    LRUCacheUtil.put(taskId, tracker);
+                }
+                log.error("IOException in addDocIndexes for file: {}, category: {}", file.getName(), category, e);
+                throw e;
+            } catch (Exception e) {
+                if (tracker != null) {
+                    tracker.setProgress(-1);
+                    LRUCacheUtil.put(taskId, tracker);
+                }
+                log.error("Unexpected error in addDocIndexes for file: {}, category: {}", file.getName(), category, e);
+                throw new IOException("Failed to add document indexes: " + e.getMessage(), e);
             }
-            return null;
         }
 
         private CompletableFuture<List<List<String>>> addDocIndexesAsync(String fileId) {

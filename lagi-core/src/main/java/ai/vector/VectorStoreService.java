@@ -136,12 +136,30 @@ public class VectorStoreService {
             }));
         }
 
+        IOException firstException = null;
         for (Future<?> future : futures) {
             try {
                 future.get();
-            } catch (InterruptedException | ExecutionException e) {
-                log.error("Error waiting for task completion", e);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.error("Interrupted while waiting for task completion", e);
+                if (firstException == null) {
+                    firstException = new IOException("Interrupted while processing file", e);
+                }
+            } catch (ExecutionException e) {
+                Throwable cause = e.getCause();
+                log.error("Error waiting for task completion", cause);
+                if (firstException == null) {
+                    if (cause instanceof IOException) {
+                        firstException = (IOException) cause;
+                    } else {
+                        firstException = new IOException("Error processing document chunks", cause);
+                    }
+                }
             }
+        }
+        if (firstException != null) {
+            throw firstException;
         }
         List<List<String>> results = new ArrayList<>();
         for (int i = 0; i < docs.size(); i++) {

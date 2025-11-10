@@ -347,4 +347,13 @@
         <url-pattern>/rerank</url-pattern>
     </servlet-mapping>
 
+    <servlet>
+        <servlet-name>writing</servlet-name>
+        <servlet-class>ai.servlet.api.WritingApiServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>writing</servlet-name>
+        <url-pattern>/api/writing/*</url-pattern>
+    </servlet-mapping>
+
 </web-app>

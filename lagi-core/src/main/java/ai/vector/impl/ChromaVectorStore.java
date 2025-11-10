@@ -12,11 +12,13 @@ import tech.amikos.chromadb.Collection;
 import tech.amikos.chromadb.EmbeddingFunction;
 import tech.amikos.chromadb.handler.ApiException;
 
+import lombok.extern.slf4j.Slf4j;
 import java.io.IOException;
 import java.util.*;
 
 import static com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL;
 
+@Slf4j
 public class ChromaVectorStore extends BaseVectorStore {
     private static final int TIMEOUT = 60 * 3;
     private final CustomEmbeddingFunction embeddingFunction;
@@ -66,7 +68,25 @@ public class ChromaVectorStore extends BaseVectorStore {
         try {
             collection = client.createCollection(category, colMetadata, true, this.embeddingFunction);
         } catch (ApiException e) {
-            throw new RuntimeException(e);
+            log.error("Failed to create/get Chroma collection '{}': code={}, message={}, responseBody={}", 
+                    category, e.getCode(), e.getMessage(), e.getResponseBody());
+            try {
+                Map<String, String> simpleMetadata = new LinkedTreeMap<>();
+                simpleMetadata.put("hnsw:space", config.getMetric());
+                collection = client.createCollection(category, simpleMetadata, true, this.embeddingFunction);
+                log.info("Successfully created collection '{}' with simplified metadata", category);
+            } catch (ApiException e2) {
+                log.error("Failed to create collection '{}' with simplified metadata: code={}, message={}, responseBody={}", 
+                        category, e2.getCode(), e2.getMessage(), e2.getResponseBody());
+                try {
+                    collection = client.getCollection(category, this.embeddingFunction);
+                    log.info("Collection '{}' already exists, retrieved successfully", category);
+                } catch (ApiException e3) {
+                    log.error("Failed to get existing collection '{}': code={}, message={}, responseBody={}", 
+                            category, e3.getCode(), e3.getMessage(), e3.getResponseBody());
+                    throw new RuntimeException("Failed to create or get Chroma collection: " + category + ", responseBody: " + e3.getResponseBody(), e3);
+                }
+            }
         }
         return collection;
     }

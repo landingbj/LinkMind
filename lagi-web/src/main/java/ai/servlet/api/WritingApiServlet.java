@@ -1,16 +1,21 @@
 package ai.servlet.api;
 
+import ai.common.pojo.IndexSearchData;
 import ai.dto.PatentDocumentRequest;
 import ai.dto.PatentDocumentResponse;
 import ai.dto.ProjectMaterialRequest;
 import ai.dto.ProjectMaterialResponse;
+import ai.llm.pojo.GetRagContext;
 import ai.llm.service.CompletionsService;
 import ai.openai.pojo.ChatCompletionRequest;
 import ai.openai.pojo.ChatCompletionResult;
 import ai.openai.pojo.ChatMessage;
 import ai.servlet.BaseServlet;
 import ai.service.WritingTemplateManager;
+import ai.utils.LagiGlobal;
 import ai.utils.qa.ChatCompletionUtil;
+import ai.vector.VectorDbService;
+import ai.utils.MigrateGlobal;
 import com.google.common.collect.Lists;
 import org.apache.commons.io.IOUtils;
 
@@ -21,12 +26,14 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 public class WritingApiServlet extends BaseServlet {
     private static final long serialVersionUID = 1L;
     private final CompletionsService completionsService = new CompletionsService();
+    private final VectorDbService vectorDbService = new VectorDbService(MigrateGlobal.config);
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
@@ -71,22 +78,42 @@ public class WritingApiServlet extends BaseServlet {
             chatCompletionRequest.setTemperature(0.7);
             chatCompletionRequest.setMax_tokens(4096);
             chatCompletionRequest.setStream(false);
+            chatCompletionRequest.setCategory(LagiGlobal.getDefaultCategory());
             
             ChatMessage message = new ChatMessage();
             message.setRole("user");
             message.setContent(prompt);
             chatCompletionRequest.setMessages(Lists.newArrayList(message));
             
+            GetRagContext context = null;
+            List<IndexSearchData> indexSearchDataList = vectorDbService.searchByContext(chatCompletionRequest);
+            if (indexSearchDataList != null && !indexSearchDataList.isEmpty()) {
+                context = completionsService.getRagContext(indexSearchDataList);
+                if (context != null) {
+                    String contextStr = context.getContext();
+                    completionsService.addVectorDBContext(chatCompletionRequest, contextStr);
+                    ChatMessage chatMessage = chatCompletionRequest.getMessages().get(chatCompletionRequest.getMessages().size() - 1);
+                    chatCompletionRequest.setMessages(Lists.newArrayList(chatMessage));
+                }
+            }
+            
             ChatCompletionResult chatCompletionResult = completionsService.completions(chatCompletionRequest);
             
             if (chatCompletionResult != null && chatCompletionResult.getChoices() != null && !chatCompletionResult.getChoices().isEmpty()) {
                 String content = ChatCompletionUtil.getFirstAnswer(chatCompletionResult);
                 
+                List<String> filenames = context != null && context.getFilenames() != null ? context.getFilenames() : Lists.newArrayList();
+                List<String> filepaths = context != null && context.getFilePaths() != null ? context.getFilePaths() : Lists.newArrayList();
+                List<String> chunkIds = context != null && context.getChunkIds() != null ? context.getChunkIds() : Lists.newArrayList();
                 ProjectMaterialResponse response = ProjectMaterialResponse.builder()
                         .documentId("doc_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12))
                         .title("科技项目申报书")
                         .content(content)
                         .generatedAt(Instant.now().toString())
+                        .filename(filenames)
+                        .filepath(filepaths)
+                        .context(context != null ? context.getContext() : null)
+                        .contextChunkIds(chunkIds)
                         .build();
                 
                 result.put("status", "success");
@@ -127,11 +154,24 @@ public class WritingApiServlet extends BaseServlet {
             chatCompletionRequest.setTemperature(0.7);
             chatCompletionRequest.setMax_tokens(4096);
             chatCompletionRequest.setStream(false);
+            chatCompletionRequest.setCategory(LagiGlobal.getDefaultCategory());
             
             ChatMessage message = new ChatMessage();
             message.setRole("user");
             message.setContent(prompt);
             chatCompletionRequest.setMessages(Lists.newArrayList(message));
+            
+            GetRagContext context = null;
+            List<IndexSearchData> indexSearchDataList = vectorDbService.searchByContext(chatCompletionRequest);
+            if (indexSearchDataList != null && !indexSearchDataList.isEmpty()) {
+                context = completionsService.getRagContext(indexSearchDataList);
+                if (context != null) {
+                    String contextStr = context.getContext();
+                    completionsService.addVectorDBContext(chatCompletionRequest, contextStr);
+                    ChatMessage chatMessage = chatCompletionRequest.getMessages().get(chatCompletionRequest.getMessages().size() - 1);
+                    chatCompletionRequest.setMessages(Lists.newArrayList(chatMessage));
+                }
+            }
             
             ChatCompletionResult chatCompletionResult = completionsService.completions(chatCompletionRequest);
             
@@ -141,12 +181,19 @@ public class WritingApiServlet extends BaseServlet {
                 String patentAbstract = extractAbstract(content);
                 String title = extractTitle(content);
                 
+                List<String> filenames = context != null && context.getFilenames() != null ? context.getFilenames() : Lists.newArrayList();
+                List<String> filepaths = context != null && context.getFilePaths() != null ? context.getFilePaths() : Lists.newArrayList();
+                List<String> chunkIds = context != null && context.getChunkIds() != null ? context.getChunkIds() : Lists.newArrayList();
                 PatentDocumentResponse response = PatentDocumentResponse.builder()
                         .patentId("patent_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12))
                         .title(title)
                         .abstractText(patentAbstract)
                         .content(content)
                         .generatedAt(Instant.now().toString())
+                        .filename(filenames)
+                        .filepath(filepaths)
+                        .context(context != null ? context.getContext() : null)
+                        .contextChunkIds(chunkIds)
                         .build();
                 
                 result.put("status", "success");

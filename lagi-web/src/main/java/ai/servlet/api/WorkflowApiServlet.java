@@ -3,26 +3,33 @@ package ai.servlet.api;
 import ai.common.pojo.Response;
 import ai.config.pojo.AgentConfig;
 import ai.agent.AgentService;
+import ai.openai.pojo.ChatMessage;
 import ai.response.RestfulResponse;
 import ai.servlet.BaseServlet;
 import ai.agent.dto.LagiAgentResponse;
+import ai.utils.FileUtil;
+import ai.vector.loader.impl.DocLoader;
+import ai.vector.loader.impl.TxtLoader;
 import ai.workflow.TaskStatusManager;
 import ai.workflow.WorkflowEngine;
 import ai.workflow.WorkflowGenerator;
 import ai.workflow.pojo.*;
 import ai.workflow.utils.DefaultNodeEnum;
+import com.google.common.reflect.TypeToken;
 import com.google.gson.JsonObject;
+import lombok.*;
+import org.apache.commons.fileupload.FileItem;
+import org.apache.commons.fileupload.disk.DiskFileItemFactory;
+import org.apache.commons.fileupload.servlet.ServletFileUpload;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.io.File;
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 public class WorkflowApiServlet extends BaseServlet {
@@ -44,6 +51,63 @@ public class WorkflowApiServlet extends BaseServlet {
             this.taskCancel(req, resp);
         } else if (method.equals("txt2FlowSchema")) {
             this.txt2FlowSchema(req, resp);
+        } else if(method.equals("uploadDoc")) {
+            this.uploadDoc(req, resp);
+        }
+    }
+
+    @Data
+    @AllArgsConstructor
+    @NoArgsConstructor
+    @ToString
+    @Builder
+    static class FileResponse {
+        private String filename;
+        private String filepath;
+    }
+
+    private void uploadDoc(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        try {
+            // 获取上传的文件项
+            List<FileResponse> fileResponses = new ArrayList<>();
+
+            // 使用 ServletFileUpload 处理 multipart 请求
+            if (ServletFileUpload.isMultipartContent(req)) {
+                DiskFileItemFactory factory = new DiskFileItemFactory();
+                ServletFileUpload upload = new ServletFileUpload(factory);
+
+                // 设置最大文件大小等配置
+                upload.setSizeMax(50 * 1024 * 1024); // 50MB
+                upload.setFileSizeMax(50 * 1024 * 1024); // 50MB
+
+                List<FileItem> items = upload.parseRequest(req);
+
+                for (FileItem item : items) {
+                    if (!item.isFormField() && item.getName() != null && !item.getName().isEmpty()) {
+                        // 创建临时文件
+                        String fileName = item.getName();
+                        String tempDir = System.getProperty("java.io.tmpdir");
+                        File tempFile = File.createTempFile("upload_", "_" + fileName, new File(tempDir));
+
+                        // 保存文件
+                        item.write(tempFile);
+
+                        // 添加到响应列表
+                        FileResponse fileResponse = FileResponse.builder()
+                                .filename(fileName)
+                                .filepath(tempFile.getAbsolutePath())
+                                .build();
+                        fileResponses.add(fileResponse);
+                    }
+                }
+            }
+
+            RestfulResponse<List<FileResponse>> success = RestfulResponse.sucecced(fileResponses);
+            responsePrint(resp, toJson(success));
+        } catch (Exception e) {
+            logger.error("文件上传失败", e);
+            RestfulResponse<Object> error = RestfulResponse.error("文件上传失败: " + e.getMessage());
+            responsePrint(resp, toJson(error));
         }
     }
 
@@ -71,12 +135,34 @@ public class WorkflowApiServlet extends BaseServlet {
         JsonObject jsonObject = reqBodyToObj(req, JsonObject.class);
         Integer agentId = jsonObject.get("agentId").getAsInt();
         String input = jsonObject.get("input").toString();
+        String docs = jsonObject.get("flowDocList").toString();
+        String his = jsonObject.get("history").toString();
+        String lastWorkFlow = jsonObject.get("lastWorkFlow").toString();
+        List<FileResponse> flowDocList = gson.fromJson(docs, new TypeToken<List<FileResponse>>() {
+        }.getType());
+        List<String> contents = flowDocList.stream().map(fileResponse -> {
+            // 文件内容提取 支持 txt, doc, docx, pdf, md,  文件 返回字符串
+            String fileExtension = FileUtil.getFileExtension(fileResponse.getFilename());
+            switch (fileExtension) {
+                case "txt":
+                    return new TxtLoader().load(fileResponse.getFilepath());
+                case "doc":
+                case "docx":
+                    return new DocLoader().load(fileResponse.getFilepath());
+                default:
+                    return "";
+            }
+        }).filter(content -> !content.isEmpty()).collect(Collectors.toList());
+        List<ChatMessage> history = gson.fromJson(his, new TypeToken<List<ChatMessage>>() {
+        }.getType());
+        System.out.println(flowDocList);
         try {
-            String schema = WorkflowGenerator.txt2FlowSchema(input);
+            String schema = WorkflowGenerator.txt2FlowSchema(input,  history, contents,  lastWorkFlow);
             AgentConfig agentConfig = new AgentConfig();
             agentConfig.setId(agentId);
             agentConfig.setSchema(schema);
             Response response = agentService.updateLagiAgent(agentConfig);
+            response.setData(schema);
             responsePrint(resp, gson.toJson(response));
         } catch (Exception e) {
             Response failed = Response.builder().status("failed").msg("txt2FlowSchema failed").data(null).build();

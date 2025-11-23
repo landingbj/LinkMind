@@ -289,7 +289,11 @@ public class RestfulServlet extends BaseServlet {
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
-        doRequest(req, resp, registerGetMethod);
+        if(needForward()) {
+            forwardRequest(req, resp, req.getMethod());
+        } else {
+            doRequest(req, resp, registerGetMethod);
+        }
     }
 
 

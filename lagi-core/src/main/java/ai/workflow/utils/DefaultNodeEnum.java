@@ -25,7 +25,17 @@ public enum DefaultNodeEnum {
     DatabaseQueryNode("database-query", new DatabaseQueryNodeExecutor()),
     DatabaseUpdateNode("database-update", new DatabaseUpdateNodeExecutor()),
     ParallelNode("parallel", new ParallelNodeExecutor()),
-    MCPAgentNode("mcp-agent",new McpAgentExecutor())
+    MCPAgentNode("mcp-agent",new McpAgentExecutor()),
+    TTSNode("tts", new TTSNodeExecutor()),
+    TranslateNode("translate", new TranslateNodeExecutor()),
+    Text2ImageNode("text2image", new Text2ImageNodeExecutor()),
+    Image2EnhanceNode("image2enhance", new Image2EnhanceNodeExecutor()),
+    OcrNode("ocr", new OcrNodeExecutor()),
+    Text2VideoNode("text2video", new Text2VideoNodeExecutor()),
+    Image2VideoNode("image2video", new Image2VideoNodeExecutor()),
+    Video2TrackNode("video2track", new Video2TrackNodeExecutor()),
+    Video2EnhanceNode("video2enhance", new Video2EnhanceNodeExecutor()),
+    SensitiveNode("sensitive", new SensitiveNodeExecutor()),
     ;
 
 

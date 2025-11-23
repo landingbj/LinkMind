@@ -2,6 +2,7 @@ package ai.video.adapter.impl;
 
 import ai.annotation.VideoTrack;
 import ai.common.ModelService;
+import ai.utils.FileUtil;
 import ai.utils.OkHttpUtil;
 import ai.video.adapter.Video2trackAdapter;
 import ai.video.pojo.VideoJobResponse;
@@ -12,6 +13,10 @@ import okhttp3.*;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 @Slf4j
@@ -36,7 +41,26 @@ public class YoloVideoAdapter extends ModelService implements Video2trackAdapter
 
     @Override
     public VideoJobResponse track(String videoUrl) {
-        File file = new File(videoUrl);
+        if(videoUrl == null){
+            return VideoJobResponse.builder().status("fail").message("videoURL is null").build();
+        }
+        File tempFile = null;
+        if(videoUrl.startsWith("http")){
+            try {
+                Path tempDirectory = Files.createTempDirectory("video-track");
+                String absolutePath = Paths.get(tempDirectory.toString(), UUID.randomUUID().toString()).toFile().getAbsolutePath();
+                tempFile = FileUtil.urlToFile(videoUrl, absolutePath);
+            } catch (IOException e) {
+                return null;
+            }
+        }
+        File file;
+        if (tempFile != null) {
+            file = tempFile;
+        } else {
+            // 假设已经是本地路径
+            file = new File(videoUrl);
+        }
         try {
             String taskId = createVideoJob(file);
             int tryTimes = 0;

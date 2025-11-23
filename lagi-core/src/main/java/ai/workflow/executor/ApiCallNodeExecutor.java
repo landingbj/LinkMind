@@ -15,7 +15,9 @@ import com.google.gson.Gson;
 import okhttp3.*;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -33,6 +35,12 @@ public class ApiCallNodeExecutor implements INodeExecutor {
             .writeTimeout(30, TimeUnit.SECONDS)
             .build();
     private final ObjectMapper objectMapper = new ObjectMapper();
+    
+    @Override
+    public List<String> getStandardOutputFields() {
+        // api 节点输出 "statusCode" 和 "body" 字段
+        return Arrays.asList("statusCode", "body");
+    }
 
     @Override
     public NodeResult execute(String taskId, Node node, WorkflowContext context) throws Exception {

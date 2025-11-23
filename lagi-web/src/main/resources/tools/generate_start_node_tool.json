@@ -1,0 +1,84 @@
+{
+  "name": "generate_start_node",
+  "description": "生成工作流开始节点的JSON配置，包含位置信息和输出属性",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "nodeId": {
+        "type": "string",
+        "description": "节点的唯一标识符，通常格式为start_数字，如start_0"
+      },
+      "position": {
+        "type": "object",
+        "description": "节点在画布上的位置坐标",
+        "properties": {
+          "x": {
+            "type": "number",
+            "description": "节点的X轴坐标"
+          },
+          "y": {
+            "type": "number",
+            "description": "节点的Y轴坐标"
+          }
+        },
+        "required": ["x", "y"]
+      },
+      "title": {
+        "type": "string",
+        "description": "节点的标题，通常为'开始'",
+        "default": "开始"
+      },
+      "outputProperties": {
+        "type": "array",
+        "description": "节点输出的属性列表，包括query、imageUrl等用户输入",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "属性名称，如query、imageUrl、audioUrl等",
+              "enum": ["query", "imageUrl", "audioUrl", "videoUrl", "docUrl", "enable", "modelName"]
+            },
+            "type": {
+              "type": "string",
+              "description": "属性的数据类型",
+              "enum": ["string", "boolean", "number", "array", "object"]
+            },
+            "isPropertyRequired": {
+              "type": "boolean",
+              "description": "该属性是否为必填项",
+              "default": false
+            },
+            "default": {
+              "description": "属性的默认值"
+            },
+            "items": {
+              "type": "object",
+              "description": "当类型为array时，数组元素的定义",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": ["string", "number", "boolean", "object"]
+                },
+                "properties": {
+                  "type": "object",
+                  "description": "当数组元素为object时，对象的属性定义"
+                }
+              }
+            }
+          },
+          "required": ["name", "type"]
+        }
+      },
+      "requiredProperties": {
+        "type": "array",
+        "description": "必填的属性名称列表",
+        "items": {
+          "type": "string"
+        },
+        "default": []
+      }
+    },
+    "required": ["nodeId", "position", "outputProperties"]
+  }
+}

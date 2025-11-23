@@ -404,6 +404,15 @@
     </servlet-mapping>
 
     <servlet>
+        <servlet-name>coding</servlet-name>
+        <servlet-class>ai.servlet.api.CodingApiServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>coding</servlet-name>
+        <url-pattern>/coding/*</url-pattern>
+    </servlet-mapping>
+
+    <servlet>
         <servlet-name>modelUploadServlet</servlet-name>
         <servlet-class>ai.servlet.ModelUploadServlet</servlet-class>
     </servlet>
@@ -426,6 +435,27 @@
         <url-pattern>/knowledge/*</url-pattern>
     </servlet-mapping>
 
+
+    <servlet>
+        <servlet-name>ModelTrainingServlet</servlet-name>
+        <servlet-class>ai.servlet.api.ModelTrainingServlet</servlet-class>
+        <load-on-startup>1</load-on-startup>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>ModelTrainingServlet</servlet-name>
+        <url-pattern>/api/model/*</url-pattern>
+    </servlet-mapping>
+
+    <servlet>
+        <servlet-name>DatasetServlet</servlet-name>
+        <servlet-class>ai.servlet.api.DatasetServlet</servlet-class>
+        <load-on-startup>1</load-on-startup>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>DatasetServlet</servlet-name>
+        <url-pattern>/api/dataset/*</url-pattern>
+    </servlet-mapping>
+
     <servlet>
         <servlet-name>TrainTaskServlet</servlet-name>
         <servlet-class>ai.servlet.api.TrainTaskServlet</servlet-class>
@@ -433,7 +463,39 @@
     </servlet>
     <servlet-mapping>
         <servlet-name>TrainTaskServlet</servlet-name>
-        <url-pattern>/api/yolo/train/*</url-pattern>
+        <url-pattern>/api/train/task/*</url-pattern>
     </servlet-mapping>
+
+    <servlet>
+        <servlet-name>CustomTrainingTasksServlet</servlet-name>
+        <servlet-class>ai.servlet.api.CustomTrainingTasksServlet</servlet-class>
+        <load-on-startup>1</load-on-startup>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>CustomTrainingTasksServlet</servlet-name>
+        <url-pattern>/api/template/*</url-pattern>
+    </servlet-mapping>
+
+    <servlet>
+        <servlet-name>ModelCategoryServlet</servlet-name>
+        <servlet-class>ai.servlet.api.ModelCategoryServlet</servlet-class>
+        <load-on-startup>1</load-on-startup>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>ModelCategoryServlet</servlet-name>
+        <url-pattern>/api/model/category/*</url-pattern>
+    </servlet-mapping>
+
+    <servlet>
+        <servlet-name>ModelIntroductionServlet</servlet-name>
+        <servlet-class>ai.servlet.api.ModelIntroductionServlet</servlet-class>
+        <load-on-startup>1</load-on-startup>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>ModelIntroductionServlet</servlet-name>
+        <url-pattern>/api/model/introduction/*</url-pattern>
+    </servlet-mapping>
+
+
 
 </web-app>

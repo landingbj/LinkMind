@@ -2,8 +2,6 @@ package ai.dto;
 
 import lombok.Data;
 
-import java.time.LocalDateTime;
-
 @Data
 public class TrainingTasks {
 
@@ -26,7 +24,10 @@ public class TrainingTasks {
     private String createdAt;
     private String updatedAt;
     private String userId;
-    private Integer totalEpochs;
+    private Integer templateId;
+
+    private Integer isDeleted; //0 = 未删除（默认），1 = 已删除
+    private String deletedAt;
 
     // 辅助方法：设置状态枚举
     public void setStatusEnum(TaskStatus status) {

@@ -17,4 +17,5 @@ public class TrainingLogs {
     private String createdAt;
 
     private String logFilePath;
+
 }

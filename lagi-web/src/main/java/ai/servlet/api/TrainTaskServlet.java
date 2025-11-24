@@ -199,45 +199,6 @@ public class TrainTaskServlet extends BaseServlet {
         }
     }
 
-//    private void saveTrainingTaskField(String taskId, Integer templateId) {
-//        for (FieldDefinitionDto field : queryFieldDefinition(templateId)) {
-//            TrainingTaskField taskField = new TrainingTaskField();
-//            taskField.setTaskId(taskId);
-//            taskField.setFieldName(field.getFieldName());
-//            taskField.setFieldColumnName(field.getFieldColumnName());
-//            taskField.setFieldType(field.getFieldType());
-//            taskField.setFieldDescription(field.getFieldDescription());
-//            taskField.setFieldScope(field.getFieldScope());
-//            taskField.setIsRequired(field.getIsRequired());
-//            taskField.setDefaultValue(field.getDefaultValue());
-//            taskField.setRemark(field.getRemark());
-//            taskField.setTemplateId(templateId);
-//
-//            // 保存到数据库
-//            String sql = "INSERT INTO training_task_field " +
-//                    "(task_id, field_name, field_column_name, field_type, field_description, field_scope, is_required, default_value, remark, template_id) " +
-//                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-//            try {
-//                getMysqlAdapter().executeUpdate(
-//                        sql,
-//                        taskField.getTaskId(),
-//                        taskField.getFieldName(),
-//                        taskField.getFieldColumnName(),
-//                        taskField.getFieldType(),
-//                        taskField.getFieldDescription(),
-//                        taskField.getFieldScope(),
-//                        taskField.getIsRequired(),
-//                        taskField.getDefaultValue(),
-//                        taskField.getRemark(),
-//                        taskField.getTemplateId()
-//                );
-//            } catch (Exception e) {
-//                log.error("保存训练任务字段信息失败: taskId={}, fieldName={}, error={}",
-//                        taskId, taskField.getFieldName(), e.getMessage(), e);
-//            }
-//        }
-//    }
-
     /**异步执行训练任务
      */
     private void executeTraining(TrainingTasks task) {

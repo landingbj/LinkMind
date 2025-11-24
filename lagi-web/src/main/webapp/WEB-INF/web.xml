@@ -456,10 +456,9 @@
         <servlet-name>AITrainingServlet</servlet-name>
         <url-pattern>/ai/training/*</url-pattern>
     </servlet-mapping>
-    <!-- 向后兼容：保留旧的 /yolo/training/* 路径，映射到新的 AITrainingServlet -->
     <servlet-mapping>
-        <servlet-name>AITrainingServlet</servlet-name>
-        <url-pattern>/yolo/training/*</url-pattern>
+         <servlet-name>AITrainingServlet</servlet-name>
+          <url-pattern>/api/train/task/*</url-pattern>
     </servlet-mapping>
 
     <servlet>
@@ -472,15 +471,15 @@
         <url-pattern>/api/dataset/*</url-pattern>
     </servlet-mapping>
 
-    <servlet>
-        <servlet-name>TrainTaskServlet</servlet-name>
-        <servlet-class>ai.servlet.api.TrainTaskServlet</servlet-class>
-        <load-on-startup>1</load-on-startup>
-    </servlet>
-    <servlet-mapping>
-        <servlet-name>TrainTaskServlet</servlet-name>
-        <url-pattern>/api/train/task/*</url-pattern>
-    </servlet-mapping>
+<!--    <servlet>-->
+<!--        <servlet-name>TrainTaskServlet</servlet-name>-->
+<!--        <servlet-class>ai.servlet.api.TrainTaskServlet</servlet-class>-->
+<!--        <load-on-startup>1</load-on-startup>-->
+<!--    </servlet>-->
+<!--    <servlet-mapping>-->
+<!--        <servlet-name>TrainTaskServlet</servlet-name>-->
+<!--        <url-pattern>/api/train/task/*</url-pattern>-->
+<!--    </servlet-mapping>-->
 
     <servlet>
         <servlet-name>CustomTrainingTasksServlet</servlet-name>

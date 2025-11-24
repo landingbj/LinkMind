@@ -314,14 +314,78 @@ public class AITrainingServlet extends BaseServlet {
                 return;
             }
 
-            // 保存任务到容器的映射
+            // 保存任务到容器的映射并构建返回结果
             if (YoloTrainerAdapter.isSuccess(result)) {
                 JSONObject resultJson = JSONUtil.parseObj(result);
                 String containerName = resultJson.getStr("containerName");
-                taskContainerMap.put(taskId, containerName);
+                String containerId = resultJson.getStr("containerId");
+                
+                if (containerName != null) {
+                    taskContainerMap.put(taskId, containerName);
+                }
+                
+                // 构建标准化的返回结果（保留所有原始字段）
+                JSONObject response = new JSONObject();
+                response.put("status", "success");
+                response.put("msg", "训练任务已启动");
+                response.put("task_id", taskId);
+                response.put("track_id", trackId);
+                response.put("model_name", config.getStr("model_name", "yolov8"));
+                
+                // 添加容器信息
+                if (containerName != null) {
+                    response.put("containerName", containerName);
+                }
+                if (containerId != null) {
+                    response.put("containerId", containerId);
+                }
+                
+                // 添加时间戳（当前时间，格式：yyyy-MM-dd HH:mm:ss）
+                String timestamp = java.time.LocalDateTime.now()
+                    .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+                response.put("timestamp", timestamp);
+                
+                // 提取训练配置信息
+                JSONObject trainConfig = new JSONObject();
+                trainConfig.put("dataset_path", config.getStr("data", ""));
+                trainConfig.put("model_path", config.getStr("model_path", ""));
+                trainConfig.put("epochs", config.getInt("epochs", 0));
+                trainConfig.put("batch", config.getInt("batch", 0));
+                trainConfig.put("imgsz", config.getInt("imgsz", 640));
+                
+                // 判断是否使用GPU
+                String device = config.getStr("device", "cpu");
+                boolean useGpu = !device.equalsIgnoreCase("cpu");
+                trainConfig.put("use_gpu", useGpu);
+                
+                response.put("train_config", trainConfig);
+                
+                // 添加创建时间（ISO 8601格式）
+                String createdAt = java.time.ZonedDateTime.now()
+                    .format(java.time.format.DateTimeFormatter.ISO_INSTANT);
+                response.put("created_at", createdAt);
+                
+                responsePrint(resp, response.toString());
+            } else {
+                // 训练启动失败，返回错误信息
+                JSONObject errorResponse = new JSONObject();
+                errorResponse.put("status", "ERROR");
+                
+                // 尝试解析原始错误信息
+                try {
+                    JSONObject resultJson = JSONUtil.parseObj(result);
+                    errorResponse.put("msg", resultJson.getStr("message", "训练任务启动失败"));
+                    if (resultJson.containsKey("error")) {
+                        errorResponse.put("error", resultJson.getStr("error"));
+                    }
+                } catch (Exception e) {
+                    errorResponse.put("msg", "训练任务启动失败");
+                    errorResponse.put("error", result);
+                }
+                
+                resp.setStatus(500);
+                responsePrint(resp, errorResponse.toString());
             }
-
-            responsePrint(resp, result);
 
         } catch (Exception e) {
             log.error("启动训练任务失败", e);

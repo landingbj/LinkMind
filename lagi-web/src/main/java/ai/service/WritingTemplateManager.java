@@ -8,6 +8,11 @@ public class WritingTemplateManager {
     private static final Map<String, String> PROJECT_TEMPLATES = new HashMap<>();
     private static final Map<String, String> PATENT_TEMPLATES = new HashMap<>();
     
+    // 处理层次常量
+    public static final String LEVEL_RAG = "rag";
+    public static final String LEVEL_PARAGRAPH = "paragraph";
+    public static final String LEVEL_DOCUMENT = "document";
+    
     static {
         PROJECT_TEMPLATES.put("国家科技计划项目申报书", getNationalProjectTemplate());
         PROJECT_TEMPLATES.put("省级科技计划项目申报书", getProvincialProjectTemplate());
@@ -24,6 +29,90 @@ public class WritingTemplateManager {
     
     public static String getPatentTemplate(String patentType) {
         return PATENT_TEMPLATES.getOrDefault(patentType, getDefaultPatentTemplate());
+    }
+    
+    /**
+     * 获取RAG提问的系统提示词
+     */
+    public static String getRagPrompt(String writingType) {
+        if ("patent-document".equals(writingType)) {
+            return "你是一个专业的专利撰写助手。用户上传了专利相关的文档，你可以基于这些文档回答用户的问题。\n" +
+                   "请根据文档内容准确回答用户的问题，如果文档中没有相关信息，请明确说明。";
+        } else {
+            return "你是一个专业的科技项目申报材料撰写助手。用户上传了项目申报相关的文档（如申报通知、要求、模板等），你可以基于这些文档回答用户的问题。\n" +
+                   "请根据文档内容准确回答用户的问题，如果文档中没有相关信息，请明确说明。";
+        }
+    }
+    
+    /**
+     * 获取生成段落的系统提示词
+     */
+    public static String getParagraphPrompt(String writingType, String userQuery, String context) {
+        if ("patent-document".equals(writingType)) {
+            return String.format(
+                "你是一个专业的专利撰写专家。用户需要生成专利文档中的某个段落内容。\n\n" +
+                "用户需求：%s\n\n" +
+                "参考文档内容：\n%s\n\n" +
+                "请根据用户需求和参考文档，生成符合专利撰写规范的段落内容。要求：\n" +
+                "1. 内容准确、专业\n" +
+                "2. 符合专利撰写规范\n" +
+                "3. 语言流畅、逻辑清晰\n" +
+                "4. 段落长度适中（通常200-500字）",
+                userQuery, context != null ? context : "无参考文档"
+            );
+        } else {
+            return String.format(
+                "你是一个专业的科技项目申报材料撰写专家。用户需要生成项目申报表格中某个字段的内容（如\"项目亮点介绍\"、\"单位简介\"等）。\n\n" +
+                "用户需求：%s\n\n" +
+                "参考文档内容：\n%s\n\n" +
+                "请根据用户需求和参考文档，生成符合项目申报要求的段落内容。要求：\n" +
+                "1. 内容详实、重点突出\n" +
+                "2. 符合项目申报规范\n" +
+                "3. 语言流畅、逻辑清晰\n" +
+                "4. 段落长度适中（通常200-500字）\n" +
+                "注意：不需要生成表格格式，只需要生成表格中要求填写的文字内容。",
+                userQuery, context != null ? context : "无参考文档"
+            );
+        }
+    }
+    
+    /**
+     * 获取生成完整文档的系统提示词
+     */
+    public static String getDocumentPrompt(String writingType, String templateType, String context) {
+        if ("patent-document".equals(writingType)) {
+            return String.format(
+                "你是一个专业的专利撰写专家。请根据用户提供的专利内容，按照官方标准模板生成完整的专利文档。\n\n" +
+                "参考文档内容：\n%s\n\n" +
+                "请按照以下结构撰写完整的专利文档：\n" +
+                "1. 专利名称\n" +
+                "2. 技术领域\n" +
+                "3. 背景技术\n" +
+                "4. 发明内容\n" +
+                "5. 附图说明\n" +
+                "6. 具体实施方式\n" +
+                "7. 权利要求书\n" +
+                "8. 摘要\n\n" +
+                "要求：\n" +
+                "1. 技术描述准确、详细\n" +
+                "2. 权利要求清晰、完整\n" +
+                "3. 符合专利撰写规范\n" +
+                "4. 内容完整、逻辑清晰",
+                context != null ? context : "无参考文档"
+            );
+        } else {
+            String template = getProjectTemplate(templateType);
+            return String.format(
+                "%s\n\n" +
+                "参考文档内容（申报要求、通知等）：\n%s\n\n" +
+                "请根据参考文档中的申报要求，生成完整的项目申报书。要求：\n" +
+                "1. 严格按照参考文档中的申报要求撰写\n" +
+                "2. 内容详实、逻辑清晰\n" +
+                "3. 符合项目申报规范\n" +
+                "4. 结构完整、格式规范",
+                template, context != null ? context : "无参考文档"
+            );
+        }
     }
     
     private static String getNationalProjectTemplate() {

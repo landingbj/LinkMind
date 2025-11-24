@@ -7,7 +7,9 @@ import lombok.extern.slf4j.Slf4j;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 训练任务数据库操作类
@@ -15,15 +17,15 @@ import java.util.List;
  */
 @Slf4j
 public class TrainingTaskRepository {
-    
+
     private final MysqlAdapter mysqlAdapter;
-    private static final DateTimeFormatter DATE_TIME_FORMATTER = 
+    private static final DateTimeFormatter DATE_TIME_FORMATTER =
         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-    
+
     public TrainingTaskRepository(MysqlAdapter mysqlAdapter) {
         this.mysqlAdapter = mysqlAdapter;
     }
-    
+
     /**
      * 保存任务到数据库（通用方法）
      * 根据不同的任务类型自动选择需要保存的字段
@@ -31,7 +33,7 @@ public class TrainingTaskRepository {
     public boolean saveTask(TrainingTaskDTO task) {
         try {
             String currentTime = getCurrentTime();
-            
+
             // 根据任务类型选择不同的保存方法
             switch (task.getTaskType()) {
                 case "train":
@@ -47,12 +49,12 @@ public class TrainingTaskRepository {
                     return false;
             }
         } catch (Exception e) {
-            log.error("保存任务到数据库失败: taskId={}, type={}, error={}", 
+            log.error("保存任务到数据库失败: taskId={}, type={}, error={}",
                      task.getTaskId(), task.getTaskType(), e.getMessage(), e);
             return false;
         }
     }
-    
+
     /**
      * 保存训练任务（包含最完整的字段）
      */
@@ -63,7 +65,7 @@ public class TrainingTaskRepository {
                 "dataset_path, model_path, epochs, batch_size, image_size, optimizer, " +
                 "status, progress, current_epoch, start_time, created_at, is_deleted, config_json) " +
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-        
+
         int result = mysqlAdapter.executeUpdate(sql,
                 task.getTaskId(),
                 task.getTrackId(),
@@ -89,12 +91,12 @@ public class TrainingTaskRepository {
                 currentTime,
                 0,  // is_deleted
                 task.getConfigJson() != null ? task.getConfigJson().toString() : "{}");
-        
-        log.info("训练任务已保存: taskId={}, model={}, category={}, framework={}", 
+
+        log.info("训练任务已保存: taskId={}, model={}, category={}, framework={}",
                 task.getTaskId(), task.getModelName(), task.getModelCategory(), task.getModelFramework());
         return result > 0;
     }
-    
+
     /**
      * 保存评估任务
      */
@@ -104,7 +106,7 @@ public class TrainingTaskRepository {
                 "container_name, dataset_path, model_path, image_size, optimizer, " +
                 "status, progress, current_epoch, start_time, created_at, is_deleted, config_json) " +
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-        
+
         int result = mysqlAdapter.executeUpdate(sql,
                 task.getTaskId(),
                 task.getTrackId() != null ? task.getTrackId() : "",
@@ -124,11 +126,11 @@ public class TrainingTaskRepository {
                 currentTime,
                 0,
                 task.getConfigJson() != null ? task.getConfigJson().toString() : "{}");
-        
+
         log.info("评估任务已保存: taskId={}, model={}", task.getTaskId(), task.getModelName());
         return result > 0;
     }
-    
+
     /**
      * 保存预测任务
      */
@@ -138,7 +140,7 @@ public class TrainingTaskRepository {
                 "container_name, model_path, gpu_ids, use_gpu, " +
                 "status, progress, current_epoch, start_time, created_at, is_deleted, config_json) " +
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-        
+
         int result = mysqlAdapter.executeUpdate(sql,
                 task.getTaskId(),
                 task.getTrackId() != null ? task.getTrackId() : "",
@@ -157,11 +159,11 @@ public class TrainingTaskRepository {
                 currentTime,
                 0,
                 task.getConfigJson() != null ? task.getConfigJson().toString() : "{}");
-        
+
         log.info("预测任务已保存: taskId={}, model={}", task.getTaskId(), task.getModelName());
         return result > 0;
     }
-    
+
     /**
      * 保存导出任务
      */
@@ -171,7 +173,7 @@ public class TrainingTaskRepository {
                 "container_name, model_path, gpu_ids, use_gpu, " +
                 "status, progress, current_epoch, start_time, created_at, is_deleted, config_json) " +
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-        
+
         int result = mysqlAdapter.executeUpdate(sql,
                 task.getTaskId(),
                 task.getTrackId() != null ? task.getTrackId() : "",
@@ -190,11 +192,11 @@ public class TrainingTaskRepository {
                 currentTime,
                 0,
                 task.getConfigJson() != null ? task.getConfigJson().toString() : "{}");
-        
+
         log.info("导出任务已保存: taskId={}, model={}", task.getTaskId(), task.getModelName());
         return result > 0;
     }
-    
+
     /**
      * 更新任务状态
      */
@@ -209,7 +211,7 @@ public class TrainingTaskRepository {
             return false;
         }
     }
-    
+
     /**
      * 更新任务停止状态（包含结束时间）
      */
@@ -224,7 +226,7 @@ public class TrainingTaskRepository {
             return false;
         }
     }
-    
+
     /**
      * 更新训练进度
      */
@@ -238,7 +240,7 @@ public class TrainingTaskRepository {
             return false;
         }
     }
-    
+
     /**
      * 删除任务（软删除）
      */
@@ -254,7 +256,7 @@ public class TrainingTaskRepository {
             return false;
         }
     }
-    
+
     /**
      * 添加训练日志
      */
@@ -270,10 +272,10 @@ public class TrainingTaskRepository {
             return false;
         }
     }
-    
+
     /**
      * 添加训练指标到 ai_training_metrics 表
-     * 
+     *
      * @param taskId 任务ID
      * @param epoch 当前轮次
      * @param step 当前步数
@@ -282,14 +284,14 @@ public class TrainingTaskRepository {
      * @param metricType 指标类型（loss, accuracy, map, f1等）
      * @return 是否成功
      */
-    public boolean addTrainingMetric(String taskId, Integer epoch, Integer step, 
+    public boolean addTrainingMetric(String taskId, Integer epoch, Integer step,
                                      String metricName, Double metricValue, String metricType) {
         String sql = "INSERT INTO ai_training_metrics " +
                     "(task_id, epoch, step, metric_name, metric_value, metric_type, recorded_at, created_at) " +
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
         try {
             String currentTime = getCurrentTime();
-            int result = mysqlAdapter.executeUpdate(sql, 
+            int result = mysqlAdapter.executeUpdate(sql,
                 taskId, epoch, step, metricName, metricValue, metricType, currentTime, currentTime);
             return result > 0;
         } catch (Exception e) {
@@ -297,33 +299,33 @@ public class TrainingTaskRepository {
             return false;
         }
     }
-    
+
     /**
      * 批量添加训练指标
-     * 
+     *
      * @param taskId 任务ID
      * @param epoch 当前轮次
      * @param step 当前步数
      * @param metrics 指标映射（指标名称 -> 指标值）
      * @return 成功添加的指标数量
      */
-    public int addTrainingMetrics(String taskId, Integer epoch, Integer step, 
+    public int addTrainingMetrics(String taskId, Integer epoch, Integer step,
                                    java.util.Map<String, Double> metrics) {
         int successCount = 0;
         for (java.util.Map.Entry<String, Double> entry : metrics.entrySet()) {
             String metricName = entry.getKey();
             Double metricValue = entry.getValue();
-            
+
             // 根据指标名称推断类型
             String metricType = inferMetricType(metricName);
-            
+
             if (addTrainingMetric(taskId, epoch, step, metricName, metricValue, metricType)) {
                 successCount++;
             }
         }
         return successCount;
     }
-    
+
     /**
      * 根据指标名称推断指标类型
      */
@@ -344,7 +346,7 @@ public class TrainingTaskRepository {
         }
         return "other";
     }
-    
+
     /**
      * 更新任务的最佳指标
      */
@@ -361,17 +363,17 @@ public class TrainingTaskRepository {
             return false;
         }
     }
-    
+
     /**
      * 更新任务的训练和验证损失/准确率
      */
-    public boolean updateTaskMetrics(String taskId, Double trainLoss, Double valLoss, 
+    public boolean updateTaskMetrics(String taskId, Double trainLoss, Double valLoss,
                                      Double trainAcc, Double valAcc) {
         String sql = "UPDATE ai_training_tasks " +
                     "SET train_loss = ?, val_loss = ?, train_acc = ?, val_acc = ?, updated_at = ? " +
                     "WHERE task_id = ?";
         try {
-            int result = mysqlAdapter.executeUpdate(sql, 
+            int result = mysqlAdapter.executeUpdate(sql,
                 trainLoss, valLoss, trainAcc, valAcc, getCurrentTime(), taskId);
             return result > 0;
         } catch (Exception e) {
@@ -379,7 +381,146 @@ public class TrainingTaskRepository {
             return false;
         }
     }
-    
+
+    /**
+     * 查询训练任务列表（分页）
+     *
+     * @param page 页码（从1开始）
+     * @param pageSize 每页数量
+     * @return 任务列表和统计信息
+     */
+    public Map<String, Object> getTaskList(int page, int pageSize) {
+        Map<String, Object> result = new HashMap<>();
+
+        try {
+            // 计算偏移量
+            int offset = (page - 1) * pageSize;
+
+            // 查询任务列表（仅查询训练类型的任务）
+            String listSql = "SELECT task_id, dataset_path, epochs, status, progress, " +
+                           "current_epoch, start_time, created_at " +
+                           "FROM ai_training_tasks " +
+                           "WHERE is_deleted = 0 AND task_type = 'train' " +
+                           "ORDER BY created_at DESC " +
+                           "LIMIT ? OFFSET ?";
+
+            List<Map<String, Object>> tasks = mysqlAdapter.select(listSql, pageSize, offset);
+
+            // 处理任务列表
+            List<Map<String, Object>> taskList = new ArrayList<>();
+            for (Map<String, Object> task : tasks) {
+                Map<String, Object> taskMap = new HashMap<>();
+                taskMap.put("taskId", task.get("task_id"));
+
+                // 从 dataset_path 提取数据集名称
+                String datasetPath = (String) task.get("dataset_path");
+                String datasetName = extractDatasetName(datasetPath);
+                taskMap.put("datasetName", datasetName);
+
+                taskMap.put("epochs", task.get("epochs"));
+                taskMap.put("status", task.get("status"));
+                taskMap.put("progress", task.get("progress"));
+                taskMap.put("currentEpoch", task.get("current_epoch"));
+                taskMap.put("startTime", task.get("start_time").toString());
+                taskMap.put("createdAt", task.get("created_at").toString());
+
+                taskList.add(taskMap);
+            }
+
+            // 查询总数
+            String countSql = "SELECT COUNT(*) as total FROM ai_training_tasks " +
+                            "WHERE is_deleted = 0 AND task_type = 'train'";
+            List<Map<String, Object>> countResult = mysqlAdapter.select(countSql);
+            long total = 0;
+            if (!countResult.isEmpty()) {
+                Object totalObj = countResult.get(0).get("total");
+                if (totalObj instanceof Long) {
+                    total = (Long) totalObj;
+                } else if (totalObj instanceof Integer) {
+                    total = ((Integer) totalObj).longValue();
+                }
+            }
+
+            // 查询各状态的任务数量
+            String statusCountSql = "SELECT status, COUNT(*) as count FROM ai_training_tasks " +
+                                  "WHERE is_deleted = 0 AND task_type = 'train' " +
+                                  "GROUP BY status";
+            List<Map<String, Object>> statusCounts = mysqlAdapter.select(statusCountSql);
+
+            Map<String, Integer> statusCountMap = new HashMap<>();
+            statusCountMap.put("running", 0);
+            statusCountMap.put("stopped", 0);
+            statusCountMap.put("waiting", 0);
+            statusCountMap.put("completed", 0);
+            statusCountMap.put("failed", 0);
+
+            for (Map<String, Object> statusCount : statusCounts) {
+                String status = (String) statusCount.get("status");
+                Object countObj = statusCount.get("count");
+                int count = 0;
+                if (countObj instanceof Long) {
+                    count = ((Long) countObj).intValue();
+                } else if (countObj instanceof Integer) {
+                    count = (Integer) countObj;
+                }
+
+                // 映射状态
+                if ("running".equalsIgnoreCase(status) || "training".equalsIgnoreCase(status)) {
+                    statusCountMap.put("running", statusCountMap.get("running") + count);
+                } else if ("stopped".equalsIgnoreCase(status) || "paused".equalsIgnoreCase(status)) {
+                    statusCountMap.put("stopped", statusCountMap.get("stopped") + count);
+                } else if ("waiting".equalsIgnoreCase(status) || "pending".equalsIgnoreCase(status) || "starting".equalsIgnoreCase(status)) {
+                    statusCountMap.put("waiting", statusCountMap.get("waiting") + count);
+                } else if ("completed".equalsIgnoreCase(status) || "finished".equalsIgnoreCase(status)) {
+                    statusCountMap.put("completed", statusCountMap.get("completed") + count);
+                } else if ("failed".equalsIgnoreCase(status) || "error".equalsIgnoreCase(status)) {
+                    statusCountMap.put("failed", statusCountMap.get("failed") + count);
+                }
+            }
+
+            result.put("data", taskList);
+            result.put("total", total);
+            result.put("statusCount", statusCountMap);
+            result.put("status", "SUCCESS");
+
+            log.info("查询任务列表成功: page={}, pageSize={}, total={}", page, pageSize, total);
+
+        } catch (Exception e) {
+            log.error("查询任务列表失败: page={}, pageSize={}", page, pageSize, e);
+            result.put("status", "ERROR");
+            result.put("message", "查询任务列表失败: " + e.getMessage());
+        }
+
+        return result;
+    }
+
+    /**
+     * 从数据集路径中提取数据集名称
+     * 例如: /app/data/datasets/greybrick-yolo/data.yaml -> greybrick-yolo
+     */
+    private String extractDatasetName(String datasetPath) {
+        if (datasetPath == null || datasetPath.isEmpty()) {
+            return "未知数据集";
+        }
+
+        // 移除文件名
+        String path = datasetPath;
+        if (path.contains("/")) {
+            int lastSlash = path.lastIndexOf("/");
+            if (lastSlash > 0) {
+                path = path.substring(0, lastSlash);
+            }
+        }
+
+        // 提取最后一级目录名
+        if (path.contains("/")) {
+            int lastSlash = path.lastIndexOf("/");
+            return path.substring(lastSlash + 1);
+        }
+
+        return path;
+    }
+
     /**
      * 获取当前时间字符串
      */

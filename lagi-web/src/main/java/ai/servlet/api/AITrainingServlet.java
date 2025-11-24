@@ -24,7 +24,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 支持任意 AI 模型的训练、评估、预测和导出
  * 包括但不限于：YOLOv8, YOLOv11, CenterNet, CRNN, HRNet, PIDNet, ResNet, OSNet等
  * 提供训练任务的完整生命周期管理和流式输出
- * 
+ *
  * 扩展性：
  * - 通过 trainerMap 注册新模型的 Trainer
  * - 支持动态模型类别和框架推断
@@ -40,7 +40,7 @@ public class AITrainingServlet extends BaseServlet {
     private static final Map<String, Object> trainerMap = new ConcurrentHashMap<>();
 
     // 存储 YoloTrainer 实例（单例，向后兼容）
-    private static YoloTrainerAdapter yoloTrainer;
+    public static YoloTrainerAdapter yoloTrainer;
 
     // 存储任务 ID 到容器名称的映射
     private static final Map<String, String> taskContainerMap = new ConcurrentHashMap<>();

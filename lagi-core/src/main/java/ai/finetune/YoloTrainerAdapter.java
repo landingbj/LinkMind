@@ -1687,5 +1687,18 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
 
         System.out.println("\n=== 测试完成 ===");
     }
+    
+    /**
+     * 获取 TrainingTaskRepository 实例
+     * 用于查询训练任务列表等操作
+     * 
+     * @return TrainingTaskRepository 实例
+     */
+    public ai.finetune.repository.TrainingTaskRepository getRepository() {
+        if (mysqlAdapter == null) {
+            mysqlAdapter = getMysqlAdapter();
+        }
+        return new ai.finetune.repository.TrainingTaskRepository(mysqlAdapter);
+    }
 }
 

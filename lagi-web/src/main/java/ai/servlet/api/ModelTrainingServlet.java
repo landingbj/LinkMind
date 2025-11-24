@@ -4,6 +4,7 @@ import ai.common.utils.ObservableList;
 import ai.config.ContextLoader;
 import ai.config.pojo.DiscriminativeModelsConfig;
 import ai.finetune.YoloTrainerAdapter;
+import ai.finetune.repository.TrainingTaskRepository;
 import ai.servlet.BaseServlet;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
@@ -153,25 +154,7 @@ public class ModelTrainingServlet extends BaseServlet {
     @Override
     public void init() throws ServletException {
         super.init();
-
-        try {
-            ContextLoader.loadContext();
-            log.info("========================================");
-            log.info("✓ 通用模型训练模块初始化成功");
-            log.info("  支持的模型类型：");
-            log.info("  - Detection: yolov8, yolov11, centernet, tracknetv3");
-            log.info("  - Segmentation: pidnet, deeplabv3");
-            log.info("  - Recognition: crnn");
-            log.info("  - ReID: sports_reid, clip_reid");
-            log.info("  - Feature Extraction: resnet18, osnet");
-            log.info("  - Keypoint Detection: hrnet");
-            log.info("  - Event Detection: tdeed");
-            log.info("  - Video Segmentation: transnetv2");
-            log.info("  - OCR: paddleocrv4");
-            log.info("========================================");
-        } catch (Exception e) {
-            log.error("通用模型训练模块初始化失败: {}", e.getMessage(), e);
-        }
+       ContextLoader.loadContext();
     }
 
     @Override
@@ -228,6 +211,9 @@ public class ModelTrainingServlet extends BaseServlet {
             case "models":
                 handleListModels(req, resp);
                 break;
+            case "lists":
+                handleTaskList(req, resp);
+                break;
             default:
                 resp.setStatus(404);
                 Map<String, String> error = new HashMap<>();
@@ -240,6 +226,75 @@ public class ModelTrainingServlet extends BaseServlet {
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         this.doGet(req, resp);
     }
+    /**
+     * 查询训练任务列表
+     * POST /api/model/lists
+     *
+     * 请求参数（JSON）：
+     * {
+     *   "page": 1,        // 页码，默认为1
+     *   "page_size": 10   // 每页数量，默认为10
+     * }
+     *
+     * 返回结果：
+     * {
+     *   "status": "SUCCESS",
+     *   "data": [
+     *     {
+     *       "taskId": "uuid",
+     *       "datasetName": "dataset-name",
+     *       "epochs": 20,
+     *       "status": "completed",
+     *       "progress": "100%",
+     *       "currentEpoch": 20,
+     *       "startTime": "2025-11-18 10:44:26",
+     *       "createdAt": "2025-11-18 10:44:26"
+     *     }
+     *   ],
+     *   "total": 2,
+     *   "statusCount": {
+     *     "running": 0,
+     *     "stopped": 0,
+     *     "waiting": 0,
+     *     "completed": 1,
+     *     "failed": 1
+     *   }
+     * }
+     */
+    private void handleTaskList(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+
+        try {
+            // 解析请求参数
+            String jsonBody = requestToJson(req);
+            JSONObject requestParams = JSONUtil.parseObj(jsonBody);
+
+            int page = requestParams.getInt("page", 1);
+            int pageSize = requestParams.getInt("page_size", 10);
+
+            // 参数校验
+            if (page < 1) {
+                page = 1;
+            }
+            if (pageSize < 1 || pageSize > 100) {
+                pageSize = 10;
+            }
+            // 调用 repository 查询任务列表
+            Map<String, Object> result = AITrainingServlet.yoloTrainer.getRepository().getTaskList(page, pageSize);
+
+            // 返回结果
+            responsePrint(resp, JSONUtil.toJsonStr(result));
+
+        } catch (Exception e) {
+            log.error("查询任务列表失败", e);
+            resp.setStatus(500);
+            JSONObject error = new JSONObject();
+            error.put("status", "ERROR");
+            error.put("message", "查询任务列表失败: " + e.getMessage());
+            responsePrint(resp, error.toString());
+        }
+    }
+
 
     /**
      * 启动训练任务（通用）

@@ -210,30 +210,11 @@ public class CustomTrainingTasksServlet extends BaseServlet {
             return;
         }
 
-        int templateId;
         try {
-            templateId = Integer.parseInt(templateIdParam);
-        } catch (NumberFormatException e) {
-            resp.setStatus(400);
-            result.put("error", "template_id必须为数字");
-            responsePrint(resp, toJson(result));
-            return;
-        }
-
-        try {
-            String templateSql = "SELECT * FROM template_field WHERE template_id = ?";
-            List<Map<String, Object>> templateRows = getMysqlAdapter().select(templateSql, templateId);
-            if (templateRows == null || templateRows.isEmpty()) {
-                resp.setStatus(404);
-                result.put("error", "模板不存在");
-                responsePrint(resp, toJson(result));
-                return;
-            }
-
             String fieldsSql = "SELECT * FROM template_field WHERE template_id = ? ORDER BY id ASC";
-            List<Map<String, Object>> fieldRows = getMysqlAdapter().select(fieldsSql, templateId);
+            List<Map<String, Object>> fieldRows = getMysqlAdapter().select(fieldsSql, templateIdParam);
 
-            result.put("template", templateRows.get(0));
+            result.put("template", fieldRows.get(0));
             result.put("fields", fieldRows != null ? fieldRows : Collections.emptyList());
 
             resp.setStatus(200);

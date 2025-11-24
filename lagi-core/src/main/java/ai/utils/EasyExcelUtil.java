@@ -376,6 +376,10 @@ public class EasyExcelUtil {
             List<String> sheetNames = reader.getSheetNames();
             for (int i = 0; i < sheetNames.size(); i++) {
                 List<List<JSONObject>> rowJsons = readMergeExcel(file.getPath(), i, 0, 0);
+                // 添加检查，防止rowJsons为空时访问get(0)导致IndexOutOfBoundsException
+                if (rowJsons.isEmpty()) {
+                    continue; // 如果没有读取到数据，跳过当前sheet
+                }
                 List<JSONObject> headerRow = rowJsons.get(0);
                 List<String> headers = new ArrayList<>();
                 for (JSONObject cell : headerRow) {

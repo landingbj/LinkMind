@@ -446,6 +446,22 @@
         <url-pattern>/api/model/*</url-pattern>
     </servlet-mapping>
 
+    <!-- AI通用训练任务Servlet（支持多种模型） - 替代旧的 YoloTrainingServlet -->
+    <servlet>
+        <servlet-name>AITrainingServlet</servlet-name>
+        <servlet-class>ai.servlet.api.AITrainingServlet</servlet-class>
+        <load-on-startup>1</load-on-startup>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>AITrainingServlet</servlet-name>
+        <url-pattern>/ai/training/*</url-pattern>
+    </servlet-mapping>
+    <!-- 向后兼容：保留旧的 /yolo/training/* 路径，映射到新的 AITrainingServlet -->
+    <servlet-mapping>
+        <servlet-name>AITrainingServlet</servlet-name>
+        <url-pattern>/yolo/training/*</url-pattern>
+    </servlet-mapping>
+
     <servlet>
         <servlet-name>DatasetServlet</servlet-name>
         <servlet-class>ai.servlet.api.DatasetServlet</servlet-class>

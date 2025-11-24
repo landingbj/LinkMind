@@ -362,6 +362,19 @@
             <version>3.0.9</version>
             <type>pom</type>
         </dependency>
+        <dependency>
+            <groupId>com.zaxxer</groupId>
+            <artifactId>HikariCP</artifactId>
+            <version>4.0.3</version>
+            <scope>compile</scope>
+        </dependency>
+
+        <!-- JSch for SSH remote execution -->
+        <dependency>
+            <groupId>com.github.mwiede</groupId>
+            <artifactId>jsch</artifactId>
+            <version>0.2.17</version>
+        </dependency>
 
     </dependencies>
 

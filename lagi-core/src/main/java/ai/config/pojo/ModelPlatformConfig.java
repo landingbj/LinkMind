@@ -14,6 +14,8 @@ public class ModelPlatformConfig {
     private FineTuneConfig fineTuneConfig =  new FineTuneConfig();;
     @JsonProperty("deploy")
     private DeployConfig deployConfig =  new DeployConfig();;
+    @JsonProperty("discriminative_models")
+    private DiscriminativeModelsConfig discriminativeModelsConfig = new DiscriminativeModelsConfig();
     private Boolean remote;
     private String remoteServiceUrl;
 

@@ -84,6 +84,24 @@ public class ProcessingLevelDetector {
     public static final String PATENT_TYPE_UTILITY_MODEL = "实用新型";
     public static final String PATENT_TYPE_DESIGN = "外观设计";
     
+    // 项目申报模板类型关键词
+    private static final List<String> NATIONAL_PROJECT_KEYWORDS = Arrays.asList(
+        "国家", "国家级", "国家科技计划", "国家项目", "国级"
+    );
+    
+    private static final List<String> PROVINCIAL_PROJECT_KEYWORDS = Arrays.asList(
+        "省级", "省", "省级科技计划", "省级项目", "省科技"
+    );
+    
+    private static final List<String> CITY_PROJECT_KEYWORDS = Arrays.asList(
+        "市级", "市", "市级科技计划", "市级项目", "市科技"
+    );
+    
+    // 项目申报模板类型常量
+    public static final String PROJECT_TEMPLATE_NATIONAL = "国家科技计划项目申报书";
+    public static final String PROJECT_TEMPLATE_PROVINCIAL = "省级科技计划项目申报书";
+    public static final String PROJECT_TEMPLATE_CITY = "市级科技计划项目申报书";
+    
     /**
      * 根据用户消息自动判断撰写类型（项目申报还是专利材料）
      * 
@@ -163,6 +181,50 @@ public class ProcessingLevelDetector {
         
         // 默认返回发明专利
         return PATENT_TYPE_INVENTION;
+    }
+    
+    /**
+     * 根据用户消息自动判断项目申报模板类型
+     * 
+     * @param userMessage 用户消息内容
+     * @return 模板类型：国家科技计划项目申报书、省级科技计划项目申报书、市级科技计划项目申报书
+     */
+    public static String detectProjectTemplateType(String userMessage) {
+        if (userMessage == null || userMessage.trim().isEmpty()) {
+            // 默认返回国家科技计划项目申报书
+            return PROJECT_TEMPLATE_NATIONAL;
+        }
+        
+        String message = userMessage.toLowerCase().trim();
+        
+        // 统计各类型关键词匹配数量
+        int nationalScore = countKeywords(message, NATIONAL_PROJECT_KEYWORDS);
+        int provincialScore = countKeywords(message, PROVINCIAL_PROJECT_KEYWORDS);
+        int cityScore = countKeywords(message, CITY_PROJECT_KEYWORDS);
+        
+        logger.debug("项目申报模板类型判断 - 国家得分: {}, 省级得分: {}, 市级得分: {}, 消息: {}", 
+            nationalScore, provincialScore, cityScore, userMessage);
+        
+        // 如果市级关键词最多，判断为市级
+        if (cityScore > provincialScore && cityScore > nationalScore && cityScore > 0) {
+            logger.debug("检测到市级项目申报: {}", userMessage);
+            return PROJECT_TEMPLATE_CITY;
+        }
+        
+        // 如果省级关键词最多，判断为省级
+        if (provincialScore > nationalScore && provincialScore > 0) {
+            logger.debug("检测到省级项目申报: {}", userMessage);
+            return PROJECT_TEMPLATE_PROVINCIAL;
+        }
+        
+        // 如果国家级关键词最多，或者都没有匹配，默认判断为国家级
+        if (nationalScore > 0 || (provincialScore == 0 && cityScore == 0)) {
+            logger.debug("检测到国家级项目申报（或默认）: {}", userMessage);
+            return PROJECT_TEMPLATE_NATIONAL;
+        }
+        
+        // 默认返回国家级
+        return PROJECT_TEMPLATE_NATIONAL;
     }
     
     /**

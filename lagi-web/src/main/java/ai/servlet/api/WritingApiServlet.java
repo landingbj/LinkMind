@@ -385,7 +385,9 @@ public class WritingApiServlet extends BaseServlet {
                         }
                         templateType = patentType;
                     } else {
-                        templateType = "国家科技计划项目申报书";
+                        // 自动判断项目申报模板类型（如果未提供）
+                        templateType = ProcessingLevelDetector.detectProjectTemplateType(currentUserMessage);
+                        logger.info("自动判断项目申报模板类型: {} - {}", templateType, currentUserMessage);
                     }
                 }
                 

@@ -48,7 +48,7 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
 
     // 数据库连接池适配器（单例模式）
     private static volatile MysqlAdapter mysqlAdapter = null;
-    
+
     // 模型配置管理器（单例模式）
     private static volatile ModelConfigManager modelConfigManager = null;
 
@@ -581,6 +581,16 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
             return errorResult.toString();
         }
     }
+    public String removeContainer(String containerId,String taskId) {
+                if (taskId != null) {
+                    deleteYoloTask(taskId);
+                    addYoloTrainingLog(taskId, "INFO", "容器已删除: " + containerId);
+                }
+                JSONObject resultJson = new JSONObject();
+                 resultJson.put("status", "success");
+                resultJson.put("message", "远程任务执行成功");
+                return resultJson.toString();
+    }
 
     /**
      * 查看容器状态
@@ -588,7 +598,7 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
     @Override
     public String getContainerStatus(String containerId) {
         try {
-            String command = "docker inspect --format='{{.State.Status}}' " + containerId;
+            String command = "docker inspect --format='{{.State.Status}};{{.State.ExitCode}}' " + containerId;
             log.info("查询容器状态: {}", containerId);
 
             String result = executeRemoteCommand(command);
@@ -598,6 +608,24 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
                 String status = resultJson.getStr("output", "").trim();
                 resultJson.put("containerId", containerId);
                 resultJson.put("containerStatus", status);
+
+                String[] parts = status.split(";");
+                String exitCodeStr = parts.length > 1 ? parts[1].trim() : "";
+                // 检查容器退出码，判断任务是否失败
+                try {
+                    int exitCode = Integer.parseInt(exitCodeStr);
+                    if (exitCode != 0 && "exited".equals(status)) {
+                        // 容器已退出且退出码不为0，表示任务失败
+                        String taskId = getTaskIdByContainerId(containerId);
+                        if (taskId != null) {
+                            updateYoloTaskStatus(taskId, "failed", "容器异常退出，退出码: " + exitCode);
+                            addYoloTrainingLog(taskId, "ERROR", "容器异常退出，退出码: " + exitCode);
+                        }
+                    }
+                } catch (NumberFormatException e) {
+                    log.warn("解析退出码失败: {}", exitCodeStr);
+                }
+
                 return resultJson.toString();
             }
 
@@ -946,7 +974,7 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
         }
         return mysqlAdapter;
     }
-    
+
     /**
      * 获取模型配置管理器实例（单例模式，双重检查锁定）
      * 从数据库加载模型配置，提高配置灵活性
@@ -957,14 +985,14 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
                 if (modelConfigManager == null) {
                     modelConfigManager = new ModelConfigManager(getMysqlAdapter());
                     modelConfigManager.loadConfigsFromDatabase();
-                    log.info("模型配置管理器已初始化，已加载 {} 个模型配置", 
+                    log.info("模型配置管理器已初始化，已加载 {} 个模型配置",
                             modelConfigManager.getAllConfigs().size());
                 }
             }
         }
         return modelConfigManager;
     }
-    
+
     /**
      * 任务数据传输对象 - 用于统一保存任务信息
      */
@@ -986,24 +1014,24 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
         String optimizer;
         String status;
         JSONObject config;
-        
+
         public TaskDTO(String taskId, String taskType, JSONObject config) {
             this.taskId = taskId;
             this.taskType = taskType;
             this.config = config;
-            
+
             // 从配置中读取基本信息
             this.modelName = config.getStr("model_name", "yolov8");
             this.trackId = config.getStr("track_id", "");
             this.containerName = config.getStr("_container_name", "");
             this.dockerImage = config.getStr("_docker_image", "");
-            
+
             // 获取模型配置
-            ModelConfigManager.ModelConfig modelConfig = 
+            ModelConfigManager.ModelConfig modelConfig =
                 getModelConfigManager().getModelConfig(this.modelName, config);
             this.modelCategory = modelConfig.getModelCategory();
             this.modelFramework = modelConfig.getModelFramework();
-            
+
             // 读取训练参数
             this.datasetPath = config.getStr("data", "");
             this.modelPath = config.getStr("model_path", "");
@@ -1015,14 +1043,14 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
             this.status = config.getStr("_status", "running");
         }
     }
-    
+
     /**
      * 通用保存任务方法 - 消除代码重复
      */
     private void saveTaskToDB(TaskDTO task) {
         try {
             String currentTime = getCurrentTime();
-            
+
             switch (task.taskType) {
                 case "train":
                     saveTrainTask(task, currentTime);
@@ -1039,15 +1067,15 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
                 default:
                     log.warn("未知的任务类型: {}", task.taskType);
             }
-            
+
             log.info("任务已保存到数据库: taskId={}, type={}, model={}, category={}, framework={}",
                     task.taskId, task.taskType, task.modelName, task.modelCategory, task.modelFramework);
         } catch (Exception e) {
-            log.error("保存任务到数据库失败: taskId={}, type={}, error={}", 
+            log.error("保存任务到数据库失败: taskId={}, type={}, error={}",
                      task.taskId, task.taskType, e.getMessage(), e);
         }
     }
-    
+
     /**
      * 保存训练任务
      */
@@ -1056,17 +1084,20 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
                 "(task_id, track_id, model_name, model_category, model_framework, task_type, " +
                 "container_name, container_id, docker_image, gpu_ids, use_gpu, " +
                 "dataset_path, model_path, epochs, batch_size, image_size, optimizer, " +
-                "status, progress, current_epoch, start_time, created_at, is_deleted, config_json) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-        
+                "status, progress, current_epoch, start_time, created_at, is_deleted, user_id, config_json) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+        // 从配置中读取 user_id
+        String userId = task.config.getStr("user_id", null);
+
         getMysqlAdapter().executeUpdate(sql,
                 task.taskId, task.trackId, task.modelName, task.modelCategory, task.modelFramework,
                 "train", task.containerName, "", task.dockerImage,
                 task.device, !task.device.equals("cpu") ? 1 : 0,
                 task.datasetPath, task.modelPath, task.epochs, task.batchSize, task.imageSize, task.optimizer,
-                "starting", "0%", 0, currentTime, currentTime, 0, task.config.toString());
+                "starting", "0%", 0, currentTime, currentTime, 0, userId, task.config.toString());
     }
-    
+
     /**
      * 保存评估任务
      */
@@ -1076,13 +1107,13 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
                 "container_name, dataset_path, model_path, image_size, optimizer, " +
                 "status, progress, current_epoch, start_time, created_at, is_deleted, config_json) " +
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-        
+
         getMysqlAdapter().executeUpdate(sql,
                 task.taskId, "", task.modelName, task.modelCategory, task.modelFramework,
                 "evaluate", "", task.datasetPath, task.modelPath, task.imageSize, task.optimizer,
                 task.status, "0%", 0, currentTime, currentTime, 0, task.config.toString());
     }
-    
+
     /**
      * 保存预测任务
      */
@@ -1092,13 +1123,13 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
                 "container_name, model_path, gpu_ids, use_gpu, " +
                 "status, progress, current_epoch, start_time, created_at, is_deleted, config_json) " +
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-        
+
         getMysqlAdapter().executeUpdate(sql,
                 task.taskId, "", task.modelName, task.modelCategory, task.modelFramework,
                 "predict", "", task.modelPath, task.device, !task.device.equals("cpu") ? 1 : 0,
                 task.status, "0%", 0, currentTime, currentTime, 0, task.config.toString());
     }
-    
+
     /**
      * 保存导出任务
      */
@@ -1108,7 +1139,7 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
                 "container_name, model_path, gpu_ids, use_gpu, " +
                 "status, progress, current_epoch, start_time, created_at, is_deleted, config_json) " +
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-        
+
         getMysqlAdapter().executeUpdate(sql,
                 task.taskId, "", task.modelName, task.modelCategory, task.modelFramework,
                 "export", "", task.modelPath, task.device, !task.device.equals("cpu") ? 1 : 0,
@@ -1124,7 +1155,7 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
         config.put("_container_name", containerName);
         config.put("_docker_image", dockerImage);
         config.put("_status", "starting");
-        
+
         // 使用通用保存方法
         TaskDTO task = new TaskDTO(taskId, "train", config);
         saveTaskToDB(task);
@@ -1423,7 +1454,7 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
     /**
      * 根据模型名称获取模型类别
      * 优先从配置中读取，如果没有则根据模型名称推断
-     * 
+     *
      * 支持的类别：
      * - detection: 目标检测
      * - segmentation: 图像分割
@@ -1438,7 +1469,7 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
      * - pose_estimation: 姿态估计
      * - gan: 生成对抗网络
      * - custom: 自定义模型
-     * 
+     *
      * @param modelName 模型名称
      * @param config 配置对象
      * @return 模型类别
@@ -1453,9 +1484,9 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
 
         // 2. 根据模型名称推断类别（基于关键词匹配）
         String lowerModelName = modelName.toLowerCase();
-        
+
         // 检测类模型
-        if (lowerModelName.contains("yolo") || lowerModelName.contains("ssd") || 
+        if (lowerModelName.contains("yolo") || lowerModelName.contains("ssd") ||
             lowerModelName.contains("rcnn") || lowerModelName.contains("fasterrcnn") ||
             lowerModelName.contains("centernet") || lowerModelName.contains("tracknet") ||
             lowerModelName.contains("retinanet") || lowerModelName.contains("efficientdet") ||
@@ -1463,7 +1494,7 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
             log.debug("根据名称推断为检测模型: modelName={}", modelName);
             return "detection";
         }
-        
+
         // 分割类模型
         if (lowerModelName.contains("unet") || lowerModelName.contains("fcn") ||
             lowerModelName.contains("pidnet") || lowerModelName.contains("deeplab") ||
@@ -1472,7 +1503,7 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
             log.debug("根据名称推断为分割模型: modelName={}", modelName);
             return "segmentation";
         }
-        
+
         // 识别类模型
         if (lowerModelName.contains("crnn") || lowerModelName.contains("ocr") ||
             lowerModelName.contains("recogn") || lowerModelName.contains("tesseract") ||
@@ -1480,21 +1511,21 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
             log.debug("根据名称推断为识别模型: modelName={}", modelName);
             return "recognition";
         }
-        
+
         // 重识别模型
         if (lowerModelName.contains("reid") || lowerModelName.contains("clip") ||
             lowerModelName.contains("triplet") || lowerModelName.contains("metric")) {
             log.debug("根据名称推断为重识别模型: modelName={}", modelName);
             return "reid";
         }
-        
+
         // 关键点检测模型
         if (lowerModelName.contains("hrnet") || lowerModelName.contains("keypoint") ||
             lowerModelName.contains("openpose") || lowerModelName.contains("alphapose")) {
             log.debug("根据名称推断为关键点检测模型: modelName={}", modelName);
             return "keypoint";
         }
-        
+
         // 特征提取模型
         if (lowerModelName.contains("resnet") || lowerModelName.contains("osnet") ||
             lowerModelName.contains("vgg") || lowerModelName.contains("mobilenet") ||
@@ -1503,41 +1534,41 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
             log.debug("根据名称推断为特征提取模型: modelName={}", modelName);
             return "feature_extraction";
         }
-        
+
         // 事件检测模型
         if (lowerModelName.contains("tdeed") || lowerModelName.contains("event") ||
             lowerModelName.contains("action")) {
             log.debug("根据名称推断为事件检测模型: modelName={}", modelName);
             return "event_detection";
         }
-        
+
         // 视频分割模型
         if (lowerModelName.contains("transnet") || lowerModelName.contains("video") ||
             lowerModelName.contains("temporal")) {
             log.debug("根据名称推断为视频分割模型: modelName={}", modelName);
             return "video_segmentation";
         }
-        
+
         // 分类模型
         if (lowerModelName.contains("classif") || lowerModelName.contains("alexnet") ||
             lowerModelName.contains("squeezenet")) {
             log.debug("根据名称推断为分类模型: modelName={}", modelName);
             return "classification";
         }
-        
+
         // 跟踪模型
         if (lowerModelName.contains("track") || lowerModelName.contains("sort") ||
             lowerModelName.contains("deepsort") || lowerModelName.contains("bytetrack")) {
             log.debug("根据名称推断为跟踪模型: modelName={}", modelName);
             return "tracking";
         }
-        
+
         // 姿态估计模型
         if (lowerModelName.contains("pose") || lowerModelName.contains("posenet")) {
             log.debug("根据名称推断为姿态估计模型: modelName={}", modelName);
             return "pose_estimation";
         }
-        
+
         // 生成模型
         if (lowerModelName.contains("gan") || lowerModelName.contains("generator") ||
             lowerModelName.contains("diffusion") || lowerModelName.contains("vae")) {
@@ -1681,17 +1712,17 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
             String stopResult = trainer.stopContainer(containerName);
             System.out.println("停止结果: " + stopResult);
 
-            String removeResult = trainer.removeContainer(containerName);
+            String removeResult = trainer.removeContainer(containerName,"");
             System.out.println("删除结果: " + removeResult);
         }
 
         System.out.println("\n=== 测试完成 ===");
     }
-    
+
     /**
      * 获取 TrainingTaskRepository 实例
      * 用于查询训练任务列表等操作
-     * 
+     *
      * @return TrainingTaskRepository 实例
      */
     public ai.finetune.repository.TrainingTaskRepository getRepository() {

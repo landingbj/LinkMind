@@ -4,6 +4,7 @@ import ai.common.utils.ObservableList;
 import ai.config.ContextLoader;
 import ai.config.pojo.DiscriminativeModelsConfig;
 import ai.finetune.YoloTrainerAdapter;
+import ai.finetune.repository.TrainingTaskRepository;
 import ai.servlet.BaseServlet;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
@@ -15,9 +16,12 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.util.HashMap;
-import java.util.Map;
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /**
  * AI 模型训练任务管理 Servlet（通用版）
@@ -194,6 +198,9 @@ public class AITrainingServlet extends BaseServlet {
             case "remove":
                 handleRemoveContainer(req, resp);
                 break;
+            case "deleted":
+                handleDeletedContainer(req, resp);
+                break;
             case "status":
                 handleGetStatus(req, resp);
                 break;
@@ -227,12 +234,188 @@ public class AITrainingServlet extends BaseServlet {
             case "models":
                 handleListModels(req, resp);
                 break;
+            case "detail":
+                handledetail(req, resp);
+                break;
             default:
                 resp.setStatus(404);
                 Map<String, String> error = new HashMap<>();
                 error.put("error", "接口不存在: " + method);
                 responsePrint(resp, toJson(error));
         }
+    }
+
+    private void handledetail(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            String jsonBody = requestToJson(req);
+            JSONObject requestJson = JSONUtil.parseObj(jsonBody);
+            String taskId = requestJson.getStr("task_id");
+
+            if (taskId == null || taskId.isEmpty()) {
+                resp.setStatus(400);
+                response.put("code", "400");
+                response.put("message", "缺少参数: task_id");
+                responsePrint(resp, toJson(response));
+                return;
+            }
+
+            // 从数据库查询任务详情
+            TrainingTaskRepository repository = yoloTrainer.getRepository();
+            Map<String, Object> taskDetail = repository.getTaskDetailByTaskId(taskId);
+
+            if (taskDetail == null) {
+                resp.setStatus(404);
+                response.put("code", "404");
+                response.put("message", "未找到任务: " + taskId);
+                responsePrint(resp, toJson(response));
+                return;
+            }
+
+            // 构建返回数据
+            Map<String, Object> data = new HashMap<>();
+
+            // 添加模板信息（这里从数据库查询模板表）
+            Map<String, Object> template = new HashMap<>();
+            String templateId = (String) taskDetail.get("template_id");
+            if (templateId != null && !templateId.isEmpty()) {
+                Map<String, Object> templateInfo = repository.getTemplateInfoById(templateId);
+                if (templateInfo != null) {
+                    template.put("templateName", templateInfo.get("template_name"));
+                    template.put("templateDesc", templateInfo.get("description"));
+
+                    // 查询模板字段
+                    List<Map<String, Object>> templateFields = repository.getTemplateFieldsByTemplateId(templateId);
+                    List<Map<String, Object>> fields = new ArrayList<>();
+                    for (Map<String, Object> fieldInfo : templateFields) {
+                        Map<String, Object> field = new HashMap<>();
+                        field.put("fieldName", fieldInfo.get("field_id"));
+                        field.put("fieldDesc", fieldInfo.get("description"));
+                        field.put("fieldType", fieldInfo.get("display_type"));
+                        field.put("isRequired", fieldInfo.get("required"));
+                        fields.add(field);
+                    }
+                    template.put("fields", fields);
+                } else {
+                    // 如果未找到模板信息，使用默认值
+                    template.put("templateName", "自定义模版名称");
+                    template.put("templateDesc", "模版描述");
+                    template.put("fields", new ArrayList<>());
+                }
+            } else {
+                // 如果没有模板ID，使用默认值
+                template.put("templateName", "自定义模版名称");
+                template.put("templateDesc", "模版描述");
+                template.put("fields", new ArrayList<>());
+            }
+            data.put("template", template);
+
+            // 添加任务信息
+            data.put("task_id", taskDetail.get("task_id"));
+            data.put("status", taskDetail.get("status"));
+            data.put("progress", taskDetail.get("progress"));
+            data.put("current_epoch", taskDetail.get("current_epoch"));
+            data.put("created_at", taskDetail.get("created_at"));
+            data.put("start_time", taskDetail.get("start_time"));
+            data.put("end_time", taskDetail.get("end_time"));
+            data.put("train_dir", taskDetail.get("train_dir"));
+            data.put("dataset_path", taskDetail.get("dataset_path"));
+            data.put("model_path", taskDetail.get("model_path"));
+            data.put("epochs", taskDetail.get("epochs"));
+            data.put("batch_size", taskDetail.get("batch_size"));
+            data.put("image_size", taskDetail.get("image_size"));
+            data.put("use_gpu", convertToBoolean(taskDetail.get("use_gpu")));
+
+            // 计算训练时长
+            Object startTimeObj = taskDetail.get("start_time");
+            Object endTimeObj = taskDetail.get("end_time");
+            String trainingDuration = calculateTrainingDuration(startTimeObj, endTimeObj);
+            data.put("training_duration", trainingDuration);
+
+            response.put("code", "200");
+            response.put("data", data);
+            response.put("validate_time", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSSSS")));
+
+            responsePrint(resp, toJson(response));
+
+        } catch (Exception e) {
+            log.error("查询任务详情失败", e);
+            resp.setStatus(500);
+            response.put("code", "500");
+            response.put("message", "查询任务详情失败: " + e.getMessage());
+            responsePrint(resp, toJson(response));
+        }
+    }
+
+    /**
+     * 计算训练时长
+     */
+    private String calculateTrainingDuration(Object startTimeObj, Object endTimeObj) {
+        try {
+            if (startTimeObj == null) {
+                return "0s";
+            }
+
+            LocalDateTime startTime = null;
+            if (startTimeObj instanceof String) {
+                startTime = LocalDateTime.parse((String) startTimeObj, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            } else if (startTimeObj instanceof Timestamp) {
+                startTime = ((Timestamp) startTimeObj).toLocalDateTime();
+            }
+
+            LocalDateTime endTime = LocalDateTime.now();
+            if (endTimeObj != null) {
+                if (endTimeObj instanceof String) {
+                    endTime = LocalDateTime.parse((String) endTimeObj, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+                } else if (endTimeObj instanceof Timestamp) {
+                    endTime = ((Timestamp) endTimeObj).toLocalDateTime();
+                }
+            }
+
+            if (startTime != null) {
+                long durationSeconds = java.time.Duration.between(startTime, endTime).getSeconds();
+                long hours = durationSeconds / 3600;
+                long minutes = (durationSeconds % 3600) / 60;
+                long seconds = durationSeconds % 60;
+
+                if (hours > 0) {
+                    return String.format("%dh%dm%ds", hours, minutes, seconds);
+                } else if (minutes > 0) {
+                    return String.format("%dm%ds", minutes, seconds);
+                } else {
+                    return String.format("%ds", seconds);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("计算训练时长失败", e);
+        }
+        return "未知";
+    }
+
+    /**
+     * 将对象转换为布尔值
+     */
+    private boolean convertToBoolean(Object value) {
+        if (value == null) {
+            return false;
+        }
+
+        if (value instanceof Boolean) {
+            return (Boolean) value;
+        }
+
+        if (value instanceof Number) {
+            return ((Number) value).intValue() == 1;
+        }
+
+        if (value instanceof String) {
+            String str = (String) value;
+            return "1".equals(str) || "true".equalsIgnoreCase(str);
+        }
+
+        return false;
     }
 
     @Override
@@ -242,24 +425,6 @@ public class AITrainingServlet extends BaseServlet {
 
     /**
      * 启动训练任务（通用版，支持所有模型）
-     * POST /ai/training/start
-     *
-     * 请求参数（JSON）：
-     * {
-     *   "model_name": "任意模型名称",  // 必填：如 yolov8, yolov11, centernet, custom_model 等
-     *   "model_category": "可选",      // 可选：detection, segmentation, classification 等（不指定则自动推断）
-     *   "model_framework": "可选",     // 可选：pytorch, tensorflow, paddle 等（不指定则自动推断）
-     *   "task_id": "可选，不传则自动生成",
-     *   "track_id": "可选，不传则自动生成",
-     *   "model_path": "/app/data/models/model.pt",
-     *   "data": "/app/data/datasets/data.yaml",
-     *   "epochs": 10,
-     *   "batch": 2,
-     *   "imgsz": 640,
-     *   "device": "0",
-     *   "project": "/app/data/project",
-     *   "name": "experiment_name"
-     * }
      */
     private void handleStartTraining(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json;charset=utf-8");
@@ -267,6 +432,9 @@ public class AITrainingServlet extends BaseServlet {
         try {
             String jsonBody = requestToJson(req);
             JSONObject config = JSONUtil.parseObj(jsonBody);
+
+            // 获取用户ID（可选，但建议提供）
+            String userId = config.getStr("user_id");
 
             // 获取模型名称（必填）
             String modelName = config.getStr("model_name");
@@ -304,7 +472,7 @@ public class AITrainingServlet extends BaseServlet {
             // 根据模型类型调用对应的训练器
             String result;
             if (trainer instanceof YoloTrainerAdapter) {
-                result = startYoloTraining((YoloTrainerAdapter) trainer, taskId, trackId, config);
+                result = startYoloTraining((YoloTrainerAdapter) trainer, taskId, trackId, userId, config);
             } else {
                 // TODO: 支持其他模型类型
                 resp.setStatus(501);
@@ -319,11 +487,11 @@ public class AITrainingServlet extends BaseServlet {
                 JSONObject resultJson = JSONUtil.parseObj(result);
                 String containerName = resultJson.getStr("containerName");
                 String containerId = resultJson.getStr("containerId");
-                
+
                 if (containerName != null) {
                     taskContainerMap.put(taskId, containerName);
                 }
-                
+
                 // 构建标准化的返回结果（保留所有原始字段）
                 JSONObject response = new JSONObject();
                 response.put("status", "success");
@@ -331,7 +499,10 @@ public class AITrainingServlet extends BaseServlet {
                 response.put("task_id", taskId);
                 response.put("track_id", trackId);
                 response.put("model_name", config.getStr("model_name", "yolov8"));
-                
+
+                // 添加用户ID（总是返回，即使为空）
+                response.put("user_id", userId != null ? userId : "");
+
                 // 添加容器信息
                 if (containerName != null) {
                     response.put("containerName", containerName);
@@ -339,12 +510,12 @@ public class AITrainingServlet extends BaseServlet {
                 if (containerId != null) {
                     response.put("containerId", containerId);
                 }
-                
+
                 // 添加时间戳（当前时间，格式：yyyy-MM-dd HH:mm:ss）
                 String timestamp = java.time.LocalDateTime.now()
                     .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
                 response.put("timestamp", timestamp);
-                
+
                 // 提取训练配置信息
                 JSONObject trainConfig = new JSONObject();
                 trainConfig.put("dataset_path", config.getStr("data", ""));
@@ -352,25 +523,25 @@ public class AITrainingServlet extends BaseServlet {
                 trainConfig.put("epochs", config.getInt("epochs", 0));
                 trainConfig.put("batch", config.getInt("batch", 0));
                 trainConfig.put("imgsz", config.getInt("imgsz", 640));
-                
+
                 // 判断是否使用GPU
                 String device = config.getStr("device", "cpu");
                 boolean useGpu = !device.equalsIgnoreCase("cpu");
                 trainConfig.put("use_gpu", useGpu);
-                
+
                 response.put("train_config", trainConfig);
-                
+
                 // 添加创建时间（ISO 8601格式）
                 String createdAt = java.time.ZonedDateTime.now()
                     .format(java.time.format.DateTimeFormatter.ISO_INSTANT);
                 response.put("created_at", createdAt);
-                
+
                 responsePrint(resp, response.toString());
             } else {
                 // 训练启动失败，返回错误信息
                 JSONObject errorResponse = new JSONObject();
                 errorResponse.put("status", "ERROR");
-                
+
                 // 尝试解析原始错误信息
                 try {
                     JSONObject resultJson = JSONUtil.parseObj(result);
@@ -382,7 +553,7 @@ public class AITrainingServlet extends BaseServlet {
                     errorResponse.put("msg", "训练任务启动失败");
                     errorResponse.put("error", result);
                 }
-                
+
                 resp.setStatus(500);
                 responsePrint(resp, errorResponse.toString());
             }
@@ -399,9 +570,10 @@ public class AITrainingServlet extends BaseServlet {
     /**
      * 启动 YOLO 训练任务
      */
-    private String startYoloTraining(YoloTrainerAdapter trainer, String taskId, String trackId, JSONObject config) {
+    private String startYoloTraining(YoloTrainerAdapter trainer, String taskId, String trackId, String userId, JSONObject config) {
         // 从配置文件获取默认配置
-        DiscriminativeModelsConfig discriminativeConfig = ContextLoader.configuration
+        ai.config.ContextLoader.loadContext();
+        ai.config.pojo.DiscriminativeModelsConfig discriminativeConfig = ai.config.ContextLoader.configuration
                 .getModelPlatformConfig()
                 .getDiscriminativeModelsConfig();
 
@@ -417,6 +589,17 @@ public class AITrainingServlet extends BaseServlet {
         trainConfig.put("track_id", trackId);
         trainConfig.put("model_name", config.getStr("model_name", "yolov8")); // 传递模型名称
         trainConfig.put("train_log_file", config.getStr("train_log_file", "/app/data/train.log"));
+
+        // 添加用户ID到配置中
+        if (userId != null && !userId.isEmpty()) {
+            trainConfig.put("user_id", userId);
+        }
+
+        // 添加模板ID到配置中
+        Integer templateId = config.getInt("template_id");
+        if (templateId != null) {
+            trainConfig.put("template_id", templateId);
+        }
 
         // 使用配置文件的默认值
         if (defaultConfig != null && !defaultConfig.isEmpty()) {
@@ -447,7 +630,7 @@ public class AITrainingServlet extends BaseServlet {
 
     /**
      * 暂停容器
-     * POST /ai/training/pause?taskId=xxx 或 ?containerId=xxx
+     * POST ?taskId=xxx 或 ?containerId=xxx
      */
     private void handlePauseContainer(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json;charset=utf-8");
@@ -524,6 +707,39 @@ public class AITrainingServlet extends BaseServlet {
 
         } catch (Exception e) {
             log.error("停止容器失败", e);
+            resp.setStatus(500);
+            Map<String, String> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            responsePrint(resp, toJson(error));
+        }
+    }
+
+    /**
+     * 删除训练任务，不包训练容器
+     */
+    private void handleDeletedContainer(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+
+        try {
+            String taskId = req.getParameter("taskId");
+            if (taskId == null) {
+                resp.setStatus(400);
+                Map<String, String> error = new HashMap<>();
+                error.put("error", "缺少 taskId");
+                responsePrint(resp, toJson(error));
+                return;
+            }
+
+            String result = yoloTrainer.removeContainer(null,taskId);
+            if (taskId != null) {
+                taskContainerMap.remove(taskId);
+                taskStreamMap.remove(taskId);
+            }
+
+            responsePrint(resp, result);
+
+        } catch (Exception e) {
+            log.error("删除容器失败", e);
             resp.setStatus(500);
             Map<String, String> error = new HashMap<>();
             error.put("error", e.getMessage());
@@ -954,4 +1170,197 @@ public class AITrainingServlet extends BaseServlet {
         }
         return containerId;
     }
+
+
+    /**
+     * 批量获取训练任务状态
+     * 支持通过逗号拼接的容器ID或训练任务ID查询
+     *
+     * @param containerIds 逗号拼接的容器ID，例如: "id1,id2,id3"
+     * @param taskIds 逗号拼接的训练任务ID，例如: "id1,id2,id3"
+     * @return 包含训练任务状态信息的Map列表
+     */
+    public static List<Map<String, Object>> batchGetTaskStatus(String containerIds, String taskIds) {
+        List<Map<String, Object>> resultList = new ArrayList<>();
+
+        // 参数检查
+        if ((containerIds == null || containerIds.trim().isEmpty()) &&
+            (taskIds == null || taskIds.trim().isEmpty())) {
+            return resultList;
+        }
+
+        try {
+            TrainingTaskRepository repository = yoloTrainer.getRepository();
+
+            // 获取任务列表
+            List<Map<String, Object>> tasks = new ArrayList<>();
+
+            // 根据任务ID查询
+            if (taskIds != null && !taskIds.trim().isEmpty()) {
+                List<String> taskIdList = Arrays.stream(taskIds.split(","))
+                        .map(String::trim)
+                        .filter(id -> !id.isEmpty())
+                        .collect(Collectors.toList());
+                if (!taskIdList.isEmpty()) {
+                    tasks.addAll(repository.getTasksByTaskIds(taskIdList));
+                }
+            }
+
+            // 根据容器ID查询
+            if (containerIds != null && !containerIds.trim().isEmpty()) {
+                List<String> containerIdList = Arrays.stream(containerIds.split(","))
+                        .map(String::trim)
+                        .filter(id -> !id.isEmpty())
+                        .collect(Collectors.toList());
+                if (!containerIdList.isEmpty()) {
+                    // 先尝试按容器ID查询
+                    List<Map<String, Object>> tasksByContainerId = repository.getTasksByContainerIds(containerIdList);
+                    tasks.addAll(tasksByContainerId);
+
+                    // 如果按容器ID查不到，尝试按容器名称查询
+                    List<Map<String, Object>> tasksByContainerName = repository.getTasksByContainerNames(containerIdList);
+                    tasks.addAll(tasksByContainerName);
+                }
+            }
+
+            if (tasks.isEmpty()) {
+                return resultList;
+            }
+
+            // 去重（基于task_id）
+            Map<String, Map<String, Object>> uniqueTasks = new LinkedHashMap<>();
+            for (Map<String, Object> task : tasks) {
+                String taskId = (String) task.get("task_id");
+                if (taskId != null && !uniqueTasks.containsKey(taskId)) {
+                    uniqueTasks.put(taskId, task);
+                }
+            }
+
+            // 收集所有任务ID，用于后续重新查询
+            List<String> allTaskIds = new ArrayList<>(uniqueTasks.keySet());
+
+            // 先批量从服务器获取容器状态
+            Map<String, String> containerStatusMap = new HashMap<>();
+            Map<String, String> taskStatusMap = new HashMap<>();
+
+            for (Map<String, Object> task : uniqueTasks.values()) {
+                String taskId = (String) task.get("task_id");
+                String containerId = (String) task.get("container_id");
+                String containerName = (String) task.get("container_name");
+
+                // 从服务器获取容器状态
+                if (yoloTrainer != null) {
+                    try {
+                        // 优先使用容器ID，如果没有则使用容器名称
+                        String containerIdentifier = containerId;
+                        if (containerIdentifier == null || containerIdentifier.isEmpty()) {
+                            containerIdentifier = containerName;
+                        }
+
+                        if (containerIdentifier != null && !containerIdentifier.isEmpty()) {
+                            String statusResult = yoloTrainer.getContainerStatus(containerIdentifier);
+                            JSONObject statusJson = JSONUtil.parseObj(statusResult);
+
+                            // 检查是否获取成功
+                            String resultStatus = statusJson.getStr("status");
+                            String exitCode = "";
+                                // 尝试从output字段提取exitCode
+                                String output = statusJson.getStr("output");
+                                if (output != null && output.contains(";")) {
+                                    String[] parts = output.split(";");
+                                    if (parts.length > 1) {
+                                        exitCode = parts[1].trim();
+                                    }
+                                }
+                            // 如果exitCode大于0，则将containerStatus设置为failed
+                            if (exitCode != null && !exitCode.isEmpty()) {
+                                try {
+                                    int code = Integer.parseInt(exitCode);
+                                    if (code > 0) {
+                                        statusJson.put("containerStatus", "failed");
+                                    }
+                                } catch (NumberFormatException e) {
+                                    log.warn("Invalid exitCode format: {}", exitCode);
+                                }
+                            }
+                            if (!"error".equals(resultStatus)) {
+                                // 从接口返回的JSON中获取containerStatus字段作为任务状态
+                                String containerStatus = statusJson.getStr("containerStatus");
+
+                                // 如果containerStatus为空，尝试从output字段获取（去掉换行符）
+                                if (containerStatus == null || containerStatus.isEmpty()) {
+                                    if (output != null && !output.isEmpty()) {
+                                        containerStatus = output.trim().replace("\n", "");
+                                    }
+                                }
+
+                                // 如果还是为空，尝试从status字段获取
+                                if (containerStatus == null || containerStatus.isEmpty()) {
+                                    containerStatus = resultStatus;
+                                }
+
+                                // 直接使用containerStatus作为任务状态
+                                if (containerStatus != null && !containerStatus.isEmpty()) {
+                                    // 保存容器状态和任务状态（使用containerStatus作为任务状态）
+                                    containerStatusMap.put(taskId, containerStatus);
+                                    taskStatusMap.put(taskId, containerStatus);
+                                }
+                            } else {
+                                // 获取状态失败，可能是容器不存在
+                                String errorMsg = statusJson.getStr("message", "获取容器状态失败");
+                                log.warn("获取容器状态失败: taskId={}, containerId={}, error={}", taskId, containerId, errorMsg);
+                                containerStatusMap.put(taskId, "unknown");
+                            }
+                        } else {
+                            containerStatusMap.put(taskId, "unknown");
+                        }
+                    } catch (Exception e) {
+                        log.error("获取容器状态失败: taskId={}, containerId={}", taskId, containerId, e);
+                        containerStatusMap.put(taskId, "unknown");
+                    }
+                } else {
+                    containerStatusMap.put(taskId, "unknown");
+                }
+            }
+
+            // 批量更新数据库中的任务状态
+            for (Map.Entry<String, String> entry : taskStatusMap.entrySet()) {
+                String taskId = entry.getKey();
+                String taskStatus = entry.getValue();
+                repository.updateTaskStatus(taskId, taskStatus, null);
+            }
+
+            // 重新查询数据库获取最新数据
+            List<Map<String, Object>> latestTasks = repository.getTasksByTaskIds(allTaskIds);
+
+            // 构建返回结果，使用从服务器获取的实时状态
+            for (Map<String, Object> task : latestTasks) {
+                String taskId = (String) task.get("task_id");
+                Map<String, Object> taskResult = new HashMap<>(task);
+
+                // 使用从服务器获取的实时容器状态
+                String containerStatus = containerStatusMap.get(taskId);
+                if (containerStatus != null) {
+                    taskResult.put("containerStatus", containerStatus);
+                    // 同时更新status字段为containerStatus的值
+                    taskResult.put("status", containerStatus);
+                }
+
+                // 使用从服务器获取的实时任务状态（覆盖数据库中的旧状态）
+                String realTimeTaskStatus = taskStatusMap.get(taskId);
+                if (realTimeTaskStatus != null) {
+                    taskResult.put("status", realTimeTaskStatus);
+                }
+
+                resultList.add(taskResult);
+            }
+
+            return resultList;
+
+        } catch (Exception e) {
+            log.error("批量获取训练任务状态失败", e);
+        }
+        return resultList;
+    }
+
 }

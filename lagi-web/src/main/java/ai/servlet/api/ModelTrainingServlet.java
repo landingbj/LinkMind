@@ -62,6 +62,77 @@ public class ModelTrainingServlet extends BaseServlet {
         return trainerMap.containsKey(modelName);
     }
 
+    @Override
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        String url = req.getRequestURI();
+        String method = url.substring(url.lastIndexOf("/") + 1);
+
+        switch (method) {
+            case "start":
+                handleStartTraining(req, resp);
+                break;
+            case "pause":
+                handlePauseContainer(req, resp);
+                break;
+            case "resume":
+                handleResumeContainer(req, resp);
+                break;
+            case "stop":
+                handleStopContainer(req, resp);
+                break;
+            case "logs":
+                handleGetLogs(req, resp);
+                break;
+            case "stream":
+                handleStreamLogs(req, resp);
+                break;
+            case "evaluate":
+                handleEvaluate(req, resp);
+                break;
+            case "predict":
+                handlePredict(req, resp);
+                break;
+            case "export":
+                handleExportModel(req, resp);
+                break;
+            case "upload":
+                handleUploadFile(req, resp);
+                break;
+            case "download":
+                handleDownloadFile(req, resp);
+                break;
+            case "commit":
+                handleCommitImage(req, resp);
+                break;
+            case "list":
+                handleListContainers(req, resp);
+                break;
+            case "models":
+                handleListModels(req, resp);
+                break;
+            case "lists":
+                handleTaskList(req, resp);
+                break;
+            case "pretrain":
+                handlePretrain(req, resp);
+                break;
+            default:
+                resp.setStatus(404);
+                Map<String, String> error = new HashMap<>();
+                error.put("error", "接口不存在: " + method);
+                responsePrint(resp, toJson(error));
+        }
+    }
+
+    /**
+     * 可用预训练模型列表查询
+     */
+    private void handlePretrain(HttpServletRequest req, HttpServletResponse resp) {
+
+    }
+
+
+
     /**
      * 获取或创建指定模型的训练器
      */
@@ -157,70 +228,7 @@ public class ModelTrainingServlet extends BaseServlet {
        ContextLoader.loadContext();
     }
 
-    @Override
-    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        String url = req.getRequestURI();
-        String method = url.substring(url.lastIndexOf("/") + 1);
 
-        switch (method) {
-            case "start":
-                handleStartTraining(req, resp);
-                break;
-            case "pause":
-                handlePauseContainer(req, resp);
-                break;
-            case "resume":
-                handleResumeContainer(req, resp);
-                break;
-            case "stop":
-                handleStopContainer(req, resp);
-                break;
-            case "remove":
-                handleRemoveContainer(req, resp);
-                break;
-            case "status":
-                handleGetStatus(req, resp);
-                break;
-            case "logs":
-                handleGetLogs(req, resp);
-                break;
-            case "stream":
-                handleStreamLogs(req, resp);
-                break;
-            case "evaluate":
-                handleEvaluate(req, resp);
-                break;
-            case "predict":
-                handlePredict(req, resp);
-                break;
-            case "export":
-                handleExportModel(req, resp);
-                break;
-            case "upload":
-                handleUploadFile(req, resp);
-                break;
-            case "download":
-                handleDownloadFile(req, resp);
-                break;
-            case "commit":
-                handleCommitImage(req, resp);
-                break;
-            case "list":
-                handleListContainers(req, resp);
-                break;
-            case "models":
-                handleListModels(req, resp);
-                break;
-            case "lists":
-                handleTaskList(req, resp);
-                break;
-            default:
-                resp.setStatus(404);
-                Map<String, String> error = new HashMap<>();
-                error.put("error", "接口不存在: " + method);
-                responsePrint(resp, toJson(error));
-        }
-    }
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
@@ -574,93 +582,6 @@ public class ModelTrainingServlet extends BaseServlet {
         }
     }
 
-    /**
-     * 删除容器
-     * POST /model/training/remove?taskId=xxx
-     */
-    private void handleRemoveContainer(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        resp.setContentType("application/json;charset=utf-8");
-
-        try {
-            String taskId = req.getParameter("taskId");
-            String containerId = getContainerIdFromRequest(req);
-
-            if (containerId == null) {
-                resp.setStatus(400);
-                Map<String, String> error = new HashMap<>();
-                error.put("error", "缺少 taskId 或 containerId 参数");
-                responsePrint(resp, toJson(error));
-                return;
-            }
-
-            YoloTrainerAdapter trainer = getTrainerForTask(taskId);
-            if (trainer == null) {
-                resp.setStatus(404);
-                Map<String, String> error = new HashMap<>();
-                error.put("error", "找不到对应的训练器");
-                responsePrint(resp, toJson(error));
-                return;
-            }
-
-            String result = trainer.removeContainer(containerId);
-
-            // 清理任务映射
-            if (taskId != null) {
-                taskContainerMap.remove(taskId);
-                taskStreamMap.remove(taskId);
-                taskModelMap.remove(taskId);
-            }
-
-            responsePrint(resp, result);
-
-        } catch (Exception e) {
-            log.error("删除容器失败", e);
-            resp.setStatus(500);
-            Map<String, String> error = new HashMap<>();
-            error.put("error", e.getMessage());
-            responsePrint(resp, toJson(error));
-        }
-    }
-
-    /**
-     * 查看容器状态
-     * GET /model/training/status?taskId=xxx
-     */
-    private void handleGetStatus(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        resp.setContentType("application/json;charset=utf-8");
-
-        try {
-            String taskId = req.getParameter("taskId");
-            String containerId = getContainerIdFromRequest(req);
-
-            if (containerId == null) {
-                resp.setStatus(400);
-                Map<String, String> error = new HashMap<>();
-                error.put("error", "缺少 taskId 或 containerId 参数");
-                responsePrint(resp, toJson(error));
-                return;
-            }
-
-            YoloTrainerAdapter trainer = getTrainerForTask(taskId);
-            if (trainer == null) {
-                resp.setStatus(404);
-                Map<String, String> error = new HashMap<>();
-                error.put("error", "找不到对应的训练器");
-                responsePrint(resp, toJson(error));
-                return;
-            }
-
-            String result = trainer.getContainerStatus(containerId);
-            responsePrint(resp, result);
-
-        } catch (Exception e) {
-            log.error("查询容器状态失败", e);
-            resp.setStatus(500);
-            Map<String, String> error = new HashMap<>();
-            error.put("error", e.getMessage());
-            responsePrint(resp, toJson(error));
-        }
-    }
 
     /**
      * 查看容器日志

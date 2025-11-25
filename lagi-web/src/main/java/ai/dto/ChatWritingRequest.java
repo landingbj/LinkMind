@@ -22,13 +22,16 @@ public class ChatWritingRequest {
     
     /**
      * 撰写类型：project-material（申报材料）或 patent-document（专利材料）
+     * 可选，如果不提供，系统会根据用户输入自动判断
      */
     private String writingType;
     
     /**
-     * 用户消息内容
+     * 聊天消息数组（必填）
+     * 支持多轮对话，每条消息包含role（user/assistant）和content
+     * 最后一条消息应该是user角色，表示当前用户输入
      */
-    private String message;
+    private List<ChatMessage> messages;
     
     /**
      * 知识库分类（全局知识库）
@@ -39,14 +42,6 @@ public class ChatWritingRequest {
      * 会话级知识库分类（仅当前会话生效）
      */
     private String sessionCategory;
-    
-    /**
-     * 处理层次：
-     * - rag: 基本RAG提问
-     * - paragraph: 生成段落（如"项目亮点介绍"、"单位简介"）
-     * - document: 生成完整文档（项目申报书或专利文档）
-     */
-    private String processingLevel;
     
     /**
      * 项目类型（申报材料时使用）

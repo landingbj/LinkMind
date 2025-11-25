@@ -9,6 +9,7 @@ import ai.openai.pojo.ChatCompletionResult;
 import ai.openai.pojo.ChatMessage;
 import ai.servlet.BaseServlet;
 import ai.service.ChatSessionService;
+import ai.service.ProcessingLevelDetector;
 import ai.service.WritingTemplateManager;
 import ai.utils.LagiGlobal;
 import ai.utils.qa.ChatCompletionUtil;
@@ -268,18 +269,30 @@ public class WritingApiServlet extends BaseServlet {
         
         try {
             // 验证必填参数
-            if (request.getWritingType() == null || request.getWritingType().trim().isEmpty()) {
+            if (request.getMessages() == null || request.getMessages().isEmpty()) {
                 result.put("status", "failed");
-                result.put("message", "writingType参数必填");
+                result.put("message", "messages参数必填，至少需要一条用户消息");
                 responsePrint(resp, toJson(result));
                 return;
             }
             
-            if (request.getMessage() == null || request.getMessage().trim().isEmpty()) {
+            // 验证最后一条消息必须是用户消息
+            ChatMessage lastMessage = request.getMessages().get(request.getMessages().size() - 1);
+            if (lastMessage == null || lastMessage.getContent() == null || lastMessage.getContent().trim().isEmpty()) {
                 result.put("status", "failed");
-                result.put("message", "message参数必填");
+                result.put("message", "最后一条消息内容不能为空");
                 responsePrint(resp, toJson(result));
                 return;
+            }
+            
+            // 获取当前用户消息（最后一条）
+            String currentUserMessage = lastMessage.getContent();
+            
+            // 自动判断撰写类型（如果未提供）
+            String writingType = request.getWritingType();
+            if (writingType == null || writingType.trim().isEmpty()) {
+                writingType = ProcessingLevelDetector.detectWritingType(currentUserMessage);
+                logger.info("自动判断撰写类型: {} - {}", writingType, currentUserMessage);
             }
             
             // 获取或创建会话ID
@@ -290,13 +303,13 @@ public class WritingApiServlet extends BaseServlet {
                 chatSessionService.setSessionCategory(sessionId, request.getSessionCategory());
             }
             
-            // 获取处理层次，默认为RAG
-            String processingLevel = request.getProcessingLevel();
-            if (processingLevel == null || processingLevel.trim().isEmpty()) {
-                processingLevel = WritingTemplateManager.LEVEL_RAG;
-            }
+            // 自动判断处理层次
+            String processingLevel = ProcessingLevelDetector.detectProcessingLevel(
+                currentUserMessage, writingType);
             
-            // 获取会话历史
+            logger.info("自动判断处理层次: {} - {}", processingLevel, currentUserMessage);
+            
+            // 获取会话历史（用于上下文）
             List<ChatMessage> history = chatSessionService.getSessionHistory(sessionId);
             
             // 构建ChatCompletionRequest
@@ -308,17 +321,16 @@ public class WritingApiServlet extends BaseServlet {
             
             // 根据处理层次构建不同的提示词
             String systemPrompt = "";
-            String userMessage = request.getMessage();
             GetRagContext context = null;
             List<IndexSearchData> indexSearchDataList = null;
             
             if (WritingTemplateManager.LEVEL_RAG.equals(processingLevel)) {
                 // RAG层次：基本提问
-                systemPrompt = WritingTemplateManager.getRagPrompt(request.getWritingType());
+                systemPrompt = WritingTemplateManager.getRagPrompt(writingType);
                 chatCompletionRequest.setCategory(chatSessionService.getRagCategory(sessionId, request.getGlobalCategory()));
                 
                 // 检索知识库
-                String query = userMessage;
+                String query = currentUserMessage;
                 indexSearchDataList = chatSessionService.searchWithDualKnowledgeBase(
                     sessionId, request.getGlobalCategory(), query);
                 
@@ -331,7 +343,7 @@ public class WritingApiServlet extends BaseServlet {
                 chatCompletionRequest.setCategory(chatSessionService.getRagCategory(sessionId, request.getGlobalCategory()));
                 
                 // 检索知识库获取参考内容
-                String query = userMessage;
+                String query = currentUserMessage;
                 indexSearchDataList = chatSessionService.searchWithDualKnowledgeBase(
                     sessionId, request.getGlobalCategory(), query);
                 
@@ -342,8 +354,7 @@ public class WritingApiServlet extends BaseServlet {
                 }
                 
                 systemPrompt = WritingTemplateManager.getParagraphPrompt(
-                    request.getWritingType(), userMessage, contextStr);
-                // 用户消息作为需求描述
+                    writingType, currentUserMessage, contextStr);
                 
             } else if (WritingTemplateManager.LEVEL_DOCUMENT.equals(processingLevel)) {
                 // 文档生成层次：生成完整文档
@@ -351,7 +362,7 @@ public class WritingApiServlet extends BaseServlet {
                 
                 // 检索知识库获取申报要求或专利模板
                 String query = "申报要求 申报通知 申报指南";
-                if ("patent-document".equals(request.getWritingType())) {
+                if (ProcessingLevelDetector.WRITING_TYPE_PATENT.equals(writingType)) {
                     query = "专利模板 专利标准 专利要求";
                 }
                 indexSearchDataList = chatSessionService.searchWithDualKnowledgeBase(
@@ -365,16 +376,21 @@ public class WritingApiServlet extends BaseServlet {
                 
                 String templateType = request.getTemplateType();
                 if (templateType == null || templateType.trim().isEmpty()) {
-                    if ("patent-document".equals(request.getWritingType())) {
-                        templateType = request.getPatentType() != null ? request.getPatentType() : "发明专利";
+                    if (ProcessingLevelDetector.WRITING_TYPE_PATENT.equals(writingType)) {
+                        // 自动判断专利类型（如果未提供）
+                        String patentType = request.getPatentType();
+                        if (patentType == null || patentType.trim().isEmpty()) {
+                            patentType = ProcessingLevelDetector.detectPatentType(currentUserMessage);
+                            logger.info("自动判断专利类型: {} - {}", patentType, currentUserMessage);
+                        }
+                        templateType = patentType;
                     } else {
                         templateType = "国家科技计划项目申报书";
                     }
                 }
                 
                 systemPrompt = WritingTemplateManager.getDocumentPrompt(
-                    request.getWritingType(), templateType, contextStr);
-                userMessage = request.getMessage(); // 用户消息作为项目或专利信息
+                    writingType, templateType, contextStr);
             }
             
             // 构建消息列表
@@ -388,22 +404,38 @@ public class WritingApiServlet extends BaseServlet {
                 messages.add(systemMsg);
             }
             
-            // 添加历史消息（保留最近10条）
-            if (history != null && !history.isEmpty()) {
+            // 合并历史消息和请求中的消息
+            // 优先使用请求中的消息（如果提供了），否则使用会话历史
+            List<ChatMessage> conversationMessages = new ArrayList<>();
+            
+            if (request.getMessages() != null && request.getMessages().size() > 1) {
+                // 如果请求中提供了多条消息，使用请求中的消息（除了最后一条，因为最后一条是当前消息）
+                for (int i = 0; i < request.getMessages().size() - 1; i++) {
+                    ChatMessage msg = request.getMessages().get(i);
+                    ChatMessage chatMsg = new ChatMessage();
+                    chatMsg.setRole(msg.getRole() != null ? msg.getRole() : "user");
+                    chatMsg.setContent(msg.getContent());
+                    conversationMessages.add(chatMsg);
+                }
+            } else if (history != null && !history.isEmpty()) {
+                // 否则使用会话历史（保留最近10条）
                 int startIndex = Math.max(0, history.size() - 10);
                 for (int i = startIndex; i < history.size(); i++) {
                     ai.openai.pojo.ChatMessage histMsg = history.get(i);
                     ChatMessage msg = new ChatMessage();
                     msg.setRole(histMsg.getRole());
                     msg.setContent(histMsg.getContent());
-                    messages.add(msg);
+                    conversationMessages.add(msg);
                 }
             }
             
-            // 添加当前用户消息
+            // 添加历史消息到消息列表
+            messages.addAll(conversationMessages);
+            
+            // 添加当前用户消息（最后一条）
             ChatMessage userMsg = new ChatMessage();
             userMsg.setRole("user");
-            userMsg.setContent(userMessage);
+            userMsg.setContent(currentUserMessage);
             messages.add(userMsg);
             
             chatCompletionRequest.setMessages(messages);
@@ -437,7 +469,7 @@ public class WritingApiServlet extends BaseServlet {
                 String content = ChatCompletionUtil.getFirstAnswer(chatCompletionResult);
                 
                 // 保存到会话历史
-                chatSessionService.addMessage(sessionId, "user", userMessage);
+                chatSessionService.addMessage(sessionId, "user", currentUserMessage);
                 chatSessionService.addMessage(sessionId, "assistant", content);
                 
                 // 构建响应
@@ -464,7 +496,7 @@ public class WritingApiServlet extends BaseServlet {
                     String documentId = "doc_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
                     response.setDocumentId(documentId);
                     
-                    if ("patent-document".equals(request.getWritingType())) {
+                    if (ProcessingLevelDetector.WRITING_TYPE_PATENT.equals(writingType)) {
                         response.setTitle(extractTitle(content));
                     } else {
                         response.setTitle("科技项目申报书");

@@ -1481,12 +1481,14 @@ public class AITrainingServlet extends BaseServlet {
                             // 检查是否获取成功
                             String resultStatus = statusJson.getStr("status");
                             String exitCode = "";
+                            String isStatus ="";
                                 // 尝试从output字段提取exitCode
                                 String output = statusJson.getStr("output");
                                 if (output != null && output.contains(";")) {
                                     String[] parts = output.split(";");
                                     if (parts.length > 1) {
                                         exitCode = parts[1].trim();
+                                        isStatus = parts[0].trim();
                                     }
                                 }
                             // 如果exitCode大于0，则将containerStatus设置为failed
@@ -1495,6 +1497,8 @@ public class AITrainingServlet extends BaseServlet {
                                     int code = Integer.parseInt(exitCode);
                                     if (code > 0) {
                                         statusJson.put("containerStatus", "failed");
+                                    }else {
+                                        statusJson.put("containerStatus", isStatus);
                                     }
                                 } catch (NumberFormatException e) {
                                     log.warn("Invalid exitCode format: {}", exitCode);

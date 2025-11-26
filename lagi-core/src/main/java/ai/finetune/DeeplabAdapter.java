@@ -34,7 +34,7 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
 
     private static final String DEFAULT_DOCKER_IMAGE = "deeplabv3_trainer:last";
     private static final String DEFAULT_VOLUME_MOUNT = "/data/wangshuanglong:/app/data";
-    private static final String LOG_PATH_PREFIX = "/data/deeplab_train_logs/";
+    private static final String LOG_PATH_PREFIX = "/data/wangshuanglong/log/train/";
     private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     // 用于异步执行的线程池
@@ -1101,7 +1101,7 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
     }
 
     /**
-     * 添加DeepLab训练日志到数据库
+     * 添加DeepLab训练日志到数据库和文件
      */
     private void addDeeplabTrainingLog(String taskId, String logLevel, String logMessage) {
         String currentTime = getCurrentTime();
@@ -1110,6 +1110,10 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
         // 构造日志条目
         String logEntry = currentTime + " " + logLevel + " " + logMessage + "\n";
 
+        // 1. 写入到宿主机文件
+        writeLogToFile(logFilePath, logEntry);
+
+        // 2. 写入到数据库
         // 检查该任务是否已存在日志记录
         String checkSql = "SELECT COUNT(*) AS cnt FROM ai_training_logs WHERE task_id = ?";
 
@@ -1137,7 +1141,33 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
                         taskId, logLevel, logEntry, currentTime, logFilePath);
             }
         } catch (Exception e) {
-            log.error("添加训练日志失败: taskId={}, error={}", taskId, e.getMessage(), e);
+            log.error("添加训练日志到数据库失败: taskId={}, error={}", taskId, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 将日志写入到宿主机文件
+     * @param logFilePath 日志文件路径（宿主机路径）
+     * @param logEntry 日志条目
+     */
+    private void writeLogToFile(String logFilePath, String logEntry) {
+        try {
+            // 确保目录存在
+            String logDir = logFilePath.substring(0, logFilePath.lastIndexOf("/"));
+            String mkdirCommand = "mkdir -p " + logDir;
+            executeRemoteCommand(mkdirCommand);
+
+            // 使用 printf 更安全地写入文件，避免特殊字符问题
+            // 将日志内容进行 base64 编码，然后解码后写入，避免 shell 注入
+            String base64Encoded = java.util.Base64.getEncoder().encodeToString(logEntry.getBytes("UTF-8"));
+            String writeCommand = "echo " + base64Encoded + " | base64 -d >> " + logFilePath;
+            String result = executeRemoteCommand(writeCommand);
+
+            if (!isSuccess(result)) {
+                log.warn("写入日志文件失败: path={}, error={}", logFilePath, result);
+            }
+        } catch (Exception e) {
+            log.error("写入日志文件异常: path={}, error={}", logFilePath, e.getMessage(), e);
         }
     }
 

@@ -425,7 +425,11 @@ public class TrainingTaskRepository {
                 taskMap.put("datasetName", datasetName);
 
                 taskMap.put("epochs", task.get("epochs"));
+
                 String status = (String) task.get("status");
+                if (status != null && status.contains(";")) {
+                    status = status.split(";")[0];
+                }
                 taskMap.put("status", status);
                 taskMap.put("progress", task.get("progress"));
                 taskMap.put("currentEpoch", task.get("current_epoch"));

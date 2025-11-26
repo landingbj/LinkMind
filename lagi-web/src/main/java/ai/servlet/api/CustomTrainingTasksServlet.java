@@ -87,7 +87,10 @@ public class CustomTrainingTasksServlet extends BaseServlet {
 
             JsonObject templateObj = jsonNode.getAsJsonObject("template");
             TemplateInfoDto templateInfoDto = new TemplateInfoDto();
-            String templateId = templateObj.get("id").getAsString();
+
+            String templateId = templateObj.has("id") && !templateObj.get("id").isJsonNull()
+                    ? templateObj.get("id").getAsString()
+                    : java.util.UUID.randomUUID().toString();
             templateInfoDto.setTemplateId(templateId);
             templateInfoDto.setName(templateObj.get("name").getAsString());
             templateInfoDto.setDescription(templateObj.get("description").getAsString());
@@ -104,9 +107,9 @@ public class CustomTrainingTasksServlet extends BaseServlet {
             templateInfoDto.setUsageCount(templateObj.get("usageCount").getAsInt());
             templateInfoDto.setRating(templateObj.get("rating").getAsFloat());
             templateInfoDto.setIsPublic(templateObj.get("isPublic").getAsBoolean());
-
+            String tagsStr = templateInfoDto.getTags() == null ? "" : templateInfoDto.getTags().toString();
             //保存到数据库
-            String insertTemplateSql = "INSERT INTO template_info (template_id, name, description, type, category, difficulty," +
+            String insertTemplateSql = "INSERT INTO template_info (template_id, template_name, description, type, category, difficulty," +
                     "estimated_time, tags, is_built_in, usage_count, rating, is_public, created_at, updated_at) " +
                     "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
             getMysqlAdapter().executeUpdate(insertTemplateSql,
@@ -117,7 +120,7 @@ public class CustomTrainingTasksServlet extends BaseServlet {
                     templateInfoDto.getCategory(),
                     templateInfoDto.getDifficulty(),
                     templateInfoDto.getEstimatedTime(),
-                    templateInfoDto.getTags(),
+                    tagsStr,
                     templateInfoDto.getIsBuiltIn(),
                     templateInfoDto.getUsageCount(),
                     templateInfoDto.getRating(),
@@ -131,7 +134,7 @@ public class CustomTrainingTasksServlet extends BaseServlet {
                 for (var elem : jsonNode.getAsJsonArray("fields")) {
                     JsonObject f = elem.getAsJsonObject();
 
-                    String fieldId = f.get("id").getAsString();
+                    String fieldId = java.util.UUID.randomUUID().toString();
                     Integer sequence = f.has("sequence") && !f.get("sequence").isJsonNull()
                             ? f.get("sequence").getAsInt() : 0;
                     String description = f.get("description").getAsString();
@@ -171,12 +174,12 @@ public class CustomTrainingTasksServlet extends BaseServlet {
             }
 
             // 3. 构建返回结果
-            String templateIdResponse = "custom_" + templateId;
+            String templateIdResponse = templateId;
             Map<String, Object> data = new HashMap<>();
             data.put("templateId", templateIdResponse);
             data.put("name", templateObj.get("name").getAsString());
             // 查询创建时间
-            String selectCreatedAtSql = "SELECT created_at FROM template_info WHERE id = ?";
+            String selectCreatedAtSql = "SELECT created_at FROM template_info WHERE template_id = ?";
             List<Map<String, Object>> createdAtRows = getMysqlAdapter().select(selectCreatedAtSql, templateId);
             String createdAt = createdAtRows != null && !createdAtRows.isEmpty() && createdAtRows.get(0).get("created_at") != null
                     ? String.valueOf(createdAtRows.get(0).get("created_at")) : currentTime;
@@ -211,10 +214,13 @@ public class CustomTrainingTasksServlet extends BaseServlet {
         }
 
         try {
-            String fieldsSql = "SELECT * FROM template_field WHERE template_id = ? ORDER BY id ASC";
+            String fieldsSql = "SELECT * FROM template_field WHERE template_id = ? ORDER BY sequence ASC";
             List<Map<String, Object>> fieldRows = getMysqlAdapter().select(fieldsSql, templateIdParam);
 
-            result.put("template", fieldRows.get(0));
+            String templateSql = "SELECT * FROM template_info WHERE template_id = ?";
+            List<Map<String, Object>> templateRow = getMysqlAdapter().select(templateSql, templateIdParam);
+
+            result.put("template", templateRow != null && !templateRow.isEmpty() ? templateRow.get(0) : Collections.emptyMap());
             result.put("fields", fieldRows != null ? fieldRows : Collections.emptyList());
 
             resp.setStatus(200);

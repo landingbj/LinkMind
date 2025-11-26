@@ -4,6 +4,7 @@ import ai.common.utils.ObservableList;
 import ai.config.ContextLoader;
 import ai.config.pojo.DiscriminativeModelsConfig;
 import ai.finetune.YoloTrainerAdapter;
+import ai.finetune.DeeplabAdapter;
 import ai.finetune.repository.TrainingTaskRepository;
 import ai.servlet.BaseServlet;
 import cn.hutool.json.JSONObject;
@@ -46,6 +47,9 @@ public class AITrainingServlet extends BaseServlet {
     // 存储 YoloTrainer 实例（单例，向后兼容）
     public static YoloTrainerAdapter yoloTrainer;
 
+    // 存储 DeeplabAdapter 实例
+    public static DeeplabAdapter deeplabAdapter;
+
     // 存储任务 ID 到容器名称的映射
     private static final Map<String, String> taskContainerMap = new ConcurrentHashMap<>();
 
@@ -56,7 +60,7 @@ public class AITrainingServlet extends BaseServlet {
      * 检查训练服务是否可用
      */
     private boolean isTrainerAvailable() {
-        return yoloTrainer != null || !trainerMap.isEmpty();
+        return yoloTrainer != null || deeplabAdapter != null || !trainerMap.isEmpty();
     }
 
     /**
@@ -97,6 +101,9 @@ public class AITrainingServlet extends BaseServlet {
 
                 // 初始化 YOLO 模型训练器
                 initYoloTrainer(discriminativeConfig);
+
+                // 初始化 DeepLab 模型训练器
+                initDeeplabTrainer(discriminativeConfig);
 
                 // TODO: 在这里初始化其他模型的训练器
                 // initCenterNetTrainer(discriminativeConfig);
@@ -169,6 +176,60 @@ public class AITrainingServlet extends BaseServlet {
 
         } catch (Exception e) {
             log.error("YOLO 训练器初始化失败: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 初始化 DeepLab 训练器
+     */
+    private void initDeeplabTrainer(DiscriminativeModelsConfig discriminativeConfig) {
+        try {
+            DiscriminativeModelsConfig.DeeplabConfig deeplabConfig = discriminativeConfig.getDeeplab();
+
+            if (deeplabConfig == null) {
+                log.warn("DeepLab 配置(discriminative_models.deeplab)不存在");
+                return;
+            }
+
+            if (!Boolean.TRUE.equals(deeplabConfig.getEnable())) {
+                log.info("DeepLab 训练模块未启用(enable=false)");
+                return;
+            }
+
+            // 获取有效的 SSH 配置
+            DiscriminativeModelsConfig.SshConfig ssh = discriminativeConfig.getEffectiveSshConfig(deeplabConfig);
+            DiscriminativeModelsConfig.DockerConfig docker = deeplabConfig.getDocker();
+
+            // 验证配置
+            if (ssh == null || !ssh.isValid()) {
+                log.error("DeepLab SSH 配置不完整或无效");
+                return;
+            }
+
+            if (docker == null || !docker.isValid()) {
+                log.error("DeepLab Docker 配置不完整或无效");
+                return;
+            }
+
+            // 创建 DeeplabAdapter 实例
+            deeplabAdapter = new DeeplabAdapter();
+            deeplabAdapter.setRemoteServer(ssh.getHost(), ssh.getPort(), ssh.getUsername(), ssh.getPassword());
+
+            if (docker.getImage() != null) {
+                deeplabAdapter.setDockerImage(docker.getImage());
+            }
+            if (docker.getVolumeMount() != null) {
+                deeplabAdapter.setVolumeMount(docker.getVolumeMount());
+            }
+
+            // 注册到 trainerMap
+            trainerMap.put("deeplab", deeplabAdapter);
+            trainerMap.put("deeplabv3", deeplabAdapter); // deeplabv3 也使用同一个 adapter
+
+            log.info("✓ DeepLab 训练器初始化成功: {}:{}", ssh.getHost(), ssh.getPort());
+
+        } catch (Exception e) {
+            log.error("DeepLab 训练器初始化失败: {}", e.getMessage(), e);
         }
     }
 
@@ -473,6 +534,8 @@ public class AITrainingServlet extends BaseServlet {
             String result;
             if (trainer instanceof YoloTrainerAdapter) {
                 result = startYoloTraining((YoloTrainerAdapter) trainer, taskId, trackId, userId, config);
+            } else if (trainer instanceof DeeplabAdapter) {
+                result = startDeeplabTraining((DeeplabAdapter) trainer, taskId, trackId, userId, config);
             } else {
                 // TODO: 支持其他模型类型
                 resp.setStatus(501);
@@ -516,13 +579,23 @@ public class AITrainingServlet extends BaseServlet {
                     .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
                 response.put("timestamp", timestamp);
 
-                // 提取训练配置信息
+                // 提取训练配置信息（根据模型类型使用不同的参数名）
                 JSONObject trainConfig = new JSONObject();
-                trainConfig.put("dataset_path", config.getStr("data", ""));
-                trainConfig.put("model_path", config.getStr("model_path", ""));
-                trainConfig.put("epochs", config.getInt("epochs", 0));
-                trainConfig.put("batch", config.getInt("batch", 0));
-                trainConfig.put("imgsz", config.getInt("imgsz", 640));
+                if (modelName.contains("deeplab")) {
+                    // Deeplab 使用 dataset_path
+                    trainConfig.put("dataset_path", config.getStr("dataset_path", ""));
+                    trainConfig.put("model_path", config.getStr("model_path", ""));
+                    trainConfig.put("epochs", config.getInt("epochs", 0));
+                    trainConfig.put("freeze_batch_size", config.getInt("freeze_batch_size", 0));
+                    trainConfig.put("input_shape", config.getInt("input_shape", 512));
+                } else {
+                    // YOLO 使用 data
+                    trainConfig.put("dataset_path", config.getStr("data", ""));
+                    trainConfig.put("model_path", config.getStr("model_path", ""));
+                    trainConfig.put("epochs", config.getInt("epochs", 0));
+                    trainConfig.put("batch", config.getInt("batch", 0));
+                    trainConfig.put("imgsz", config.getInt("imgsz", 640));
+                }
 
                 // 判断是否使用GPU
                 String device = config.getStr("device", "cpu");
@@ -624,6 +697,97 @@ public class AITrainingServlet extends BaseServlet {
 
         trainConfig.put("exist_ok", config.getBool("exist_ok", true));
         trainConfig.put("name", config.getStr("name", "yolo_experiment_" + System.currentTimeMillis()));
+
+        return trainer.startTraining(taskId, trackId, trainConfig);
+    }
+
+    /**
+     * 启动 DeepLab 训练任务
+     */
+    private String startDeeplabTraining(DeeplabAdapter trainer, String taskId, String trackId, String userId, JSONObject config) {
+        // 从配置文件获取默认配置
+        ai.config.ContextLoader.loadContext();
+        ai.config.pojo.DiscriminativeModelsConfig discriminativeConfig = ai.config.ContextLoader.configuration
+                .getModelPlatformConfig()
+                .getDiscriminativeModelsConfig();
+
+        Map<String, Object> defaultConfig = null;
+        if (discriminativeConfig != null && discriminativeConfig.getDeeplab() != null) {
+            defaultConfig = discriminativeConfig.getDeeplab().getDefaultConfig();
+        }
+
+        // 构建训练配置
+        JSONObject trainConfig = new JSONObject();
+        trainConfig.put("the_train_type", "train");
+        trainConfig.put("task_id", taskId);
+        trainConfig.put("track_id", trackId);
+        trainConfig.put("model_name", config.getStr("model_name", "deeplabv3")); // 传递模型名称
+        trainConfig.put("train_log_file", config.getStr("train_log_file", "/app/data/train_" + taskId + ".log"));
+
+        // 添加用户ID到配置中
+        if (userId != null && !userId.isEmpty()) {
+            trainConfig.put("user_id", userId);
+        }
+
+        // 添加模板ID到配置中
+        Integer templateId = config.getInt("template_id");
+        if (templateId != null) {
+            trainConfig.put("template_id", templateId);
+        }
+
+        // 使用配置文件的默认值
+        if (defaultConfig != null && !defaultConfig.isEmpty()) {
+            trainConfig.put("model_path", config.getStr("model_path", (String) defaultConfig.get("model_path")));
+            trainConfig.put("dataset_path", config.getStr("dataset_path", (String) defaultConfig.get("dataset_path")));
+            trainConfig.put("num_classes", config.getInt("num_classes", (Integer) defaultConfig.get("num_classes")));
+            trainConfig.put("backbone", config.getStr("backbone", (String) defaultConfig.get("backbone")));
+            trainConfig.put("input_shape", config.getInt("input_shape", (Integer) defaultConfig.get("input_shape")));
+            trainConfig.put("freeze_train", config.getBool("freeze_train", (Boolean) defaultConfig.get("freeze_train")));
+            trainConfig.put("freeze_epoch", config.getInt("freeze_epoch", (Integer) defaultConfig.get("freeze_epoch")));
+            trainConfig.put("freeze_batch_size", config.getInt("freeze_batch_size", (Integer) defaultConfig.get("freeze_batch_size")));
+            trainConfig.put("epochs", config.getInt("epochs", (Integer) defaultConfig.get("epochs")));
+            trainConfig.put("un_freeze_batch_size", config.getInt("un_freeze_batch_size", (Integer) defaultConfig.get("un_freeze_batch_size")));
+            trainConfig.put("cuda", config.getBool("cuda", (Boolean) defaultConfig.get("cuda")));
+            trainConfig.put("distributed", config.getBool("distributed", (Boolean) defaultConfig.get("distributed")));
+            trainConfig.put("fp16", config.getBool("fp16", (Boolean) defaultConfig.get("fp16")));
+            trainConfig.put("save_dir", config.getStr("save_dir", (String) defaultConfig.get("save_dir")));
+            trainConfig.put("save_period", config.getInt("save_period", (Integer) defaultConfig.get("save_period")));
+            trainConfig.put("eval_flag", config.getBool("eval_flag", (Boolean) defaultConfig.get("eval_flag")));
+            trainConfig.put("eval_period", config.getInt("eval_period", (Integer) defaultConfig.get("eval_period")));
+            trainConfig.put("focal_loss", config.getBool("focal_loss", (Boolean) defaultConfig.get("focal_loss")));
+            trainConfig.put("num_workers", config.getInt("num_workers", (Integer) defaultConfig.get("num_workers")));
+            trainConfig.put("optimizer_type", config.getStr("optimizer_type", (String) defaultConfig.get("optimizer_type")));
+            trainConfig.put("momentum", config.getDouble("momentum", (Double) defaultConfig.get("momentum")));
+            trainConfig.put("weight_decay", config.getDouble("weight_decay", (Double) defaultConfig.get("weight_decay")));
+            trainConfig.put("init_lr", config.getDouble("init_lr", (Double) defaultConfig.get("init_lr")));
+            trainConfig.put("min_lr", config.getDouble("min_lr", (Double) defaultConfig.get("min_lr")));
+        } else {
+            // 使用默认值
+            trainConfig.put("model_path", config.getStr("model_path", "/app/data/models/deeplab_mobilenetv2.pth"));
+            trainConfig.put("dataset_path", config.getStr("dataset_path", "/app/data/datasets/deeplabv3/VOCdevkit"));
+            trainConfig.put("num_classes", config.getInt("num_classes", 21));
+            trainConfig.put("backbone", config.getStr("backbone", "mobilenet"));
+            trainConfig.put("input_shape", config.getInt("input_shape", 512));
+            trainConfig.put("freeze_train", config.getBool("freeze_train", true));
+            trainConfig.put("freeze_epoch", config.getInt("freeze_epoch", 50));
+            trainConfig.put("freeze_batch_size", config.getInt("freeze_batch_size", 8));
+            trainConfig.put("epochs", config.getInt("epochs", 100));
+            trainConfig.put("un_freeze_batch_size", config.getInt("un_freeze_batch_size", 4));
+            trainConfig.put("cuda", config.getBool("cuda", true));
+            trainConfig.put("distributed", config.getBool("distributed", false));
+            trainConfig.put("fp16", config.getBool("fp16", false));
+            trainConfig.put("save_dir", config.getStr("save_dir", "/app/data/save_dir"));
+            trainConfig.put("save_period", config.getInt("save_period", 5));
+            trainConfig.put("eval_flag", config.getBool("eval_flag", true));
+            trainConfig.put("eval_period", config.getInt("eval_period", 5));
+            trainConfig.put("focal_loss", config.getBool("focal_loss", false));
+            trainConfig.put("num_workers", config.getInt("num_workers", 4));
+            trainConfig.put("optimizer_type", config.getStr("optimizer_type", "sgd"));
+            trainConfig.put("momentum", config.getDouble("momentum", 0.9));
+            trainConfig.put("weight_decay", config.getDouble("weight_decay", 1e-4));
+            trainConfig.put("init_lr", config.getDouble("init_lr", 7e-3));
+            trainConfig.put("min_lr", config.getDouble("min_lr", 7e-5));
+        }
 
         return trainer.startTraining(taskId, trackId, trainConfig);
     }
@@ -904,7 +1068,24 @@ public class AITrainingServlet extends BaseServlet {
             String jsonBody = requestToJson(req);
             JSONObject config = JSONUtil.parseObj(jsonBody);
 
-            String result = yoloTrainer.evaluate(config);
+            // 根据模型名称选择对应的训练器
+            String modelName = config.getStr("model_name", "");
+            Object trainer = trainerMap.get(modelName.toLowerCase());
+
+            String result;
+            if (trainer instanceof DeeplabAdapter) {
+                result = ((DeeplabAdapter) trainer).evaluate(config);
+            } else if (trainer instanceof YoloTrainerAdapter || trainer == null) {
+                // 默认使用 yoloTrainer（向后兼容）
+                result = yoloTrainer.evaluate(config);
+            } else {
+                resp.setStatus(501);
+                Map<String, String> error = new HashMap<>();
+                error.put("error", "模型 " + modelName + " 的评估功能尚未实现");
+                responsePrint(resp, toJson(error));
+                return;
+            }
+
             responsePrint(resp, result);
 
         } catch (Exception e) {
@@ -926,7 +1107,24 @@ public class AITrainingServlet extends BaseServlet {
             String jsonBody = requestToJson(req);
             JSONObject config = JSONUtil.parseObj(jsonBody);
 
-            String result = yoloTrainer.predict(config);
+            // 根据模型名称选择对应的训练器
+            String modelName = config.getStr("model_name", "");
+            Object trainer = trainerMap.get(modelName.toLowerCase());
+
+            String result;
+            if (trainer instanceof DeeplabAdapter) {
+                result = ((DeeplabAdapter) trainer).predict(config);
+            } else if (trainer instanceof YoloTrainerAdapter || trainer == null) {
+                // 默认使用 yoloTrainer（向后兼容）
+                result = yoloTrainer.predict(config);
+            } else {
+                resp.setStatus(501);
+                Map<String, String> error = new HashMap<>();
+                error.put("error", "模型 " + modelName + " 的预测功能尚未实现");
+                responsePrint(resp, toJson(error));
+                return;
+            }
+
             responsePrint(resp, result);
 
         } catch (Exception e) {
@@ -948,7 +1146,24 @@ public class AITrainingServlet extends BaseServlet {
             String jsonBody = requestToJson(req);
             JSONObject config = JSONUtil.parseObj(jsonBody);
 
-            String result = yoloTrainer.exportModel(config);
+            // 根据模型名称选择对应的训练器
+            String modelName = config.getStr("model_name", "");
+            Object trainer = trainerMap.get(modelName.toLowerCase());
+
+            String result;
+            if (trainer instanceof DeeplabAdapter) {
+                result = ((DeeplabAdapter) trainer).exportModel(config);
+            } else if (trainer instanceof YoloTrainerAdapter || trainer == null) {
+                // 默认使用 yoloTrainer（向后兼容）
+                result = yoloTrainer.exportModel(config);
+            } else {
+                resp.setStatus(501);
+                Map<String, String> error = new HashMap<>();
+                error.put("error", "模型 " + modelName + " 的导出功能尚未实现");
+                responsePrint(resp, toJson(error));
+                return;
+            }
+
             responsePrint(resp, result);
 
         } catch (Exception e) {
@@ -1140,8 +1355,10 @@ public class AITrainingServlet extends BaseServlet {
             result.put("total", trainerMap.size());
 
             Map<String, String> modelInfo = new HashMap<>();
-            modelInfo.put("yolov8", "球员检测 - YOLOv8");
-            modelInfo.put("yolov11", "足球检测 - YOLOv11");
+            modelInfo.put("yolov8", "目标检测 - YOLOv8");
+            modelInfo.put("yolov11", "目标检测 - YOLOv11");
+            modelInfo.put("deeplab", "语义分割 - DeepLabV3");
+            modelInfo.put("deeplabv3", "语义分割 - DeepLabV3");
             // TODO: 添加其他模型信息
 
             result.put("model_descriptions", modelInfo);

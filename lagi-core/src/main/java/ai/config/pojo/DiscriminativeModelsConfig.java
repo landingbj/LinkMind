@@ -26,6 +26,12 @@ public class DiscriminativeModelsConfig {
     private YoloConfig yolo;
     
     /**
+     * DeepLab 语义分割模型配置
+     */
+    @JsonProperty("deeplab")
+    private DeeplabConfig deeplab;
+    
+    /**
      * 图像分类模型配置（预留）
      */
     @JsonProperty("image_classification")
@@ -50,6 +56,15 @@ public class DiscriminativeModelsConfig {
     public static class YoloConfig extends ModelTrainingConfig {
         // 继承所有 ModelTrainingConfig 的字段
         // 可以在此添加 YOLO 特有的配置项
+    }
+    
+    /**
+     * DeepLab 模型特定配置
+     */
+    @Data
+    public static class DeeplabConfig extends ModelTrainingConfig {
+        // 继承所有 ModelTrainingConfig 的字段
+        // 可以在此添加 DeepLab 特有的配置项
     }
     
     /**

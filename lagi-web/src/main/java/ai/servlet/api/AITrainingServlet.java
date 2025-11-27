@@ -5,12 +5,19 @@ import ai.config.ContextLoader;
 import ai.config.pojo.DiscriminativeModelsConfig;
 import ai.finetune.YoloTrainerAdapter;
 import ai.finetune.DeeplabAdapter;
+import ai.finetune.SSHConnectionManager;
 import ai.finetune.repository.TrainingTaskRepository;
 import ai.servlet.BaseServlet;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.google.gson.Gson;
+import com.jcraft.jsch.ChannelExec;
+import com.jcraft.jsch.Session;
 import lombok.extern.slf4j.Slf4j;
+
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
@@ -297,6 +304,9 @@ public class AITrainingServlet extends BaseServlet {
                 break;
             case "detail":
                 handledetail(req, resp);
+                break;
+            case "resources":
+                handleGetResourceUsage(req, resp);
                 break;
             default:
                 resp.setStatus(404);
@@ -1592,6 +1602,262 @@ public class AITrainingServlet extends BaseServlet {
             log.error("批量获取训练任务状态失败", e);
         }
         return resultList;
+    }
+
+    /**
+     * 获取训练任务对应的容器资源利用率（CPU、内存、GPU、显存）
+     * GET /ai/training/resources?taskId=xxx
+     */
+    private void handleGetResourceUsage(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+
+        try {
+            String taskId = req.getParameter("taskId");
+            if (taskId == null || taskId.isEmpty()) {
+                resp.setStatus(400);
+                Map<String, String> error = new HashMap<>();
+                error.put("error", "缺少 taskId 参数");
+                responsePrint(resp, toJson(error));
+                return;
+            }
+
+            // 获取容器ID或容器名称
+            String containerId = getContainerIdFromTaskId(taskId);
+            if (containerId == null || containerId.isEmpty()) {
+                resp.setStatus(404);
+                Map<String, String> error = new HashMap<>();
+                error.put("error", "未找到任务对应的容器: " + taskId);
+                responsePrint(resp, toJson(error));
+                return;
+            }
+
+            // 获取资源使用率
+            String result = getContainerResourceUsage(containerId, taskId);
+            responsePrint(resp, result);
+
+        } catch (Exception e) {
+            log.error("获取容器资源使用率失败", e);
+            resp.setStatus(500);
+            Map<String, String> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            responsePrint(resp, toJson(error));
+        }
+    }
+
+    /**
+     * 根据任务ID获取容器ID或容器名称
+     */
+    private String getContainerIdFromTaskId(String taskId) {
+        // 1. 先从 taskContainerMap 中查找
+        String containerName = taskContainerMap.get(taskId);
+        if (containerName != null && !containerName.isEmpty()) {
+            return containerName;
+        }
+
+        // 2. 从数据库查询
+        try {
+                TrainingTaskRepository repository = yoloTrainer.getRepository();
+                Map<String, Object> taskDetail = repository.getTaskDetailByTaskId(taskId);
+                if (taskDetail != null) {
+                    String containerId = (String) taskDetail.get("container_id");
+                    String containerNameFromDb = (String) taskDetail.get("container_name");
+
+                    // 优先使用 container_id，如果没有则使用 container_name
+                    if (containerId != null && !containerId.isEmpty()) {
+                        return containerId;
+                    }
+                    if (containerNameFromDb != null && !containerNameFromDb.isEmpty()) {
+                        return containerNameFromDb;
+                    }
+                }
+        } catch (Exception e) {
+            log.warn("从数据库查询容器信息失败: taskId={}, error={}", taskId, e.getMessage());
+        }
+
+        return null;
+    }
+
+    /**
+     * 获取容器资源利用率（CPU、内存、GPU、显存）
+     */
+    private String getContainerResourceUsage(String containerId, String taskId) {
+        try {
+            JSONObject result = new JSONObject();
+            result.put("taskId", taskId);
+            result.put("containerId", containerId);
+            result.put("timestamp", System.currentTimeMillis());
+
+            // 获取可用的训练器来执行命令（复用SSH连接池）
+            // 优先使用 yoloTrainer，如果为 null 则使用 deeplabAdapter
+            ai.finetune.DockerTrainerAbstract trainer = yoloTrainer != null ? yoloTrainer : deeplabAdapter;
+            if (trainer == null) {
+                throw new RuntimeException("训练器未初始化");
+            }
+
+            // 1. 获取 CPU 和内存使用率
+            JSONObject cpuMemory = getContainerCpuMemoryUsage(containerId, trainer);
+            result.put("cpu", cpuMemory.getObj("cpu"));
+            result.put("memory", cpuMemory.getObj("memory"));
+
+            // 2. 获取 GPU 和显存使用率
+            JSONObject gpuUsage = getContainerGpuUsage(containerId, trainer);
+            result.put("gpu", gpuUsage.getObj("gpu"));
+            result.put("gpuMemory", gpuUsage.getObj("gpuMemory"));
+
+            result.put("status", "success");
+            return result.toString();
+
+        } catch (Exception e) {
+            log.error("获取容器资源利用率失败: containerId={}, taskId={}", containerId, taskId, e);
+            JSONObject error = new JSONObject();
+            error.put("status", "error");
+            error.put("message", "获取容器资源利用率失败");
+            error.put("error", e.getMessage());
+            error.put("containerId", containerId);
+            error.put("taskId", taskId);
+            return error.toString();
+        }
+    }
+
+    /**
+     * 获取容器的 CPU 和内存使用率
+     * 使用 docker stats 命令
+     */
+    private JSONObject getContainerCpuMemoryUsage(String containerId, ai.finetune.DockerTrainerAbstract trainer) {
+        JSONObject result = new JSONObject();
+
+        try {
+            // 使用 docker stats --no-stream 获取一次性统计数据
+            String command = "docker stats --no-stream --format " +
+                           "\"{{.Container}},{{.CPUPerc}},{{.MemUsage}},{{.MemPerc}}\" " + containerId;
+
+            String commandResult = trainer.executeRemoteCommand(command);
+            JSONObject resultJson = JSONUtil.parseObj(commandResult);
+
+            if ("success".equals(resultJson.getStr("status"))) {
+                String output = resultJson.getStr("output", "").trim();
+                if (!output.isEmpty()) {
+                    // 解析输出：containerID,15.23%,1.5GiB / 8GiB,18.75%
+                    String[] parts = output.trim().split(",");
+
+                    if (parts.length >= 4) {
+                        // CPU 使用率
+                        String cpuPerc = parts[1].replace("%", "").trim();
+                        JSONObject cpu = new JSONObject();
+                        cpu.put("percent", Double.parseDouble(cpuPerc));
+                        cpu.put("usage", parts[1].trim());
+                        result.put("cpu", cpu);
+
+                        // 内存使用率
+                        String memUsage = parts[2].trim(); // "1.5GiB / 8GiB"
+                        String memPerc = parts[3].replace("%", "").trim();
+
+                        JSONObject memory = new JSONObject();
+                        memory.put("percent", Double.parseDouble(memPerc));
+                        memory.put("usage", memUsage);
+
+                        // 解析具体的内存使用量
+                        if (memUsage.contains("/")) {
+                            String[] memParts = memUsage.split("/");
+                            memory.put("used", memParts[0].trim());
+                            memory.put("total", memParts[1].trim());
+                        }
+
+                        result.put("memory", memory);
+                    }
+                }
+            }
+
+        } catch (Exception e) {
+            log.error("获取容器 CPU/内存使用率失败: containerId={}", containerId, e);
+            result.put("cpu", createErrorObject("无法获取"));
+            result.put("memory", createErrorObject("无法获取"));
+        }
+
+        return result;
+    }
+
+    /**
+     * 获取容器的 GPU 和显存使用率
+     * 通过在容器内执行 nvidia-smi 命令
+     */
+    private JSONObject getContainerGpuUsage(String containerId, ai.finetune.DockerTrainerAbstract trainer) {
+        JSONObject result = new JSONObject();
+
+        try {
+            // 在容器内执行 nvidia-smi 命令获取 GPU 信息
+            String command = "docker exec " + containerId +
+                           " nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total," +
+                           "temperature.gpu,power.draw --format=csv,noheader,nounits";
+
+            String commandResult = trainer.executeRemoteCommand(command);
+            JSONObject resultJson = JSONUtil.parseObj(commandResult);
+
+            if ("success".equals(resultJson.getStr("status"))) {
+                String output = resultJson.getStr("output", "").trim();
+                if (!output.isEmpty()) {
+                    // 解析输出：15, 1024, 8192, 65, 120.5
+                    String[] parts = output.trim().split(",");
+
+                    if (parts.length >= 3) {
+                        // GPU 利用率
+                        double gpuUtil = Double.parseDouble(parts[0].trim());
+                        JSONObject gpu = new JSONObject();
+                        gpu.put("percent", gpuUtil);
+                        gpu.put("usage", gpuUtil + "%");
+
+                        if (parts.length >= 4) {
+                            gpu.put("temperature", Double.parseDouble(parts[3].trim()));
+                        }
+                        if (parts.length >= 5) {
+                            gpu.put("powerDraw", Double.parseDouble(parts[4].trim()));
+                        }
+
+                        result.put("gpu", gpu);
+
+                        // 显存使用率
+                        double memUsed = Double.parseDouble(parts[1].trim()); // MB
+                        double memTotal = Double.parseDouble(parts[2].trim()); // MB
+                        double memPercent = (memUsed / memTotal) * 100;
+
+                        JSONObject gpuMemory = new JSONObject();
+                        gpuMemory.put("percent", Math.round(memPercent * 100.0) / 100.0);
+                        gpuMemory.put("used", Math.round(memUsed) + " MiB");
+                        gpuMemory.put("total", Math.round(memTotal) + " MiB");
+                        gpuMemory.put("usedMB", Math.round(memUsed));
+                        gpuMemory.put("totalMB", Math.round(memTotal));
+                        gpuMemory.put("usage", String.format("%.1f MiB / %.1f MiB", memUsed, memTotal));
+
+                        result.put("gpuMemory", gpuMemory);
+                    }
+                } else {
+                    // 如果没有 GPU 或无法获取
+                    result.put("gpu", createErrorObject("无 GPU 或无法访问"));
+                    result.put("gpuMemory", createErrorObject("无 GPU 或无法访问"));
+                }
+            } else {
+                // 命令执行失败，可能没有 GPU
+                result.put("gpu", createErrorObject("无 GPU 或无法访问"));
+                result.put("gpuMemory", createErrorObject("无 GPU 或无法访问"));
+            }
+
+        } catch (Exception e) {
+            log.warn("获取容器 GPU 使用率失败（可能无 GPU）: containerId={}", containerId, e);
+            result.put("gpu", createErrorObject("无 GPU 或无法访问"));
+            result.put("gpuMemory", createErrorObject("无 GPU 或无法访问"));
+        }
+
+        return result;
+    }
+
+    /**
+     * 创建错误对象
+     */
+    private JSONObject createErrorObject(String message) {
+        JSONObject error = new JSONObject();
+        error.put("error", message);
+        error.put("percent", 0);
+        return error;
     }
 
 }

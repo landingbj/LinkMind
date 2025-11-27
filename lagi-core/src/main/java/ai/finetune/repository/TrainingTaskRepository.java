@@ -456,9 +456,6 @@ public class TrainingTaskRepository {
             result.put("total", total);
             result.put("statusCount", statusCountMap);
             result.put("status", "SUCCESS");
-
-            log.info("查询任务列表成功: page={}, pageSize={}, total={}", page, pageSize, total);
-
         } catch (Exception e) {
             log.error("查询任务列表失败: page={}, pageSize={}", page, pageSize, e);
             result.put("status", "ERROR");

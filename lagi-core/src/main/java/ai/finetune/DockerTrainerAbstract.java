@@ -174,37 +174,23 @@ public abstract class DockerTrainerAbstract {
     // ==================== 公共方法 ====================
 
     /**
-     * 执行远程命令
+     * 执行远程命令（使用连接池复用SSH连接）
      * @param command 要执行的命令
      * @return 执行结果（JSON字符串）
      */
-    protected String executeRemoteCommand(String command) {
+    public String executeRemoteCommand(String command) {
         StringBuilder output = new StringBuilder();
         StringBuilder errorOutput = new StringBuilder();
         Session session = null;
         ChannelExec channelExec = null;
+        boolean sessionFromPool = false;
 
         try {
-            // 创建 JSch 对象
-            JSch jsch = new JSch();
-
-            // 创建 SSH 会话
-            log.info("连接到远程服务器: {}:{}", sshHost, sshPort);
-            session = jsch.getSession(sshUsername, sshHost, sshPort);
-            session.setPassword(sshPassword);
-
-            // 配置 SSH 连接
-            Properties config = new Properties();
-            config.put("StrictHostKeyChecking", "no");
-            config.put("server_host_key", "rsa-sha2-512,rsa-sha2-256,ssh-ed25519,ssh-rsa,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521");
-            config.put("PubkeyAcceptedAlgorithms", "rsa-sha2-512,rsa-sha2-256,ssh-ed25519,ssh-rsa,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521");
-
-            session.setConfig(config);
-            session.setTimeout(sshTimeout);
-
-            // 连接
-            session.connect();
-            log.info("SSH 连接成功");
+            // 使用SSH连接管理器获取或创建连接（复用连接池）
+            SSHConnectionManager connectionManager = SSHConnectionManager.getInstance();
+            session = connectionManager.getSession(sshHost, sshPort, sshUsername, sshPassword);
+            sessionFromPool = true;
+            log.debug("使用SSH连接池中的连接: {}:{}", sshHost, sshPort);
 
             // 打开执行通道
             channelExec = (ChannelExec) session.openChannel("exec");
@@ -216,14 +202,14 @@ public abstract class DockerTrainerAbstract {
 
             // 执行命令
             channelExec.connect();
-            log.info("执行远程命令: {}", command);
+            log.debug("执行远程命令: {}", command);
 
             // 读取标准输出
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(in))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     output.append(line).append("\n");
-                    log.info("远程输出: {}", line);
+                    log.debug("远程输出: {}", line);
                 }
             }
 
@@ -238,7 +224,7 @@ public abstract class DockerTrainerAbstract {
 
             // 获取退出状态
             int exitCode = channelExec.getExitStatus();
-            log.info("远程命令退出码: {}", exitCode);
+            log.debug("远程命令退出码: {}", exitCode);
 
             JSONObject result = new JSONObject();
             if (exitCode == 0) {
@@ -266,13 +252,9 @@ public abstract class DockerTrainerAbstract {
             errorResult.put("server", sshHost + ":" + sshPort);
             return errorResult.toString();
         } finally {
-            // 关闭连接
+            // 只关闭ChannelExec，不关闭Session（保留在连接池中复用）
             if (channelExec != null && channelExec.isConnected()) {
                 channelExec.disconnect();
-            }
-            if (session != null && session.isConnected()) {
-                session.disconnect();
-                log.info("SSH 连接已关闭");
             }
         }
     }

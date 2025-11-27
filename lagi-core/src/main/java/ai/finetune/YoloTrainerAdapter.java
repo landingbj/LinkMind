@@ -850,29 +850,17 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
     }
 
     /**
-     * 流式执行远程命令（用于长时间运行的命令）
+     * 流式执行远程命令（用于长时间运行的命令，使用连接池复用SSH连接）
      */
     private void executeRemoteCommandStream(String command, ObservableList<String> outputStream) {
         com.jcraft.jsch.Session session = null;
         com.jcraft.jsch.ChannelExec channelExec = null;
 
         try {
-            // 创建 JSch 对象
-            com.jcraft.jsch.JSch jsch = new com.jcraft.jsch.JSch();
-
-            // 创建 SSH 会话
-            session = jsch.getSession(sshUsername, sshHost, sshPort);
-            session.setPassword(sshPassword);
-
-            // 配置 SSH 连接
-            java.util.Properties config = new java.util.Properties();
-            config.put("StrictHostKeyChecking", "no");
-            config.put("server_host_key", "rsa-sha2-512,rsa-sha2-256,ssh-ed25519,ssh-rsa,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521");
-            config.put("PubkeyAcceptedAlgorithms", "rsa-sha2-512,rsa-sha2-256,ssh-ed25519,ssh-rsa,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521");
-
-            session.setConfig(config);
-            session.setTimeout(300000);
-            session.connect();
+            // 使用SSH连接管理器获取或创建连接（复用连接池）
+            SSHConnectionManager connectionManager = SSHConnectionManager.getInstance();
+            session = connectionManager.getSession(sshHost, sshPort, sshUsername, sshPassword);
+            log.debug("使用SSH连接池中的连接（流式执行）: {}:{}", sshHost, sshPort);
 
             // 打开执行通道
             channelExec = (com.jcraft.jsch.ChannelExec) session.openChannel("exec");
@@ -905,13 +893,11 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
             log.error("流式执行远程命令失败", e);
             outputStream.add("[ERROR] " + e.getMessage());
         } finally {
-            // 关闭连接
+            // 只关闭ChannelExec，不关闭Session（保留在连接池中复用）
             if (channelExec != null && channelExec.isConnected()) {
                 channelExec.disconnect();
             }
-            if (session != null && session.isConnected()) {
-                session.disconnect();
-            }
+            // Session保留在连接池中，不在这里关闭
         }
     }
 

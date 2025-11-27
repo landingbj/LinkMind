@@ -90,6 +90,22 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
                 config.put("track_id", trackId);
             }
 
+            // 如果没有指定训练日志文件路径，自动生成到指定目录
+            if (!config.containsKey("train_log_file") || config.getStr("train_log_file") == null || config.getStr("train_log_file").isEmpty()) {
+                String trainLogFile = "/app/data/log/train/" + taskId + ".log";
+                config.put("train_log_file", trainLogFile);
+            }
+
+            // 确保训练日志目录存在（容器内路径）
+            String trainLogFile = config.getStr("train_log_file");
+            if (trainLogFile != null && trainLogFile.startsWith("/app/data")) {
+                String logDir = trainLogFile.substring(0, trainLogFile.lastIndexOf("/"));
+                // 通过 SSH 在宿主机上创建目录（宿主机路径）
+                String hostLogDir = logDir.replace("/app/data", "/data/wangshuanglong");
+                String mkdirCommand = "mkdir -p " + hostLogDir;
+                executeRemoteCommand(mkdirCommand);
+            }
+
             // 构建 Docker 命令
             StringBuilder dockerCmd = new StringBuilder();
             dockerCmd.append("docker run -d"); // -d 后台运行
@@ -132,7 +148,12 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
 
                 // 更新数据库为运行中状态
                 updateYoloTaskStatus(taskId, "running", "训练任务启动成功");
-                addYoloTrainingLog(taskId, "INFO", "容器启动成功，开始训练");
+
+                String hostLogFilePath = null;
+                if (trainLogFile != null && trainLogFile.startsWith("/app/data")) {
+                    hostLogFilePath = trainLogFile.replace("/app/data", "/data/wangshuanglong");
+                }
+                addYoloTrainingLog(taskId, "INFO", "容器启动成功，开始训练", hostLogFilePath);
 
                 return resultJson.toString();
             } else {
@@ -902,7 +923,8 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
     public JSONObject createDefaultTrainConfig() {
         JSONObject config = new JSONObject();
         config.put("the_train_type", "train");
-        config.put("train_log_file", "/app/data/train.log");
+        // 默认训练日志文件路径（会在启动训练时根据 taskId 自动设置）
+        config.put("train_log_file", "/app/data/log/train/train.log");
         config.put("model_path", "/app/data/models/yolo11n.pt");
         config.put("data", "/app/data/datasets/YoloV8/data.yaml");
         config.put("epochs", 1);
@@ -1395,19 +1417,31 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
     }
 
     /**
-     * 添加YOLO训练日志到数据库和文件
+     * 添加YOLO训练日志到数据库（仅系统操作日志）
+     * @param taskId 任务ID
+     * @param logLevel 日志级别
+     * @param logMessage 日志消息
      */
     private void addYoloTrainingLog(String taskId, String logLevel, String logMessage) {
+        addYoloTrainingLog(taskId, logLevel, logMessage, null);
+    }
+
+    /**
+     * 添加YOLO训练日志到数据库（仅系统操作日志）
+     * @param taskId 任务ID
+     * @param logLevel 日志级别
+     * @param logMessage 日志消息
+     * @param trainingLogFilePath 训练日志文件路径（宿主机路径，可选，用于记录实际训练日志文件位置）
+     */
+    private void addYoloTrainingLog(String taskId, String logLevel, String logMessage, String trainingLogFilePath) {
         String currentTime = getCurrentTime();
-        String logFilePath = LOG_PATH_PREFIX + taskId + ".log";
+        // 使用实际的训练日志文件路径（如果提供），否则使用默认路径
+        String logFilePath = trainingLogFilePath != null ? trainingLogFilePath : (LOG_PATH_PREFIX + taskId + ".log");
 
         // 构造日志条目
         String logEntry = currentTime + " " + logLevel + " " + logMessage + "\n";
 
-        // 1. 写入到宿主机文件
-        writeLogToFile(logFilePath, logEntry);
-
-        // 2. 写入到数据库
+        // 只写入到数据库（系统操作日志）
         // 检查该任务是否已存在日志记录
         String checkSql = "SELECT COUNT(*) AS cnt FROM ai_training_logs WHERE task_id = ?";
 
@@ -1420,14 +1454,24 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
             }
 
             if (logCount > 0) {
-                // 若存在日志，追加内容
-                String updateSql = "UPDATE ai_training_logs " +
-                        "SET log_message = CONCAT(IFNULL(log_message, ''), ?), " +
-                        "log_level = ?, " +
-                        "created_at = ? " +
-                        "WHERE task_id = ?";
-                // 使用数据库连接池执行更新操作
-                getMysqlAdapter().executeUpdate(updateSql, logEntry, logLevel, currentTime, taskId);
+                // 若存在日志，追加内容，同时更新训练日志文件路径（如果提供了新的路径）
+                String updateSql;
+                if (trainingLogFilePath != null) {
+                    updateSql = "UPDATE ai_training_logs " +
+                            "SET log_message = CONCAT(IFNULL(log_message, ''), ?), " +
+                            "log_level = ?, " +
+                            "log_file_path = ?, " +
+                            "created_at = ? " +
+                            "WHERE task_id = ?";
+                    getMysqlAdapter().executeUpdate(updateSql, logEntry, logLevel, logFilePath, currentTime, taskId);
+                } else {
+                    updateSql = "UPDATE ai_training_logs " +
+                            "SET log_message = CONCAT(IFNULL(log_message, ''), ?), " +
+                            "log_level = ?, " +
+                            "created_at = ? " +
+                            "WHERE task_id = ?";
+                    getMysqlAdapter().executeUpdate(updateSql, logEntry, logLevel, currentTime, taskId);
+                }
             } else {
                 // 若不存在日志，直接插入新记录
                 String insertSql = "INSERT INTO ai_training_logs " +
@@ -1446,31 +1490,6 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
         }
     }
 
-    /**
-     * 将日志写入到宿主机文件
-     * @param logFilePath 日志文件路径（宿主机路径）
-     * @param logEntry 日志条目
-     */
-    private void writeLogToFile(String logFilePath, String logEntry) {
-        try {
-            // 确保目录存在
-            String logDir = logFilePath.substring(0, logFilePath.lastIndexOf("/"));
-            String mkdirCommand = "mkdir -p " + logDir;
-            executeRemoteCommand(mkdirCommand);
-
-            // 使用 printf 更安全地写入文件，避免特殊字符问题
-            // 将日志内容进行 base64 编码，然后解码后写入，避免 shell 注入
-            String base64Encoded = java.util.Base64.getEncoder().encodeToString(logEntry.getBytes("UTF-8"));
-            String writeCommand = "echo " + base64Encoded + " | base64 -d >> " + logFilePath;
-            String result = executeRemoteCommand(writeCommand);
-
-            if (!isSuccess(result)) {
-                log.warn("写入日志文件失败: path={}, error={}", logFilePath, result);
-            }
-        } catch (Exception e) {
-            log.error("写入日志文件异常: path={}, error={}", logFilePath, e.getMessage(), e);
-        }
-    }
 
     // ==================== 工具辅助方法 ====================
 

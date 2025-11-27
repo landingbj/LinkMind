@@ -661,7 +661,12 @@ public class AITrainingServlet extends BaseServlet {
         trainConfig.put("task_id", taskId);
         trainConfig.put("track_id", trackId);
         trainConfig.put("model_name", config.getStr("model_name", "yolov8")); // 传递模型名称
-        trainConfig.put("train_log_file", config.getStr("train_log_file", "/app/data/train.log"));
+        // 如果用户没有指定 train_log_file，不设置默认值，让 YoloTrainerAdapter 根据 taskId 自动生成
+        String userTrainLogFile = config.getStr("train_log_file");
+        if (userTrainLogFile != null && !userTrainLogFile.isEmpty()) {
+            trainConfig.put("train_log_file", userTrainLogFile);
+        }
+        // 如果没有指定，不设置 train_log_file，让适配器根据 taskId 自动生成到 /app/data/log/train/{taskId}.log
 
         // 添加用户ID到配置中
         if (userId != null && !userId.isEmpty()) {
@@ -722,7 +727,12 @@ public class AITrainingServlet extends BaseServlet {
         trainConfig.put("task_id", taskId);
         trainConfig.put("track_id", trackId);
         trainConfig.put("model_name", config.getStr("model_name", "deeplabv3")); // 传递模型名称
-        trainConfig.put("train_log_file", config.getStr("train_log_file", "/app/data/train_" + taskId + ".log"));
+        // 如果用户没有指定 train_log_file，不设置默认值，让 DeeplabAdapter 根据 taskId 自动生成
+        String userTrainLogFile = config.getStr("train_log_file");
+        if (userTrainLogFile != null && !userTrainLogFile.isEmpty()) {
+            trainConfig.put("train_log_file", userTrainLogFile);
+        }
+        // 如果没有指定，不设置 train_log_file，让适配器根据 taskId 自动生成到 /app/data/log/train/{taskId}.log
 
         // 添加用户ID到配置中
         if (userId != null && !userId.isEmpty()) {

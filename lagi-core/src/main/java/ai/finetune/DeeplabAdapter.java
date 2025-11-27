@@ -83,8 +83,21 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
             if (!config.containsKey("track_id")) {
                 config.put("track_id", trackId);
             }
-            if (!config.containsKey("train_log_file")) {
-                config.put("train_log_file", "/app/data/train_" + taskId + ".log");
+
+            // 如果没有指定训练日志文件路径，自动生成到指定目录
+            if (!config.containsKey("train_log_file") || config.getStr("train_log_file") == null || config.getStr("train_log_file").isEmpty()) {
+                String trainLogFile = "/app/data/log/train/" + taskId + ".log";
+                config.put("train_log_file", trainLogFile);
+            }
+
+            // 确保训练日志目录存在（容器内路径）
+            String trainLogFile = config.getStr("train_log_file");
+            if (trainLogFile != null && trainLogFile.startsWith("/app/data")) {
+                String logDir = trainLogFile.substring(0, trainLogFile.lastIndexOf("/"));
+                // 通过 SSH 在宿主机上创建目录（宿主机路径）
+                String hostLogDir = logDir.replace("/app/data", "/data/wangshuanglong");
+                String mkdirCommand = "mkdir -p " + hostLogDir;
+                executeRemoteCommand(mkdirCommand);
             }
 
             // 构建 Docker 命令
@@ -132,7 +145,13 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
 
                 // 更新数据库为运行中状态
                 updateDeeplabTaskStatus(taskId, "running", "训练任务启动成功");
-                addDeeplabTrainingLog(taskId, "INFO", "容器启动成功，开始训练");
+
+                // 获取训练日志文件路径（宿主机路径），用于记录到数据库
+                String hostLogFilePath = null;
+                if (trainLogFile != null && trainLogFile.startsWith("/app/data")) {
+                    hostLogFilePath = trainLogFile.replace("/app/data", "/data/wangshuanglong");
+                }
+                addDeeplabTrainingLog(taskId, "INFO", "容器启动成功，开始训练", hostLogFilePath);
 
                 return resultJson.toString();
             } else {
@@ -793,7 +812,8 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
     public JSONObject createDefaultTrainConfig() {
         JSONObject config = new JSONObject();
         config.put("the_train_type", "train");
-        config.put("train_log_file", "/app/data/train.log");
+        // 默认训练日志文件路径（会在启动训练时根据 taskId 自动设置）
+        config.put("train_log_file", "/app/data/log/train/train.log");
         config.put("model_path", "/app/data/models/deeplab_mobilenetv2.pth");
         config.put("dataset_path", "/app/data/datasets/deeplabv3/VOCdevkit");
         config.put("freeze_train", true);
@@ -1101,19 +1121,28 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
     }
 
     /**
-     * 添加DeepLab训练日志到数据库和文件
+     * 添加DeepLab训练日志到数据库（仅系统操作日志）
      */
     private void addDeeplabTrainingLog(String taskId, String logLevel, String logMessage) {
+        addDeeplabTrainingLog(taskId, logLevel, logMessage, null);
+    }
+
+    /**
+     * 添加DeepLab训练日志到数据库（仅系统操作日志）
+     * @param taskId 任务ID
+     * @param logLevel 日志级别
+     * @param logMessage 日志消息
+     * @param trainingLogFilePath 训练日志文件路径（宿主机路径，可选，用于记录实际训练日志文件位置）
+     */
+    private void addDeeplabTrainingLog(String taskId, String logLevel, String logMessage, String trainingLogFilePath) {
         String currentTime = getCurrentTime();
-        String logFilePath = LOG_PATH_PREFIX + taskId + ".log";
+        // 使用实际的训练日志文件路径（如果提供），否则使用默认路径
+        String logFilePath = trainingLogFilePath != null ? trainingLogFilePath : (LOG_PATH_PREFIX + taskId + ".log");
 
         // 构造日志条目
         String logEntry = currentTime + " " + logLevel + " " + logMessage + "\n";
 
-        // 1. 写入到宿主机文件
-        writeLogToFile(logFilePath, logEntry);
-
-        // 2. 写入到数据库
+        // 只写入到数据库（系统操作日志）
         // 检查该任务是否已存在日志记录
         String checkSql = "SELECT COUNT(*) AS cnt FROM ai_training_logs WHERE task_id = ?";
 
@@ -1142,32 +1171,6 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
             }
         } catch (Exception e) {
             log.error("添加训练日志到数据库失败: taskId={}, error={}", taskId, e.getMessage(), e);
-        }
-    }
-
-    /**
-     * 将日志写入到宿主机文件
-     * @param logFilePath 日志文件路径（宿主机路径）
-     * @param logEntry 日志条目
-     */
-    private void writeLogToFile(String logFilePath, String logEntry) {
-        try {
-            // 确保目录存在
-            String logDir = logFilePath.substring(0, logFilePath.lastIndexOf("/"));
-            String mkdirCommand = "mkdir -p " + logDir;
-            executeRemoteCommand(mkdirCommand);
-
-            // 使用 printf 更安全地写入文件，避免特殊字符问题
-            // 将日志内容进行 base64 编码，然后解码后写入，避免 shell 注入
-            String base64Encoded = java.util.Base64.getEncoder().encodeToString(logEntry.getBytes("UTF-8"));
-            String writeCommand = "echo " + base64Encoded + " | base64 -d >> " + logFilePath;
-            String result = executeRemoteCommand(writeCommand);
-
-            if (!isSuccess(result)) {
-                log.warn("写入日志文件失败: path={}, error={}", logFilePath, result);
-            }
-        } catch (Exception e) {
-            log.error("写入日志文件异常: path={}, error={}", logFilePath, e.getMessage(), e);
         }
     }
 

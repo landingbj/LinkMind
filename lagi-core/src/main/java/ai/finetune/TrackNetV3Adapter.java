@@ -15,8 +15,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * DeepLab 语义分割模型训练实现类
- * 基于 Docker 容器进行 DeepLab 模型的训练、评估、预测等操作
+ * TrackNetV3 轨迹跟踪模型训练实现类
+ * 基于 Docker 容器进行 TrackNetV3 模型的训练、评估、预测等操作
  * 所有操作都会入库记录
  *
  * 代码结构：
@@ -25,12 +25,11 @@ import java.util.concurrent.Executors;
  * 3. 训练任务核心方法
  * 4. Docker容器管理方法
  * 5. 日志流式获取方法
- * 6. 配置创建方法（业务配置）
- * 7. 数据库操作方法（CRUD）
- * 8. 工具辅助方法
+ * 6. 数据库操作方法（CRUD）
+ * 7. 工具辅助方法
  */
 @Slf4j
-public class DeeplabAdapter extends DockerTrainerAbstract {
+public class TrackNetV3Adapter extends DockerTrainerAbstract {
 
     private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -49,7 +48,7 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
     /**
      * 默认构造函数
      */
-    public DeeplabAdapter() {
+    public TrackNetV3Adapter() {
         super();
         loadConfigFromYaml();
     }
@@ -61,7 +60,7 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
      * @param sshUsername SSH用户名
      * @param sshPassword SSH密码
      */
-    public DeeplabAdapter(String sshHost, int sshPort, String sshUsername, String sshPassword) {
+    public TrackNetV3Adapter(String sshHost, int sshPort, String sshUsername, String sshPassword) {
         super(sshHost, sshPort, sshUsername, sshPassword);
         loadConfigFromYaml();
     }
@@ -79,12 +78,12 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
                 ai.config.pojo.DiscriminativeModelsConfig discriminativeConfig =
                     ai.config.ContextLoader.configuration.getModelPlatformConfig().getDiscriminativeModelsConfig();
 
-                ai.config.pojo.DiscriminativeModelsConfig.DeeplabConfig deeplabConfig =
-                    discriminativeConfig.getDeeplab();
+                ai.config.pojo.DiscriminativeModelsConfig.TrackNetV3Config tracknetv3Config =
+                    discriminativeConfig.getTracknetv3();
 
-                if (deeplabConfig != null && deeplabConfig.getDocker() != null) {
+                if (tracknetv3Config != null && tracknetv3Config.getDocker() != null) {
                     ai.config.pojo.DiscriminativeModelsConfig.DockerConfig dockerConfig =
-                        deeplabConfig.getDocker();
+                        tracknetv3Config.getDocker();
 
                     // 加载Docker配置
                     if (cn.hutool.core.util.StrUtil.isNotBlank(dockerConfig.getImage())) {
@@ -99,15 +98,26 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
                         this.logPathPrefix = dockerConfig.getLogPathPrefix();
                     }
 
-                    log.info("从lagi.yml加载DeepLab训练器配置成功");
+                    // 加载SSH配置（如果存在）
+                    ai.config.pojo.DiscriminativeModelsConfig.SshConfig sshConfig =
+                        discriminativeConfig.getEffectiveSshConfig(tracknetv3Config);
+                    if (sshConfig != null && sshConfig.isValid()) {
+                        this.sshHost = sshConfig.getHost();
+                        this.sshPort = sshConfig.getPort();
+                        this.sshUsername = sshConfig.getUsername();
+                        this.sshPassword = sshConfig.getPassword();
+                    }
+
+                    log.info("从lagi.yml加载TrackNetV3训练器配置成功");
                 } else {
-                    log.warn("lagi.yml中未配置deeplab.docker，使用默认值");
+                    log.warn("lagi.yml中未配置tracknetv3.docker，使用默认值");
                 }
             }
         } catch (Exception e) {
             log.warn("加载配置失败，使用默认值: {}", e.getMessage());
         }
     }
+
     /**
      * 启动训练任务
      */
@@ -158,17 +168,16 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
 
             // 构建 Docker 命令
             StringBuilder dockerCmd = new StringBuilder();
-//            dockerCmd.append("docker run --rm -d"); // -d 后台运行
             dockerCmd.append("docker run -d"); // -d 后台运行
 
             // 添加容器名称，便于后续管理
-            String containerName = generateContainerName("deeplab_train");
+            String containerName = generateContainerName("tracknetv3_train");
             dockerCmd.append(" --name ").append(containerName);
 
             // GPU 支持
             dockerCmd.append(" --gpus all");
 
-            // 共享内存大小（Deeplab 需要）
+            // 共享内存大小（TrackNetV3 需要）
             dockerCmd.append(" --shm-size=2g");
 
             // 数据卷挂载
@@ -189,7 +198,7 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
             // 保存启动任务到数据库
             saveStartTrainingToDB(taskId, trackId, containerName, config);
             // 添加启动训练任务日志
-            addDeeplabTrainingLog(taskId, "INFO", "DeepLab训练任务已启动，容器名称: " + containerName);
+            addTrackNetV3TrainingLog(taskId, "INFO", "TrackNetV3训练任务已启动，容器名称: " + containerName);
 
             String result = executeRemoteCommand(fullCommand);
 
@@ -201,7 +210,7 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
                 resultJson.put("trackId", trackId);
 
                 // 更新数据库为运行中状态
-                updateDeeplabTaskStatus(taskId, "running", "训练任务启动成功");
+                updateTrackNetV3TaskStatus(taskId, "running", "训练任务启动成功");
 
                 // 获取训练日志文件路径（宿主机路径），用于记录到数据库
                 String hostLogFilePath = null;
@@ -215,13 +224,13 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
                         }
                     }
                 }
-                addDeeplabTrainingLog(taskId, "INFO", "容器启动成功，开始训练", hostLogFilePath);
+                addTrackNetV3TrainingLog(taskId, "INFO", "容器启动成功，开始训练", hostLogFilePath);
 
                 return resultJson.toString();
             } else {
                 // 启动失败，更新数据库状态
-                updateDeeplabTaskStatus(taskId, "failed", "容器启动失败");
-                addDeeplabTrainingLog(taskId, "ERROR", "容器启动失败: " + result);
+                updateTrackNetV3TaskStatus(taskId, "failed", "容器启动失败");
+                addTrackNetV3TrainingLog(taskId, "ERROR", "容器启动失败: " + result);
             }
 
             return result;
@@ -229,8 +238,8 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
         } catch (Exception e) {
             log.error("启动训练任务失败", e);
             // 更新数据库状态为失败
-            updateDeeplabTaskStatus(taskId, "failed", "启动训练任务异常: " + e.getMessage());
-            addDeeplabTrainingLog(taskId, "ERROR", "启动训练任务失败: " + e.getMessage());
+            updateTrackNetV3TaskStatus(taskId, "failed", "启动训练任务异常: " + e.getMessage());
+            addTrackNetV3TrainingLog(taskId, "ERROR", "启动训练任务失败: " + e.getMessage());
 
             JSONObject errorResult = new JSONObject();
             errorResult.put("status", "error");
@@ -238,16 +247,6 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
             errorResult.put("error", e.getMessage());
             return errorResult.toString();
         }
-    }
-
-    /**
-     * 便捷方法：使用默认配置启动训练
-     */
-    public String startTraining(String taskId, String trackId) {
-        JSONObject config = createDefaultTrainConfig();
-        config.put("task_id", taskId);
-        config.put("track_id", trackId);
-        return startTraining(taskId, trackId, config);
     }
 
     /**
@@ -268,7 +267,7 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
 
             // 保存评估任务到数据库
             saveEvaluateTaskToDB(taskId, config);
-            addDeeplabTrainingLog(taskId, "INFO", "开始执行评估任务");
+            addTrackNetV3TrainingLog(taskId, "INFO", "开始执行评估任务");
 
             // 构建 Docker 命令
             StringBuilder dockerCmd = new StringBuilder();
@@ -294,19 +293,19 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
 
             // 更新评估任务状态
             if (isSuccess(result)) {
-                updateDeeplabTaskStatus(taskId, "completed", "评估任务完成");
-                addDeeplabTrainingLog(taskId, "INFO", "评估任务完成");
+                updateTrackNetV3TaskStatus(taskId, "completed", "评估任务完成");
+                addTrackNetV3TrainingLog(taskId, "INFO", "评估任务完成");
             } else {
-                updateDeeplabTaskStatus(taskId, "failed", "评估任务失败");
-                addDeeplabTrainingLog(taskId, "ERROR", "评估任务失败: " + result);
+                updateTrackNetV3TaskStatus(taskId, "failed", "评估任务失败");
+                addTrackNetV3TrainingLog(taskId, "ERROR", "评估任务失败: " + result);
             }
 
             return result;
 
         } catch (Exception e) {
             log.error("执行评估任务失败", e);
-            updateDeeplabTaskStatus(taskId, "failed", "评估任务异常: " + e.getMessage());
-            addDeeplabTrainingLog(taskId, "ERROR", "评估任务异常: " + e.getMessage());
+            updateTrackNetV3TaskStatus(taskId, "failed", "评估任务异常: " + e.getMessage());
+            addTrackNetV3TrainingLog(taskId, "ERROR", "评估任务异常: " + e.getMessage());
 
             JSONObject errorResult = new JSONObject();
             errorResult.put("status", "error");
@@ -314,14 +313,6 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
             errorResult.put("error", e.getMessage());
             return errorResult.toString();
         }
-    }
-
-    /**
-     * 便捷方法：使用默认配置执行评估
-     */
-    public String evaluate() {
-        JSONObject config = createDefaultEvaluateConfig();
-        return evaluate(config);
     }
 
     /**
@@ -342,7 +333,7 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
 
             // 保存预测任务到数据库
             savePredictTaskToDB(taskId, config);
-            addDeeplabTrainingLog(taskId, "INFO", "开始执行预测任务");
+            addTrackNetV3TrainingLog(taskId, "INFO", "开始执行预测任务");
 
             // 构建 Docker 命令
             StringBuilder dockerCmd = new StringBuilder();
@@ -368,19 +359,19 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
 
             // 更新预测任务状态
             if (isSuccess(result)) {
-                updateDeeplabTaskStatus(taskId, "completed", "预测任务完成");
-                addDeeplabTrainingLog(taskId, "INFO", "预测任务完成");
+                updateTrackNetV3TaskStatus(taskId, "completed", "预测任务完成");
+                addTrackNetV3TrainingLog(taskId, "INFO", "预测任务完成");
             } else {
-                updateDeeplabTaskStatus(taskId, "failed", "预测任务失败");
-                addDeeplabTrainingLog(taskId, "ERROR", "预测任务失败: " + result);
+                updateTrackNetV3TaskStatus(taskId, "failed", "预测任务失败");
+                addTrackNetV3TrainingLog(taskId, "ERROR", "预测任务失败: " + result);
             }
 
             return result;
 
         } catch (Exception e) {
             log.error("执行预测任务失败", e);
-            updateDeeplabTaskStatus(taskId, "failed", "预测任务异常: " + e.getMessage());
-            addDeeplabTrainingLog(taskId, "ERROR", "预测任务异常: " + e.getMessage());
+            updateTrackNetV3TaskStatus(taskId, "failed", "预测任务异常: " + e.getMessage());
+            addTrackNetV3TrainingLog(taskId, "ERROR", "预测任务异常: " + e.getMessage());
 
             JSONObject errorResult = new JSONObject();
             errorResult.put("status", "error");
@@ -388,14 +379,6 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
             errorResult.put("error", e.getMessage());
             return errorResult.toString();
         }
-    }
-
-    /**
-     * 便捷方法：使用默认配置执行预测
-     */
-    public String predict() {
-        JSONObject config = createDefaultPredictConfig();
-        return predict(config);
     }
 
     /**
@@ -416,7 +399,7 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
 
             // 保存导出任务到数据库
             saveExportTaskToDB(taskId, config);
-            addDeeplabTrainingLog(taskId, "INFO", "开始导出模型");
+            addTrackNetV3TrainingLog(taskId, "INFO", "开始导出模型");
 
             // 构建 Docker 命令
             StringBuilder dockerCmd = new StringBuilder();
@@ -442,19 +425,19 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
 
             // 更新导出任务状态
             if (isSuccess(result)) {
-                updateDeeplabTaskStatus(taskId, "completed", "模型导出完成");
-                addDeeplabTrainingLog(taskId, "INFO", "模型导出完成");
+                updateTrackNetV3TaskStatus(taskId, "completed", "模型导出完成");
+                addTrackNetV3TrainingLog(taskId, "INFO", "模型导出完成");
             } else {
-                updateDeeplabTaskStatus(taskId, "failed", "模型导出失败");
-                addDeeplabTrainingLog(taskId, "ERROR", "模型导出失败: " + result);
+                updateTrackNetV3TaskStatus(taskId, "failed", "模型导出失败");
+                addTrackNetV3TrainingLog(taskId, "ERROR", "模型导出失败: " + result);
             }
 
             return result;
 
         } catch (Exception e) {
             log.error("导出模型失败", e);
-            updateDeeplabTaskStatus(taskId, "failed", "模型导出异常: " + e.getMessage());
-            addDeeplabTrainingLog(taskId, "ERROR", "模型导出异常: " + e.getMessage());
+            updateTrackNetV3TaskStatus(taskId, "failed", "模型导出异常: " + e.getMessage());
+            addTrackNetV3TrainingLog(taskId, "ERROR", "模型导出异常: " + e.getMessage());
 
             JSONObject errorResult = new JSONObject();
             errorResult.put("status", "error");
@@ -462,14 +445,6 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
             errorResult.put("error", e.getMessage());
             return errorResult.toString();
         }
-    }
-
-    /**
-     * 便捷方法：使用默认配置导出模型
-     */
-    public String exportModel() {
-        JSONObject config = createDefaultExportConfig();
-        return exportModel(config);
     }
 
     /**
@@ -485,13 +460,13 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
         if (isSuccess(result)) {
             // 更新数据库状态为暂停
             if (taskId != null) {
-                updateDeeplabTaskStatus(taskId, "paused", "容器已暂停");
-                addDeeplabTrainingLog(taskId, "INFO", "容器已暂停: " + containerId);
+                updateTrackNetV3TaskStatus(taskId, "paused", "容器已暂停");
+                addTrackNetV3TrainingLog(taskId, "INFO", "容器已暂停: " + containerId);
             }
         } else {
             // 暂停失败，记录日志
             if (taskId != null) {
-                addDeeplabTrainingLog(taskId, "ERROR", "暂停容器失败: " + result);
+                addTrackNetV3TrainingLog(taskId, "ERROR", "暂停容器失败: " + result);
             }
         }
 
@@ -511,13 +486,13 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
         if (isSuccess(result)) {
             // 更新数据库状态为运行中
             if (taskId != null) {
-                updateDeeplabTaskStatus(taskId, "running", "容器已恢复运行");
-                addDeeplabTrainingLog(taskId, "INFO", "容器已恢复运行: " + containerId);
+                updateTrackNetV3TaskStatus(taskId, "running", "容器已恢复运行");
+                addTrackNetV3TrainingLog(taskId, "INFO", "容器已恢复运行: " + containerId);
             }
         } else {
             // 恢复失败，记录日志
             if (taskId != null) {
-                addDeeplabTrainingLog(taskId, "ERROR", "恢复容器失败: " + result);
+                addTrackNetV3TrainingLog(taskId, "ERROR", "恢复容器失败: " + result);
             }
         }
 
@@ -538,13 +513,13 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
             // 更新数据库状态为已停止，并记录结束时间
             if (taskId != null) {
                 String endTime = getCurrentTime();
-                updateDeeplabTaskStopStatus(taskId, endTime);
-                addDeeplabTrainingLog(taskId, "INFO", "容器已停止: " + containerId);
+                updateTrackNetV3TaskStopStatus(taskId, endTime);
+                addTrackNetV3TrainingLog(taskId, "INFO", "容器已停止: " + containerId);
             }
         } else {
             // 停止失败，记录日志
             if (taskId != null) {
-                addDeeplabTrainingLog(taskId, "ERROR", "停止容器失败: " + result);
+                addTrackNetV3TrainingLog(taskId, "ERROR", "停止容器失败: " + result);
             }
         }
 
@@ -564,13 +539,13 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
         if (isSuccess(result)) {
             // 软删除数据库记录
             if (taskId != null) {
-                deleteDeeplabTask(taskId);
-                addDeeplabTrainingLog(taskId, "INFO", "容器已删除: " + containerId);
+                deleteTrackNetV3Task(taskId);
+                addTrackNetV3TrainingLog(taskId, "INFO", "容器已删除: " + containerId);
             }
         } else {
             // 删除失败，记录日志
             if (taskId != null) {
-                addDeeplabTrainingLog(taskId, "ERROR", "删除容器失败: " + result);
+                addTrackNetV3TrainingLog(taskId, "ERROR", "删除容器失败: " + result);
             }
         }
 
@@ -601,8 +576,8 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
                             // 容器已退出且退出码不为0，表示任务失败
                             String taskId = getTaskIdByContainerId(containerId);
                             if (taskId != null) {
-                                updateDeeplabTaskStatus(taskId, "failed", "容器异常退出，退出码: " + exitCode);
-                                addDeeplabTrainingLog(taskId, "ERROR", "容器异常退出，退出码: " + exitCode);
+                                updateTrackNetV3TaskStatus(taskId, "failed", "容器异常退出，退出码: " + exitCode);
+                                addTrackNetV3TrainingLog(taskId, "ERROR", "容器异常退出，退出码: " + exitCode);
                             }
                         }
                     } catch (NumberFormatException e) {
@@ -619,86 +594,6 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
 
 
 
-    // ==================== 配置创建方法（业务配置） ====================
-
-    /**
-     * 创建默认训练配置
-     */
-    public JSONObject createDefaultTrainConfig() {
-        JSONObject config = new JSONObject();
-        config.put("the_train_type", "train");
-        // 默认训练日志文件路径（会在启动训练时根据 taskId 自动设置）
-        config.put("train_log_file", "/app/data/log/train/train.log");
-        config.put("model_path", "/app/data/models/deeplab_mobilenetv2.pth");
-        config.put("dataset_path", "/app/data/datasets/deeplabv3/VOCdevkit");
-        config.put("freeze_train", true);
-        config.put("freeze_epoch", 50);
-        config.put("freeze_batch_size", 8);
-        config.put("epochs", 100);
-        config.put("un_freeze_batch_size", 4);
-        config.put("cuda", true);
-        config.put("distributed", false);
-        config.put("fp16", false);
-        config.put("num_classes", 21);
-        config.put("backbone", "mobilenet");
-        config.put("input_shape", 512);
-        config.put("save_dir", "/app/data/save_dir");
-        config.put("save_period", 5);
-        config.put("eval_flag", true);
-        config.put("eval_period", 5);
-        config.put("focal_loss", false);
-        config.put("num_workers", 4);
-        config.put("optimizer_type", "sgd");
-        config.put("momentum", 0.9);
-        config.put("weight_decay", 1e-4);
-        config.put("init_lr", 7e-3);
-        config.put("min_lr", 7e-5);
-        return config;
-    }
-
-    /**
-     * 创建默认评估配置
-     */
-    public JSONObject createDefaultEvaluateConfig() {
-        JSONObject config = new JSONObject();
-        config.put("the_train_type", "valuate");
-        config.put("train_log_file", "/app/data/valuate.log");
-        config.put("model_path", "/app/data/models/deeplab_mobilenetv2.pth");
-        config.put("dataset_path", "/app/data/datasets/deeplabv3/VOCdevkit");
-        config.put("num_classes", 21);
-        config.put("cuda", true);
-        return config;
-    }
-
-    /**
-     * 创建默认预测配置
-     */
-    public JSONObject createDefaultPredictConfig() {
-        JSONObject config = new JSONObject();
-        config.put("the_train_type", "predict");
-        config.put("train_log_file", "/app/data/predict.log");
-        config.put("model_path", "/app/data/models/deeplab_mobilenetv2.pth");
-        config.put("image_path", "/app/data/test.jpg");
-        config.put("save_path", "/app/data/predict_result.jpg");
-        config.put("mix_type", 0);
-        config.put("cuda", true);
-        return config;
-    }
-
-    /**
-     * 创建默认导出配置
-     */
-    public JSONObject createDefaultExportConfig() {
-        JSONObject config = new JSONObject();
-        config.put("the_train_type", "export");
-        config.put("train_log_file", "/app/data/export.log");
-        config.put("model_path", "/app/data/models/deeplab_mobilenetv2.pth");
-        config.put("export_dir", "/app/data/models/export/");
-        config.put("format", "onnx");
-        config.put("cuda", false);
-        return config;
-    }
-
     // ==================== 数据库操作方法（CRUD） ====================
 
     /**
@@ -706,7 +601,7 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
      */
     private static MysqlAdapter getMysqlAdapter() {
         if (mysqlAdapter == null) {
-            synchronized (DeeplabAdapter.class) {
+            synchronized (TrackNetV3Adapter.class) {
                 if (mysqlAdapter == null) {
                     mysqlAdapter = new MysqlAdapter("mysql");
                     log.info("数据库连接池已初始化");
@@ -721,7 +616,7 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
      */
     private static ModelConfigManager getModelConfigManager() {
         if (modelConfigManager == null) {
-            synchronized (DeeplabAdapter.class) {
+            synchronized (TrackNetV3Adapter.class) {
                 if (modelConfigManager == null) {
                     modelConfigManager = new ModelConfigManager(getMysqlAdapter());
                     modelConfigManager.loadConfigsFromDatabase();
@@ -752,23 +647,23 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
         // 从配置中读取基本信息
-        String modelName = config.getStr("model_name", "deeplabv3");
+        String modelName = config.getStr("model_name", "tracknetv3");
         String modelCategory = getModelCategory(modelName, config);
         String modelFramework = getModelFramework(modelName, config);
-        String datasetPath = config.getStr("dataset_path", "");
+        String datasetPath = config.getStr("data_dir", "");
         String modelPath = config.getStr("model_path", "");
         Integer epochs = config.getInt("epochs", null);
-        Integer batchSize = config.getInt("freeze_batch_size", null);
-        String inputShape = String.valueOf(config.getInt("input_shape", 512));
-        String cuda = config.getBool("cuda", true) ? "0" : "cpu";
-        String optimizer = config.getStr("optimizer_type", "sgd");
+        Integer batchSize = config.getInt("batch_size", null);
+        String inputShape = String.valueOf(config.getInt("num_frame", 3));
+        String cuda = config.getBool("use_gpu", true) ? "0" : "cpu";
+        String optimizer = "adam"; // TrackNetV3 默认使用 adam
         String userId = config.getStr("user_id", null);
 
         try {
             getMysqlAdapter().executeUpdate(sql,
                     taskId, trackId, modelName, modelCategory, modelFramework,
                     "train", containerName, "", dockerImage,
-                    cuda, config.getBool("cuda", true) ? 1 : 0,
+                    cuda, config.getBool("use_gpu", true) ? 1 : 0,
                     datasetPath, modelPath, epochs, batchSize, inputShape, optimizer,
                     "starting", "0%", 0, currentTime, currentTime, 0, userId, config.toString());
 
@@ -790,17 +685,17 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
         try {
-            String modelName = config.getStr("model_name", "deeplabv3");
+            String modelName = config.getStr("model_name", "tracknetv3");
             String modelCategory = getModelCategory(modelName, config);
             String modelFramework = getModelFramework(modelName, config);
-            String datasetPath = config.getStr("dataset_path", "");
+            String datasetPath = config.getStr("data_dir", "");
             String modelPath = config.getStr("model_path", "");
-            String inputShape = String.valueOf(config.getInt("input_shape", 512));
+            String inputShape = String.valueOf(config.getInt("num_frames", 3));
             String currentTime = getCurrentTime();
 
             getMysqlAdapter().executeUpdate(sql,
                     taskId, "", modelName, modelCategory, modelFramework,
-                    "evaluate", "", datasetPath, modelPath, inputShape, "sgd",
+                    "evaluate", "", datasetPath, modelPath, inputShape, "adam",
                     "running", "0%", 0, currentTime, currentTime, 0, config.toString());
 
             log.info("评估任务已保存到数据库: taskId={}, modelName={}, category={}, framework={}",
@@ -821,16 +716,16 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
         try {
-            String modelName = config.getStr("model_name", "deeplabv3");
+            String modelName = config.getStr("model_name", "tracknetv3");
             String modelCategory = getModelCategory(modelName, config);
             String modelFramework = getModelFramework(modelName, config);
             String modelPath = config.getStr("model_path", "");
-            String cuda = config.getBool("cuda", true) ? "0" : "cpu";
+            String cuda = config.getBool("use_gpu", true) ? "0" : "cpu";
             String currentTime = getCurrentTime();
 
             getMysqlAdapter().executeUpdate(sql,
                     taskId, "", modelName, modelCategory, modelFramework,
-                    "predict", "", modelPath, cuda, config.getBool("cuda", true) ? 1 : 0,
+                    "predict", "", modelPath, cuda, config.getBool("use_gpu", true) ? 1 : 0,
                     "running", "0%", 0, currentTime, currentTime, 0, config.toString());
 
             log.info("预测任务已保存到数据库: taskId={}, modelName={}, category={}, framework={}",
@@ -851,16 +746,16 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
         try {
-            String modelName = config.getStr("model_name", "deeplabv3");
+            String modelName = config.getStr("model_name", "tracknetv3");
             String modelCategory = getModelCategory(modelName, config);
             String modelFramework = getModelFramework(modelName, config);
             String modelPath = config.getStr("model_path", "");
-            String cuda = config.getBool("cuda", false) ? "0" : "cpu";
+            String cuda = config.getBool("use_gpu", false) ? "0" : "cpu";
             String currentTime = getCurrentTime();
 
             getMysqlAdapter().executeUpdate(sql,
                     taskId, "", modelName, modelCategory, modelFramework,
-                    "export", "", modelPath, cuda, config.getBool("cuda", false) ? 1 : 0,
+                    "export", "", modelPath, cuda, config.getBool("use_gpu", false) ? 1 : 0,
                     "running", "0%", 0, currentTime, currentTime, 0, config.toString());
 
             log.info("导出任务已保存到数据库: taskId={}, modelName={}, category={}, framework={}",
@@ -871,9 +766,9 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
     }
 
     /**
-     * 更新DeepLab任务状态
+     * 更新TrackNetV3任务状态
      */
-    private void updateDeeplabTaskStatus(String taskId, String status, String message) {
+    private void updateTrackNetV3TaskStatus(String taskId, String status, String message) {
         String sql = "UPDATE ai_training_tasks " +
                 "SET status = ?, error_message = ?, updated_at = ? " +
                 "WHERE task_id = ?";
@@ -887,9 +782,9 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
     }
 
     /**
-     * 更新DeepLab任务停止状态（包含结束时间）
+     * 更新TrackNetV3任务停止状态（包含结束时间）
      */
-    private void updateDeeplabTaskStopStatus(String taskId, String endTime) {
+    private void updateTrackNetV3TaskStopStatus(String taskId, String endTime) {
         String sql = "UPDATE ai_training_tasks " +
                 "SET status = ?, end_time = ?, updated_at = ? " +
                 "WHERE task_id = ?";
@@ -903,9 +798,9 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
     }
 
     /**
-     * 软删除DeepLab任务
+     * 软删除TrackNetV3任务
      */
-    private void deleteDeeplabTask(String taskId) {
+    private void deleteTrackNetV3Task(String taskId) {
         String sql = "UPDATE ai_training_tasks " +
                 "SET is_deleted = 1, deleted_at = ? " +
                 "WHERE task_id = ?";
@@ -936,20 +831,20 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
     }
 
     /**
-     * 添加DeepLab训练日志到数据库（仅系统操作日志）
+     * 添加TrackNetV3训练日志到数据库（仅系统操作日志）
      */
-    private void addDeeplabTrainingLog(String taskId, String logLevel, String logMessage) {
-        addDeeplabTrainingLog(taskId, logLevel, logMessage, null);
+    private void addTrackNetV3TrainingLog(String taskId, String logLevel, String logMessage) {
+        addTrackNetV3TrainingLog(taskId, logLevel, logMessage, null);
     }
 
     /**
-     * 添加DeepLab训练日志到数据库（仅系统操作日志）
+     * 添加TrackNetV3训练日志到数据库（仅系统操作日志）
      * @param taskId 任务ID
      * @param logLevel 日志级别
      * @param logMessage 日志消息
      * @param trainingLogFilePath 训练日志文件路径（宿主机路径，可选，用于记录实际训练日志文件位置）
      */
-    private void addDeeplabTrainingLog(String taskId, String logLevel, String logMessage, String trainingLogFilePath) {
+    private void addTrackNetV3TrainingLog(String taskId, String logLevel, String logMessage, String trainingLogFilePath) {
         String currentTime = getCurrentTime();
         // 使用实际的训练日志文件路径（如果提供），否则使用默认路径
         String defaultLogPath = logPathPrefix != null ? logPathPrefix : "/data/wangshuanglong/log/train/";
@@ -1004,7 +899,7 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
 
     /**
      * 根据模型名称获取模型类别
-     * DeepLab 应该是 "segmentation"
+     * TrackNetV3 应该是 "tracking"
      */
     private String getModelCategory(String modelName, JSONObject config) {
         // 1. 优先从配置中读取（最高优先级）
@@ -1017,18 +912,16 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
         // 2. 根据模型名称推断类别（基于关键词匹配）
         String lowerModelName = modelName.toLowerCase();
 
-        // DeepLab 相关模型都是分割模型
-        if (lowerModelName.contains("deeplab") || lowerModelName.contains("unet") ||
-            lowerModelName.contains("fcn") || lowerModelName.contains("pidnet") ||
-            lowerModelName.contains("segnet") || lowerModelName.contains("maskrcnn") ||
-            lowerModelName.contains("pspnet") || lowerModelName.contains("segmentation")) {
-            log.debug("根据名称推断为分割模型: modelName={}", modelName);
-            return "segmentation";
+        // TrackNet 相关模型都是跟踪模型
+        if (lowerModelName.contains("tracknet") || lowerModelName.contains("track") ||
+            lowerModelName.contains("tracking") || lowerModelName.contains("motion")) {
+            log.debug("根据名称推断为跟踪模型: modelName={}", modelName);
+            return "tracking";
         }
 
-        // 3. 默认返回 segmentation（DeepLab 是分割模型）
-        log.info("使用默认类别 'segmentation': modelName={}", modelName);
-        return "segmentation";
+        // 3. 默认返回 tracking（TrackNetV3 是跟踪模型）
+        log.info("使用默认类别 'tracking': modelName={}", modelName);
+        return "tracking";
     }
 
     /**
@@ -1045,11 +938,11 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
         String lowerModelName = modelName.toLowerCase();
         if (lowerModelName.contains("paddle") || lowerModelName.contains("ocr")) {
             return "paddle";
-        } else if (lowerModelName.contains("transnet")) {
+        } else if (lowerModelName.contains("tensorflow") || lowerModelName.contains("tf")) {
             return "tensorflow";
         }
 
-        // 默认返回 pytorch（DeepLab 通常使用 PyTorch）
+        // 默认返回 pytorch（TrackNetV3 通常使用 PyTorch）
         return "pytorch";
     }
 
@@ -1066,3 +959,4 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
         return new ai.finetune.repository.TrainingTaskRepository(mysqlAdapter);
     }
 }
+

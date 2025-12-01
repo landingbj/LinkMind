@@ -7,6 +7,7 @@ import ai.dto.TrainingLogs;
 import ai.dto.TrainingTasks;
 import ai.finetune.YoloTrainerAdapter;
 import ai.finetune.DeeplabAdapter;
+import ai.finetune.TrackNetV3Adapter;
 import ai.finetune.SSHConnectionManager;
 import ai.finetune.repository.TrainingTaskRepository;
 import ai.servlet.BaseServlet;
@@ -113,6 +114,9 @@ public class AITrainingServlet extends BaseServlet {
 
                 // 初始化 DeepLab 模型训练器
                 initDeeplabTrainer(discriminativeConfig);
+
+                // 初始化 TrackNetV3 模型训练器
+                initTrackNetV3Trainer(discriminativeConfig);
 
                 // TODO: 在这里初始化其他模型的训练器
                 // initCenterNetTrainer(discriminativeConfig);
@@ -239,6 +243,61 @@ public class AITrainingServlet extends BaseServlet {
 
         } catch (Exception e) {
             log.error("DeepLab 训练器初始化失败: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 初始化 TrackNetV3 训练器
+     */
+    private void initTrackNetV3Trainer(DiscriminativeModelsConfig discriminativeConfig) {
+        try {
+            DiscriminativeModelsConfig.TrackNetV3Config tracknetv3Config = discriminativeConfig.getTracknetv3();
+
+            if (tracknetv3Config == null) {
+                log.warn("TrackNetV3 配置(discriminative_models.tracknetv3)不存在");
+                return;
+            }
+
+            if (!Boolean.TRUE.equals(tracknetv3Config.getEnable())) {
+                log.info("TrackNetV3 训练模块未启用(enable=false)");
+                return;
+            }
+
+            // 获取有效的 SSH 配置
+            DiscriminativeModelsConfig.SshConfig ssh = discriminativeConfig.getEffectiveSshConfig(tracknetv3Config);
+            DiscriminativeModelsConfig.DockerConfig docker = tracknetv3Config.getDocker();
+
+            // 验证配置
+            if (ssh == null || !ssh.isValid()) {
+                log.error("TrackNetV3 SSH 配置不完整或无效");
+                return;
+            }
+
+            if (docker == null || !docker.isValid()) {
+                log.error("TrackNetV3 Docker 配置不完整或无效");
+                return;
+            }
+
+            // 创建 TrackNetV3Adapter 实例
+            TrackNetV3Adapter trackNetV3Adapter = new TrackNetV3Adapter();
+            trackNetV3Adapter.setRemoteServer(ssh.getHost(), ssh.getPort(), ssh.getUsername(), ssh.getPassword());
+
+            if (docker.getImage() != null) {
+                trackNetV3Adapter.setDockerImage(docker.getImage());
+            }
+            if (docker.getVolumeMount() != null) {
+                trackNetV3Adapter.setVolumeMount(docker.getVolumeMount());
+            }
+
+            // 注册到 trainerMap
+            trainerMap.put("tracknetv3", trackNetV3Adapter);
+            trainerMap.put("tracknet", trackNetV3Adapter); // tracknet 也使用同一个 adapter
+            trainerMap.put("TrackNetV2", trackNetV3Adapter);
+
+            log.info("✓ TrackNetV3 训练器初始化成功: {}:{}", ssh.getHost(), ssh.getPort());
+
+        } catch (Exception e) {
+            log.error("TrackNetV3 训练器初始化失败: {}", e.getMessage(), e);
         }
     }
 
@@ -742,8 +801,18 @@ public class AITrainingServlet extends BaseServlet {
                 return;
             }
 
-            // 检查模型是否支持
-            Object trainer = trainerMap.get(modelName.toLowerCase());
+            // 检查模型是否支持（忽略大小写和空格）
+            String normalizedModelName = modelName.toLowerCase().trim();
+            Object trainer = trainerMap.get(normalizedModelName);
+            if (trainer == null) {
+                // 如果通过标准方式没找到，尝试忽略大小写查找
+                for (Map.Entry<String, Object> entry : trainerMap.entrySet()) {
+                    if (entry.getKey().equalsIgnoreCase(normalizedModelName)) {
+                        trainer = entry.getValue();
+                        break;
+                    }
+                }
+            }
             if (trainer == null) {
                 resp.setStatus(400);
                 Map<String, String> error = new HashMap<>();
@@ -770,6 +839,8 @@ public class AITrainingServlet extends BaseServlet {
                 result = startYoloTraining((YoloTrainerAdapter) trainer, taskId, trackId, userId, config);
             } else if (trainer instanceof DeeplabAdapter) {
                 result = startDeeplabTraining((DeeplabAdapter) trainer, taskId, trackId, userId, config);
+            } else if (trainer instanceof TrackNetV3Adapter) {
+                result = startTrackNetV3Training((TrackNetV3Adapter) trainer, taskId, trackId, userId, config);
             } else {
                 // TODO: 支持其他模型类型
                 resp.setStatus(501);
@@ -1031,6 +1102,93 @@ public class AITrainingServlet extends BaseServlet {
             trainConfig.put("weight_decay", config.getDouble("weight_decay", 1e-4));
             trainConfig.put("init_lr", config.getDouble("init_lr", 7e-3));
             trainConfig.put("min_lr", config.getDouble("min_lr", 7e-5));
+        }
+
+        return trainer.startTraining(taskId, trackId, trainConfig);
+    }
+
+    /**
+     * 启动 TrackNetV3 训练任务
+     */
+    private String startTrackNetV3Training(TrackNetV3Adapter trainer, String taskId, String trackId, String userId, JSONObject config) {
+        // 从配置文件获取默认配置
+        ai.config.ContextLoader.loadContext();
+        ai.config.pojo.DiscriminativeModelsConfig discriminativeConfig = ai.config.ContextLoader.configuration
+                .getModelPlatformConfig()
+                .getDiscriminativeModelsConfig();
+
+        Map<String, Object> defaultConfig = null;
+        if (discriminativeConfig != null && discriminativeConfig.getTracknetv3() != null) {
+            defaultConfig = discriminativeConfig.getTracknetv3().getDefaultConfig();
+        }
+
+        // 构建训练配置
+        JSONObject trainConfig = new JSONObject();
+        trainConfig.put("the_train_type", "train");
+        trainConfig.put("task_id", taskId);
+        trainConfig.put("track_id", trackId);
+        trainConfig.put("model_name", config.getStr("model_name", "tracknetv3")); // 传递模型名称
+        // 如果用户没有指定 train_log_file，不设置默认值，让 TrackNetV3Adapter 根据 taskId 自动生成
+        String userTrainLogFile = config.getStr("train_log_file");
+        if (userTrainLogFile != null && !userTrainLogFile.isEmpty()) {
+            trainConfig.put("train_log_file", userTrainLogFile);
+        }
+
+        // 添加用户ID到配置中
+        if (userId != null && !userId.isEmpty()) {
+            trainConfig.put("user_id", userId);
+        }
+
+        // 添加模板ID到配置中
+        Integer templateId = config.getInt("template_id");
+        if (templateId != null) {
+            trainConfig.put("template_id", templateId);
+        }
+
+        // 使用配置文件的默认值或用户传入的值
+        if (defaultConfig != null && !defaultConfig.isEmpty()) {
+            trainConfig.put("model_name", config.getStr("model_name", (String) defaultConfig.get("model_name")));
+            trainConfig.put("num_frame", config.getInt("num_frame", (Integer) defaultConfig.get("num_frame")));
+            trainConfig.put("input_type", config.getStr("input_type", (String) defaultConfig.get("input_type")));
+            trainConfig.put("epochs", config.getInt("epochs", (Integer) defaultConfig.get("epochs")));
+            trainConfig.put("batch_size", config.getInt("batch_size", (Integer) defaultConfig.get("batch_size")));
+            trainConfig.put("learning_rate", config.getDouble("learning_rate", (Double) defaultConfig.get("learning_rate")));
+            trainConfig.put("tolerance", config.getDouble("tolerance", (Double) defaultConfig.get("tolerance")));
+            trainConfig.put("save_dir", config.getStr("save_dir", (String) defaultConfig.get("save_dir")));
+            trainConfig.put("use_gpu", config.getBool("use_gpu", (Boolean) defaultConfig.get("use_gpu")));
+            trainConfig.put("data_dir", config.getStr("data_dir", (String) defaultConfig.get("data_dir")));
+        } else {
+            // 使用用户传入的值，如果没有则不设置（让适配器处理）
+            if (config.containsKey("model_name")) {
+                trainConfig.put("model_name", config.getStr("model_name"));
+            }
+            if (config.containsKey("num_frame")) {
+                trainConfig.put("num_frame", config.getInt("num_frame"));
+            }
+            if (config.containsKey("input_type")) {
+                trainConfig.put("input_type", config.getStr("input_type"));
+            }
+            if (config.containsKey("epochs")) {
+                trainConfig.put("epochs", config.getInt("epochs"));
+            }
+            if (config.containsKey("batch_size")) {
+                trainConfig.put("batch_size", config.getInt("batch_size"));
+            }
+            if (config.containsKey("learning_rate")) {
+                trainConfig.put("learning_rate", config.getDouble("learning_rate"));
+            }
+            if (config.containsKey("tolerance")) {
+                trainConfig.put("tolerance", config.getDouble("tolerance"));
+            }
+            if (config.containsKey("save_dir")) {
+                trainConfig.put("save_dir", config.getStr("save_dir"));
+            }
+            if (config.containsKey("use_gpu")) {
+                trainConfig.put("use_gpu", config.getBool("use_gpu"));
+            }
+            if (config.containsKey("data_dir")) {
+                trainConfig.put("data_dir", config.getStr("data_dir"));
+            }
         }
 
         return trainer.startTraining(taskId, trackId, trainConfig);
@@ -1324,6 +1482,8 @@ public class AITrainingServlet extends BaseServlet {
             String result;
             if (trainer instanceof DeeplabAdapter) {
                 result = ((DeeplabAdapter) trainer).evaluate(config);
+            } else if (trainer instanceof TrackNetV3Adapter) {
+                result = ((TrackNetV3Adapter) trainer).evaluate(config);
             } else if (trainer instanceof YoloTrainerAdapter || trainer == null) {
                 // 默认使用 yoloTrainer（向后兼容）
                 result = yoloTrainer.evaluate(config);
@@ -1363,6 +1523,8 @@ public class AITrainingServlet extends BaseServlet {
             String result;
             if (trainer instanceof DeeplabAdapter) {
                 result = ((DeeplabAdapter) trainer).predict(config);
+            } else if (trainer instanceof TrackNetV3Adapter) {
+                result = ((TrackNetV3Adapter) trainer).predict(config);
             } else if (trainer instanceof YoloTrainerAdapter || trainer == null) {
                 // 默认使用 yoloTrainer（向后兼容）
                 result = yoloTrainer.predict(config);
@@ -1402,6 +1564,8 @@ public class AITrainingServlet extends BaseServlet {
             String result;
             if (trainer instanceof DeeplabAdapter) {
                 result = ((DeeplabAdapter) trainer).exportModel(config);
+            } else if (trainer instanceof TrackNetV3Adapter) {
+                result = ((TrackNetV3Adapter) trainer).exportModel(config);
             } else if (trainer instanceof YoloTrainerAdapter || trainer == null) {
                 // 默认使用 yoloTrainer（向后兼容）
                 result = yoloTrainer.exportModel(config);
@@ -1608,6 +1772,8 @@ public class AITrainingServlet extends BaseServlet {
             modelInfo.put("yolov11", "目标检测 - YOLOv11");
             modelInfo.put("deeplab", "语义分割 - DeepLabV3");
             modelInfo.put("deeplabv3", "语义分割 - DeepLabV3");
+            modelInfo.put("tracknetv3", "轨迹跟踪 - TrackNetV3");
+            modelInfo.put("tracknet", "轨迹跟踪 - TrackNetV3");
             // TODO: 添加其他模型信息
 
             result.put("model_descriptions", modelInfo);

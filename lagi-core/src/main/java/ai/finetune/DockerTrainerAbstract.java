@@ -85,28 +85,128 @@ public abstract class DockerTrainerAbstract {
      * @param containerId 容器ID或容器名称
      * @return 执行结果（JSON字符串）
      */
-    public abstract String pauseContainer(String containerId);
+    public String pauseContainer(String containerId) {
+        try {
+            String command = "docker pause " + containerId;
+            log.info("暂停容器: {}", containerId);
+
+            String result = executeRemoteCommand(command);
+
+            if (isSuccess(result)) {
+                JSONObject resultJson = JSONUtil.parseObj(result);
+                resultJson.put("containerId", containerId);
+                resultJson.put("action", "paused");
+                return resultJson.toString();
+            }
+
+            return result;
+
+        } catch (Exception e) {
+            log.error("暂停容器失败: {}", containerId, e);
+            JSONObject errorResult = new JSONObject();
+            errorResult.put("status", "error");
+            errorResult.put("message", "暂停容器失败");
+            errorResult.put("error", e.getMessage());
+            errorResult.put("containerId", containerId);
+            return errorResult.toString();
+        }
+    }
 
     /**
      * 继续容器（恢复暂停的容器）
      * @param containerId 容器ID或容器名称
      * @return 执行结果（JSON字符串）
      */
-    public abstract String resumeContainer(String containerId);
+    public String resumeContainer(String containerId) {
+        try {
+            String command = "docker unpause " + containerId;
+            log.info("恢复容器: {}", containerId);
+
+            String result = executeRemoteCommand(command);
+
+            if (isSuccess(result)) {
+                JSONObject resultJson = JSONUtil.parseObj(result);
+                resultJson.put("containerId", containerId);
+                resultJson.put("action", "resumed");
+                return resultJson.toString();
+            }
+
+            return result;
+
+        } catch (Exception e) {
+            log.error("恢复容器失败: {}", containerId, e);
+            JSONObject errorResult = new JSONObject();
+            errorResult.put("status", "error");
+            errorResult.put("message", "恢复容器失败");
+            errorResult.put("error", e.getMessage());
+            errorResult.put("containerId", containerId);
+            return errorResult.toString();
+        }
+    }
 
     /**
      * 停止容器
      * @param containerId 容器ID或容器名称
      * @return 执行结果（JSON字符串）
      */
-    public abstract String stopContainer(String containerId);
+    public String stopContainer(String containerId) {
+        try {
+            String command = "docker stop " + containerId;
+            log.info("停止容器: {}", containerId);
+
+            String result = executeRemoteCommand(command);
+
+            if (isSuccess(result)) {
+                JSONObject resultJson = JSONUtil.parseObj(result);
+                resultJson.put("containerId", containerId);
+                resultJson.put("action", "stopped");
+                return resultJson.toString();
+            }
+
+            return result;
+
+        } catch (Exception e) {
+            log.error("停止容器失败: {}", containerId, e);
+            JSONObject errorResult = new JSONObject();
+            errorResult.put("status", "error");
+            errorResult.put("message", "停止容器失败");
+            errorResult.put("error", e.getMessage());
+            errorResult.put("containerId", containerId);
+            return errorResult.toString();
+        }
+    }
 
     /**
      * 删除容器
      * @param containerId 容器ID或容器名称
      * @return 执行结果（JSON字符串）
      */
-    public abstract String removeContainer(String containerId);
+    public String removeContainer(String containerId) {
+        try {
+            String command = "docker rm -f " + containerId;
+            log.info("删除容器: {}", containerId);
+
+            String result = executeRemoteCommand(command);
+
+            if (isSuccess(result)) {
+                JSONObject resultJson = JSONUtil.parseObj(result);
+                resultJson.put("containerId", containerId);
+                resultJson.put("action", "removed");
+                return resultJson.toString();
+            }
+
+            return result;
+
+        } catch (Exception e) {
+            log.error("删除容器失败: {}", containerId, e);
+            JSONObject errorResult = new JSONObject();
+            errorResult.put("status", "error");
+            errorResult.put("message", "删除容器失败");
+            errorResult.put("error", e.getMessage());
+            errorResult.put("containerId", containerId);
+            return errorResult.toString();
+        }
+    }
 
     /**
      * 执行评估任务
@@ -134,7 +234,33 @@ public abstract class DockerTrainerAbstract {
      * @param containerId 容器ID或容器名称
      * @return 执行结果（JSON字符串）
      */
-    public abstract String getContainerStatus(String containerId);
+    public String getContainerStatus(String containerId) {
+        try {
+            String command = "docker inspect --format='{{.State.Status}};{{.State.ExitCode}}' " + containerId;
+            log.info("查询容器状态: {}", containerId);
+
+            String result = executeRemoteCommand(command);
+
+            if (isSuccess(result)) {
+                JSONObject resultJson = JSONUtil.parseObj(result);
+                String status = resultJson.getStr("output", "").trim();
+                resultJson.put("containerId", containerId);
+                resultJson.put("containerStatus", status);
+                return resultJson.toString();
+            }
+
+            return result;
+
+        } catch (Exception e) {
+            log.error("查询容器状态失败: {}", containerId, e);
+            JSONObject errorResult = new JSONObject();
+            errorResult.put("status", "error");
+            errorResult.put("message", "查询容器状态失败");
+            errorResult.put("error", e.getMessage());
+            errorResult.put("containerId", containerId);
+            return errorResult.toString();
+        }
+    }
 
     /**
      * 查看容器日志
@@ -142,7 +268,32 @@ public abstract class DockerTrainerAbstract {
      * @param lines 显示最后多少行日志，默认100
      * @return 执行结果（JSON字符串）
      */
-    public abstract String getContainerLogs(String containerId, int lines);
+    public String getContainerLogs(String containerId, int lines) {
+        try {
+            String command = "docker logs --tail " + lines + " " + containerId;
+            log.info("查询容器日志: {}, 显示最后{}行", containerId, lines);
+
+            String result = executeRemoteCommand(command);
+
+            if (isSuccess(result)) {
+                JSONObject resultJson = JSONUtil.parseObj(result);
+                resultJson.put("containerId", containerId);
+                resultJson.put("lines", lines);
+                return resultJson.toString();
+            }
+
+            return result;
+
+        } catch (Exception e) {
+            log.error("查询容器日志失败: {}", containerId, e);
+            JSONObject errorResult = new JSONObject();
+            errorResult.put("status", "error");
+            errorResult.put("message", "查询容器日志失败");
+            errorResult.put("error", e.getMessage());
+            errorResult.put("containerId", containerId);
+            return errorResult.toString();
+        }
+    }
 
     /**
      * 上传文件到容器
@@ -151,7 +302,36 @@ public abstract class DockerTrainerAbstract {
      * @param containerPath 容器内目标路径
      * @return 执行结果（JSON字符串）
      */
-    public abstract String uploadToContainer(String containerId, String localPath, String containerPath);
+    public String uploadToContainer(String containerId, String localPath, String containerPath) {
+        try {
+            String command = "docker cp " + localPath + " " + containerId + ":" + containerPath;
+            log.info("上传文件到容器: {} -> {}:{}", localPath, containerId, containerPath);
+
+            String result = executeRemoteCommand(command);
+
+            if (isSuccess(result)) {
+                JSONObject resultJson = JSONUtil.parseObj(result);
+                resultJson.put("containerId", containerId);
+                resultJson.put("localPath", localPath);
+                resultJson.put("containerPath", containerPath);
+                resultJson.put("action", "uploaded");
+                return resultJson.toString();
+            }
+
+            return result;
+
+        } catch (Exception e) {
+            log.error("上传文件到容器失败: {} -> {}:{}", localPath, containerId, containerPath, e);
+            JSONObject errorResult = new JSONObject();
+            errorResult.put("status", "error");
+            errorResult.put("message", "上传文件到容器失败");
+            errorResult.put("error", e.getMessage());
+            errorResult.put("containerId", containerId);
+            errorResult.put("localPath", localPath);
+            errorResult.put("containerPath", containerPath);
+            return errorResult.toString();
+        }
+    }
 
     /**
      * 从容器下载文件
@@ -160,7 +340,36 @@ public abstract class DockerTrainerAbstract {
      * @param localPath 本地目标路径
      * @return 执行结果（JSON字符串）
      */
-    public abstract String downloadFromContainer(String containerId, String containerPath, String localPath);
+    public String downloadFromContainer(String containerId, String containerPath, String localPath) {
+        try {
+            String command = "docker cp " + containerId + ":" + containerPath + " " + localPath;
+            log.info("从容器下载文件: {}:{} -> {}", containerId, containerPath, localPath);
+
+            String result = executeRemoteCommand(command);
+
+            if (isSuccess(result)) {
+                JSONObject resultJson = JSONUtil.parseObj(result);
+                resultJson.put("containerId", containerId);
+                resultJson.put("containerPath", containerPath);
+                resultJson.put("localPath", localPath);
+                resultJson.put("action", "downloaded");
+                return resultJson.toString();
+            }
+
+            return result;
+
+        } catch (Exception e) {
+            log.error("从容器下载文件失败: {}:{} -> {}", containerId, containerPath, localPath, e);
+            JSONObject errorResult = new JSONObject();
+            errorResult.put("status", "error");
+            errorResult.put("message", "从容器下载文件失败");
+            errorResult.put("error", e.getMessage());
+            errorResult.put("containerId", containerId);
+            errorResult.put("containerPath", containerPath);
+            errorResult.put("localPath", localPath);
+            return errorResult.toString();
+        }
+    }
 
     /**
      * 将容器提交为新镜像
@@ -169,7 +378,41 @@ public abstract class DockerTrainerAbstract {
      * @param imageTag 新镜像标签
      * @return 执行结果（JSON字符串）
      */
-    public abstract String commitContainerAsImage(String containerId, String imageName, String imageTag);
+    public String commitContainerAsImage(String containerId, String imageName, String imageTag) {
+        try {
+            String fullImageName = imageName + ":" + imageTag;
+            String command = "docker commit " + containerId + " " + fullImageName;
+            log.info("将容器提交为镜像: {} -> {}", containerId, fullImageName);
+
+            String result = executeRemoteCommand(command);
+
+            if (isSuccess(result)) {
+                JSONObject resultJson = new JSONObject();
+                JSONObject originalResult = JSONUtil.parseObj(result);
+                // 保留原始结果的所有字段
+                resultJson.putAll(originalResult);
+                resultJson.put("containerId", containerId);
+                resultJson.put("imageName", imageName);
+                resultJson.put("imageTag", imageTag);
+                resultJson.put("fullImageName", fullImageName);
+                resultJson.put("action", "committed");
+                return resultJson.toString();
+            }
+
+            return result;
+
+        } catch (Exception e) {
+            log.error("提交容器为镜像失败: {} -> {}:{}", containerId, imageName, imageTag, e);
+            JSONObject errorResult = new JSONObject();
+            errorResult.put("status", "error");
+            errorResult.put("message", "提交容器为镜像失败");
+            errorResult.put("error", e.getMessage());
+            errorResult.put("containerId", containerId);
+            errorResult.put("imageName", imageName);
+            errorResult.put("imageTag", imageTag);
+            return errorResult.toString();
+        }
+    }
 
     // ==================== 公共方法 ====================
 

@@ -32,6 +32,12 @@ public class DiscriminativeModelsConfig {
     private DeeplabConfig deeplab;
     
     /**
+     * TrackNetV3 轨迹跟踪模型配置
+     */
+    @JsonProperty("tracknetv3")
+    private TrackNetV3Config tracknetv3;
+    
+    /**
      * 图像分类模型配置（预留）
      */
     @JsonProperty("image_classification")
@@ -50,6 +56,13 @@ public class DiscriminativeModelsConfig {
     private ModelTrainingConfig stableDiffusion;
     
     /**
+     * 通用训练器配置
+     * 用于支持动态配置的模型训练
+     */
+    @JsonProperty("universal_trainer")
+    private ModelTrainingConfig universalTrainer;
+    
+    /**
      * YOLO 模型特定配置（为了类型明确性）
      */
     @Data
@@ -65,6 +78,15 @@ public class DiscriminativeModelsConfig {
     public static class DeeplabConfig extends ModelTrainingConfig {
         // 继承所有 ModelTrainingConfig 的字段
         // 可以在此添加 DeepLab 特有的配置项
+    }
+    
+    /**
+     * TrackNetV3 模型特定配置
+     */
+    @Data
+    public static class TrackNetV3Config extends ModelTrainingConfig {
+        // 继承所有 ModelTrainingConfig 的字段
+        // 可以在此添加 TrackNetV3 特有的配置项
     }
     
     /**
@@ -124,9 +146,17 @@ public class DiscriminativeModelsConfig {
         private String image;
         @JsonProperty("volume_mount")
         private String volumeMount;
+        @JsonProperty("shm_size")
+        private String shmSize;
+        private String gpu;
+        private Boolean rm;
+        @JsonProperty("image_name")
+        private String imageName;
+        @JsonProperty("log_path_prefix")
+        private String logPathPrefix;
         
         /**
-         * 检查配置是否完整
+         * 检查配置是否完整（仅检查必需字段）
          */
         public boolean isValid() {
             return image != null && !image.isEmpty() 

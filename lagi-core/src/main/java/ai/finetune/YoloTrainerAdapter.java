@@ -38,10 +38,10 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
 //        ContextLoader.loadContext();
 //    }
 
-    private static final String DEFAULT_DOCKER_IMAGE = "yolov8_trainer:last";
-    private static final String DEFAULT_VOLUME_MOUNT = "/data/wangshuanglong:/app/data";
-    private static final String LOG_PATH_PREFIX = "/data/wangshuanglong/log/train/";
     private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    // 从配置中读取的日志路径前缀
+    private String logPathPrefix;
 
     // 用于异步执行的线程池
     private static final ExecutorService executorService = Executors.newCachedThreadPool();
@@ -57,8 +57,7 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
      */
     public YoloTrainerAdapter() {
         super();
-        this.dockerImage = DEFAULT_DOCKER_IMAGE;
-        this.volumeMount = DEFAULT_VOLUME_MOUNT;
+        loadConfigFromYaml();
     }
 
     /**
@@ -70,8 +69,50 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
      */
     public YoloTrainerAdapter(String sshHost, int sshPort, String sshUsername, String sshPassword) {
         super(sshHost, sshPort, sshUsername, sshPassword);
-        this.dockerImage = DEFAULT_DOCKER_IMAGE;
-        this.volumeMount = DEFAULT_VOLUME_MOUNT;
+        loadConfigFromYaml();
+    }
+
+    /**
+     * 从lagi.yml加载配置
+     */
+    private void loadConfigFromYaml() {
+        try {
+            ai.config.ContextLoader.loadContext();
+            if (ai.config.ContextLoader.configuration != null &&
+                ai.config.ContextLoader.configuration.getModelPlatformConfig() != null &&
+                ai.config.ContextLoader.configuration.getModelPlatformConfig().getDiscriminativeModelsConfig() != null) {
+
+                ai.config.pojo.DiscriminativeModelsConfig discriminativeConfig =
+                    ai.config.ContextLoader.configuration.getModelPlatformConfig().getDiscriminativeModelsConfig();
+
+                ai.config.pojo.DiscriminativeModelsConfig.YoloConfig yoloConfig =
+                    discriminativeConfig.getYolo();
+
+                if (yoloConfig != null && yoloConfig.getDocker() != null) {
+                    ai.config.pojo.DiscriminativeModelsConfig.DockerConfig dockerConfig =
+                        yoloConfig.getDocker();
+
+                    // 加载Docker配置
+                    if (cn.hutool.core.util.StrUtil.isNotBlank(dockerConfig.getImage())) {
+                        this.dockerImage = dockerConfig.getImage();
+                        super.setDockerImage(this.dockerImage);
+                    }
+                    if (cn.hutool.core.util.StrUtil.isNotBlank(dockerConfig.getVolumeMount())) {
+                        this.volumeMount = dockerConfig.getVolumeMount();
+                        super.setVolumeMount(this.volumeMount);
+                    }
+                    if (cn.hutool.core.util.StrUtil.isNotBlank(dockerConfig.getLogPathPrefix())) {
+                        this.logPathPrefix = dockerConfig.getLogPathPrefix();
+                    }
+
+                    log.info("从lagi.yml加载YOLO训练器配置成功");
+                } else {
+                    log.warn("lagi.yml中未配置yolo.docker，使用默认值");
+                }
+            }
+        } catch (Exception e) {
+            log.warn("加载配置失败，使用默认值: {}", e.getMessage());
+        }
     }
     /**
      * 启动训练任务
@@ -92,23 +133,40 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
 
             // 如果没有指定训练日志文件路径，自动生成到指定目录
             if (!config.containsKey("train_log_file") || config.getStr("train_log_file") == null || config.getStr("train_log_file").isEmpty()) {
-                String trainLogFile = "/app/data/log/train/" + taskId + ".log";
+                // 从volumeMount中解析容器内路径，或使用默认值
+                String containerDataPath = "/app/data";
+                if (volumeMount != null && volumeMount.contains(":")) {
+                    String[] parts = volumeMount.split(":");
+                    if (parts.length >= 2) {
+                        containerDataPath = parts[1];
+                    }
+                }
+                String trainLogFile = containerDataPath + "/log/train/" + taskId + ".log";
                 config.put("train_log_file", trainLogFile);
             }
 
             // 确保训练日志目录存在（容器内路径）
             String trainLogFile = config.getStr("train_log_file");
-            if (trainLogFile != null && trainLogFile.startsWith("/app/data")) {
-                String logDir = trainLogFile.substring(0, trainLogFile.lastIndexOf("/"));
-                // 通过 SSH 在宿主机上创建目录（宿主机路径）
-                String hostLogDir = logDir.replace("/app/data", "/data/wangshuanglong");
-                String mkdirCommand = "mkdir -p " + hostLogDir;
-                executeRemoteCommand(mkdirCommand);
+            if (trainLogFile != null && volumeMount != null && volumeMount.contains(":")) {
+                String[] mountParts = volumeMount.split(":");
+                if (mountParts.length >= 2) {
+                    String containerPath = mountParts[1];
+                    String hostPath = mountParts[0];
+                    if (trainLogFile.startsWith(containerPath)) {
+                        String logDir = trainLogFile.substring(0, trainLogFile.lastIndexOf("/"));
+                        // 通过 SSH 在宿主机上创建目录（宿主机路径）
+                        String hostLogDir = logDir.replace(containerPath, hostPath);
+                        String mkdirCommand = "mkdir -p " + hostLogDir;
+                        executeRemoteCommand(mkdirCommand);
+                    }
+                }
             }
 
             // 构建 Docker 命令
             StringBuilder dockerCmd = new StringBuilder();
+//            dockerCmd.append("docker run --rm -d"); // -d 后台运行
             dockerCmd.append("docker run -d"); // -d 后台运行
+
 
             // 添加容器名称，便于后续管理
             String containerName = generateContainerName("yolo_train");
@@ -150,8 +208,15 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
                 updateYoloTaskStatus(taskId, "running", "训练任务启动成功");
 
                 String hostLogFilePath = null;
-                if (trainLogFile != null && trainLogFile.startsWith("/app/data")) {
-                    hostLogFilePath = trainLogFile.replace("/app/data", "/data/wangshuanglong");
+                if (trainLogFile != null && volumeMount != null && volumeMount.contains(":")) {
+                    String[] mountParts = volumeMount.split(":");
+                    if (mountParts.length >= 2) {
+                        String containerPath = mountParts[1];
+                        String hostPath = mountParts[0];
+                        if (trainLogFile.startsWith(containerPath)) {
+                            hostLogFilePath = trainLogFile.replace(containerPath, hostPath);
+                        }
+                    }
                 }
                 addYoloTrainingLog(taskId, "INFO", "容器启动成功，开始训练", hostLogFilePath);
 
@@ -399,208 +464,108 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
     }
 
     /**
-     * 暂停容器
+     * 暂停容器（带业务逻辑）
      */
     @Override
     public String pauseContainer(String containerId) {
-        try {
-            String command = "docker pause " + containerId;
-            log.info("暂停容器: {}", containerId);
+        String result = super.pauseContainer(containerId);
 
-            // 从containerId获取taskId
-            String taskId = getTaskIdByContainerId(containerId);
+        // 从containerId获取taskId
+        String taskId = getTaskIdByContainerId(containerId);
 
-            String result = executeRemoteCommand(command);
-
-            if (isSuccess(result)) {
-                JSONObject resultJson = JSONUtil.parseObj(result);
-                resultJson.put("containerId", containerId);
-                resultJson.put("action", "paused");
-
-                // 更新数据库状态为暂停
-                if (taskId != null) {
-                    updateYoloTaskStatus(taskId, "paused", "容器已暂停");
-                    addYoloTrainingLog(taskId, "INFO", "容器已暂停: " + containerId);
-                }
-
-                return resultJson.toString();
-            } else {
-                // 暂停失败，记录日志
-                if (taskId != null) {
-                    addYoloTrainingLog(taskId, "ERROR", "暂停容器失败: " + result);
-                }
-            }
-
-            return result;
-
-        } catch (Exception e) {
-            log.error("暂停容器失败: {}", containerId, e);
-            String taskId = getTaskIdByContainerId(containerId);
+        if (isSuccess(result)) {
+            // 更新数据库状态为暂停
             if (taskId != null) {
-                addYoloTrainingLog(taskId, "ERROR", "暂停容器异常: " + e.getMessage());
+                updateYoloTaskStatus(taskId, "paused", "容器已暂停");
+                addYoloTrainingLog(taskId, "INFO", "容器已暂停: " + containerId);
             }
-
-            JSONObject errorResult = new JSONObject();
-            errorResult.put("status", "error");
-            errorResult.put("message", "暂停容器失败");
-            errorResult.put("error", e.getMessage());
-            errorResult.put("containerId", containerId);
-            return errorResult.toString();
+        } else {
+            // 暂停失败，记录日志
+            if (taskId != null) {
+                addYoloTrainingLog(taskId, "ERROR", "暂停容器失败: " + result);
+            }
         }
+
+        return result;
     }
 
     /**
-     * 继续容器（恢复暂停的容器）
+     * 继续容器（恢复暂停的容器，带业务逻辑）
      */
     @Override
     public String resumeContainer(String containerId) {
-        try {
-            String command = "docker unpause " + containerId;
-            log.info("恢复容器: {}", containerId);
+        String result = super.resumeContainer(containerId);
 
-            // 从containerId获取taskId
-            String taskId = getTaskIdByContainerId(containerId);
+        // 从containerId获取taskId
+        String taskId = getTaskIdByContainerId(containerId);
 
-            String result = executeRemoteCommand(command);
-
-            if (isSuccess(result)) {
-                JSONObject resultJson = JSONUtil.parseObj(result);
-                resultJson.put("containerId", containerId);
-                resultJson.put("action", "resumed");
-
-                // 更新数据库状态为运行中
-                if (taskId != null) {
-                    updateYoloTaskStatus(taskId, "running", "容器已恢复运行");
-                    addYoloTrainingLog(taskId, "INFO", "容器已恢复运行: " + containerId);
-                }
-
-                return resultJson.toString();
-            } else {
-                // 恢复失败，记录日志
-                if (taskId != null) {
-                    addYoloTrainingLog(taskId, "ERROR", "恢复容器失败: " + result);
-                }
-            }
-
-            return result;
-
-        } catch (Exception e) {
-            log.error("恢复容器失败: {}", containerId, e);
-            String taskId = getTaskIdByContainerId(containerId);
+        if (isSuccess(result)) {
+            // 更新数据库状态为运行中
             if (taskId != null) {
-                addYoloTrainingLog(taskId, "ERROR", "恢复容器异常: " + e.getMessage());
+                updateYoloTaskStatus(taskId, "running", "容器已恢复运行");
+                addYoloTrainingLog(taskId, "INFO", "容器已恢复运行: " + containerId);
             }
-
-            JSONObject errorResult = new JSONObject();
-            errorResult.put("status", "error");
-            errorResult.put("message", "恢复容器失败");
-            errorResult.put("error", e.getMessage());
-            errorResult.put("containerId", containerId);
-            return errorResult.toString();
+        } else {
+            // 恢复失败，记录日志
+            if (taskId != null) {
+                addYoloTrainingLog(taskId, "ERROR", "恢复容器失败: " + result);
+            }
         }
+
+        return result;
     }
 
     /**
-     * 停止容器
+     * 停止容器（带业务逻辑）
      */
     @Override
     public String stopContainer(String containerId) {
-        try {
-            String command = "docker stop " + containerId;
-            log.info("停止容器: {}", containerId);
+        String result = super.stopContainer(containerId);
 
-            // 从containerId获取taskId
-            String taskId = getTaskIdByContainerId(containerId);
+        // 从containerId获取taskId
+        String taskId = getTaskIdByContainerId(containerId);
 
-            String result = executeRemoteCommand(command);
-
-            if (isSuccess(result)) {
-                JSONObject resultJson = JSONUtil.parseObj(result);
-                resultJson.put("containerId", containerId);
-                resultJson.put("action", "stopped");
-
-                // 更新数据库状态为已停止，并记录结束时间
-                if (taskId != null) {
-                    String endTime = getCurrentTime();
-                    updateYoloTaskStopStatus(taskId, endTime);
-                    addYoloTrainingLog(taskId, "INFO", "容器已停止: " + containerId);
-                }
-
-                return resultJson.toString();
-            } else {
-                // 停止失败，记录日志
-                if (taskId != null) {
-                    addYoloTrainingLog(taskId, "ERROR", "停止容器失败: " + result);
-                }
-            }
-
-            return result;
-
-        } catch (Exception e) {
-            log.error("停止容器失败: {}", containerId, e);
-            String taskId = getTaskIdByContainerId(containerId);
+        if (isSuccess(result)) {
+            // 更新数据库状态为已停止，并记录结束时间
             if (taskId != null) {
-                addYoloTrainingLog(taskId, "ERROR", "停止容器异常: " + e.getMessage());
+                String endTime = getCurrentTime();
+                updateYoloTaskStopStatus(taskId, endTime);
+                addYoloTrainingLog(taskId, "INFO", "容器已停止: " + containerId);
             }
-
-            JSONObject errorResult = new JSONObject();
-            errorResult.put("status", "error");
-            errorResult.put("message", "停止容器失败");
-            errorResult.put("error", e.getMessage());
-            errorResult.put("containerId", containerId);
-            return errorResult.toString();
+        } else {
+            // 停止失败，记录日志
+            if (taskId != null) {
+                addYoloTrainingLog(taskId, "ERROR", "停止容器失败: " + result);
+            }
         }
+
+        return result;
     }
 
     /**
-     * 删除容器
+     * 删除容器（带业务逻辑）
      */
     @Override
     public String removeContainer(String containerId) {
-        try {
-            String command = "docker rm -f " + containerId;
-            log.info("删除容器: {}", containerId);
+        String result = super.removeContainer(containerId);
 
-            // 从containerId获取taskId
-            String taskId = getTaskIdByContainerId(containerId);
+        // 从containerId获取taskId
+        String taskId = getTaskIdByContainerId(containerId);
 
-            String result = executeRemoteCommand(command);
-
-            if (isSuccess(result)) {
-                JSONObject resultJson = JSONUtil.parseObj(result);
-                resultJson.put("containerId", containerId);
-                resultJson.put("action", "removed");
-
-                // 软删除数据库记录
-                if (taskId != null) {
-                    deleteYoloTask(taskId);
-                    addYoloTrainingLog(taskId, "INFO", "容器已删除: " + containerId);
-                }
-
-                return resultJson.toString();
-            } else {
-                // 删除失败，记录日志
-                if (taskId != null) {
-                    addYoloTrainingLog(taskId, "ERROR", "删除容器失败: " + result);
-                }
-            }
-
-            return result;
-
-        } catch (Exception e) {
-            log.error("删除容器失败: {}", containerId, e);
-            String taskId = getTaskIdByContainerId(containerId);
+        if (isSuccess(result)) {
+            // 软删除数据库记录
             if (taskId != null) {
-                addYoloTrainingLog(taskId, "ERROR", "删除容器异常: " + e.getMessage());
+                deleteYoloTask(taskId);
+                addYoloTrainingLog(taskId, "INFO", "容器已删除: " + containerId);
             }
-
-            JSONObject errorResult = new JSONObject();
-            errorResult.put("status", "error");
-            errorResult.put("message", "删除容器失败");
-            errorResult.put("error", e.getMessage());
-            errorResult.put("containerId", containerId);
-            return errorResult.toString();
+        } else {
+            // 删除失败，记录日志
+            if (taskId != null) {
+                addYoloTrainingLog(taskId, "ERROR", "删除容器失败: " + result);
+            }
         }
+
+        return result;
     }
     public String removeContainer(String containerId,String taskId) {
                 if (taskId != null) {
@@ -614,192 +579,46 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
     }
 
     /**
-     * 查看容器状态
+     * 查看容器状态（带业务逻辑）
      */
     @Override
     public String getContainerStatus(String containerId) {
-        try {
-            String command = "docker inspect --format='{{.State.Status}};{{.State.ExitCode}}' " + containerId;
-            log.info("查询容器状态: {}", containerId);
+        String result = super.getContainerStatus(containerId);
 
-            String result = executeRemoteCommand(command);
-
-            if (isSuccess(result)) {
+        if (isSuccess(result)) {
+            try {
                 JSONObject resultJson = JSONUtil.parseObj(result);
-                String status = resultJson.getStr("output", "").trim();
-                resultJson.put("containerId", containerId);
-                resultJson.put("containerStatus", status);
+                String status = resultJson.getStr("containerStatus", "").trim();
 
                 String[] parts = status.split(";");
+                String statusPart = parts.length > 0 ? parts[0].trim() : "";
                 String exitCodeStr = parts.length > 1 ? parts[1].trim() : "";
+
                 // 检查容器退出码，判断任务是否失败
-                try {
-                    int exitCode = Integer.parseInt(exitCodeStr);
-                    if (exitCode != 0 && "exited".equals(status)) {
-                        // 容器已退出且退出码不为0，表示任务失败
-                        String taskId = getTaskIdByContainerId(containerId);
-                        if (taskId != null) {
-                            updateYoloTaskStatus(taskId, "failed", "容器异常退出，退出码: " + exitCode);
-                            addYoloTrainingLog(taskId, "ERROR", "容器异常退出，退出码: " + exitCode);
+                if (!exitCodeStr.isEmpty()) {
+                    try {
+                        int exitCode = Integer.parseInt(exitCodeStr);
+                        if (exitCode != 0 && "exited".equals(statusPart)) {
+                            // 容器已退出且退出码不为0，表示任务失败
+                            String taskId = getTaskIdByContainerId(containerId);
+                            if (taskId != null) {
+                                updateYoloTaskStatus(taskId, "failed", "容器异常退出，退出码: " + exitCode);
+                                addYoloTrainingLog(taskId, "ERROR", "容器异常退出，退出码: " + exitCode);
+                            }
                         }
+                    } catch (NumberFormatException e) {
+                        log.warn("解析退出码失败: {}", exitCodeStr);
                     }
-                } catch (NumberFormatException e) {
-                    log.warn("解析退出码失败: {}", exitCodeStr);
                 }
-
-                return resultJson.toString();
+            } catch (Exception e) {
+                log.warn("处理容器状态结果失败: {}", e.getMessage());
             }
-
-            return result;
-
-        } catch (Exception e) {
-            log.error("查询容器状态失败: {}", containerId, e);
-            JSONObject errorResult = new JSONObject();
-            errorResult.put("status", "error");
-            errorResult.put("message", "查询容器状态失败");
-            errorResult.put("error", e.getMessage());
-            errorResult.put("containerId", containerId);
-            return errorResult.toString();
         }
+
+        return result;
     }
 
-    /**
-     * 查看容器日志
-     */
-    @Override
-    public String getContainerLogs(String containerId, int lines) {
-        try {
-            String command = "docker logs --tail " + lines + " " + containerId;
-            log.info("查询容器日志: {}, 显示最后{}行", containerId, lines);
 
-            String result = executeRemoteCommand(command);
-
-            if (isSuccess(result)) {
-                JSONObject resultJson = JSONUtil.parseObj(result);
-                resultJson.put("containerId", containerId);
-                resultJson.put("lines", lines);
-                return resultJson.toString();
-            }
-
-            return result;
-
-        } catch (Exception e) {
-            log.error("查询容器日志失败: {}", containerId, e);
-            JSONObject errorResult = new JSONObject();
-            errorResult.put("status", "error");
-            errorResult.put("message", "查询容器日志失败");
-            errorResult.put("error", e.getMessage());
-            errorResult.put("containerId", containerId);
-            return errorResult.toString();
-        }
-    }
-
-    /**
-     * 上传文件到容器
-     */
-    @Override
-    public String uploadToContainer(String containerId, String localPath, String containerPath) {
-        try {
-            String command = "docker cp " + localPath + " " + containerId + ":" + containerPath;
-            log.info("上传文件到容器: {} -> {}:{}", localPath, containerId, containerPath);
-
-            String result = executeRemoteCommand(command);
-
-            if (isSuccess(result)) {
-                JSONObject resultJson = JSONUtil.parseObj(result);
-                resultJson.put("containerId", containerId);
-                resultJson.put("localPath", localPath);
-                resultJson.put("containerPath", containerPath);
-                resultJson.put("action", "uploaded");
-                return resultJson.toString();
-            }
-
-            return result;
-
-        } catch (Exception e) {
-            log.error("上传文件到容器失败: {} -> {}:{}", localPath, containerId, containerPath, e);
-            JSONObject errorResult = new JSONObject();
-            errorResult.put("status", "error");
-            errorResult.put("message", "上传文件到容器失败");
-            errorResult.put("error", e.getMessage());
-            errorResult.put("containerId", containerId);
-            errorResult.put("localPath", localPath);
-            errorResult.put("containerPath", containerPath);
-            return errorResult.toString();
-        }
-    }
-
-    /**
-     * 从容器下载文件
-     */
-    @Override
-    public String downloadFromContainer(String containerId, String containerPath, String localPath) {
-        try {
-            String command = "docker cp " + containerId + ":" + containerPath + " " + localPath;
-            log.info("从容器下载文件: {}:{} -> {}", containerId, containerPath, localPath);
-
-            String result = executeRemoteCommand(command);
-
-            if (isSuccess(result)) {
-                JSONObject resultJson = JSONUtil.parseObj(result);
-                resultJson.put("containerId", containerId);
-                resultJson.put("containerPath", containerPath);
-                resultJson.put("localPath", localPath);
-                resultJson.put("action", "downloaded");
-                return resultJson.toString();
-            }
-
-            return result;
-
-        } catch (Exception e) {
-            log.error("从容器下载文件失败: {}:{} -> {}", containerId, containerPath, localPath, e);
-            JSONObject errorResult = new JSONObject();
-            errorResult.put("status", "error");
-            errorResult.put("message", "从容器下载文件失败");
-            errorResult.put("error", e.getMessage());
-            errorResult.put("containerId", containerId);
-            errorResult.put("containerPath", containerPath);
-            errorResult.put("localPath", localPath);
-            return errorResult.toString();
-        }
-    }
-
-    /**
-     * 将容器提交为新镜像
-     */
-    @Override
-    public String commitContainerAsImage(String containerId, String imageName, String imageTag) {
-        try {
-            String fullImageName = imageName + ":" + imageTag;
-            String command = "docker commit " + containerId + " " + fullImageName;
-            log.info("将容器提交为镜像: {} -> {}", containerId, fullImageName);
-
-            String result = executeRemoteCommand(command);
-
-            if (isSuccess(result)) {
-                JSONObject resultJson = JSONUtil.parseObj(result);
-                resultJson.put("containerId", containerId);
-                resultJson.put("imageName", imageName);
-                resultJson.put("imageTag", imageTag);
-                resultJson.put("fullImageName", fullImageName);
-                resultJson.put("action", "committed");
-                return resultJson.toString();
-            }
-
-            return result;
-
-        } catch (Exception e) {
-            log.error("提交容器为镜像失败: {} -> {}:{}", containerId, imageName, imageTag, e);
-            JSONObject errorResult = new JSONObject();
-            errorResult.put("status", "error");
-            errorResult.put("message", "提交容器为镜像失败");
-            errorResult.put("error", e.getMessage());
-            errorResult.put("containerId", containerId);
-            errorResult.put("imageName", imageName);
-            errorResult.put("imageTag", imageTag);
-            return errorResult.toString();
-        }
-    }
 
     /**
      * 列出所有 YOLO 训练容器
@@ -1422,7 +1241,11 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
     private void addYoloTrainingLog(String taskId, String logLevel, String logMessage, String trainingLogFilePath) {
         String currentTime = getCurrentTime();
         // 使用实际的训练日志文件路径（如果提供），否则使用默认路径
-        String logFilePath = trainingLogFilePath != null ? trainingLogFilePath : (LOG_PATH_PREFIX + taskId + ".log");
+        String defaultLogPath = logPathPrefix != null ? logPathPrefix : "/data/wangshuanglong/log/train/";
+        if (!defaultLogPath.endsWith("/")) {
+            defaultLogPath += "/";
+        }
+        String logFilePath = trainingLogFilePath != null ? trainingLogFilePath : (defaultLogPath + taskId + ".log");
 
         // 构造日志条目
         String logEntry = currentTime + " " + logLevel + " " + logMessage + "\n";
@@ -1637,121 +1460,6 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
 
         // 默认返回 pytorch（大多数模型使用 PyTorch）
         return "pytorch";
-    }
-
-    // ==================== 测试示例 ====================
-
-    public static void main(String[] args) {
-        // 创建 YoloTrainer 实例
-        YoloTrainerAdapter trainer = new YoloTrainerAdapter();
-
-        // 配置远程服务器
-        trainer.setRemoteServer("103.85.179.118", 40022, "wangshuanglong", "chnvideo@2012");
-
-        System.out.println("=== YOLO 训练器测试 ===\n");
-
-        // 生成随机 ID
-        String taskId = generateTaskId();
-        String trackId = generateTrackId();
-
-        System.out.println("Task ID: " + taskId);
-        System.out.println("Track ID: " + trackId);
-        System.out.println();
-
-        // 1. 启动训练任务
-        System.out.println("=== 1. 启动训练任务 ===");
-        String trainResult = trainer.startTraining(taskId, trackId);
-        System.out.println("训练结果: " + trainResult);
-
-        // 解析容器名称
-        String containerName = null;
-        if (isSuccess(trainResult)) {
-            JSONObject resultJson = JSONUtil.parseObj(trainResult);
-            containerName = resultJson.getStr("containerName");
-            System.out.println("容器名称: " + containerName);
-        }
-        System.out.println();
-
-        // 等待一段时间
-        try {
-            System.out.println("等待 5 秒...");
-            Thread.sleep(5000);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-
-        if (containerName != null) {
-            // 2. 查看容器状态
-            System.out.println("=== 2. 查看容器状态 ===");
-            String statusResult = trainer.getContainerStatus(containerName);
-            System.out.println("状态结果: " + statusResult);
-            System.out.println();
-
-            // 3. 查看容器日志
-            System.out.println("=== 3. 查看容器日志 ===");
-            String logsResult = trainer.getContainerLogs(containerName, 50);
-            System.out.println("日志结果: " + logsResult);
-            System.out.println();
-
-            // 4. 暂停容器
-            System.out.println("=== 4. 暂停容器 ===");
-            String pauseResult = trainer.pauseContainer(containerName);
-            System.out.println("暂停结果: " + pauseResult);
-            System.out.println();
-
-            // 等待
-            try {
-                Thread.sleep(2000);
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
-
-            // 5. 恢复容器
-            System.out.println("=== 5. 恢复容器 ===");
-            String resumeResult = trainer.resumeContainer(containerName);
-            System.out.println("恢复结果: " + resumeResult);
-            System.out.println();
-
-            // 6. 上传文件到容器（示例）
-            System.out.println("=== 6. 上传文件到容器 ===");
-            String uploadResult = trainer.uploadToContainer(
-                containerName,
-                "/data/wangshuanglong/test_config.json",
-                "/app/data/uploaded_config.json"
-            );
-            System.out.println("上传结果: " + uploadResult);
-            System.out.println();
-
-            // 7. 从容器下载文件（示例）
-            System.out.println("=== 7. 从容器下载文件 ===");
-            String downloadResult = trainer.downloadFromContainer(
-                containerName,
-                "/app/data/train.log",
-                "/data/wangshuanglong/downloaded_train.log"
-            );
-            System.out.println("下载结果: " + downloadResult);
-            System.out.println();
-
-            // 8. 提交容器为新镜像（示例）
-            System.out.println("=== 8. 提交容器为新镜像 ===");
-            String commitResult = trainer.commitContainerAsImage(
-                containerName,
-                "yolo_trained_model",
-                "v1.0"
-            );
-            System.out.println("提交结果: " + commitResult);
-            System.out.println();
-
-            // 9. 停止并删除容器（清理）
-            System.out.println("=== 9. 停止并删除容器 ===");
-            String stopResult = trainer.stopContainer(containerName);
-            System.out.println("停止结果: " + stopResult);
-
-            String removeResult = trainer.removeContainer(containerName,"");
-            System.out.println("删除结果: " + removeResult);
-        }
-
-        System.out.println("\n=== 测试完成 ===");
     }
 
     /**

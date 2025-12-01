@@ -12,6 +12,7 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.util.*;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -51,6 +52,8 @@ public class CustomTrainingTasksServlet extends BaseServlet {
             queryTemplate(req, resp);
         }else if (method.equals("TemplateList")) {
             templateList(req, resp);
+        }else if (method.equals("deletedTemplate")){
+            deletedTemplate(req, resp);
         }else {
 
             resp.setStatus(404);
@@ -59,6 +62,7 @@ public class CustomTrainingTasksServlet extends BaseServlet {
             responsePrint(resp, toJson(error));
         }
     }
+
 
 
     @Override
@@ -110,8 +114,8 @@ public class CustomTrainingTasksServlet extends BaseServlet {
             String tagsStr = templateInfoDto.getTags() == null ? "" : templateInfoDto.getTags().toString();
             //保存到数据库
             String insertTemplateSql = "INSERT INTO template_info (template_id, template_name, description, type, category, difficulty," +
-                    "estimated_time, tags, is_built_in, usage_count, rating, is_public, created_at, updated_at) " +
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                    "estimated_time, tags, is_built_in, usage_count, rating, is_public, created_at, updated_at, is_deleted) " +
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
             getMysqlAdapter().executeUpdate(insertTemplateSql,
                     templateInfoDto.getTemplateId(),
                     templateInfoDto.getName(),
@@ -126,7 +130,8 @@ public class CustomTrainingTasksServlet extends BaseServlet {
                     templateInfoDto.getRating(),
                     templateInfoDto.getIsPublic(),
                     currentTime,
-                    currentTime
+                    currentTime,
+                    0
             );
 
             // 2. 解析并保存字段配置
@@ -233,6 +238,7 @@ public class CustomTrainingTasksServlet extends BaseServlet {
         }
     }
 
+
     private void templateList(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json;charset=utf-8");
         Map<String, Object> result = new HashMap<>();
@@ -272,7 +278,8 @@ public class CustomTrainingTasksServlet extends BaseServlet {
             int offset = (page - 1) * pageSize;
 
             // 查询模板列表
-            String sql = "SELECT * FROM template_info ORDER BY template_id ASC LIMIT ? OFFSET ?";
+            //String sql = "SELECT * FROM template_info ORDER BY template_id ASC LIMIT ? OFFSET ?";
+            String sql = "SELECT * FROM template_info WHERE is_deleted = 0 ORDER BY template_id ASC LIMIT ? OFFSET ?";
             List<Map<String, Object>> templateRows = getMysqlAdapter().select(sql, pageSize, offset);
 
             // 构建返回数据
@@ -282,6 +289,7 @@ public class CustomTrainingTasksServlet extends BaseServlet {
                     Map<String, Object> item = new HashMap<>();
                     item.put("template_id", String.valueOf(row.get("template_id")));
                     item.put("template_name", row.get("template_name"));
+                    item.put("template_desc", row.get("template_desc"));
                     data.add(item);
                 }
             }
@@ -296,6 +304,46 @@ public class CustomTrainingTasksServlet extends BaseServlet {
             resp.setStatus(500);
             result.put("code", "500");
             result.put("error", "服务器内部错误：" + e.getMessage());
+            responsePrint(resp, toJson(result));
+        }
+    }
+
+    private void deletedTemplate(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> result = new HashMap<>();
+        currentTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+
+        try {
+            String templateId = req.getParameter("template_id");
+            if (templateId == null || templateId.trim().isEmpty()){
+                resp.setStatus(400);
+                result.put("error", "缺少必填参数：template_id");
+                responsePrint(resp, toJson(result));
+                return;
+            }
+            String jsonBody = requestToJson(req);
+
+            // 更新template_info表中的is_deleted字段为1
+            String updateSql = "UPDATE template_info SET is_deleted = 1, updated_at = ? WHERE template_id = ?";
+            int rowsAffected = getMysqlAdapter().executeUpdate(updateSql, currentTime, templateId);
+
+            if (rowsAffected > 0) {
+                result.put("code", 200);
+                result.put("msg", "模板删除成功");
+                result.put("timestamp", currentTime);
+                resp.setStatus(200);
+            } else {
+                result.put("code", 404);
+                result.put("msg", "未找到指定的模板");
+                resp.setStatus(404);
+            }
+
+            responsePrint(resp, toJson(result));
+
+        } catch (Exception e) {
+            log.error("删除模板失败: error={}", e.getMessage(), e);
+            resp.setStatus(500);
+            result.put("error", "删除模板失败：" + e.getMessage());
             responsePrint(resp, toJson(result));
         }
     }

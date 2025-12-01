@@ -177,7 +177,7 @@ public class ModelCategoryServlet extends BaseServlet {
                 return;
             }
 
-          saveModelCategoryToDB(categoryName, parentId, description, sort, status, creator);
+            saveModelCategoryToDB(categoryName, parentId, description, sort, status, creator);
 
             resp.setStatus(200);
             result.put("code", 200);
@@ -209,7 +209,7 @@ public class ModelCategoryServlet extends BaseServlet {
         int isDeleted = 0;//逻辑删除字段
         String insertSql = "INSERT INTO model_category (category_name, parent_id, description, sort, status, creator, created_at, is_deleted) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
         try {
-            getMysqlAdapter().executeUpdate(insertSql,
+            int row = getMysqlAdapter().executeUpdate(insertSql,
                     categoryName,
                     parentId,
                     description,
@@ -220,6 +220,12 @@ public class ModelCategoryServlet extends BaseServlet {
                     isDeleted
             );
 
+            if (row > 0){
+                log.info("保存模型分类成功: categoryName={}, parentId={}", categoryName, parentId);
+            }else{
+                log.error("保存模型分类失败: categoryName={}, parentId={}", categoryName, parentId);
+                throw new RuntimeException("保存模型分类失败：");
+            }
         } catch (Exception e) {
             log.error("保存模型分类失败: categoryName={}, parentId={}, error={}", categoryName, parentId, e.getMessage(), e);
             throw new RuntimeException("保存模型分类失败：" + e.getMessage(), e);
@@ -798,18 +804,19 @@ public class ModelCategoryServlet extends BaseServlet {
                 return;
             }
 
-            String id = req.getParameter("id");
+            //String id = req.getParameter("id");
 
             JsonObject jsonNode = gson.fromJson(jsonBody, JsonObject.class);
-//            if (jsonNode == null || !jsonNode.has("id") || jsonNode.get("id").isJsonNull()) {
-//                resp.setStatus(400);
-//                result.put("code", 400);
-//                result.put("msg", "分类ID不能为空");
-//                responsePrint(resp, toJson(result));
-//                return;
-//            }
+            if (jsonNode == null || !jsonNode.has("id") || jsonNode.get("id").isJsonNull()) {
+                resp.setStatus(400);
+                result.put("code", 400);
+                result.put("msg", "分类ID不能为空");
+                responsePrint(resp, toJson(result));
+                return;
+            }
+            long categoryId = jsonNode.get("id").getAsLong();
 
-            long categoryId = Long.parseLong(id);
+            //long categoryId = Long.parseLong(id);
 //            try {
 //                categoryId =  Long.parseLong(id);
 //            } catch (Exception e) {

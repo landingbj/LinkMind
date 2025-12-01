@@ -20,7 +20,7 @@ public class TrainingTaskRepository {
 
     private final MysqlAdapter mysqlAdapter;
     private static final DateTimeFormatter DATE_TIME_FORMATTER =
-        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     public TrainingTaskRepository(MysqlAdapter mysqlAdapter) {
         this.mysqlAdapter = mysqlAdapter;
@@ -50,7 +50,7 @@ public class TrainingTaskRepository {
             }
         } catch (Exception e) {
             log.error("保存任务到数据库失败: taskId={}, type={}, error={}",
-                     task.getTaskId(), task.getTaskType(), e.getMessage(), e);
+                    task.getTaskId(), task.getTaskType(), e.getMessage(), e);
             return false;
         }
     }
@@ -266,7 +266,7 @@ public class TrainingTaskRepository {
      */
     public boolean addTrainingLog(String taskId, String logLevel, String logContent) {
         String sql = "INSERT INTO ai_training_logs (task_id, log_level, log_content, log_time, created_at) " +
-                    "VALUES (?, ?, ?, ?, ?)";
+                "VALUES (?, ?, ?, ?, ?)";
         try {
             String currentTime = getCurrentTime();
             int result = mysqlAdapter.executeUpdate(sql, taskId, logLevel, logContent, currentTime, currentTime);
@@ -291,12 +291,12 @@ public class TrainingTaskRepository {
     public boolean addTrainingMetric(String taskId, Integer epoch, Integer step,
                                      String metricName, Double metricValue, String metricType) {
         String sql = "INSERT INTO ai_training_metrics " +
-                    "(task_id, epoch, step, metric_name, metric_value, metric_type, recorded_at, created_at) " +
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+                "(task_id, epoch, step, metric_name, metric_value, metric_type, recorded_at, created_at) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
         try {
             String currentTime = getCurrentTime();
             int result = mysqlAdapter.executeUpdate(sql,
-                taskId, epoch, step, metricName, metricValue, metricType, currentTime, currentTime);
+                    taskId, epoch, step, metricName, metricValue, metricType, currentTime, currentTime);
             return result > 0;
         } catch (Exception e) {
             log.error("添加训练指标失败: taskId={}, metric={}", taskId, metricName, e);
@@ -314,7 +314,7 @@ public class TrainingTaskRepository {
      * @return 成功添加的指标数量
      */
     public int addTrainingMetrics(String taskId, Integer epoch, Integer step,
-                                   java.util.Map<String, Double> metrics) {
+                                  java.util.Map<String, Double> metrics) {
         int successCount = 0;
         for (java.util.Map.Entry<String, Double> entry : metrics.entrySet()) {
             String metricName = entry.getKey();
@@ -356,8 +356,8 @@ public class TrainingTaskRepository {
      */
     public boolean updateBestMetric(String taskId, String metricName, Double metricValue) {
         String sql = "UPDATE ai_training_tasks " +
-                    "SET best_metric = ?, best_metric_name = ?, updated_at = ? " +
-                    "WHERE task_id = ?";
+                "SET best_metric = ?, best_metric_name = ?, updated_at = ? " +
+                "WHERE task_id = ?";
         try {
             int result = mysqlAdapter.executeUpdate(sql, metricValue, metricName, getCurrentTime(), taskId);
             log.info("更新最佳指标: taskId={}, metric={}={}", taskId, metricName, metricValue);
@@ -374,11 +374,11 @@ public class TrainingTaskRepository {
     public boolean updateTaskMetrics(String taskId, Double trainLoss, Double valLoss,
                                      Double trainAcc, Double valAcc) {
         String sql = "UPDATE ai_training_tasks " +
-                    "SET train_loss = ?, val_loss = ?, train_acc = ?, val_acc = ?, updated_at = ? " +
-                    "WHERE task_id = ?";
+                "SET train_loss = ?, val_loss = ?, train_acc = ?, val_acc = ?, updated_at = ? " +
+                "WHERE task_id = ?";
         try {
             int result = mysqlAdapter.executeUpdate(sql,
-                trainLoss, valLoss, trainAcc, valAcc, getCurrentTime(), taskId);
+                    trainLoss, valLoss, trainAcc, valAcc, getCurrentTime(), taskId);
             return result > 0;
         } catch (Exception e) {
             log.error("更新任务指标失败: taskId={}", taskId, e);
@@ -402,11 +402,11 @@ public class TrainingTaskRepository {
 
             // 查询任务列表（仅查询训练类型的任务）
             String listSql = "SELECT task_id, dataset_path, epochs, status, progress, " +
-                           "current_epoch, start_time, created_at, template_id " +
-                           "FROM ai_training_tasks " +
-                           "WHERE is_deleted = 0 AND task_type = 'train' " +
-                           "ORDER BY created_at DESC " +
-                           "LIMIT ? OFFSET ?";
+                    "current_epoch, start_time, created_at, template_id " +
+                    "FROM ai_training_tasks " +
+                    "WHERE is_deleted = 0 AND task_type = 'train' " +
+                    "ORDER BY created_at DESC " +
+                    "LIMIT ? OFFSET ?";
 
             List<Map<String, Object>> tasks = mysqlAdapter.select(listSql, pageSize, offset);
 
@@ -440,7 +440,7 @@ public class TrainingTaskRepository {
 
                 // 收集需要更新状态的任务ID
                 if ("pending".equals(status) || "starting".equals(status) ||
-                    "running".equals(status) || "paused".equals(status) ) {
+                        "running".equals(status) || "paused".equals(status) ) {
                     taskIdsToUpdate.add(taskId);
                 }
             }
@@ -509,7 +509,7 @@ public class TrainingTaskRepository {
     private long getTaskCount() {
         try {
             String countSql = "SELECT COUNT(*) as total FROM ai_training_tasks " +
-                            "WHERE is_deleted = 0 AND task_type = 'train'";
+                    "WHERE is_deleted = 0 AND task_type = 'train'";
             List<Map<String, Object>> countResult = mysqlAdapter.select(countSql);
             if (!countResult.isEmpty()) {
                 Object totalObj = countResult.get(0).get("total");
@@ -538,8 +538,8 @@ public class TrainingTaskRepository {
 
         try {
             String statusCountSql = "SELECT status, COUNT(*) as count FROM ai_training_tasks " +
-                                  "WHERE is_deleted = 0 AND task_type = 'train' " +
-                                  "GROUP BY status";
+                    "WHERE is_deleted = 0 AND task_type = 'train' " +
+                    "GROUP BY status";
             List<Map<String, Object>> statusCounts = mysqlAdapter.select(statusCountSql);
 
             for (Map<String, Object> statusCount : statusCounts) {
@@ -611,12 +611,12 @@ public class TrainingTaskRepository {
      * @param templateId 模板ID
      * @return 模板信息
      */
-    public Map<String, Object> getTemplateInfoById(String templateId) {
-        if (templateId == null || templateId.isEmpty()) {
+    public Map<String, Object> getTemplateInfoById(Integer templateId) {
+        if (templateId == null) {
             return null;
         }
         try {
-            String sql = "SELECT * FROM template_info WHERE template_id = ?";
+            String sql = "SELECT * FROM template_info WHERE id = ?";
             List<Map<String, Object>> result = mysqlAdapter.select(sql, templateId);
             if (result != null && !result.isEmpty()) {
                 return result.get(0);
@@ -633,7 +633,7 @@ public class TrainingTaskRepository {
      * @return 模板字段列表
      */
     public List<Map<String, Object>> getTemplateFieldsByTemplateId(String templateId) {
-        if (templateId == null || templateId.isEmpty()) {
+        if (templateId == null) {
             return new ArrayList<>();
         }
         try {
@@ -674,9 +674,9 @@ public class TrainingTaskRepository {
         try {
             String placeholders = String.join(",", java.util.Collections.nCopies(taskIds.size(), "?"));
             String sql = "SELECT task_id, container_id, container_name, status, progress, current_epoch, " +
-                        "start_time, end_time, created_at, updated_at " +
-                        "FROM ai_training_tasks " +
-                        "WHERE task_id IN (" + placeholders + ") AND is_deleted = 0";
+                    "start_time, end_time, created_at, updated_at " +
+                    "FROM ai_training_tasks " +
+                    "WHERE task_id IN (" + placeholders + ") AND is_deleted = 0";
             return mysqlAdapter.select(sql, taskIds.toArray());
         } catch (Exception e) {
             log.error("根据任务ID列表查询训练任务失败", e);
@@ -694,9 +694,9 @@ public class TrainingTaskRepository {
         try {
             String placeholders = String.join(",", java.util.Collections.nCopies(containerIds.size(), "?"));
             String sql = "SELECT task_id, container_id, container_name, status, progress, current_epoch, " +
-                        "start_time, end_time, created_at, updated_at " +
-                        "FROM ai_training_tasks " +
-                        "WHERE container_id IN (" + placeholders + ") AND is_deleted = 0";
+                    "start_time, end_time, created_at, updated_at " +
+                    "FROM ai_training_tasks " +
+                    "WHERE container_id IN (" + placeholders + ") AND is_deleted = 0";
             return mysqlAdapter.select(sql, containerIds.toArray());
         } catch (Exception e) {
             log.error("根据容器ID列表查询训练任务失败", e);
@@ -714,9 +714,9 @@ public class TrainingTaskRepository {
         try {
             String placeholders = String.join(",", java.util.Collections.nCopies(containerNames.size(), "?"));
             String sql = "SELECT task_id, container_id, container_name, status, progress, current_epoch, " +
-                        "start_time, end_time, created_at, updated_at " +
-                        "FROM ai_training_tasks " +
-                        "WHERE container_name IN (" + placeholders + ") AND is_deleted = 0";
+                    "start_time, end_time, created_at, updated_at " +
+                    "FROM ai_training_tasks " +
+                    "WHERE container_name IN (" + placeholders + ") AND is_deleted = 0";
             return mysqlAdapter.select(sql, containerNames.toArray());
         } catch (Exception e) {
             log.error("根据容器名称列表查询训练任务失败", e);
@@ -724,6 +724,43 @@ public class TrainingTaskRepository {
         }
     }
 
+    public boolean updateTaskByTaskId(String taskId, Map<String, Object> updateData) {
+        if (taskId == null || taskId.isEmpty() || updateData == null || updateData.isEmpty()) {
+            log.warn("更新任务参数无效: taskId={}, updateData={}", taskId, updateData);
+            return false;
+        }
+
+        try {
+            // 构建动态SQL
+            StringBuilder sqlBuilder = new StringBuilder("UPDATE ai_training_tasks SET ");
+            List<Object> params = new ArrayList<>();
+
+            // 添加需要更新的字段
+            boolean first = true;
+            for (Map.Entry<String, Object> entry : updateData.entrySet()) {
+                if (!first) {
+                    sqlBuilder.append(", ");
+                }
+                sqlBuilder.append(entry.getKey()).append(" = ?");
+                params.add(entry.getValue());
+                first = false;
+            }
+
+            // 添加更新时间和where条件
+            sqlBuilder.append(", updated_at = ? WHERE task_id = ?");
+            params.add(getCurrentTime());
+            params.add(taskId);
+
+            String sql = sqlBuilder.toString();
+
+            int result = mysqlAdapter.executeUpdate(sql, params.toArray());
+            log.info("任务信息已更新: taskId={}, affectedRows={}", taskId, result);
+            return result > 0;
+        } catch (Exception e) {
+            log.error("根据任务ID更新任务信息失败: taskId={}", taskId, e);
+            return false;
+        }
+    }
 }
 
 

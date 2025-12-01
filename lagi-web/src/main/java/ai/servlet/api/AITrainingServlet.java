@@ -3,6 +3,8 @@ package ai.servlet.api;
 import ai.common.utils.ObservableList;
 import ai.config.ContextLoader;
 import ai.config.pojo.DiscriminativeModelsConfig;
+import ai.dto.TrainingLogs;
+import ai.dto.TrainingTasks;
 import ai.finetune.YoloTrainerAdapter;
 import ai.finetune.DeeplabAdapter;
 import ai.finetune.SSHConnectionManager;
@@ -81,8 +83,8 @@ public class AITrainingServlet extends BaseServlet {
         error.put("status", "error");
         error.put("code", "SERVICE_UNAVAILABLE");
         error.put("message", modelName != null
-            ? "模型 " + modelName + " 训练服务未启用或配置不正确"
-            : "AI 训练服务未启用或配置不正确");
+                ? "模型 " + modelName + " 训练服务未启用或配置不正确"
+                : "AI 训练服务未启用或配置不正确");
         error.put("detail", "请检查 lagi.yml 中的 discriminative_models 配置");
 
         response.getWriter().write(error.toString());
@@ -308,11 +310,229 @@ public class AITrainingServlet extends BaseServlet {
             case "resources":
                 handleGetResourceUsage(req, resp);
                 break;
+            case "updateData":
+                handleUpdateData(req, resp);
+                break;
+
+            case "monitor":
+                handleMonitor(req, resp);
+                break;
             default:
                 resp.setStatus(404);
                 Map<String, String> error = new HashMap<>();
                 error.put("error", "接口不存在: " + method);
                 responsePrint(resp, toJson(error));
+        }
+    }
+
+    private void handleMonitor(HttpServletRequest req, HttpServletResponse resp) {
+        // TODO: 添加监控功能
+    }
+
+
+    private void handleUpdateData(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            String jsonBody = requestToJson(req);
+            JSONObject requestJson = JSONUtil.parseObj(jsonBody);
+
+            // 必须提供 task_id
+            String taskId = requestJson.getStr("task_id");
+            if (taskId == null || taskId.isEmpty()) {
+                resp.setStatus(400);
+                response.put("code", "400");
+                response.put("message", "缺少参数: task_id");
+                responsePrint(resp, toJson(response));
+                return;
+            }
+
+            // 构建更新数据
+            Map<String, Object> updateData = new HashMap<>();
+
+            // 只有当字段存在时才添加到更新数据中
+            if (requestJson.containsKey("track_id")) {
+                updateData.put("track_id", requestJson.getStr("track_id"));
+            }
+            if (requestJson.containsKey("model_name")) {
+                updateData.put("model_name", requestJson.getStr("model_name"));
+            }
+            if (requestJson.containsKey("model_version")) {
+                updateData.put("model_version", requestJson.getStr("model_version"));
+            }
+            if (requestJson.containsKey("model_framework")) {
+                updateData.put("model_framework", requestJson.getStr("model_framework"));
+            }
+            if (requestJson.containsKey("model_category")) {
+                updateData.put("model_category", requestJson.getStr("model_category"));
+            }
+            if (requestJson.containsKey("task_type")) {
+                updateData.put("task_type", requestJson.getStr("task_type"));
+            }
+            if (requestJson.containsKey("container_name")) {
+                updateData.put("container_name", requestJson.getStr("container_name"));
+            }
+            if (requestJson.containsKey("container_id")) {
+                updateData.put("container_id", requestJson.getStr("container_id"));
+            }
+            if (requestJson.containsKey("docker_image")) {
+                updateData.put("docker_image", requestJson.getStr("docker_image"));
+            }
+            if (requestJson.containsKey("gpu_ids")) {
+                updateData.put("gpu_ids", requestJson.getStr("gpu_ids"));
+            }
+            if (requestJson.containsKey("use_gpu")) {
+                updateData.put("use_gpu", requestJson.getInt("use_gpu"));
+            }
+            if (requestJson.containsKey("dataset_path")) {
+                updateData.put("dataset_path", requestJson.getStr("dataset_path"));
+            }
+            if (requestJson.containsKey("dataset_name")) {
+                updateData.put("dataset_name", requestJson.getStr("dataset_name"));
+            }
+            if (requestJson.containsKey("dataset_type")) {
+                updateData.put("dataset_type", requestJson.getStr("dataset_type"));
+            }
+            if (requestJson.containsKey("num_classes")) {
+                updateData.put("num_classes", requestJson.getInt("num_classes"));
+            }
+            if (requestJson.containsKey("model_path")) {
+                updateData.put("model_path", requestJson.getStr("model_path"));
+            }
+            if (requestJson.containsKey("checkpoint_path")) {
+                updateData.put("checkpoint_path", requestJson.getStr("checkpoint_path"));
+            }
+            if (requestJson.containsKey("output_path")) {
+                updateData.put("output_path", requestJson.getStr("output_path"));
+            }
+            if (requestJson.containsKey("epochs")) {
+                updateData.put("epochs", requestJson.getInt("epochs"));
+            }
+            if (requestJson.containsKey("batch_size")) {
+                updateData.put("batch_size", requestJson.getInt("batch_size"));
+            }
+            if (requestJson.containsKey("learning_rate")) {
+                updateData.put("learning_rate", requestJson.getBigDecimal("learning_rate"));
+            }
+            if (requestJson.containsKey("image_size")) {
+                updateData.put("image_size", requestJson.getStr("image_size"));
+            }
+            if (requestJson.containsKey("optimizer")) {
+                updateData.put("optimizer", requestJson.getStr("optimizer"));
+            }
+            if (requestJson.containsKey("status")) {
+                updateData.put("status", requestJson.getStr("status"));
+            }
+            if (requestJson.containsKey("progress")) {
+                updateData.put("progress", requestJson.getStr("progress"));
+            }
+            if (requestJson.containsKey("current_epoch")) {
+                updateData.put("current_epoch", requestJson.getInt("current_epoch"));
+            }
+            if (requestJson.containsKey("current_step")) {
+                updateData.put("current_step", requestJson.getInt("current_step"));
+            }
+            if (requestJson.containsKey("total_steps")) {
+                updateData.put("total_steps", requestJson.getInt("total_steps"));
+            }
+            if (requestJson.containsKey("train_loss")) {
+                updateData.put("train_loss", requestJson.getBigDecimal("train_loss"));
+            }
+            if (requestJson.containsKey("val_loss")) {
+                updateData.put("val_loss", requestJson.getBigDecimal("val_loss"));
+            }
+            if (requestJson.containsKey("train_acc")) {
+                updateData.put("train_acc", requestJson.getBigDecimal("train_acc"));
+            }
+            if (requestJson.containsKey("val_acc")) {
+                updateData.put("val_acc", requestJson.getBigDecimal("val_acc"));
+            }
+            if (requestJson.containsKey("best_metric")) {
+                updateData.put("best_metric", requestJson.getBigDecimal("best_metric"));
+            }
+            if (requestJson.containsKey("best_metric_name")) {
+                updateData.put("best_metric_name", requestJson.getStr("best_metric_name"));
+            }
+            if (requestJson.containsKey("train_dir")) {
+                updateData.put("train_dir", requestJson.getStr("train_dir"));
+            }
+            if (requestJson.containsKey("weights_path")) {
+                updateData.put("weights_path", requestJson.getStr("weights_path"));
+            }
+            if (requestJson.containsKey("best_weights_path")) {
+                updateData.put("best_weights_path", requestJson.getStr("best_weights_path"));
+            }
+            if (requestJson.containsKey("log_file_path")) {
+                updateData.put("log_file_path", requestJson.getStr("log_file_path"));
+            }
+            if (requestJson.containsKey("error_message")) {
+                updateData.put("error_message", requestJson.getStr("error_message"));
+            }
+            if (requestJson.containsKey("start_time")) {
+                updateData.put("start_time", requestJson.getStr("start_time"));
+            }
+            if (requestJson.containsKey("end_time")) {
+                updateData.put("end_time", requestJson.getStr("end_time"));
+            }
+            if (requestJson.containsKey("estimated_time")) {
+                updateData.put("estimated_time", requestJson.getLong("estimated_time"));
+            }
+            if (requestJson.containsKey("created_at")) {
+                updateData.put("created_at", requestJson.getStr("created_at"));
+            }
+            if (requestJson.containsKey("updated_at")) {
+                updateData.put("updated_at", requestJson.getStr("updated_at"));
+            }
+            if (requestJson.containsKey("deleted_at")) {
+                updateData.put("deleted_at", requestJson.getStr("deleted_at"));
+            }
+            if (requestJson.containsKey("is_deleted")) {
+                updateData.put("is_deleted", requestJson.getInt("is_deleted"));
+            }
+            if (requestJson.containsKey("user_id")) {
+                updateData.put("user_id", requestJson.getStr("user_id"));
+            }
+            if (requestJson.containsKey("project_id")) {
+                updateData.put("project_id", requestJson.getStr("project_id"));
+            }
+            if (requestJson.containsKey("template_id")) {
+                updateData.put("template_id", requestJson.getInt("template_id"));
+            }
+            if (requestJson.containsKey("priority")) {
+                updateData.put("priority", requestJson.getInt("priority"));
+            }
+            if (requestJson.containsKey("tags")) {
+                updateData.put("tags", requestJson.getStr("tags"));
+            }
+            if (requestJson.containsKey("remark")) {
+                updateData.put("remark", requestJson.getStr("remark"));
+            }
+            if (requestJson.containsKey("config_json")) {
+                updateData.put("config_json", requestJson.getStr("config_json"));
+            }
+
+            // 执行更新操作
+            TrainingTaskRepository repository = yoloTrainer.getRepository();
+            boolean success = repository.updateTaskByTaskId(taskId, updateData);
+
+            if (success) {
+                response.put("code", "200");
+                response.put("message", "更新成功");
+            } else {
+                resp.setStatus(500);
+                response.put("code", "500");
+                response.put("message", "更新失败");
+            }
+
+            responsePrint(resp, toJson(response));
+
+        } catch (Exception e) {
+            log.error("更新训练任务数据失败", e);
+            resp.setStatus(500);
+            response.put("code", "500");
+            response.put("message", "更新训练任务数据失败: " + e.getMessage());
+            responsePrint(resp, toJson(response));
         }
     }
 
@@ -350,10 +570,14 @@ public class AITrainingServlet extends BaseServlet {
 
             // 添加模板信息（这里从数据库查询模板表）
             Map<String, Object> template = new HashMap<>();
-            String templateId = (String) taskDetail.get("template_id");
-            if (templateId != null && !templateId.isEmpty()) {
-                Map<String, Object> templateInfo = repository.getTemplateInfoById(templateId);
+            //这里获取的是template_info的主键id
+            Integer tempId = (Integer) taskDetail.get("template_id");
+
+            if (tempId != null && tempId > 0) {
+                Map<String, Object> templateInfo = repository.getTemplateInfoById(tempId);
                 if (templateInfo != null) {
+                    //这里的templateId是template_info表中的template_id
+                    String templateId = (String) templateInfo.get("template_id");
                     template.put("templateName", templateInfo.get("template_name"));
                     template.put("templateDesc", templateInfo.get("description"));
 
@@ -586,7 +810,7 @@ public class AITrainingServlet extends BaseServlet {
 
                 // 添加时间戳（当前时间，格式：yyyy-MM-dd HH:mm:ss）
                 String timestamp = java.time.LocalDateTime.now()
-                    .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+                        .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
                 response.put("timestamp", timestamp);
 
                 // 提取训练配置信息（根据模型类型使用不同的参数名）
@@ -616,7 +840,7 @@ public class AITrainingServlet extends BaseServlet {
 
                 // 添加创建时间（ISO 8601格式）
                 String createdAt = java.time.ZonedDateTime.now()
-                    .format(java.time.format.DateTimeFormatter.ISO_INSTANT);
+                        .format(java.time.format.DateTimeFormatter.ISO_INSTANT);
                 response.put("created_at", createdAt);
 
                 responsePrint(resp, response.toString());
@@ -1004,11 +1228,16 @@ public class AITrainingServlet extends BaseServlet {
         try {
             String containerId = getContainerIdFromRequest(req);
             if (containerId == null) {
-                resp.setStatus(400);
-                Map<String, String> error = new HashMap<>();
-                error.put("error", "缺少 taskId 或 containerId 参数");
-                responsePrint(resp, toJson(error));
-                return;
+                // 如果通过 taskId 无法找到 containerId，则直接使用 taskId 作为 containerId
+                String taskId = req.getParameter("taskId");
+                if (taskId == null || taskId.isEmpty()) {
+                    resp.setStatus(400);
+                    Map<String, String> error = new HashMap<>();
+                    error.put("error", "缺少 taskId 或 containerId 参数");
+                    responsePrint(resp, toJson(error));
+                    return;
+                }
+                containerId = taskId;
             }
 
             String linesStr = req.getParameter("lines");
@@ -1052,23 +1281,23 @@ public class AITrainingServlet extends BaseServlet {
             ObservableList<String> logStream = yoloTrainer.getContainerLogsStream(containerId);
 
             logStream.getObservable().subscribe(
-                line -> {
-                    try {
-                        writer.write("data: " + line + "\n\n");
+                    line -> {
+                        try {
+                            writer.write("data: " + line + "\n\n");
+                            writer.flush();
+                        } catch (Exception e) {
+                            log.error("发送日志流失败", e);
+                        }
+                    },
+                    error -> {
+                        log.error("日志流错误", error);
+                        writer.write("event: error\ndata: " + error.getMessage() + "\n\n");
                         writer.flush();
-                    } catch (Exception e) {
-                        log.error("发送日志流失败", e);
+                    },
+                    () -> {
+                        writer.write("event: complete\ndata: 日志流结束\n\n");
+                        writer.flush();
                     }
-                },
-                error -> {
-                    log.error("日志流错误", error);
-                    writer.write("event: error\ndata: " + error.getMessage() + "\n\n");
-                    writer.flush();
-                },
-                () -> {
-                    writer.write("event: complete\ndata: 日志流结束\n\n");
-                    writer.flush();
-                }
             );
 
         } catch (Exception e) {
@@ -1422,7 +1651,7 @@ public class AITrainingServlet extends BaseServlet {
 
         // 参数检查
         if ((containerIds == null || containerIds.trim().isEmpty()) &&
-            (taskIds == null || taskIds.trim().isEmpty())) {
+                (taskIds == null || taskIds.trim().isEmpty())) {
             return resultList;
         }
 
@@ -1502,15 +1731,15 @@ public class AITrainingServlet extends BaseServlet {
                             String resultStatus = statusJson.getStr("status");
                             String exitCode = "";
                             String isStatus ="";
-                                // 尝试从output字段提取exitCode
-                                String output = statusJson.getStr("output");
-                                if (output != null && output.contains(";")) {
-                                    String[] parts = output.split(";");
-                                    if (parts.length > 1) {
-                                        exitCode = parts[1].trim();
-                                        isStatus = parts[0].trim();
-                                    }
+                            // 尝试从output字段提取exitCode
+                            String output = statusJson.getStr("output");
+                            if (output != null && output.contains(";")) {
+                                String[] parts = output.split(";");
+                                if (parts.length > 1) {
+                                    exitCode = parts[1].trim();
+                                    isStatus = parts[0].trim();
                                 }
+                            }
                             // 如果exitCode大于0，则将containerStatus设置为failed
                             if (exitCode != null && !exitCode.isEmpty()) {
                                 try {
@@ -1656,20 +1885,20 @@ public class AITrainingServlet extends BaseServlet {
 
         // 2. 从数据库查询
         try {
-                TrainingTaskRepository repository = yoloTrainer.getRepository();
-                Map<String, Object> taskDetail = repository.getTaskDetailByTaskId(taskId);
-                if (taskDetail != null) {
-                    String containerId = (String) taskDetail.get("container_id");
-                    String containerNameFromDb = (String) taskDetail.get("container_name");
+            TrainingTaskRepository repository = yoloTrainer.getRepository();
+            Map<String, Object> taskDetail = repository.getTaskDetailByTaskId(taskId);
+            if (taskDetail != null) {
+                String containerId = (String) taskDetail.get("container_id");
+                String containerNameFromDb = (String) taskDetail.get("container_name");
 
-                    // 优先使用 container_id，如果没有则使用 container_name
-                    if (containerId != null && !containerId.isEmpty()) {
-                        return containerId;
-                    }
-                    if (containerNameFromDb != null && !containerNameFromDb.isEmpty()) {
-                        return containerNameFromDb;
-                    }
+                // 优先使用 container_id，如果没有则使用 container_name
+                if (containerId != null && !containerId.isEmpty()) {
+                    return containerId;
                 }
+                if (containerNameFromDb != null && !containerNameFromDb.isEmpty()) {
+                    return containerNameFromDb;
+                }
+            }
         } catch (Exception e) {
             log.warn("从数据库查询容器信息失败: taskId={}, error={}", taskId, e.getMessage());
         }
@@ -1729,7 +1958,7 @@ public class AITrainingServlet extends BaseServlet {
         try {
             // 使用 docker stats --no-stream 获取一次性统计数据
             String command = "docker stats --no-stream --format " +
-                           "\"{{.Container}},{{.CPUPerc}},{{.MemUsage}},{{.MemPerc}}\" " + containerId;
+                    "\"{{.Container}},{{.CPUPerc}},{{.MemUsage}},{{.MemPerc}}\" " + containerId;
 
             String commandResult = trainer.executeRemoteCommand(command);
             JSONObject resultJson = JSONUtil.parseObj(commandResult);
@@ -1787,8 +2016,8 @@ public class AITrainingServlet extends BaseServlet {
         try {
             // 在容器内执行 nvidia-smi 命令获取 GPU 信息
             String command = "docker exec " + containerId +
-                           " nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total," +
-                           "temperature.gpu,power.draw --format=csv,noheader,nounits";
+                    " nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total," +
+                    "temperature.gpu,power.draw --format=csv,noheader,nounits";
 
             String commandResult = trainer.executeRemoteCommand(command);
             JSONObject resultJson = JSONUtil.parseObj(commandResult);

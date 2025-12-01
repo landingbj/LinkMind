@@ -1,6 +1,7 @@
 package ai.servlet.api;
 
 import ai.database.impl.MysqlAdapter;
+import ai.dto.DictOptionDto;
 import ai.dto.ModelIntroductionDto;
 import ai.servlet.BaseServlet;
 import com.google.gson.Gson;
@@ -11,6 +12,7 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.math.BigInteger;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -55,6 +57,12 @@ public class ModelIntroductionServlet extends BaseServlet {
             updateModelIntroduction(req, resp);
         }else if(method.equals("deleted")){
             deletedModelIntroduction(req, resp);
+        }else if (method.equals("queryModelCategory")){
+            queryModelCategoryList(req, resp);
+        }else if (method.equals("queryModelType")){
+            queryModelType(req, resp);
+        }else if (method.equals("queryFramework")){
+            queryFramework(req, resp);
         }else {
             {
                 resp.setStatus(404);
@@ -72,6 +80,94 @@ public class ModelIntroductionServlet extends BaseServlet {
         this.doGet(req, resp);
     }
 
+
+    // ========== 新增：查询模型分类下拉框 ==========
+    private void queryModelCategoryList(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> result = new HashMap<>();
+        try {
+            List<DictOptionDto> options = new ArrayList<>();
+            String sql = "SELECT id, category_name FROM model_category";
+            List<Map<String, Object>> categorylist = getMysqlAdapter().select(sql);
+
+            for (Map<String, Object> map : categorylist) {
+                DictOptionDto option = new DictOptionDto();
+                option.setId((Long) map.get("id"));
+                option.setName((String) map.get("category_name"));
+                options.add(option);
+            }
+
+            result.put("code", 200);
+            result.put("msg", "查询模型分类成功");
+            result.put("data", options);
+            responsePrint(resp, toJson(result));
+        } catch (Exception e) {
+            log.error("查询模型分类异常: ", e);
+            resp.setStatus(500);
+            result.put("code", 500);
+            result.put("msg", "服务器内部错误");
+            responsePrint(resp, toJson(result));
+        }
+    }
+
+
+    // ========== 新增：查询模型类型下拉框 ==========
+    private void queryModelType(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> result = new HashMap<>();
+        try {
+            List<DictOptionDto> options = new ArrayList<>();
+            String sql = "SELECT id, type_name FROM model_type_dict";
+            List<Map<String, Object>> typelist = getMysqlAdapter().select(sql);
+
+            for (Map<String, Object> map : typelist) {
+                DictOptionDto option = new DictOptionDto();
+                option.setId((Long) map.get("id"));
+                option.setName((String) map.get("type_name"));
+                options.add(option);
+            }
+
+            result.put("code", 200);
+            result.put("msg", "查询模型类型成功");
+            result.put("data", options);
+            responsePrint(resp, toJson(result));
+        } catch (Exception e) {
+            log.error("查询模型类型异常: ", e);
+            resp.setStatus(500);
+            result.put("code", 500);
+            result.put("msg", "服务器内部错误");
+            responsePrint(resp, toJson(result));
+        }
+    }
+
+    // ========== 新增：查询框架下拉框 ==========
+    private void queryFramework(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> result = new HashMap<>();
+        try {
+            List<DictOptionDto> options = new ArrayList<>();
+            String sql = "SELECT id, framework_name FROM model_framework_dict";
+            List<Map<String, Object>> frameworklist = getMysqlAdapter().select(sql);
+
+            for (Map<String, Object> map : frameworklist) {
+                DictOptionDto option = new DictOptionDto();
+                option.setId((Long) map.get("id"));
+                option.setName((String) map.get("framework_name"));
+                options.add(option);
+            }
+
+            result.put("code", 200);
+            result.put("msg", "查询框架成功");
+            result.put("data", options);
+            responsePrint(resp, toJson(result));
+        } catch (Exception e) {
+            log.error("查询框架异常: ", e);
+            resp.setStatus(500);
+            result.put("code", 500);
+            result.put("msg", "服务器内部错误");
+            responsePrint(resp, toJson(result));
+        }
+    }
 
     /**
      * 创建模型简介
@@ -144,22 +240,20 @@ public class ModelIntroductionServlet extends BaseServlet {
                 return;
             }
 
-            // 验证必填参数 modelType
-            if (!jsonNode.has("modelType") || jsonNode.get("modelType").isJsonNull() ||
-                    jsonNode.get("modelType").getAsString().trim().isEmpty()) {
+            // 验证必填参数 modelTypeId
+            if (!jsonNode.has("modelTypeId") || jsonNode.get("modelTypeId").isJsonNull()) {
                 resp.setStatus(400);
                 result.put("code", 400);
-                result.put("msg", "模型类型不能为空");
+                result.put("msg", "模型类型ID不能为空");
                 responsePrint(resp, toJson(result));
                 return;
             }
 
             // 验证必填参数 framework
-            if (!jsonNode.has("framework") || jsonNode.get("framework").isJsonNull() ||
-                    jsonNode.get("framework").getAsString().trim().isEmpty()) {
+            if (!jsonNode.has("frameworkId") || jsonNode.get("frameworkId").isJsonNull()) {
                 resp.setStatus(400);
                 result.put("code", 400);
-                result.put("msg", "框架不能为空");
+                result.put("msg", "框架ID不能为空");
                 responsePrint(resp, toJson(result));
                 return;
             }
@@ -220,8 +314,10 @@ public class ModelIntroductionServlet extends BaseServlet {
             modelIntroductionDto.setDescription(jsonNode.get("description").getAsString());
             modelIntroductionDto.setDetailContent(jsonNode.get("detailContent").getAsString());
             modelIntroductionDto.setCategoryId(jsonNode.get("categoryId").getAsInt());
-            modelIntroductionDto.setModelType(jsonNode.get("modelType").getAsString());
-            modelIntroductionDto.setFramework(jsonNode.get("framework").getAsString());
+            modelIntroductionDto.setModelTypeId(jsonNode.get("modelTypeId").getAsInt());
+            modelIntroductionDto.setFrameworkId(jsonNode.get("frameworkId").getAsInt());
+            //modelIntroductionDto.setModelType(jsonNode.get("modelType").getAsString());
+            //modelIntroductionDto.setFramework(jsonNode.get("framework").getAsString());
             modelIntroductionDto.setAlgorithm(jsonNode.get("algorithm").getAsString());
             modelIntroductionDto.setInputShape(jsonNode.get("inputShape").getAsString());
             modelIntroductionDto.setOutputShape(jsonNode.get("outputShape").getAsString());
@@ -262,37 +358,37 @@ public class ModelIntroductionServlet extends BaseServlet {
 
     private int saveModelIntroductionToDB(ModelIntroductionDto modelIntroductionDto) {
         String sql = "INSERT INTO model_introduction " +
-                "(model_name, version, title, description, detail_content, category_id, model_type, framework, algorithm, " +
+                "(model_name, version, title, description, detail_content, category_id, model_type_id, framework_id, algorithm, " +
                 "input_shape, output_shape, total_params, trainable_params, non_trainable_params, accuracy, `precision`, " +
                 "recall, f1_score, tags, status, author, doc_link, icon_link, created_at, is_deleted) " +
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
         try {
             int rowsAffected =getMysqlAdapter().executeUpdate(sql,
-                        modelIntroductionDto.getModelName(),
-                        modelIntroductionDto.getVersion(),
-                        modelIntroductionDto.getTitle(),
-                        modelIntroductionDto.getDescription(),
-                        modelIntroductionDto.getDetailContent(),
-                        modelIntroductionDto.getCategoryId(),
-                        modelIntroductionDto.getModelType(),
-                        modelIntroductionDto.getFramework(),
-                        modelIntroductionDto.getAlgorithm(),
-                        modelIntroductionDto.getInputShape(),
-                        modelIntroductionDto.getOutputShape(),
-                        modelIntroductionDto.getTotalParams(),
-                        modelIntroductionDto.getTrainableParams(),
-                        modelIntroductionDto.getNonTrainableParams(),
-                        modelIntroductionDto.getAccuracy(),
-                        modelIntroductionDto.getPrecision(),
-                        modelIntroductionDto.getRecall(),
-                        modelIntroductionDto.getF1Score(),
-                        modelIntroductionDto.getTags(),
-                        modelIntroductionDto.getStatus(),
-                        modelIntroductionDto.getAuthor(),
-                        modelIntroductionDto.getDocLink(),
-                        modelIntroductionDto.getIconLink(),
-                        modelIntroductionDto.getCreatedAt(),
-                        modelIntroductionDto.getIsDeleted()
+                    modelIntroductionDto.getModelName(),
+                    modelIntroductionDto.getVersion(),
+                    modelIntroductionDto.getTitle(),
+                    modelIntroductionDto.getDescription(),
+                    modelIntroductionDto.getDetailContent(),
+                    modelIntroductionDto.getCategoryId(),
+                    modelIntroductionDto.getModelTypeId(),
+                    modelIntroductionDto.getFrameworkId(),
+                    modelIntroductionDto.getAlgorithm(),
+                    modelIntroductionDto.getInputShape(),
+                    modelIntroductionDto.getOutputShape(),
+                    modelIntroductionDto.getTotalParams(),
+                    modelIntroductionDto.getTrainableParams(),
+                    modelIntroductionDto.getNonTrainableParams(),
+                    modelIntroductionDto.getAccuracy(),
+                    modelIntroductionDto.getPrecision(),
+                    modelIntroductionDto.getRecall(),
+                    modelIntroductionDto.getF1Score(),
+                    modelIntroductionDto.getTags(),
+                    modelIntroductionDto.getStatus(),
+                    modelIntroductionDto.getAuthor(),
+                    modelIntroductionDto.getDocLink(),
+                    modelIntroductionDto.getIconLink(),
+                    modelIntroductionDto.getCreatedAt(),
+                    modelIntroductionDto.getIsDeleted()
             );
             return rowsAffected;
         } catch (Exception e) {
@@ -351,8 +447,8 @@ public class ModelIntroductionServlet extends BaseServlet {
             if (createdRange != null && !createdRange.trim().isEmpty()) {
                 String[] parts = createdRange.split(",");
                 if (parts.length == 2) {
-                    startTime = parts[0].trim() + " 00:00:00";
-                    endTime = parts[1].trim() + " 23:59:59";
+                    startTime = parts[0].trim();
+                    endTime = parts[1].trim();
                 }
             }
 
@@ -501,7 +597,11 @@ public class ModelIntroductionServlet extends BaseServlet {
         }
 
         int offset = (page - 1) * pageSize;
-        String sql = "SELECT * FROM model_introduction mi LEFT JOIN model_category mc ON mi.category_id = mc.id" +
+//        String sql = "SELECT * FROM model_introduction mi LEFT JOIN model_category mc ON mi.category_id = mc.id" +
+//                where + " ORDER BY mi.created_at DESC LIMIT ?, ?";
+        String sql = "SELECT mi.id AS model_id, mi.model_name, mi.version, mc.category_name, " +
+                "mi.title, mi.author, mi.status, mi.view_count, mi.created_at " +
+                "FROM model_introduction mi LEFT JOIN model_category mc ON mi.category_id = mc.id" +
                 where + " ORDER BY mi.created_at DESC LIMIT ?, ?";
 
         Object[] sqlParams = new Object[params.size() + 2];
@@ -513,42 +613,43 @@ public class ModelIntroductionServlet extends BaseServlet {
         List<Map<String, Object>> list = new ArrayList<>();
         for (Map<String, Object> row : rows) {
             Map<String, Object> item = new HashMap<>();
-            item.put("modelName", row.get("modelName"));
+            item.put("id", row.get("model_id"));
+            item.put("modelName", row.get("model_name"));
             item.put("version", row.get("version"));
-            item.put("category", row.get("category"));
+            item.put("category", row.get("category_name"));
             item.put("title", row.get("title"));
             item.put("author", row.get("author"));
             item.put("status", row.get("status"));
-            item.put("viewCount", row.get("viewCount"));
-            item.put("createTime", row.get("createTime"));
+            item.put("viewCount", row.get("view_count"));
+            item.put("createTime", row.get("created_at"));
             list.add(item);
         }
         return list;
     }
 
 
-private void detailModelIntroduction(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+    private void detailModelIntroduction(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json;charset=utf-8");
         Map<String, Object> result = new HashMap<>();
 
         try {
             String jsonBody = requestToJson(req);
             JsonObject jsonObject = gson.fromJson(jsonBody, JsonObject.class);
-
-            // 验证必填参数 id
-            if (!jsonObject.has("id") || jsonObject.get("id").isJsonNull()) {
-                resp.setStatus(400);
-                result.put("code", 400);
+            String paramId = req.getParameter("id");
+            if (paramId == null){
+                resp.setStatus(404);
+                result.put("code", 404);
                 result.put("msg", "模型简介ID不能为空");
                 responsePrint(resp, toJson(result));
                 return;
             }
 
-            long id = jsonObject.get("id").getAsLong();
+            long id = Long.parseLong(paramId);
+
+            //long id = jsonObject.get("id").getAsLong();
 
             // 查询模型详情
             Map<String, Object> modelDetail = queryModelIntroductionDetail(id);
-
             if (modelDetail == null) {
                 resp.setStatus(404);
                 result.put("code", 404);
@@ -556,6 +657,22 @@ private void detailModelIntroduction(HttpServletRequest req, HttpServletResponse
                 responsePrint(resp, toJson(result));
                 return;
             }
+            BigInteger bigCategoryId = (BigInteger) modelDetail.get("category_id");
+            Integer categoryId = bigCategoryId != null ? bigCategoryId.intValue() : null;
+            String selectCategorySql = "SELECT category_name FROM model_category WHERE id = ?";
+            String categoryName = getMysqlAdapter().select(selectCategorySql, categoryId).get(0).get("category_name").toString();
+            modelDetail.put("category", categoryName);
+
+            Long frameworkId = (Long) modelDetail.get("framework_id");
+            String frameworkSql = "SELECT framework_name FROM model_framework_dict WHERE id = ?";
+            String frameworkName = getMysqlAdapter().select(frameworkSql, frameworkId).get(0).get("framework_name").toString();
+            modelDetail.put("framework", frameworkName);
+
+            Long modelTypeId = (Long) modelDetail.get("model_type_id");
+            String modelTypeSql = "SELECT type_name FROM model_type_dict WHERE id = ?";
+            String modelTypeName = getMysqlAdapter().select(modelTypeSql, modelTypeId).get(0).get("type_name").toString();
+            modelDetail.put("modelType", modelTypeName);
+
 
             result.put("code", 200);
             result.put("msg", "查询成功");
@@ -643,13 +760,13 @@ private void detailModelIntroduction(HttpServletRequest req, HttpServletResponse
                 setParts.add("category_id = ?");
                 params.add(jsonNode.get("categoryId").getAsInt());
             }
-            if (jsonNode.has("modelType") && !jsonNode.get("modelType").isJsonNull()) {
-                setParts.add("model_type = ?");
-                params.add(jsonNode.get("modelType").getAsString());
+            if (jsonNode.has("modelTypeId") && !jsonNode.get("modelTypeId").isJsonNull()) {
+                setParts.add("model_type_id = ?");
+                params.add(jsonNode.get("modelTypeId").getAsString());
             }
-            if (jsonNode.has("framework") && !jsonNode.get("framework").isJsonNull()) {
-                setParts.add("framework = ?");
-                params.add(jsonNode.get("framework").getAsString());
+            if (jsonNode.has("frameworkId") && !jsonNode.get("frameworkId").isJsonNull()) {
+                setParts.add("framework_id = ?");
+                params.add(jsonNode.get("frameworkId").getAsString());
             }
             if (jsonNode.has("algorithm") && !jsonNode.get("algorithm").isJsonNull()) {
                 setParts.add("algorithm = ?");
@@ -760,19 +877,27 @@ private void detailModelIntroduction(HttpServletRequest req, HttpServletResponse
         Map<String, Object> result = new HashMap<>();
 
         try {
-            String jsonBody = requestToJson(req);
-            JsonObject jsonObject = gson.fromJson(jsonBody, JsonObject.class);
-
-            // 验证必填参数 id
-            if (!jsonObject.has("id") || jsonObject.get("id").isJsonNull()) {
-                resp.setStatus(400);
-                result.put("code", 400);
+            String paramId = req.getParameter("id");
+            if (paramId == null){
+                resp.setStatus(404);
                 result.put("msg", "模型简介ID不能为空");
                 responsePrint(resp, toJson(result));
                 return;
             }
-
-            long id = jsonObject.get("id").getAsLong();
+            long id = Long.parseLong(paramId);
+//            String jsonBody = requestToJson(req);
+//            JsonObject jsonObject = gson.fromJson(jsonBody, JsonObject.class);
+//
+//            // 验证必填参数 id
+//            if (!jsonObject.has("id") || jsonObject.get("id").isJsonNull()) {
+//                resp.setStatus(400);
+//                result.put("code", 400);
+//                result.put("msg", "模型简介ID不能为空");
+//                responsePrint(resp, toJson(result));
+//                return;
+//            }
+//
+//            long id = jsonObject.get("id").getAsLong();
 
             // 检查记录是否存在
             Map<String, Object> existingRecord = queryModelIntroductionDetail(id);

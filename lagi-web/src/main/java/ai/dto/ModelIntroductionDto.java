@@ -12,8 +12,10 @@ public class ModelIntroductionDto {
     private String description;
     private String detailContent;
     private Integer categoryId;
-    private String modelType;
-    private String framework;
+    private Integer modelTypeId;
+    private Integer frameworkId;
+    private Integer modelType;
+    private Integer framework;
     private String algorithm;
     private String inputShape;
     private String outputShape;

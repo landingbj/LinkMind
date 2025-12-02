@@ -445,9 +445,6 @@ public class TrainingTaskRepository {
                 }
             }
 
-            // 更新任务状态
-            updateTaskStatuses(taskList, taskIdsToUpdate);
-
             // 查询总数和状态统计
             long total = getTaskCount();
             Map<String, Integer> statusCountMap = getStatusCount();
@@ -456,6 +453,18 @@ public class TrainingTaskRepository {
             result.put("total", total);
             result.put("statusCount", statusCountMap);
             result.put("status", "SUCCESS");
+
+
+            // 异步更新任务状态
+            if (!taskIdsToUpdate.isEmpty()) {
+                new Thread(() -> {
+                    try {
+                        updateTaskStatuses(taskList, taskIdsToUpdate);
+                    } catch (Exception e) {
+                        log.warn("异步更新任务状态失败: {}", e.getMessage());
+                    }
+                }).start();
+            }
         } catch (Exception e) {
             log.error("查询任务列表失败: page={}, pageSize={}", page, pageSize, e);
             result.put("status", "ERROR");

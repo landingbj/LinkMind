@@ -340,12 +340,15 @@ public class AITrainingServlet extends BaseServlet {
                 handleStreamLogs(req, resp);
                 break;
             case "evaluate":
+                // TODO: 评估（也是推理验证）
                 handleEvaluate(req, resp);
                 break;
             case "predict":
+                // TODO: 预测
                 handlePredict(req, resp);
                 break;
             case "export":
+                // TODO: 导出模型
                 handleExportModel(req, resp);
                 break;
             case "upload":
@@ -1295,7 +1298,6 @@ public class AITrainingServlet extends BaseServlet {
                 responsePrint(resp, toJson(error));
                 return;
             }
-
             String result = yoloTrainer.removeContainer(null,taskId);
             if (taskId != null) {
                 taskContainerMap.remove(taskId);

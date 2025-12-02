@@ -568,13 +568,15 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
         return result;
     }
     public String removeContainer(String containerId,String taskId) {
-                if (taskId != null) {
+        if (taskId != null) {
                     deleteYoloTask(taskId);
                     addYoloTrainingLog(taskId, "INFO", "容器已删除: " + containerId);
                 }
                 JSONObject resultJson = new JSONObject();
                  resultJson.put("status", "success");
                 resultJson.put("message", "远程任务执行成功");
+                String containerName = getContainerNameByTaskId(taskId);
+                super.removeContainer(containerName);
                 return resultJson.toString();
     }
 
@@ -1203,6 +1205,7 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
         }
     }
 
+
     /**
      * 根据容器ID获取任务ID
      */
@@ -1217,6 +1220,24 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
             }
         } catch (Exception e) {
             log.error("根据容器ID获取任务ID失败: containerId={}, error={}", containerId, e.getMessage(), e);
+        }
+        return null;
+    }
+
+    /**
+     * 根据任务ID获取容器名称
+     */
+    private String getContainerNameByTaskId(String taskId) {
+        String sql = "SELECT container_name FROM ai_training_tasks " +
+                "WHERE task_id = ? LIMIT 1";
+        try {
+            // 使用数据库连接池执行查询操作
+            List<Map<String, Object>> result = getMysqlAdapter().select(sql, taskId);
+            if (result != null && !result.isEmpty()) {
+                return (String) result.get(0).get("container_name");
+            }
+        } catch (Exception e) {
+            log.error("根据任务ID获取容器名称失败: taskId={}, error={}", taskId, e.getMessage(), e);
         }
         return null;
     }

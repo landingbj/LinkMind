@@ -94,10 +94,24 @@ public class ChromaVectorStore extends BaseVectorStore {
     }
 
     public List<IndexRecord> query(QueryCondition queryCondition) {
-        List<IndexRecord> result = new ArrayList<>();
+        List<List<IndexRecord>> resultList = query(MultiQueryCondition.builder()
+                .category(queryCondition.getCategory())
+                .texts(Collections.singletonList(queryCondition.getText()))
+                .where(queryCondition.getWhere())
+                .whereDocument(queryCondition.getWhereDocument())
+                .n(queryCondition.getN())
+                .build());
+        if (resultList.isEmpty()) {
+            Collections.emptyList();
+        }
+        return resultList.get(0);
+    }
+
+    public List<List<IndexRecord>> query(MultiQueryCondition queryCondition) {
+        List<List<IndexRecord>> resultList = new ArrayList<>();
         String category = queryCondition.getCategory() != null ? queryCondition.getCategory() : this.config.getDefaultCategory();
         Collection collection = getCollection(category);
-        if (queryCondition.getText() == null || queryCondition.getText().isEmpty()) {
+        if (queryCondition.getTexts() == null || queryCondition.getTexts().isEmpty()) {
             GetEmbedding getEmbedding = GetEmbedding.builder()
                     .category(category)
                     .where(queryCondition.getWhere())
@@ -105,10 +119,11 @@ public class ChromaVectorStore extends BaseVectorStore {
                     .offset(0)
                     .whereDocument(queryCondition.getWhereDocument())
                     .build();
-            return get(getEmbedding);
+            resultList.add(get(getEmbedding));
+            return resultList;
         }
 
-        List<List<Float>> queryEmbeddings = this.embeddingFunction.createEmbedding(Collections.singletonList(queryCondition.getText()));
+        List<List<Float>> queryEmbeddings = this.embeddingFunction.createEmbedding(queryCondition.getTexts());
         ChromaQueryRequest queryEmbedding = ChromaQueryRequest.builder()
                 .where(queryCondition.getWhere())
                 .whereDocument(queryCondition.getWhereDocument())
@@ -126,9 +141,10 @@ public class ChromaVectorStore extends BaseVectorStore {
         }
 
         if (qr == null) {
-            return result;
+            return resultList;
         }
         for (int i = 0; i < qr.getDocuments().size(); i++) {
+            List<IndexRecord> result = new ArrayList<>();
             for (int j = 0; j < qr.getDocuments().get(i).size(); j++) {
                 IndexRecord indexRecord = IndexRecord.builder()
                         .document(qr.getDocuments().get(i).get(j))
@@ -138,8 +154,9 @@ public class ChromaVectorStore extends BaseVectorStore {
                         .build();
                 result.add(indexRecord);
             }
+            resultList.add(result);
         }
-        return result;
+        return resultList;
     }
 
     private List<IndexRecord> getIndexRecords(Collection.GetResult gr) {

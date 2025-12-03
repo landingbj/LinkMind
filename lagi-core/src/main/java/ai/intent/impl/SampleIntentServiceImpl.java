@@ -2,6 +2,7 @@ package ai.intent.impl;
 
 
 import ai.common.pojo.IndexSearchData;
+import ai.common.pojo.VectorStoreConfig;
 import ai.common.utils.ThreadPoolManager;
 import ai.intent.IntentService;
 import ai.intent.enums.IntentStatusEnum;
@@ -14,9 +15,11 @@ import ai.utils.StoppingWordUtil;
 import ai.utils.StrFilterUtil;
 import ai.utils.qa.ChatCompletionUtil;
 import ai.vector.VectorStoreService;
+import ai.vector.pojo.MultiQueryCondition;
 import cn.hutool.core.util.StrUtil;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -94,12 +97,24 @@ public class SampleIntentServiceImpl implements IntentService {
         lastQ = StrFilterUtil.filterPunctuations(lastQ);
         complexQ = StrFilterUtil.filterPunctuations(complexQ);
         String finalLastQ = lastQ;
-        Future<List<IndexSearchData>> lastFuture = executor.submit(() -> vectorStoreService.search(finalLastQ, where, chatCompletionRequest.getCategory()));
         String finalComplexQ = complexQ;
-        Future<List<IndexSearchData>> complexFuture = executor.submit(() -> vectorStoreService.search(finalComplexQ, where, chatCompletionRequest.getCategory()));
+
+        VectorStoreConfig vectorStoreConfig = vectorStoreService.getVectorStoreConfig();
+        List<String> texts = new ArrayList<>();
+        texts.add(finalLastQ);
+        texts.add(finalComplexQ);
+        MultiQueryCondition multiQueryCondition = MultiQueryCondition.builder()
+                .category(chatCompletionRequest.getCategory())
+                .texts(texts)
+                .where(where)
+                .n(vectorStoreConfig.getSimilarityTopK())
+                .build();
+        
+        List<List<IndexSearchData>> indexSearchDataList = vectorStoreService.search(multiQueryCondition);
+
         try {
-            List<IndexSearchData> l = lastFuture.get();
-            List<IndexSearchData> c = complexFuture.get();
+            List<IndexSearchData> l = indexSearchDataList.get(0);
+            List<IndexSearchData> c = indexSearchDataList.get(1);
             boolean vectorContinue = false;
             if (!l.isEmpty() && !c.isEmpty()) {
                 if (c.get(0).getDistance() < l.get(0).getDistance()) {

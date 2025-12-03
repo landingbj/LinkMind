@@ -31,6 +31,11 @@ public class BaseVectorStore implements VectorStore {
     }
 
     @Override
+    public List<List<IndexRecord>> query(MultiQueryCondition queryCondition) {
+        return null;
+    }
+
+    @Override
     public List<IndexRecord> fetch(List<String> ids) {
         return null;
     }

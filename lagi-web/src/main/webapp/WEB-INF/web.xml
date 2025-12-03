@@ -365,4 +365,12 @@
         <url-pattern>/filterConfig/*</url-pattern>
     </servlet-mapping>
 
+    <servlet>
+        <servlet-name>embeddings</servlet-name>
+        <servlet-class>ai.servlet.api.EmbeddingApiServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>embeddings</servlet-name>
+        <url-pattern>/embeddings</url-pattern>
+    </servlet-mapping>
 </web-app>

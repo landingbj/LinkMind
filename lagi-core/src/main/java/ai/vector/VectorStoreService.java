@@ -399,6 +399,23 @@ public class VectorStoreService {
         return this.vectorStore.query(queryCondition);
     }
 
+    public List<List<IndexRecord>> query(MultiQueryCondition queryCondition) {
+        return this.vectorStore.query(queryCondition);
+    }
+
+    public List<List<IndexSearchData>> search(MultiQueryCondition queryCondition) {
+        double similarityCutoff = vectorStore.getConfig().getSimilarityCutoff();
+        List<List<IndexRecord>> indexRecords = this.query(queryCondition);
+        List<List<IndexSearchData>> indexSearchDataList = new ArrayList<>();
+        for (List<IndexRecord> indexRecord : indexRecords) {
+            indexSearchDataList.add(indexRecord.stream()
+                    .map(this::toIndexSearchData)
+                    .filter(indexSearchData -> indexSearchData.getDistance() <= similarityCutoff)
+                    .collect(Collectors.toList()));
+        }
+        return indexSearchDataList;
+    }
+
     public List<IndexRecord> fetch(List<String> ids, String category) {
         return this.vectorStore.fetch(ids, category);
     }

@@ -6,6 +6,7 @@ import ai.servlet.BaseServlet;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
 import lombok.extern.slf4j.Slf4j;
 import lombok.var;
 
@@ -71,7 +72,7 @@ public class CustomTrainingTasksServlet extends BaseServlet {
     }
 
 
-private void saveTemplate(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+    private void saveTemplate(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         currentTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         resp.setContentType("application/json;charset=utf-8");
         Map<String, Object> result = new HashMap<>();
@@ -165,12 +166,63 @@ private void saveTemplate(HttpServletRequest req, HttpServletResponse resp) thro
                         Integer required = f.get("required").getAsBoolean() ? 1 : 0;
                         String placeholder = f.has("placeholder") && !f.get("placeholder").isJsonNull()
                                 ? f.get("placeholder").getAsString() : null;
-                        String defaultValueJson = f.has("defaultValue") && !f.get("defaultValue").isJsonNull()
-                                ? gson.toJson(f.get("defaultValue")) : null;
-                        String optionsJson = f.has("options") && !f.get("options").isJsonNull()
-                                ? gson.toJson(f.get("options")) : null;
-                        String validationJson = f.has("validation") && !f.get("validation").isJsonNull()
-                                ? gson.toJson(f.get("validation")) : null;
+
+                        String defaultValue = null;
+                        if (f.has("defaultValue") && !f.get("defaultValue").isJsonNull()) {
+                            JsonElement defaultValueElem = f.get("defaultValue");
+                            // 根据 JSON 元素类型获取对应的值
+                            if (defaultValueElem.isJsonPrimitive()) {
+                                JsonPrimitive primitive = defaultValueElem.getAsJsonPrimitive();
+                                if (primitive.isString()) {
+                                    defaultValue = primitive.getAsString(); // 直接获取字符串，不带双引号
+                                } else if (primitive.isNumber()) {
+                                    defaultValue = primitive.getAsString(); // 数字转字符串
+                                } else if (primitive.isBoolean()) {
+                                    defaultValue = primitive.getAsString(); // 布尔值转字符串
+                                }
+                            } else {
+                                // 如果是复杂类型（对象、数组），仍然使用 toJson()
+                                defaultValue = gson.toJson(defaultValueElem);
+                            }
+                        }
+
+                        String options = null;
+                        if (f.has("options") && !f.get("options").isJsonNull()) {
+                            JsonElement optionsElem = f.get("options");
+                            // 根据 JSON 元素类型获取对应的值
+                            if (optionsElem.isJsonPrimitive()) {
+                                JsonPrimitive primitive = optionsElem.getAsJsonPrimitive();
+                                if (primitive.isString()) {
+                                    options = primitive.getAsString(); // 直接获取字符串，不带双引号
+                                } else if (primitive.isNumber()) {
+                                    options = primitive.getAsString(); // 数字转字符串
+                                } else if (primitive.isBoolean()) {
+                                    options = primitive.getAsString(); // 布尔值转字符串
+                                }
+                            } else {
+                                // 如果是复杂类型（对象、数组），仍然使用 toJson()
+                                options = gson.toJson(optionsElem);
+                            }
+                        }
+
+                        String validation = null;
+                        if (f.has("validation") && !f.get("validation").isJsonNull()) {
+                            JsonElement validationElem = f.get("validation");
+                            // 根据 JSON 元素类型获取对应的值
+                            if (validationElem.isJsonPrimitive()) {
+                                JsonPrimitive primitive = validationElem.getAsJsonPrimitive();
+                                if (primitive.isString()) {
+                                    validation = primitive.getAsString(); // 直接获取字符串，不带双引号
+                                } else if (primitive.isNumber()) {
+                                    validation = primitive.getAsString(); // 数字转字符串
+                                } else if (primitive.isBoolean()) {
+                                    validation = primitive.getAsString(); // 布尔值转字符串
+                                }
+                            } else {
+                                // 如果是复杂类型（对象、数组），仍然使用 toJson()
+                                validation = gson.toJson(validationElem);
+                            }
+                        }
 
                         String insertFieldSql = "INSERT INTO template_field (template_id, field_id, sequence, " +
                                 "description, column_name, physical_type, java_type, java_property, query_method, " +
@@ -180,7 +232,7 @@ private void saveTemplate(HttpServletRequest req, HttpServletResponse resp) thro
                         getMysqlAdapter().executeUpdate(insertFieldSql,
                                 templateId, fieldId, sequence, description, columnName, physicalType, javaType,
                                 javaProperty, queryMethod, displayType, dictType, required, placeholder,
-                                defaultValueJson, optionsJson, validationJson);
+                                defaultValue, options, validation);
                     }
                 }
             }else{
@@ -251,12 +303,61 @@ private void saveTemplate(HttpServletRequest req, HttpServletResponse resp) thro
                         Integer required = f.get("required").getAsBoolean() ? 1 : 0;
                         String placeholder = f.has("placeholder") && !f.get("placeholder").isJsonNull()
                                 ? f.get("placeholder").getAsString() : null;
-                        String defaultValueJson = f.has("defaultValue") && !f.get("defaultValue").isJsonNull()
-                                ? gson.toJson(f.get("defaultValue")) : null;
-                        String optionsJson = f.has("options") && !f.get("options").isJsonNull()
-                                ? gson.toJson(f.get("options")) : null;
-                        String validationJson = f.has("validation") && !f.get("validation").isJsonNull()
-                                ? gson.toJson(f.get("validation")) : null;
+                        String defaultValue = null;
+                        if (f.has("defaultValue") && !f.get("defaultValue").isJsonNull()) {
+                            JsonElement defaultValueElem = f.get("defaultValue");
+                            if (defaultValueElem.isJsonPrimitive()) {
+                                // 处理基本类型（字符串、数字、布尔值）
+                                JsonPrimitive primitive = defaultValueElem.getAsJsonPrimitive();
+                                if (primitive.isString()) {
+                                    defaultValue = primitive.getAsString();
+                                } else if (primitive.isNumber()) {
+                                    defaultValue = primitive.getAsString();
+                                } else if (primitive.isBoolean()) {
+                                    defaultValue = primitive.getAsString();
+                                }
+                            } else {
+                                // 处理复杂类型（对象、数组），保留 JSON 格式
+                                defaultValue = gson.toJson(defaultValueElem);
+                            }
+                        }
+                        String options = null;
+                        if (f.has("options") && !f.get("options").isJsonNull()) {
+                            JsonElement optionsElem = f.get("options");
+                            // 根据 JSON 元素类型获取对应的值
+                            if (optionsElem.isJsonPrimitive()) {
+                                JsonPrimitive primitive = optionsElem.getAsJsonPrimitive();
+                                if (primitive.isString()) {
+                                    options = primitive.getAsString(); // 直接获取字符串，不带双引号
+                                } else if (primitive.isNumber()) {
+                                    options = primitive.getAsString(); // 数字转字符串
+                                } else if (primitive.isBoolean()) {
+                                    options = primitive.getAsString(); // 布尔值转字符串
+                                }
+                            } else {
+                                // 如果是复杂类型（对象、数组），仍然使用 toJson()
+                                options = gson.toJson(optionsElem);
+                            }
+                        }
+
+                        String validation = null;
+                        if (f.has("validation") && !f.get("validation").isJsonNull()) {
+                            JsonElement validationElem = f.get("validation");
+                            // 根据 JSON 元素类型获取对应的值
+                            if (validationElem.isJsonPrimitive()) {
+                                JsonPrimitive primitive = validationElem.getAsJsonPrimitive();
+                                if (primitive.isString()) {
+                                    validation = primitive.getAsString(); // 直接获取字符串，不带双引号
+                                } else if (primitive.isNumber()) {
+                                    validation = primitive.getAsString(); // 数字转字符串
+                                } else if (primitive.isBoolean()) {
+                                    validation = primitive.getAsString(); // 布尔值转字符串
+                                }
+                            } else {
+                                // 如果是复杂类型（对象、数组），仍然使用 toJson()
+                                validation = gson.toJson(validationElem);
+                            }
+                        }
 
                         String insertFieldSql = "INSERT INTO template_field (template_id, field_id, sequence, " +
                                 "description, column_name, physical_type, java_type, java_property, query_method, " +
@@ -266,7 +367,7 @@ private void saveTemplate(HttpServletRequest req, HttpServletResponse resp) thro
                         getMysqlAdapter().executeUpdate(insertFieldSql,
                                 templateId, fieldId, sequence, description, columnName, physicalType, javaType,
                                 javaProperty, queryMethod, displayType, dictType, required, placeholder,
-                                defaultValueJson, optionsJson, validationJson);
+                                defaultValue, options, validation);
                     }
                 }
             }

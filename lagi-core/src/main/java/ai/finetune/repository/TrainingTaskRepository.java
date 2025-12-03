@@ -419,6 +419,7 @@ public class TrainingTaskRepository {
                 // 从 dataset_path 提取数据集名称
                 //String datasetPath = (String) task.get("dataset_path");
                 taskMap.put("datasetName", task.get("dataset_name"));
+                taskMap.put("modelName", task.get("model_name"));
 
                 taskMap.put("epochs", task.get("epochs"));
 

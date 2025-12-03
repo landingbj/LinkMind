@@ -69,16 +69,34 @@ public class WritingApiServlet extends BaseServlet {
         Map<String, Object> result = new HashMap<>();
         
         try {
+            // 参数验证：至少需要提供项目信息或企业信息
+            if ((request.getProjectInfo() == null || request.getProjectInfo().trim().isEmpty()) 
+                    && (request.getEnterpriseInfo() == null || request.getEnterpriseInfo().trim().isEmpty())) {
+                result.put("status", "failed");
+                result.put("message", "projectInfo和enterpriseInfo至少需要提供一个");
+                responsePrint(resp, toJson(result));
+                return;
+            }
+            
             String templateType = request.getTemplateType();
             if (templateType == null || templateType.trim().isEmpty()) {
                 templateType = "国家科技计划项目申报书";
             }
             
             String template = WritingTemplateManager.getProjectTemplate(templateType);
+            String projectType = request.getProjectType() != null ? request.getProjectType().trim() : "";
+            String enterpriseInfo = request.getEnterpriseInfo() != null ? request.getEnterpriseInfo().trim() : "";
+            String projectInfo = request.getProjectInfo() != null ? request.getProjectInfo().trim() : "";
+            
             String prompt = template
-                    .replace("{projectType}", request.getProjectType() != null ? request.getProjectType() : "")
-                    .replace("{enterpriseInfo}", request.getEnterpriseInfo() != null ? request.getEnterpriseInfo() : "")
-                    .replace("{projectInfo}", request.getProjectInfo() != null ? request.getProjectInfo() : "");
+                    .replace("{projectType}", projectType)
+                    .replace("{enterpriseInfo}", enterpriseInfo)
+                    .replace("{projectInfo}", projectInfo);
+            
+            logger.info("项目申报材料生成 - 模板类型: {}, 项目类型: {}", templateType, projectType);
+            logger.info("生成的提示词（前500字符）: {}", prompt.length() > 500 ? prompt.substring(0, 500) + "..." : prompt);
+            logger.info("企业信息: {}", enterpriseInfo.length() > 100 ? enterpriseInfo.substring(0, 100) + "..." : enterpriseInfo);
+            logger.info("项目信息: {}", projectInfo.length() > 100 ? projectInfo.substring(0, 100) + "..." : projectInfo);
             
             ChatCompletionRequest chatCompletionRequest = new ChatCompletionRequest();
             chatCompletionRequest.setTemperature(0.7);
@@ -91,15 +109,44 @@ public class WritingApiServlet extends BaseServlet {
             message.setContent(prompt);
             chatCompletionRequest.setMessages(Lists.newArrayList(message));
             
+            // RAG检索：使用项目信息作为查询，确保检索到的内容与用户输入相关
+            // 注意：RAG检索是可选的，如果失败应该继续执行
             GetRagContext context = null;
-            List<IndexSearchData> indexSearchDataList = vectorDbService.searchByContext(chatCompletionRequest);
-            if (indexSearchDataList != null && !indexSearchDataList.isEmpty()) {
-                context = completionsService.getRagContext(indexSearchDataList);
-                if (context != null) {
-                    String contextStr = context.getContext();
-                    completionsService.addVectorDBContext(chatCompletionRequest, contextStr);
-                    ChatMessage chatMessage = chatCompletionRequest.getMessages().get(chatCompletionRequest.getMessages().size() - 1);
-                    chatCompletionRequest.setMessages(Lists.newArrayList(chatMessage));
+            String queryText = projectInfo;
+            if (queryText == null || queryText.trim().isEmpty()) {
+                queryText = enterpriseInfo;
+            }
+            
+            if (queryText != null && !queryText.trim().isEmpty()) {
+                try {
+                    // 创建一个临时请求用于RAG检索，使用项目信息作为查询
+                    ChatCompletionRequest ragRequest = new ChatCompletionRequest();
+                    ChatMessage ragMessage = new ChatMessage();
+                    ragMessage.setRole("user");
+                    ragMessage.setContent(queryText); // 使用项目信息进行检索
+                    ragRequest.setMessages(Lists.newArrayList(ragMessage));
+                    ragRequest.setCategory(LagiGlobal.getDefaultCategory());
+                    // 设置必要的字段，避免NullPointerException
+                    ragRequest.setMax_tokens(4096);
+                    ragRequest.setTemperature(0.7);
+                    ragRequest.setStream(false);
+                    
+                    List<IndexSearchData> indexSearchDataList = vectorDbService.searchByContext(ragRequest);
+                    if (indexSearchDataList != null && !indexSearchDataList.isEmpty()) {
+                        context = completionsService.getRagContext(indexSearchDataList);
+                        if (context != null && context.getContext() != null && !context.getContext().trim().isEmpty()) {
+                            // 将RAG上下文添加到提示词中，而不是替换用户输入
+                            String contextStr = context.getContext();
+                            // 在提示词末尾添加RAG上下文作为参考
+                            prompt = prompt + "\n\n参考文档内容（申报要求、通知等，仅供参考，请以用户提供的项目信息为准）：\n" + contextStr;
+                            message.setContent(prompt);
+                            chatCompletionRequest.setMessages(Lists.newArrayList(message));
+                            logger.info("已添加RAG上下文，上下文长度: {}", contextStr.length());
+                        }
+                    }
+                } catch (Exception e) {
+                    // RAG检索失败不影响主流程，记录日志后继续执行
+                    logger.warn("RAG检索失败，将不使用RAG上下文: {}", e.getMessage());
                 }
             }
             
@@ -129,6 +176,7 @@ public class WritingApiServlet extends BaseServlet {
                 result.put("message", "生成失败，请稍后重试");
             }
         } catch (Exception e) {
+            logger.error("项目申报材料生成失败", e);
             result.put("status", "failed");
             result.put("message", "服务器内部错误: " + e.getMessage());
         }
@@ -139,22 +187,99 @@ public class WritingApiServlet extends BaseServlet {
     private void patentDocument(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json;charset=utf-8");
         
-        String jsonString = IOUtils.toString(req.getInputStream(), StandardCharsets.UTF_8);
-        PatentDocumentRequest request = gson.fromJson(jsonString, PatentDocumentRequest.class);
-        
         Map<String, Object> result = new HashMap<>();
         
         try {
-            String patentType = request.getPatentType();
-            if (patentType == null || patentType.trim().isEmpty()) {
-                patentType = "发明专利";
+            String jsonString = IOUtils.toString(req.getInputStream(), StandardCharsets.UTF_8);
+            logger.info("接收到的JSON请求: {}", jsonString);
+            
+            if (jsonString == null || jsonString.trim().isEmpty()) {
+                logger.error("请求体为空");
+                result.put("status", "failed");
+                result.put("message", "请求体不能为空");
+                responsePrint(resp, toJson(result));
+                return;
             }
             
+            PatentDocumentRequest request = null;
+            try {
+                request = gson.fromJson(jsonString, PatentDocumentRequest.class);
+            } catch (Exception e) {
+                logger.error("JSON解析失败", e);
+                result.put("status", "failed");
+                result.put("message", "JSON格式错误: " + e.getMessage());
+                responsePrint(resp, toJson(result));
+                return;
+            }
+            
+            if (request == null) {
+                logger.error("解析后的请求对象为null");
+                result.put("status", "failed");
+                result.put("message", "请求解析失败");
+                responsePrint(resp, toJson(result));
+                return;
+            }
+            
+            logger.info("解析后的请求对象: patentType={}, technicalPoints={}, inventorInfo={}, userId={}", 
+                    request.getPatentType(), 
+                    request.getTechnicalPoints(), 
+                    request.getInventorInfo(), 
+                    request.getUserId());
+            
+            // 如果 technicalPoints 为 null，尝试手动从 JSON 中提取
+            if (request.getTechnicalPoints() == null && jsonString.contains("technicalPoints")) {
+                logger.warn("technicalPoints为null，但JSON中包含该字段，尝试手动解析");
+                try {
+                    com.google.gson.JsonObject jsonObject = gson.fromJson(jsonString, com.google.gson.JsonObject.class);
+                    if (jsonObject.has("technicalPoints")) {
+                        String manualTechnicalPoints = jsonObject.get("technicalPoints").getAsString();
+                        logger.info("手动解析得到的technicalPoints: {}", manualTechnicalPoints);
+                        // 使用反射设置值
+                        java.lang.reflect.Field field = PatentDocumentRequest.class.getDeclaredField("technicalPoints");
+                        field.setAccessible(true);
+                        field.set(request, manualTechnicalPoints);
+                        logger.info("已通过反射设置technicalPoints值");
+                    }
+                } catch (Exception e) {
+                    logger.error("手动解析technicalPoints失败", e);
+                }
+            }
+            
+            // 参数验证
+            String technicalPoints = request.getTechnicalPoints();
+            if (technicalPoints == null) {
+                logger.warn("technicalPoints为null");
+                result.put("status", "failed");
+                result.put("message", "technicalPoints参数不能为空");
+                responsePrint(resp, toJson(result));
+                return;
+            }
+            
+            if (technicalPoints.trim().isEmpty()) {
+                logger.warn("technicalPoints为空字符串");
+                result.put("status", "failed");
+                result.put("message", "technicalPoints参数不能为空");
+                responsePrint(resp, toJson(result));
+                return;
+            }
+            
+            // 专利类型映射：支持英文和中文
+            String patentType = normalizePatentType(request.getPatentType());
+            logger.info("专利类型: {} (原始: {})", patentType, request.getPatentType());
+            
+            // 获取模板并替换参数
             String template = WritingTemplateManager.getPatentTemplate(patentType);
+            technicalPoints = technicalPoints.trim(); // 已经验证过不为空
+            String inventorInfo = request.getInventorInfo() != null ? request.getInventorInfo().trim() : "";
+            
             String prompt = template
                     .replace("{patentType}", patentType)
-                    .replace("{technicalPoints}", request.getTechnicalPoints() != null ? request.getTechnicalPoints() : "")
-                    .replace("{inventorInfo}", request.getInventorInfo() != null ? request.getInventorInfo() : "");
+                    .replace("{technicalPoints}", technicalPoints)
+                    .replace("{inventorInfo}", inventorInfo);
+            
+            logger.info("生成的提示词（前500字符）: {}", prompt.length() > 500 ? prompt.substring(0, 500) + "..." : prompt);
+            logger.info("技术要点: {}", technicalPoints);
+            logger.info("发明人信息: {}", inventorInfo);
             
             ChatCompletionRequest chatCompletionRequest = new ChatCompletionRequest();
             chatCompletionRequest.setTemperature(0.7);
@@ -167,15 +292,40 @@ public class WritingApiServlet extends BaseServlet {
             message.setContent(prompt);
             chatCompletionRequest.setMessages(Lists.newArrayList(message));
             
+            // RAG检索：使用技术要点作为查询，而不是整个提示词
+            // 这样可以确保检索到的内容与用户输入相关
+            // 注意：RAG检索是可选的，如果失败应该继续执行
             GetRagContext context = null;
-            List<IndexSearchData> indexSearchDataList = vectorDbService.searchByContext(chatCompletionRequest);
-            if (indexSearchDataList != null && !indexSearchDataList.isEmpty()) {
-                context = completionsService.getRagContext(indexSearchDataList);
-                if (context != null) {
-                    String contextStr = context.getContext();
-                    completionsService.addVectorDBContext(chatCompletionRequest, contextStr);
-                    ChatMessage chatMessage = chatCompletionRequest.getMessages().get(chatCompletionRequest.getMessages().size() - 1);
-                    chatCompletionRequest.setMessages(Lists.newArrayList(chatMessage));
+            if (technicalPoints != null && !technicalPoints.trim().isEmpty()) {
+                try {
+                    // 创建一个临时请求用于RAG检索，使用技术要点作为查询
+                    ChatCompletionRequest ragRequest = new ChatCompletionRequest();
+                    ChatMessage ragMessage = new ChatMessage();
+                    ragMessage.setRole("user");
+                    ragMessage.setContent(technicalPoints); // 使用技术要点进行检索
+                    ragRequest.setMessages(Lists.newArrayList(ragMessage));
+                    ragRequest.setCategory(LagiGlobal.getDefaultCategory());
+                    // 设置必要的字段，避免NullPointerException
+                    ragRequest.setMax_tokens(4096);
+                    ragRequest.setTemperature(0.7);
+                    ragRequest.setStream(false);
+                    
+                    List<IndexSearchData> indexSearchDataList = vectorDbService.searchByContext(ragRequest);
+                    if (indexSearchDataList != null && !indexSearchDataList.isEmpty()) {
+                        context = completionsService.getRagContext(indexSearchDataList);
+                        if (context != null && context.getContext() != null && !context.getContext().trim().isEmpty()) {
+                            // 将RAG上下文添加到提示词中，而不是替换用户输入
+                            String contextStr = context.getContext();
+                            // 在提示词末尾添加RAG上下文作为参考
+                            prompt = prompt + "\n\n参考文档内容（仅供参考，请以用户提供的技术要点为准）：\n" + contextStr;
+                            message.setContent(prompt);
+                            chatCompletionRequest.setMessages(Lists.newArrayList(message));
+                            logger.info("已添加RAG上下文，上下文长度: {}", contextStr.length());
+                        }
+                    }
+                } catch (Exception e) {
+                    // RAG检索失败不影响主流程，记录日志后继续执行
+                    logger.warn("RAG检索失败，将不使用RAG上下文: {}", e.getMessage());
                 }
             }
             
@@ -209,11 +359,40 @@ public class WritingApiServlet extends BaseServlet {
                 result.put("message", "生成失败，请稍后重试");
             }
         } catch (Exception e) {
+            logger.error("专利文档生成失败", e);
             result.put("status", "failed");
             result.put("message", "服务器内部错误: " + e.getMessage());
         }
         
         responsePrint(resp, toJson(result));
+    }
+    
+    /**
+     * 标准化专利类型：将英文或中文专利类型转换为中文标准格式
+     */
+    private String normalizePatentType(String patentType) {
+        if (patentType == null || patentType.trim().isEmpty()) {
+            return "发明专利";
+        }
+        
+        String normalized = patentType.trim().toLowerCase();
+        
+        // 英文到中文的映射
+        if (normalized.equals("invention_patent") || normalized.equals("invention") || normalized.equals("发明专利")) {
+            return "发明专利";
+        } else if (normalized.equals("utility_model") || normalized.equals("utility") || normalized.equals("实用新型")) {
+            return "实用新型";
+        } else if (normalized.equals("design_patent") || normalized.equals("design") || normalized.equals("外观设计")) {
+            return "外观设计";
+        }
+        
+        // 如果已经是中文，直接返回
+        if (patentType.contains("发明") || patentType.contains("实用新型") || patentType.contains("外观设计")) {
+            return patentType;
+        }
+        
+        // 默认返回发明专利
+        return "发明专利";
     }
     
     private String extractAbstract(String content) {

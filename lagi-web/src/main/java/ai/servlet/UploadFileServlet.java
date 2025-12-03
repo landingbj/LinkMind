@@ -56,29 +56,34 @@ public class UploadFileServlet extends HttpServlet {
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         req.setCharacterEncoding("UTF-8");
-        resp.setHeader("Content-Type", "text/html;charset=utf-8");
-
+        
         String url = req.getRequestURI();
         String method = url.substring(url.lastIndexOf("/") + 1);
 
-        if (method.equals("uploadLearningFile") || method.equals("upload")) {
-            this.uploadLearningFile(req, resp);
-        } else if (method.equals("downloadFile")) {
+        // 下载文件接口不需要设置默认Content-Type，由downloadFile方法自己设置
+        if (method.equals("downloadFile")) {
             this.downloadFile(req, resp);
-        } else if (method.equals("uploadImageFile")) {
-            this.uploadImageFile(req, resp);
-        } else if (method.equals("uploadVideoFile")) {
-            this.uploadVideoFile(req, resp);
-        } else if (method.equals("deleteFile")) {
-            this.deleteFile(req, resp);
-        } else if (method.equals("getUploadFileList")) {
-            this.getUploadFileList(req, resp);
-        } else if (method.equals("pairing")) {
-            this.pairing(req, resp);
-        } else if (method.equals("asynchronousUpload")) {
-            this.asynchronousUpload(req, resp);
-        } else if (method.equals("getProgress")) {
-            this.getProgress(req, resp);
+        } else {
+            // 其他接口设置默认Content-Type
+            resp.setHeader("Content-Type", "text/html;charset=utf-8");
+            
+            if (method.equals("uploadLearningFile") || method.equals("upload")) {
+                this.uploadLearningFile(req, resp);
+            } else if (method.equals("uploadImageFile")) {
+                this.uploadImageFile(req, resp);
+            } else if (method.equals("uploadVideoFile")) {
+                this.uploadVideoFile(req, resp);
+            } else if (method.equals("deleteFile")) {
+                this.deleteFile(req, resp);
+            } else if (method.equals("getUploadFileList")) {
+                this.getUploadFileList(req, resp);
+            } else if (method.equals("pairing")) {
+                this.pairing(req, resp);
+            } else if (method.equals("asynchronousUpload")) {
+                this.asynchronousUpload(req, resp);
+            } else if (method.equals("getProgress")) {
+                this.getProgress(req, resp);
+            }
         }
     }
 
@@ -198,25 +203,183 @@ public class UploadFileServlet extends HttpServlet {
     private void downloadFile(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String filePath = req.getParameter("filePath");
         String fileName = req.getParameter("fileName");
-        // 设置响应内容类型
-        resp.setContentType("application/pdf");
+        
+        log.info("下载文件请求 - filePath: {}, fileName: {}", filePath, fileName);
+        
+        // 参数验证
+        if (filePath == null || filePath.trim().isEmpty()) {
+            log.error("filePath参数为空");
+            resp.sendError(HttpServletResponse.SC_BAD_REQUEST, "filePath参数不能为空");
+            return;
+        }
+        if (fileName == null || fileName.trim().isEmpty()) {
+            // 从filePath中提取文件名
+            int lastSeparator = Math.max(filePath.lastIndexOf(File.separator), filePath.lastIndexOf("/"));
+            if (lastSeparator >= 0) {
+                fileName = filePath.substring(lastSeparator + 1);
+            } else {
+                fileName = filePath;
+            }
+        }
+        
+        // 获取上传目录 - 尝试多种方式
+        String uploadDir = null;
+        try {
+            uploadDir = getServletContext().getRealPath(UPLOAD_DIR);
+            log.info("getRealPath({}) 返回: {}", UPLOAD_DIR, uploadDir);
+        } catch (Exception e) {
+            log.warn("getRealPath失败", e);
+        }
+        
+        if (uploadDir == null || uploadDir.trim().isEmpty()) {
+            // 尝试使用Web应用根目录
+            try {
+                String webRoot = getServletContext().getRealPath("/");
+                if (webRoot != null) {
+                    uploadDir = webRoot + UPLOAD_DIR.substring(1);
+                    log.info("使用备用路径: {}", uploadDir);
+                }
+            } catch (Exception e) {
+                log.warn("获取备用路径失败", e);
+            }
+        }
+        
+        if (uploadDir == null || uploadDir.trim().isEmpty()) {
+            log.error("无法获取上传目录路径");
+            resp.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "无法获取上传目录路径");
+            return;
+        }
+        
+        // 构建完整文件路径 - 处理filePath可能包含路径分隔符的情况
+        String fullPath;
+        if (filePath.contains(File.separator) || filePath.contains("/")) {
+            // filePath已经包含路径，直接拼接
+            fullPath = uploadDir + File.separator + filePath;
+        } else {
+            // filePath只是文件名
+            fullPath = uploadDir + File.separator + filePath;
+        }
+        
+        // 标准化路径（处理路径分隔符不一致的问题）
+        fullPath = fullPath.replace("/", File.separator).replace("\\", File.separator);
+        
+        File file = new File(fullPath);
+        log.info("尝试访问文件: {}", file.getAbsolutePath());
+        log.info("文件是否存在: {}, 是否为文件: {}, 文件大小: {} bytes", 
+                file.exists(), file.isFile(), file.exists() ? file.length() : 0);
+        
+        // 检查文件是否存在
+        if (!file.exists()) {
+            log.error("文件不存在: {}", file.getAbsolutePath());
+            // 列出目录内容以便调试
+            File dir = file.getParentFile();
+            if (dir != null && dir.exists() && dir.isDirectory()) {
+                String[] files = dir.list();
+                log.info("目录 {} 中的文件: {}", dir.getAbsolutePath(), 
+                        files != null ? String.join(", ", files) : "无");
+            }
+            resp.sendError(HttpServletResponse.SC_NOT_FOUND, "文件不存在: " + filePath);
+            return;
+        }
+        
+        if (!file.isFile()) {
+            log.error("路径不是文件: {}", file.getAbsolutePath());
+            resp.sendError(HttpServletResponse.SC_BAD_REQUEST, "路径不是文件: " + filePath);
+            return;
+        }
+        
+        long fileSize = file.length();
+        if (fileSize == 0) {
+            log.warn("文件大小为0: {}", file.getAbsolutePath());
+        }
+        
+        // 根据文件扩展名设置Content-Type
+        String contentType = getContentTypeByFileName(fileName);
+        resp.setContentType(contentType);
+        
+        // 设置文件下载响应头
         String encodedFileName = URLEncoder.encode(fileName, "UTF-8");
         resp.setHeader("Content-Disposition", "attachment; filename=\"" + encodedFileName + "\"");
-
-        String uploadDir = getServletContext().getRealPath(UPLOAD_DIR);
+        resp.setHeader("Content-Length", String.valueOf(fileSize));
+        
+        log.info("开始下载文件: {}, 大小: {} bytes, Content-Type: {}", fileName, fileSize, contentType);
+        
         // 读取文件并写入响应流
+        FileInputStream fileInputStream = null;
+        OutputStream outputStream = null;
+        long bytesWritten = 0;
         try {
-            FileInputStream fileInputStream = new FileInputStream(uploadDir + File.separator + filePath);
-            OutputStream outputStream = resp.getOutputStream();
+            fileInputStream = new FileInputStream(file);
+            outputStream = resp.getOutputStream();
             byte[] buffer = new byte[4096];
             int bytesRead;
             while ((bytesRead = fileInputStream.read(buffer)) != -1) {
                 outputStream.write(buffer, 0, bytesRead);
+                bytesWritten += bytesRead;
             }
-            fileInputStream.close();
-            outputStream.close();
-        } catch (Exception e) {
-            e.printStackTrace();
+            outputStream.flush();
+            log.info("文件下载完成: {}, 已写入: {} bytes", fileName, bytesWritten);
+        } catch (IOException e) {
+            log.error("文件下载失败: {}, 已写入: {} bytes", file.getAbsolutePath(), bytesWritten, e);
+            if (!resp.isCommitted()) {
+                resp.reset(); // 重置响应
+                resp.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "文件下载失败: " + e.getMessage());
+            }
+        } finally {
+            if (fileInputStream != null) {
+                try {
+                    fileInputStream.close();
+                } catch (IOException e) {
+                    log.warn("关闭文件输入流失败", e);
+                }
+            }
+            if (outputStream != null) {
+                try {
+                    outputStream.close();
+                } catch (IOException e) {
+                    log.warn("关闭响应输出流失败", e);
+                }
+            }
+        }
+    }
+    
+    /**
+     * 根据文件名获取Content-Type
+     */
+    private String getContentTypeByFileName(String fileName) {
+        if (fileName == null) {
+            return "application/octet-stream";
+        }
+        
+        String lowerFileName = fileName.toLowerCase();
+        if (lowerFileName.endsWith(".pdf")) {
+            return "application/pdf";
+        } else if (lowerFileName.endsWith(".doc")) {
+            return "application/msword";
+        } else if (lowerFileName.endsWith(".docx")) {
+            return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        } else if (lowerFileName.endsWith(".xls")) {
+            return "application/vnd.ms-excel";
+        } else if (lowerFileName.endsWith(".xlsx")) {
+            return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        } else if (lowerFileName.endsWith(".ppt")) {
+            return "application/vnd.ms-powerpoint";
+        } else if (lowerFileName.endsWith(".pptx")) {
+            return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+        } else if (lowerFileName.endsWith(".txt")) {
+            return "text/plain;charset=utf-8";
+        } else if (lowerFileName.endsWith(".jpg") || lowerFileName.endsWith(".jpeg")) {
+            return "image/jpeg";
+        } else if (lowerFileName.endsWith(".png")) {
+            return "image/png";
+        } else if (lowerFileName.endsWith(".gif")) {
+            return "image/gif";
+        } else if (lowerFileName.endsWith(".zip")) {
+            return "application/zip";
+        } else if (lowerFileName.endsWith(".rar")) {
+            return "application/x-rar-compressed";
+        } else {
+            return "application/octet-stream";
         }
     }
 

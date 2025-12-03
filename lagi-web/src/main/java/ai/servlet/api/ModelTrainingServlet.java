@@ -9,6 +9,7 @@ import ai.servlet.BaseServlet;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.servlet.ServletException;
@@ -273,22 +274,68 @@ public class ModelTrainingServlet extends BaseServlet {
         resp.setContentType("application/json;charset=utf-8");
 
         try {
-            // 解析请求参数
+
+            // 解析请求参数（从JSON请求体中获取）
+            int page = 1; // 默认页码为1
+            int pageSize = 10; // 默认每页条数为10
+
+            // 先将请求体转为JSON对象
             String jsonBody = requestToJson(req);
-            JSONObject requestParams = JSONUtil.parseObj(jsonBody);
+            JsonObject jsonNode = gson.fromJson(jsonBody, JsonObject.class);
 
-            int page = requestParams.getInt("page", 1);
-            int pageSize = requestParams.getInt("page_size", 10);
+            // 解析page参数（从JSON中获取）
+            if (jsonNode.has("page") && !jsonNode.get("page").isJsonNull()) {
+                try {
+                    // 支持JSON中为数字类型或字符串类型的数字
+                    if (jsonNode.get("page").isJsonPrimitive() && jsonNode.get("page").getAsJsonPrimitive().isNumber()) {
+                        page = jsonNode.get("page").getAsInt();
+                    } else {
+                        // 若为字符串类型，先转为字符串再解析
+                        String pageStr = jsonNode.get("page").getAsString().trim();
+                        page = Integer.parseInt(pageStr);
+                    }
+                    // 页码不能小于等于0，否则用默认值1
+                    if (page <= 0) {
+                        page = 1;
+                    }
+                } catch (NumberFormatException e) {
+                    // 解析失败时保持默认值1
+                    page = 1;
+                }
+            }
 
-            // 参数校验
-            if (page < 1) {
-                page = 1;
+            // 解析page_size参数（从JSON中获取）
+            if (jsonNode.has("page_size") && !jsonNode.get("page_size").isJsonNull()) {
+                try {
+                    // 支持JSON中为数字类型或字符串类型的数字
+                    if (jsonNode.get("page_size").isJsonPrimitive() && jsonNode.get("page_size").getAsJsonPrimitive().isNumber()) {
+                        pageSize = jsonNode.get("page_size").getAsInt();
+                    } else {
+                        // 若为字符串类型，先转为字符串再解析
+                        String pageSizeStr = jsonNode.get("page_size").getAsString().trim();
+                        pageSize = Integer.parseInt(pageSizeStr);
+                    }
+                    // 每页条数不能小于等于0，否则用默认值10
+                    if (pageSize <= 0) {
+                        pageSize = 10;
+                    }
+                } catch (NumberFormatException e) {
+                    // 解析失败时保持默认值10
+                    pageSize = 10;
+                }
             }
-            if (pageSize < 1 || pageSize > 100) {
-                pageSize = 10;
+
+            // 解析task_type参数（原有逻辑保留，增加null校验）
+            String taskType = null;
+            if (jsonNode.has("task_type") && !jsonNode.get("task_type").isJsonNull()) {
+                taskType = jsonNode.get("task_type").getAsString().trim();
             }
-            // 调用 repository 查询任务列表
-            Map<String, Object> result = AITrainingServlet.yoloTrainer.getRepository().getTaskList(page, pageSize);
+            if (taskType == null || taskType.isEmpty()) {
+                //默认是训练列表
+                taskType = "train";
+            }
+
+            Map<String, Object> result = AITrainingServlet.yoloTrainer.getRepository().getTaskList(taskType, page, pageSize);
 
             // 返回结果
             responsePrint(resp, JSONUtil.toJsonStr(result));

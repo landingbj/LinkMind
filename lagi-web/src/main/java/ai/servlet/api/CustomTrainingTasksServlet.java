@@ -4,6 +4,7 @@ import ai.database.impl.MysqlAdapter;
 import ai.dto.TemplateInfoDto;
 import ai.servlet.BaseServlet;
 import com.google.gson.Gson;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import lombok.extern.slf4j.Slf4j;
 import lombok.var;
@@ -55,7 +56,6 @@ public class CustomTrainingTasksServlet extends BaseServlet {
         }else if (method.equals("deletedTemplate")){
             deletedTemplate(req, resp);
         }else {
-
             resp.setStatus(404);
             Map<String, String> error = new HashMap<>();
             error.put("error", "接口不存在");
@@ -71,7 +71,7 @@ public class CustomTrainingTasksServlet extends BaseServlet {
     }
 
 
-    private void saveTemplate(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+private void saveTemplate(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         currentTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         resp.setContentType("application/json;charset=utf-8");
         Map<String, Object> result = new HashMap<>();
@@ -92,89 +92,182 @@ public class CustomTrainingTasksServlet extends BaseServlet {
             JsonObject templateObj = jsonNode.getAsJsonObject("template");
             TemplateInfoDto templateInfoDto = new TemplateInfoDto();
 
-            String templateId = templateObj.has("id") && !templateObj.get("id").isJsonNull()
-                    ? templateObj.get("id").getAsString()
-                    : java.util.UUID.randomUUID().toString();
-            templateInfoDto.setTemplateId(templateId);
-            templateInfoDto.setName(templateObj.get("name").getAsString());
-            templateInfoDto.setDescription(templateObj.get("description").getAsString());
-            templateInfoDto.setType(templateObj.get("type").getAsString());
-            templateInfoDto.setCategory(templateObj.get("category").getAsString());
-            templateInfoDto.setDifficulty(templateObj.get("difficulty").getAsInt());
-            templateInfoDto.setEstimatedTime(templateObj.get("estimatedTime").getAsString());
-            List<String> templateTags = new ArrayList<>();
-            for (int i = 0; i < templateObj.get("tags").getAsJsonArray().size(); i++) {
-                templateTags.add(templateObj.get("tags").getAsJsonArray().get(i).getAsString());
-            }
-            templateInfoDto.setTags(templateTags);
-            templateInfoDto.setIsBuiltIn(templateObj.get("isBuiltIn").getAsBoolean());
-            templateInfoDto.setUsageCount(templateObj.get("usageCount").getAsInt());
-            templateInfoDto.setRating(templateObj.get("rating").getAsFloat());
-            templateInfoDto.setIsPublic(templateObj.get("isPublic").getAsBoolean());
-            String tagsStr = templateInfoDto.getTags() == null ? "" : templateInfoDto.getTags().toString();
-            //保存到数据库
-            String insertTemplateSql = "INSERT INTO template_info (template_id, template_name, description, type, category, difficulty," +
-                    "estimated_time, tags, is_built_in, usage_count, rating, is_public, created_at, updated_at, is_deleted) " +
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
-            getMysqlAdapter().executeUpdate(insertTemplateSql,
-                    templateInfoDto.getTemplateId(),
-                    templateInfoDto.getName(),
-                    templateInfoDto.getDescription(),
-                    templateInfoDto.getType(),
-                    templateInfoDto.getCategory(),
-                    templateInfoDto.getDifficulty(),
-                    templateInfoDto.getEstimatedTime(),
-                    tagsStr,
-                    templateInfoDto.getIsBuiltIn(),
-                    templateInfoDto.getUsageCount(),
-                    templateInfoDto.getRating(),
-                    templateInfoDto.getIsPublic(),
-                    currentTime,
-                    currentTime,
-                    0
-            );
+            // 获取传入的templateId（可能为null或空字符串）
+            JsonElement templateIdElement = templateObj.get("template_id");
+            String templateId = templateIdElement != null && !templateIdElement.isJsonNull() ? templateIdElement.getAsString() : null;
+            
+            if (templateId == null || templateId.isEmpty()){
+                //新增
+                // 生成默认UUID（如果未传入templateId）
+                templateId = java.util.UUID.randomUUID().toString();
+                
+                templateInfoDto.setTemplateId(templateId);
+                templateInfoDto.setName(templateObj.get("name").getAsString());
+                templateInfoDto.setDescription(templateObj.get("description").getAsString());
+                templateInfoDto.setType(templateObj.get("type").getAsString());
+                templateInfoDto.setCategory(templateObj.get("category").getAsString());
+                templateInfoDto.setDifficulty(templateObj.get("difficulty").getAsInt());
+                templateInfoDto.setEstimatedTime(templateObj.get("estimatedTime").getAsString());
+                List<String> templateTags = new ArrayList<>();
+                for (int i = 0; i < templateObj.get("tags").getAsJsonArray().size(); i++) {
+                    templateTags.add(templateObj.get("tags").getAsJsonArray().get(i).getAsString());
+                }
+                templateInfoDto.setTags(templateTags);
+                templateInfoDto.setIsBuiltIn(templateObj.get("isBuiltIn").getAsBoolean());
+                templateInfoDto.setUsageCount(templateObj.get("usageCount").getAsInt());
+                templateInfoDto.setRating(templateObj.get("rating").getAsFloat());
+                templateInfoDto.setIsPublic(templateObj.get("isPublic").getAsBoolean());
+                String tagsStr = templateInfoDto.getTags() == null ? "" : templateInfoDto.getTags().toString();
+                //保存到数据库
+                String insertTemplateSql = "INSERT INTO template_info (template_id, template_name, description, type, category, difficulty," +
+                        "estimated_time, tags, is_built_in, usage_count, rating, is_public, created_at, updated_at, is_deleted) " +
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                getMysqlAdapter().executeUpdate(insertTemplateSql,
+                        templateInfoDto.getTemplateId(),
+                        templateInfoDto.getName(),
+                        templateInfoDto.getDescription(),
+                        templateInfoDto.getType(),
+                        templateInfoDto.getCategory(),
+                        templateInfoDto.getDifficulty(),
+                        templateInfoDto.getEstimatedTime(),
+                        tagsStr,
+                        templateInfoDto.getIsBuiltIn(),
+                        templateInfoDto.getUsageCount(),
+                        templateInfoDto.getRating(),
+                        templateInfoDto.getIsPublic(),
+                        currentTime,
+                        currentTime,
+                        0
+                );
 
-            // 2. 解析并保存字段配置
-            if (jsonNode.has("fields") && !jsonNode.get("fields").isJsonNull()) {
-                for (var elem : jsonNode.getAsJsonArray("fields")) {
-                    JsonObject f = elem.getAsJsonObject();
+                // 2. 解析并保存字段配置
+                if (jsonNode.has("fields") && !jsonNode.get("fields").isJsonNull()) {
+                    for (var elem : jsonNode.getAsJsonArray("fields")) {
+                        JsonObject f = elem.getAsJsonObject();
 
-                    String fieldId = java.util.UUID.randomUUID().toString();
-                    Integer sequence = f.has("sequence") && !f.get("sequence").isJsonNull()
-                            ? f.get("sequence").getAsInt() : 0;
-                    String description = f.get("description").getAsString();
-                    String columnName = f.has("columnName") && !f.get("columnName").isJsonNull()
-                            ? f.get("columnName").getAsString() : null;
-                    String physicalType = f.has("physicalType") && !f.get("physicalType").isJsonNull()
-                            ? f.get("physicalType").getAsString() : null;
-                    String javaType = f.has("javaType") && !f.get("javaType").isJsonNull()
-                            ? f.get("javaType").getAsString() : null;
-                    String javaProperty = f.has("javaProperty") && !f.get("javaProperty").isJsonNull()
-                            ? f.get("javaProperty").getAsString() : null;
-                    String queryMethod = f.has("queryMethod") && !f.get("queryMethod").isJsonNull()
-                            ? f.get("queryMethod").getAsString() : null;
-                    String displayType = f.get("displayType").getAsString();
-                    String dictType = f.has("dictType") && !f.get("dictType").isJsonNull()
-                            ? f.get("dictType").getAsString() : null;
-                    Integer required = f.get("required").getAsBoolean() ? 1 : 0;
-                    String placeholder = f.has("placeholder") && !f.get("placeholder").isJsonNull()
-                            ? f.get("placeholder").getAsString() : null;
-                    String defaultValueJson = f.has("defaultValue") && !f.get("defaultValue").isJsonNull()
-                            ? gson.toJson(f.get("defaultValue")) : null;
-                    String optionsJson = f.has("options") && !f.get("options").isJsonNull()
-                            ? gson.toJson(f.get("options")) : null;
-                    String validationJson = f.has("validation") && !f.get("validation").isJsonNull()
-                            ? gson.toJson(f.get("validation")) : null;
+                        String fieldId = java.util.UUID.randomUUID().toString();
+                        Integer sequence = f.has("sequence") && !f.get("sequence").isJsonNull()
+                                ? f.get("sequence").getAsInt() : 0;
+                        String description = f.get("description").getAsString();
+                        String columnName = f.has("columnName") && !f.get("columnName").isJsonNull()
+                                ? f.get("columnName").getAsString() : null;
+                        String physicalType = f.has("physicalType") && !f.get("physicalType").isJsonNull()
+                                ? f.get("physicalType").getAsString() : null;
+                        String javaType = f.has("javaType") && !f.get("javaType").isJsonNull()
+                                ? f.get("javaType").getAsString() : null;
+                        String javaProperty = f.has("javaProperty") && !f.get("javaProperty").isJsonNull()
+                                ? f.get("javaProperty").getAsString() : null;
+                        String queryMethod = f.has("queryMethod") && !f.get("queryMethod").isJsonNull()
+                                ? f.get("queryMethod").getAsString() : null;
+                        String displayType = f.get("displayType").getAsString();
+                        String dictType = f.has("dictType") && !f.get("dictType").isJsonNull()
+                                ? f.get("dictType").getAsString() : null;
+                        Integer required = f.get("required").getAsBoolean() ? 1 : 0;
+                        String placeholder = f.has("placeholder") && !f.get("placeholder").isJsonNull()
+                                ? f.get("placeholder").getAsString() : null;
+                        String defaultValueJson = f.has("defaultValue") && !f.get("defaultValue").isJsonNull()
+                                ? gson.toJson(f.get("defaultValue")) : null;
+                        String optionsJson = f.has("options") && !f.get("options").isJsonNull()
+                                ? gson.toJson(f.get("options")) : null;
+                        String validationJson = f.has("validation") && !f.get("validation").isJsonNull()
+                                ? gson.toJson(f.get("validation")) : null;
 
-                    String insertFieldSql = "INSERT INTO template_field (template_id, field_id, sequence, " +
-                            "description, column_name, physical_type, java_type, java_property, query_method, " +
-                            "display_type, dict_type, required, placeholder, default_value, options, validation) " +
-                            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                        String insertFieldSql = "INSERT INTO template_field (template_id, field_id, sequence, " +
+                                "description, column_name, physical_type, java_type, java_property, query_method, " +
+                                "display_type, dict_type, required, placeholder, default_value, options, validation) " +
+                                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
 
-                    getMysqlAdapter().executeUpdate(insertFieldSql,
-                            templateId, fieldId, sequence, description, columnName, physicalType, javaType,
-                            javaProperty, queryMethod, displayType, dictType, required, placeholder,
-                            defaultValueJson, optionsJson, validationJson);
+                        getMysqlAdapter().executeUpdate(insertFieldSql,
+                                templateId, fieldId, sequence, description, columnName, physicalType, javaType,
+                                javaProperty, queryMethod, displayType, dictType, required, placeholder,
+                                defaultValueJson, optionsJson, validationJson);
+                    }
+                }
+            }else{
+                //修改
+                templateInfoDto.setTemplateId(templateId);
+                templateInfoDto.setName(templateObj.get("name").getAsString());
+                templateInfoDto.setDescription(templateObj.get("description").getAsString());
+                templateInfoDto.setType(templateObj.get("type").getAsString());
+                templateInfoDto.setCategory(templateObj.get("category").getAsString());
+                templateInfoDto.setDifficulty(templateObj.get("difficulty").getAsInt());
+                templateInfoDto.setEstimatedTime(templateObj.get("estimatedTime").getAsString());
+                List<String> templateTags = new ArrayList<>();
+                for (int i = 0; i < templateObj.get("tags").getAsJsonArray().size(); i++) {
+                    templateTags.add(templateObj.get("tags").getAsJsonArray().get(i).getAsString());
+                }
+                templateInfoDto.setTags(templateTags);
+                templateInfoDto.setIsBuiltIn(templateObj.get("isBuiltIn").getAsBoolean());
+                templateInfoDto.setUsageCount(templateObj.get("usageCount").getAsInt());
+                templateInfoDto.setRating(templateObj.get("rating").getAsFloat());
+                templateInfoDto.setIsPublic(templateObj.get("isPublic").getAsBoolean());
+                String tagsStr = templateInfoDto.getTags() == null ? "" : templateInfoDto.getTags().toString();
+                
+                //更新数据库
+                String updateTemplateSql = "UPDATE template_info SET template_name=?, description=?, type=?, category=?, difficulty=?, " +
+                        "estimated_time=?, tags=?, is_built_in=?, usage_count=?, rating=?, is_public=?, updated_at=? WHERE template_id=?";
+                getMysqlAdapter().executeUpdate(updateTemplateSql,
+                        templateInfoDto.getName(),
+                        templateInfoDto.getDescription(),
+                        templateInfoDto.getType(),
+                        templateInfoDto.getCategory(),
+                        templateInfoDto.getDifficulty(),
+                        templateInfoDto.getEstimatedTime(),
+                        tagsStr,
+                        templateInfoDto.getIsBuiltIn(),
+                        templateInfoDto.getUsageCount(),
+                        templateInfoDto.getRating(),
+                        templateInfoDto.getIsPublic(),
+                        currentTime,
+                        templateId
+                );
+
+                // 先删除原有字段配置
+                String deleteFieldsSql = "DELETE FROM template_field WHERE template_id=?";
+                getMysqlAdapter().executeUpdate(deleteFieldsSql, templateId);
+
+                // 重新插入字段配置
+                if (jsonNode.has("fields") && !jsonNode.get("fields").isJsonNull()) {
+                    for (var elem : jsonNode.getAsJsonArray("fields")) {
+                        JsonObject f = elem.getAsJsonObject();
+
+                        String fieldId = java.util.UUID.randomUUID().toString();
+                        Integer sequence = f.has("sequence") && !f.get("sequence").isJsonNull()
+                                ? f.get("sequence").getAsInt() : 0;
+                        String description = f.get("description").getAsString();
+                        String columnName = f.has("columnName") && !f.get("columnName").isJsonNull()
+                                ? f.get("columnName").getAsString() : null;
+                        String physicalType = f.has("physicalType") && !f.get("physicalType").isJsonNull()
+                                ? f.get("physicalType").getAsString() : null;
+                        String javaType = f.has("javaType") && !f.get("javaType").isJsonNull()
+                                ? f.get("javaType").getAsString() : null;
+                        String javaProperty = f.has("javaProperty") && !f.get("javaProperty").isJsonNull()
+                                ? f.get("javaProperty").getAsString() : null;
+                        String queryMethod = f.has("queryMethod") && !f.get("queryMethod").isJsonNull()
+                                ? f.get("queryMethod").getAsString() : null;
+                        String displayType = f.get("displayType").getAsString();
+                        String dictType = f.has("dictType") && !f.get("dictType").isJsonNull()
+                                ? f.get("dictType").getAsString() : null;
+                        Integer required = f.get("required").getAsBoolean() ? 1 : 0;
+                        String placeholder = f.has("placeholder") && !f.get("placeholder").isJsonNull()
+                                ? f.get("placeholder").getAsString() : null;
+                        String defaultValueJson = f.has("defaultValue") && !f.get("defaultValue").isJsonNull()
+                                ? gson.toJson(f.get("defaultValue")) : null;
+                        String optionsJson = f.has("options") && !f.get("options").isJsonNull()
+                                ? gson.toJson(f.get("options")) : null;
+                        String validationJson = f.has("validation") && !f.get("validation").isJsonNull()
+                                ? gson.toJson(f.get("validation")) : null;
+
+                        String insertFieldSql = "INSERT INTO template_field (template_id, field_id, sequence, " +
+                                "description, column_name, physical_type, java_type, java_property, query_method, " +
+                                "display_type, dict_type, required, placeholder, default_value, options, validation) " +
+                                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+
+                        getMysqlAdapter().executeUpdate(insertFieldSql,
+                                templateId, fieldId, sequence, description, columnName, physicalType, javaType,
+                                javaProperty, queryMethod, displayType, dictType, required, placeholder,
+                                defaultValueJson, optionsJson, validationJson);
+                    }
                 }
             }
 
@@ -244,6 +337,7 @@ public class CustomTrainingTasksServlet extends BaseServlet {
         Map<String, Object> result = new HashMap<>();
 
         try {
+
             // 获取分页参数
             String pageStr = req.getParameter("page");
             String pageSizeStr = req.getParameter("page_size");
@@ -277,10 +371,32 @@ public class CustomTrainingTasksServlet extends BaseServlet {
             // 计算分页偏移量
             int offset = (page - 1) * pageSize;
 
+            String jsonBody = requestToJson(req);
+            JsonObject jsonNode = null;
+            if (jsonBody != null && !jsonBody.trim().isEmpty()) {
+                try {
+                    jsonNode = gson.fromJson(jsonBody, JsonObject.class);
+                } catch (Exception e) {
+                    log.warn("JSON请求体解析失败，使用默认type=train", e);
+                    jsonNode = null; // 解析失败也设为null，避免后续报错
+                }
+            } else {
+                log.debug("请求体为空，使用默认type=train");
+            }
+
+            String type = "train";
+            if (jsonNode != null && jsonNode.has("type") && !jsonNode.get("type").isJsonNull()) {
+                // 字段存在且不为null时，获取值并去除首尾空格
+                type = jsonNode.get("type").getAsString().trim();
+                // 若trim后为空字符串，仍使用默认值"train"
+                if (type.isEmpty()) {
+                    type = "train";
+                }
+            }
+
             // 查询模板列表
-            //String sql = "SELECT * FROM template_info ORDER BY template_id ASC LIMIT ? OFFSET ?";
-            String sql = "SELECT * FROM template_info WHERE is_deleted = 0 ORDER BY template_id ASC LIMIT ? OFFSET ?";
-            List<Map<String, Object>> templateRows = getMysqlAdapter().select(sql, pageSize, offset);
+            String sql = "SELECT * FROM template_info WHERE is_deleted = 0 AND type = ? ORDER BY template_id ASC LIMIT ? OFFSET ?";
+            List<Map<String, Object>> templateRows = getMysqlAdapter().select(sql, type, pageSize, offset);
 
             // 构建返回数据
             List<Map<String, Object>> data = new ArrayList<>();

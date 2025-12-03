@@ -387,6 +387,159 @@ public class TrainingTaskRepository {
     }
 
     /**
+     * 查询任务列表（分页，支持指定任务类型）
+     *
+     * @param taskType 任务类型：train, predict
+     * @param page 页码（从1开始）
+     * @param pageSize 每页数量
+     * @return 任务列表和统计信息
+     */
+    public Map<String, Object> getTaskList(String taskType, int page, int pageSize) {
+        Map<String, Object> result = new HashMap<>();
+
+        try {
+            // 计算偏移量
+            int offset = (page - 1) * pageSize;
+
+            // 查询任务列表（根据任务类型过滤）
+            String listSql = "SELECT * FROM ai_training_tasks WHERE is_deleted = 0 AND task_type = ? " +
+                    "ORDER BY created_at DESC LIMIT ? OFFSET ?";
+
+            List<Map<String, Object>> tasks = mysqlAdapter.select(listSql, taskType, pageSize, offset);
+
+            // 处理任务列表
+            List<Map<String, Object>> taskList = new ArrayList<>();
+            List<String> taskIdsToUpdate = new ArrayList<>();
+
+            for (Map<String, Object> task : tasks) {
+                Map<String, Object> taskMap = new HashMap<>();
+                String taskId = (String) task.get("task_id");
+                taskMap.put("taskId", taskId);
+
+                // 从 dataset_path 提取数据集名称
+                //String datasetPath = (String) task.get("dataset_path");
+                taskMap.put("datasetName", task.get("dataset_name"));
+
+                taskMap.put("epochs", task.get("epochs"));
+
+                String status = (String) task.get("status");
+                if (status != null && status.contains(";")) {
+                    status = status.split(";")[0];
+                }
+                taskMap.put("status", status);
+                taskMap.put("progress", task.get("progress"));
+                taskMap.put("currentEpoch", task.get("current_epoch"));
+                taskMap.put("startTime", task.get("start_time").toString());
+                taskMap.put("createdAt", task.get("created_at").toString());
+
+                taskList.add(taskMap);
+
+                // 收集需要更新状态的任务ID
+                if ("pending".equals(status) || "starting".equals(status) ||
+                        "running".equals(status) || "paused".equals(status) ) {
+                    taskIdsToUpdate.add(taskId);
+                }
+            }
+
+            // 查询总数和状态统计
+            long total = getTaskCount(taskType);
+            Map<String, Integer> statusCountMap = getStatusCount(taskType);
+
+            result.put("data", taskList);
+            result.put("total", total);
+            result.put("statusCount", statusCountMap);
+            result.put("status", "SUCCESS");
+
+
+            // 异步更新任务状态
+            if (!taskIdsToUpdate.isEmpty()) {
+                new Thread(() -> {
+                    try {
+                        updateTaskStatuses(taskList, taskIdsToUpdate);
+                    } catch (Exception e) {
+                        log.warn("异步更新任务状态失败: {}", e.getMessage());
+                    }
+                }).start();
+            }
+        } catch (Exception e) {
+            log.error("查询任务列表失败: page={}, pageSize={}", page, pageSize, e);
+            result.put("status", "ERROR");
+            result.put("message", "查询任务列表失败: " + e.getMessage());
+        }
+
+        return result;
+    }
+
+    /**
+     * 获取任务总数（支持指定任务类型）
+     */
+    private long getTaskCount(String taskType) {
+        try {
+            String countSql = "SELECT COUNT(*) as total FROM ai_training_tasks " +
+                    "WHERE is_deleted = 0 AND task_type = ?";
+            List<Map<String, Object>> countResult = mysqlAdapter.select(countSql, taskType);
+            if (!countResult.isEmpty()) {
+                Object totalObj = countResult.get(0).get("total");
+                if (totalObj instanceof Long) {
+                    return (Long) totalObj;
+                } else if (totalObj instanceof Integer) {
+                    return ((Integer) totalObj).longValue();
+                }
+            }
+        } catch (Exception e) {
+            log.error("查询任务总数失败", e);
+        }
+        return 0;
+    }
+
+    /**
+     * 获取各状态的任务数量统计（支持指定任务类型）
+     */
+    private Map<String, Integer> getStatusCount(String taskType) {
+        Map<String, Integer> statusCountMap = new HashMap<>();
+        statusCountMap.put("running", 0);
+        statusCountMap.put("stopped", 0);
+        statusCountMap.put("waiting", 0);
+        statusCountMap.put("completed", 0);
+        statusCountMap.put("failed", 0);
+
+        try {
+            String statusCountSql = "SELECT status, COUNT(*) as count FROM ai_training_tasks " +
+                    "WHERE is_deleted = 0 AND task_type = ? " +
+                    "GROUP BY status";
+            List<Map<String, Object>> statusCounts = mysqlAdapter.select(statusCountSql, taskType);
+
+            for (Map<String, Object> statusCount : statusCounts) {
+                String status = (String) statusCount.get("status");
+                Object countObj = statusCount.get("count");
+                int count = 0;
+                if (countObj instanceof Long) {
+                    count = ((Long) countObj).intValue();
+                } else if (countObj instanceof Integer) {
+                    count = (Integer) countObj;
+                }
+
+                // 映射状态
+                if ("running".equalsIgnoreCase(status) || "training".equalsIgnoreCase(status)) {
+                    statusCountMap.put("running", statusCountMap.get("running") + count);
+                } else if ("stopped".equalsIgnoreCase(status) || "paused".equalsIgnoreCase(status)) {
+                    statusCountMap.put("stopped", statusCountMap.get("stopped") + count);
+                } else if ("waiting".equalsIgnoreCase(status)|| "paused".equalsIgnoreCase(status) || "pending".equalsIgnoreCase(status) || "starting".equalsIgnoreCase(status)) {
+                    statusCountMap.put("waiting", statusCountMap.get("waiting") + count);
+                } else if ("completed".equalsIgnoreCase(status) || "finished".equalsIgnoreCase(status)||"exited".equalsIgnoreCase(status)) {
+                    statusCountMap.put("completed", statusCountMap.get("completed") + count);
+                } else if ("failed".equalsIgnoreCase(status) || "error".equalsIgnoreCase(status)) {
+                    statusCountMap.put("failed", statusCountMap.get("failed") + count);
+                }
+            }
+        } catch (Exception e) {
+            log.error("查询任务状态统计失败", e);
+        }
+
+        return statusCountMap;
+    }
+
+    /**
      * 查询训练任务列表（分页）
      *
      * @param page 页码（从1开始）

@@ -28,10 +28,12 @@ import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.sql.Timestamp;
+import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
@@ -1508,6 +1510,16 @@ public class AITrainingServlet extends BaseServlet {
         }
     }
 
+    //用于异步执行预测任务
+    private ExecutorService predictExecutor = new ThreadPoolExecutor(
+            2, // 核心线程数
+            5, // 最大线程数
+            60L, TimeUnit.SECONDS,
+            new LinkedBlockingQueue<>(10), // 任务队列
+            Executors.defaultThreadFactory(),
+            new ThreadPoolExecutor.AbortPolicy() // 任务满时的拒绝策略
+    );
+
     /**
      * 执行预测任务
      */
@@ -1522,23 +1534,40 @@ public class AITrainingServlet extends BaseServlet {
             String modelName = config.getStr("model_name", "");
             Object trainer = trainerMap.get(modelName.toLowerCase());
 
-            String result;
-            if (trainer instanceof DeeplabAdapter) {
-                result = ((DeeplabAdapter) trainer).predict(config);
-            } else if (trainer instanceof TrackNetV3Adapter) {
-                result = ((TrackNetV3Adapter) trainer).predict(config);
-            } else if (trainer instanceof YoloTrainerAdapter || trainer == null) {
-                // 默认使用 yoloTrainer（向后兼容）
-                result = yoloTrainer.predict(config);
-            } else {
-                resp.setStatus(501);
-                Map<String, String> error = new HashMap<>();
-                error.put("error", "模型 " + modelName + " 的预测功能尚未实现");
-                responsePrint(resp, toJson(error));
-                return;
-            }
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMddHHmmss");
+            String timestamp = sdf.format(new Date());
+            String uuidPart = UUID.randomUUID().toString().substring(0, 8);
+            String taskId = "task_" + timestamp + "_" + uuidPart;
+            config.put("task_id", taskId);
 
-            responsePrint(resp, result);
+            predictExecutor.submit(() -> {
+                try {
+                    if (trainer instanceof DeeplabAdapter) {
+                        ((DeeplabAdapter) trainer).predict(config);
+                    } else if (trainer instanceof TrackNetV3Adapter) {
+                        ((TrackNetV3Adapter) trainer).predict(config);
+                    } else if (trainer instanceof YoloTrainerAdapter || trainer == null) {
+                        // 默认使用 yoloTrainer（向后兼容）
+                        yoloTrainer.predict(config);
+                    } else {
+                        resp.setStatus(501);
+                        Map<String, String> error = new HashMap<>();
+                        error.put("error", "模型 " + modelName + " 的预测功能尚未实现");
+                        responsePrint(resp, toJson(error));
+                        return;
+                    }
+
+                    log.info("异步预测完成：taskId={}, model={}", taskId, modelName);
+                } catch (Exception e) {
+                    log.error("异步预测失败：taskId={}", taskId, e);
+                }
+            });
+
+            Map<String, Object> respMap = new HashMap<>();
+            respMap.put("code", 200);
+            respMap.put("msg", "预测任务已提交");
+            respMap.put("taskId", taskId);
+            responsePrint(resp, toJson(respMap));
 
         } catch (Exception e) {
             log.error("执行预测失败", e);

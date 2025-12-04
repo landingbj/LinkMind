@@ -438,62 +438,65 @@ public class CustomTrainingTasksServlet extends BaseServlet {
         Map<String, Object> result = new HashMap<>();
 
         try {
-
-            // 获取分页参数
-            String pageStr = req.getParameter("page");
-            String pageSizeStr = req.getParameter("page_size");
-
-            // 页码默认1
-            int page = 1;
-            if (pageStr != null && !pageStr.isEmpty()) {
-                try {
-                    page = Integer.parseInt(pageStr);
-                    if (page <= 0) {
-                        page = 1;
-                    }
-                } catch (NumberFormatException e) {
-                    page = 1;
-                }
-            }
-
-            // 每页条数默认10
-            int pageSize = 10;
-            if (pageSizeStr != null && !pageSizeStr.isEmpty()) {
-                try {
-                    pageSize = Integer.parseInt(pageSizeStr);
-                    if (pageSize <= 0 || pageSize > 100) {
-                        pageSize = 10;
-                    }
-                } catch (NumberFormatException e) {
-                    pageSize = 10;
-                }
-            }
-
-            // 计算分页偏移量
-            int offset = (page - 1) * pageSize;
-
             String jsonBody = requestToJson(req);
             JsonObject jsonNode = null;
             if (jsonBody != null && !jsonBody.trim().isEmpty()) {
                 try {
                     jsonNode = gson.fromJson(jsonBody, JsonObject.class);
                 } catch (Exception e) {
-                    log.warn("JSON请求体解析失败，使用默认type=train", e);
-                    jsonNode = null; // 解析失败也设为null，避免后续报错
+                    log.warn("JSON请求体解析失败，使用所有参数默认值", e);
+                    jsonNode = null;
                 }
             } else {
-                log.debug("请求体为空，使用默认type=train");
+                log.debug("请求体为空，使用所有参数默认值");
             }
 
+            // 1. 处理type参数（兼容请求体拼写错误tyep，默认train）
             String type = "train";
-            if (jsonNode != null && jsonNode.has("type") && !jsonNode.get("type").isJsonNull()) {
-                // 字段存在且不为null时，获取值并去除首尾空格
-                type = jsonNode.get("type").getAsString().trim();
-                // 若trim后为空字符串，仍使用默认值"train"
-                if (type.isEmpty()) {
-                    type = "train";
+            if (jsonNode != null) {
+                // 优先取正确的type，若不存在则取拼写错误的tyep，增加容错性
+                String typeValue = null;
+                if (jsonNode.has("type") && !jsonNode.get("type").isJsonNull()) {
+                    typeValue = jsonNode.get("type").getAsString().trim();
+                } else if (jsonNode.has("tyep") && !jsonNode.get("tyep").isJsonNull()) {
+                    typeValue = jsonNode.get("tyep").getAsString().trim();
+                    log.warn("请求体中type字段拼写错误（tyep），已自动修正");
+                }
+                // 若取值不为空则使用，否则保持默认train
+                if (typeValue != null && !typeValue.isEmpty()) {
+                    type = typeValue;
                 }
             }
+
+            // 2. 处理page参数（默认1）
+            int page = 1;
+            if (jsonNode != null && jsonNode.has("page") && !jsonNode.get("page").isJsonNull()) {
+                try {
+                    page = jsonNode.get("page").getAsInt();
+                    if (page <= 0) {
+                        page = 1;
+                    }
+                } catch (Exception e) {
+                    log.warn("page参数解析失败，使用默认值1", e);
+                    page = 1;
+                }
+            }
+
+            // 3. 处理page_size参数（默认10，限制最大100）
+            int pageSize = 10;
+            if (jsonNode != null && jsonNode.has("page_size") && !jsonNode.get("page_size").isJsonNull()) {
+                try {
+                    pageSize = jsonNode.get("page_size").getAsInt();
+                    if (pageSize <= 0 || pageSize > 100) {
+                        pageSize = 10;
+                    }
+                } catch (Exception e) {
+                    log.warn("page_size参数解析失败，使用默认值10", e);
+                    pageSize = 10;
+                }
+            }
+            int offset = (page - 1) * pageSize;
+
 
             // 查询模板列表
             String sql = "SELECT * FROM template_info WHERE is_deleted = 0 AND type = ? ORDER BY template_id ASC LIMIT ? OFFSET ?";

@@ -328,17 +328,50 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
      */
     @Override
     public String predict(JSONObject config) {
-        String taskId = UUID.randomUUID().toString();
+        String taskId = config.getStr("task_id");
         try {
             // 确保配置中包含必要的字段
             if (!config.containsKey("the_train_type")) {
                 config.put("the_train_type", "predict");
             }
-            config.put("task_id", taskId);
+            if (!config.containsKey("task_id")) {
+                config.put("task_id", taskId);
+            }
+
+            // 如果没有指定推理日志文件路径，自动生成到指定目录
+            if (!config.containsKey("train_log_file") || config.getStr("train_log_file") == null || config.getStr("train_log_file").isEmpty()) {
+                // 从volumeMount中解析容器内路径，或使用默认值
+                String containerDataPath = "/app/data";
+                if (volumeMount != null && volumeMount.contains(":")) {
+                    String[] parts = volumeMount.split(":");
+                    if (parts.length >= 2) {
+                        containerDataPath = parts[1];
+                    }
+                }
+                String predictLogFile = containerDataPath + "/log/predict/" + taskId + ".log";
+                config.put("train_log_file", predictLogFile);
+            }
+
+            // 确保推理日志目录存在（容器内路径）
+            String predictLogFile = config.getStr("train_log_file");
+            if (predictLogFile != null && volumeMount != null && volumeMount.contains(":")) {
+                String[] mountParts = volumeMount.split(":");
+                if (mountParts.length >= 2) {
+                    String containerPath = mountParts[1];
+                    String hostPath = mountParts[0];
+                    if (predictLogFile.startsWith(containerPath)) {
+                        String logDir = predictLogFile.substring(0, predictLogFile.lastIndexOf("/"));
+                        // 通过 SSH 在宿主机上创建目录（宿主机路径）
+                        String hostLogDir = logDir.replace(containerPath, hostPath);
+                        String mkdirCommand = "mkdir -p " + hostLogDir;
+                        executeRemoteCommand(mkdirCommand);
+                    }
+                }
+            }
 
             // 保存预测任务到数据库
             savePredictTaskToDB(taskId, config);
-            addYoloTrainingLog(taskId, "INFO", "开始执行预测任务");
+            addYoloPredictLog(taskId, "INFO", "开始执行预测任务");
 
             // 构建 Docker 命令
             StringBuilder dockerCmd = new StringBuilder();
@@ -361,13 +394,29 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
 
             String result = executeRemoteCommand(fullCommand);
 
+            // 获取推理日志文件路径（宿主机路径），用于记录到数据库
+            String hostLogFilePath = null;
+            if (predictLogFile != null && volumeMount != null && volumeMount.contains(":")) {
+                String[] mountParts = volumeMount.split(":");
+                if (mountParts.length >= 2) {
+                    String containerPath = mountParts[1];
+                    String hostPath = mountParts[0];
+                    if (predictLogFile.startsWith(containerPath)) {
+                        hostLogFilePath = predictLogFile.replace(containerPath, hostPath);
+                    }
+                }
+            }
+
             // 更新预测任务状态
             if (isSuccess(result)) {
                 updateYoloTaskStatus(taskId, "completed", "预测任务完成");
-                addYoloTrainingLog(taskId, "INFO", "预测任务完成");
+                addYoloPredictLog(taskId, "INFO", "预测任务完成", hostLogFilePath);
+                
+                // 确保日志文件已上传到指定路径
+                uploadPredictLogFile(taskId, hostLogFilePath);
             } else {
                 updateYoloTaskStatus(taskId, "failed", "预测任务失败");
-                addYoloTrainingLog(taskId, "ERROR", "预测任务失败: " + result);
+                addYoloPredictLog(taskId, "ERROR", "预测任务失败: " + result, hostLogFilePath);
             }
 
             return result;
@@ -375,7 +424,7 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
         } catch (Exception e) {
             log.error("执行预测任务失败", e);
             updateYoloTaskStatus(taskId, "failed", "预测任务异常: " + e.getMessage());
-            addYoloTrainingLog(taskId, "ERROR", "预测任务异常: " + e.getMessage());
+            addYoloPredictLog(taskId, "ERROR", "预测任务异常: " + e.getMessage(), null);
 
             JSONObject errorResult = new JSONObject();
             errorResult.put("status", "error");
@@ -1317,6 +1366,162 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
             }
         } catch (Exception e) {
             log.error("添加训练日志到数据库失败: taskId={}, error={}", taskId, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 添加YOLO推理日志到数据库（仅系统操作日志）
+     * @param taskId 任务ID
+     * @param logLevel 日志级别
+     * @param logMessage 日志消息
+     */
+    private void addYoloPredictLog(String taskId, String logLevel, String logMessage) {
+        addYoloPredictLog(taskId, logLevel, logMessage, null);
+    }
+
+    /**
+     * 添加YOLO推理日志到数据库（仅系统操作日志）
+     * @param taskId 任务ID
+     * @param logLevel 日志级别
+     * @param logMessage 日志消息
+     * @param predictLogFilePath 推理日志文件路径（宿主机路径，可选，用于记录实际推理日志文件位置）
+     */
+    private void addYoloPredictLog(String taskId, String logLevel, String logMessage, String predictLogFilePath) {
+        String currentTime = getCurrentTime();
+        // 使用实际的推理日志文件路径（如果提供），否则使用默认路径
+        String defaultLogPath = "/data/wangshuanglong/log/predict/";
+        if (!defaultLogPath.endsWith("/")) {
+            defaultLogPath += "/";
+        }
+        String logFilePath = predictLogFilePath != null ? predictLogFilePath : (defaultLogPath + taskId + ".log");
+
+        // 构造日志条目
+        String logEntry = currentTime + " " + logLevel + " " + logMessage + "\n";
+
+        // 只写入到数据库（系统操作日志）
+        // 检查该任务是否已存在日志记录
+        String checkSql = "SELECT COUNT(*) AS cnt FROM ai_training_logs WHERE task_id = ?";
+
+        try {
+            long logCount = 0;
+            // 使用数据库连接池执行查询操作
+            List<Map<String, Object>> result = getMysqlAdapter().select(checkSql, taskId);
+            if (result != null && !result.isEmpty() && result.get(0).get("cnt") != null) {
+                logCount = ((Number) result.get(0).get("cnt")).longValue();
+            }
+
+            if (logCount > 0) {
+                // 若存在日志，追加内容，同时更新推理日志文件路径（如果提供了新的路径）
+                String updateSql;
+                if (predictLogFilePath != null) {
+                    updateSql = "UPDATE ai_training_logs " +
+                            "SET log_message = CONCAT(IFNULL(log_message, ''), ?), " +
+                            "log_level = ?, " +
+                            "log_file_path = ?, " +
+                            "created_at = ? " +
+                            "WHERE task_id = ?";
+                    getMysqlAdapter().executeUpdate(updateSql, logEntry, logLevel, logFilePath, currentTime, taskId);
+                } else {
+                    updateSql = "UPDATE ai_training_logs " +
+                            "SET log_message = CONCAT(IFNULL(log_message, ''), ?), " +
+                            "log_level = ?, " +
+                            "created_at = ? " +
+                            "WHERE task_id = ?";
+                    getMysqlAdapter().executeUpdate(updateSql, logEntry, logLevel, currentTime, taskId);
+                }
+            } else {
+                // 若不存在日志，直接插入新记录
+                String insertSql = "INSERT INTO ai_training_logs " +
+                        "(task_id, log_level, log_message, created_at, log_file_path) " +
+                        "VALUES (?, ?, ?, ?, ?)";
+                // 使用数据库连接池执行插入操作
+                getMysqlAdapter().executeUpdate(insertSql,
+                        taskId,
+                        logLevel,
+                        logEntry,
+                        currentTime,
+                        logFilePath);
+            }
+        } catch (Exception e) {
+            log.error("添加推理日志到数据库失败: taskId={}, error={}", taskId, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 上传推理日志文件到指定路径
+     * @param taskId 任务ID
+     * @param sourceLogFilePath 源日志文件路径（宿主机路径，如果为null则从volumeMount推导）
+     */
+    private void uploadPredictLogFile(String taskId, String sourceLogFilePath) {
+        try {
+            // 目标路径
+            String targetLogPath = "/data/wangshuanglong/log/predict/";
+            if (!targetLogPath.endsWith("/")) {
+                targetLogPath += "/";
+            }
+            String targetLogFile = targetLogPath + taskId + ".log";
+
+            // 如果源路径为空，尝试从volumeMount推导
+            if (sourceLogFilePath == null || sourceLogFilePath.isEmpty()) {
+                if (volumeMount != null && volumeMount.contains(":")) {
+                    String[] mountParts = volumeMount.split(":");
+                    if (mountParts.length >= 2) {
+                        String containerPath = mountParts[1];
+                        String hostPath = mountParts[0];
+                        // 容器内路径
+                        String containerLogFile = containerPath + "/log/predict/" + taskId + ".log";
+                        // 宿主机路径
+                        sourceLogFilePath = containerLogFile.replace(containerPath, hostPath);
+                    }
+                }
+            }
+
+            // 如果源路径仍然为空，使用默认路径
+            if (sourceLogFilePath == null || sourceLogFilePath.isEmpty()) {
+                if (volumeMount != null && volumeMount.contains(":")) {
+                    String[] mountParts = volumeMount.split(":");
+                    if (mountParts.length >= 2) {
+                        String hostPath = mountParts[0];
+                        sourceLogFilePath = hostPath + "/log/predict/" + taskId + ".log";
+                    }
+                }
+            }
+
+            // 确保目标目录存在
+            String mkdirCommand = "mkdir -p " + targetLogPath;
+            executeRemoteCommand(mkdirCommand);
+
+            // 如果源文件存在，复制到目标路径
+            if (sourceLogFilePath != null && !sourceLogFilePath.isEmpty()) {
+                // 检查源文件是否存在
+                String checkFileCommand = "test -f " + sourceLogFilePath + " && echo 'exists' || echo 'not_exists'";
+                String checkResult = executeRemoteCommand(checkFileCommand);
+                JSONObject checkJson = JSONUtil.parseObj(checkResult);
+                String output = checkJson.getStr("output", "").trim();
+
+                if ("exists".equals(output)) {
+                    // 复制文件到目标路径
+                    String copyCommand = "cp " + sourceLogFilePath + " " + targetLogFile;
+                    String copyResult = executeRemoteCommand(copyCommand);
+                    if (isSuccess(copyResult)) {
+                        log.info("推理日志文件已上传: taskId={}, targetPath={}", taskId, targetLogFile);
+                        addYoloPredictLog(taskId, "INFO", "推理日志文件已上传到: " + targetLogFile, targetLogFile);
+                    } else {
+                        log.warn("推理日志文件上传失败: taskId={}, sourcePath={}, targetPath={}", taskId, sourceLogFilePath, targetLogFile);
+                        addYoloPredictLog(taskId, "WARN", "推理日志文件上传失败: " + copyResult, null);
+                    }
+                } else {
+                    log.warn("推理日志源文件不存在: taskId={}, sourcePath={}", taskId, sourceLogFilePath);
+                    addYoloPredictLog(taskId, "WARN", "推理日志源文件不存在: " + sourceLogFilePath, null);
+                }
+            } else {
+                log.warn("无法确定推理日志源文件路径: taskId={}", taskId);
+                addYoloPredictLog(taskId, "WARN", "无法确定推理日志源文件路径", null);
+            }
+
+        } catch (Exception e) {
+            log.error("上传推理日志文件失败: taskId={}, error={}", taskId, e.getMessage(), e);
+            addYoloPredictLog(taskId, "ERROR", "上传推理日志文件失败: " + e.getMessage(), null);
         }
     }
 

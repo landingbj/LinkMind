@@ -631,10 +631,8 @@ public class AITrainingServlet extends BaseServlet {
             }
 
             // 构建返回数据
-            Map<String, Object> data = new HashMap<>();
+            Map<String, Object> result = new HashMap<>();
 
-            // 添加模板信息（这里从数据库查询模板表）
-            Map<String, Object> template = new HashMap<>();
             //这里获取的是template_info的主键id
             Integer tempId = (Integer) taskDetail.get("template_id");
 
@@ -643,61 +641,22 @@ public class AITrainingServlet extends BaseServlet {
                 if (templateInfo != null) {
                     //这里的templateId是template_info表中的template_id
                     String templateId = (String) templateInfo.get("template_id");
-                    template.put("templateName", templateInfo.get("template_name"));
-                    template.put("templateDesc", templateInfo.get("description"));
-
                     // 查询模板字段
                     List<Map<String, Object>> templateFields = repository.getTemplateFieldsByTemplateId(templateId);
-                    List<Map<String, Object>> fields = new ArrayList<>();
-                    for (Map<String, Object> fieldInfo : templateFields) {
-                        Map<String, Object> field = new HashMap<>();
-                        field.put("fieldName", fieldInfo.get("field_id"));
-                        field.put("fieldDesc", fieldInfo.get("description"));
-                        field.put("fieldType", fieldInfo.get("display_type"));
-                        field.put("isRequired", fieldInfo.get("required"));
-                        fields.add(field);
-                    }
-                    template.put("fields", fields);
-                } else {
-                    // 如果未找到模板信息，使用默认值
-                    template.put("templateName", "自定义模版名称");
-                    template.put("templateDesc", "模版描述");
-                    template.put("fields", new ArrayList<>());
+                    templateInfo.put("fields", templateFields);
                 }
-            } else {
-                // 如果没有模板ID，使用默认值
-                template.put("templateName", "自定义模版名称");
-                template.put("templateDesc", "模版描述");
-                template.put("fields", new ArrayList<>());
+                result.put("template", templateInfo);
             }
-            data.put("template", template);
-
-            // 添加任务信息
-            data.put("task_id", taskDetail.get("task_id"));
-            data.put("status", taskDetail.get("status"));
-            data.put("progress", taskDetail.get("progress"));
-            data.put("current_epoch", taskDetail.get("current_epoch"));
-            data.put("created_at", taskDetail.get("created_at"));
-            data.put("start_time", taskDetail.get("start_time"));
-            data.put("end_time", taskDetail.get("end_time"));
-            data.put("train_dir", taskDetail.get("train_dir"));
-            data.put("dataset_path", taskDetail.get("dataset_path"));
-            data.put("model_path", taskDetail.get("model_path"));
-            data.put("epochs", taskDetail.get("epochs"));
-            data.put("batch_size", taskDetail.get("batch_size"));
-            data.put("image_size", taskDetail.get("image_size"));
-            data.put("use_gpu", convertToBoolean(taskDetail.get("use_gpu")));
 
             // 计算训练时长
-            Object startTimeObj = taskDetail.get("start_time");
-            Object endTimeObj = taskDetail.get("end_time");
-            String trainingDuration = calculateTrainingDuration(startTimeObj, endTimeObj);
-            data.put("training_duration", trainingDuration);
+            //Object startTimeObj = taskDetail.get("start_time");
+            //Object endTimeObj = taskDetail.get("end_time");
+            //String trainingDuration = calculateTrainingDuration(startTimeObj, endTimeObj);
+           // result.put("training_duration", trainingDuration);
+            result.put("task", taskDetail);
 
             response.put("code", "200");
-            response.put("data", data);
-            response.put("validate_time", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSSSS")));
-
+            response.put("data", result);
             responsePrint(resp, toJson(response));
 
         } catch (Exception e) {

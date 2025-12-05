@@ -816,7 +816,7 @@ public class TrainingTaskRepository {
             return null;
         }
         try {
-            String sql = "SELECT *, template_id as template_id FROM ai_training_tasks WHERE task_id = ? AND is_deleted = 0";
+            String sql = "SELECT * FROM ai_training_tasks WHERE task_id = ? AND is_deleted = 0";
             List<Map<String, Object>> result = mysqlAdapter.select(sql, taskId);
             if (result != null && !result.isEmpty()) {
                 return result.get(0);

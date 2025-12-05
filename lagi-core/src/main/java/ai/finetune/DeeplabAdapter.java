@@ -186,6 +186,15 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
             log.info("开始启动训练任务: taskId={}, trackId={}", taskId, trackId);
             log.info("执行命令: {}", fullCommand);
 
+            String datasetPath = (String)config.get("dataset_path");
+            if (datasetPath != null && !datasetPath.isEmpty()){
+                String sql = "SELECT dataset_name FROM dataset_records WHERE dataset_path = ?";
+                List<Map<String, Object>> datasetList = getMysqlAdapter().select(sql, datasetPath);
+                if (datasetList != null && !datasetList.isEmpty()) {
+                    String datasetName = (String)datasetList.get(0).get("dataset_name");
+                    config.put("dataset_name", datasetName);
+                }
+            }
             // 保存启动任务到数据库
             saveStartTrainingToDB(taskId, trackId, containerName, config);
             // 添加启动训练任务日志
@@ -808,12 +817,13 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
         String sql = "INSERT INTO ai_training_tasks " +
                 "(task_id, track_id, model_name, model_category, model_framework, task_type, " +
                 "container_name, container_id, docker_image, gpu_ids, use_gpu, " +
-                "dataset_path, model_path, epochs, batch_size, image_size, optimizer, " +
+                "dataset_path, dataset_name, model_path, epochs, batch_size, image_size, optimizer, " +
                 "status, progress, current_epoch, start_time, created_at, is_deleted, user_id, config_json) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
         // 从配置中读取基本信息
         String modelName = config.getStr("model_name", "deeplabv3");
+        String datasetName = config.getStr("dataset_name", "");
         String modelCategory = getModelCategory(modelName, config);
         String modelFramework = getModelFramework(modelName, config);
         String datasetPath = config.getStr("dataset_path", "");
@@ -830,7 +840,7 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
                     taskId, trackId, modelName, modelCategory, modelFramework,
                     "train", containerName, "", dockerImage,
                     cuda, config.getBool("cuda", true) ? 1 : 0,
-                    datasetPath, modelPath, epochs, batchSize, inputShape, optimizer,
+                    datasetPath, datasetName, modelPath, epochs, batchSize, inputShape, optimizer,
                     "starting", "0%", 0, currentTime, currentTime, 0, userId, config.toString());
 
             log.info("训练任务已保存到数据库: taskId={}, modelName={}, category={}, framework={}",

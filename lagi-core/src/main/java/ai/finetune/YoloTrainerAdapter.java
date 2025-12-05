@@ -410,6 +410,7 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
             // 更新预测任务状态
             if (isSuccess(result)) {
                 updateYoloTaskStatus(taskId, "completed", "预测任务完成");
+                updateDeeplabTaskProgress(taskId, "100%");
                 addYoloPredictLog(taskId, "INFO", "预测任务完成", hostLogFilePath);
                 
                 // 确保日志文件已上传到指定路径
@@ -431,6 +432,17 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract {
             errorResult.put("message", "执行预测任务失败");
             errorResult.put("error", e.getMessage());
             return errorResult.toString();
+        }
+    }
+
+    private void updateDeeplabTaskProgress(String taskId, String progress) {
+        String updateSql = "UPDATE ai_training_tasks SET progress = ?, end_time = ? WHERE task_id = ?";
+        try {
+            String currentTime = getCurrentTime();
+            getMysqlAdapter().executeUpdate(updateSql, progress, currentTime, taskId);
+            log.info("任务进度已更新: taskId={}, progress={}", taskId, progress);
+        } catch (Exception e) {
+            log.error("更新任务进度失败: taskId={}, progress={}", taskId, progress, e.getMessage(), e);
         }
     }
 

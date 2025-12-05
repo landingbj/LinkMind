@@ -338,6 +338,9 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
             if (!config.containsKey("task_id")) {
                 config.put("task_id", taskId);
             }
+            if (!config.containsKey("track_id")) {
+                config.put("track_id", "");
+            }
 
             // 如果没有指定推理日志文件路径，自动生成到指定目录
             if (!config.containsKey("train_log_file") || config.getStr("train_log_file") == null || config.getStr("train_log_file").isEmpty()) {
@@ -412,6 +415,7 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
             // 更新预测任务状态
             if (isSuccess(result)) {
                 updateDeeplabTaskStatus(taskId, "completed", "预测任务完成");
+                updateDeeplabTaskProgress(taskId, "100%");
                 addDeeplabPredictLog(taskId, "INFO", "预测任务完成", hostLogFilePath);
                 
                 // 确保日志文件已上传到指定路径
@@ -433,6 +437,17 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
             errorResult.put("message", "执行预测任务失败");
             errorResult.put("error", e.getMessage());
             return errorResult.toString();
+        }
+    }
+
+    private void updateDeeplabTaskProgress(String taskId, String progress) {
+        String updateSql = "UPDATE ai_training_tasks SET progress = ?, end_time = ? WHERE task_id = ?";
+        try {
+            String currentTime = getCurrentTime();
+            getMysqlAdapter().executeUpdate(updateSql, progress, currentTime, taskId);
+            log.info("任务进度已更新: taskId={}, progress={}", taskId, progress);
+        } catch (Exception e) {
+            log.error("更新任务进度失败: taskId={}, progress={}", taskId, progress, e.getMessage(), e);
         }
     }
 
@@ -862,21 +877,24 @@ public class DeeplabAdapter extends DockerTrainerAbstract {
     private void savePredictTaskToDB(String taskId, JSONObject config) {
         String sql = "INSERT INTO ai_training_tasks " +
                 "(task_id, track_id, model_name, model_category, model_framework, task_type, " +
-                "container_name, model_path, gpu_ids, use_gpu, " +
+                "container_name, docker_image, model_path, gpu_ids, use_gpu, " +
                 "status, progress, current_epoch, start_time, created_at, is_deleted, config_json) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
         try {
             String modelName = config.getStr("model_name", "deeplabv3");
+            String trackId = config.getStr("track_id", "");
             String modelCategory = getModelCategory(modelName, config);
             String modelFramework = getModelFramework(modelName, config);
+            String containerName = config.getStr("container_name", "");
+            String dockerImage = config.getStr("docker_image", getDockerImage());
             String modelPath = config.getStr("model_path", "");
             String cuda = config.getBool("cuda", true) ? "0" : "cpu";
             String currentTime = getCurrentTime();
 
             getMysqlAdapter().executeUpdate(sql,
-                    taskId, "", modelName, modelCategory, modelFramework,
-                    "predict", "", modelPath, cuda, config.getBool("cuda", true) ? 1 : 0,
+                    taskId, trackId, modelName, modelCategory, modelFramework,
+                    "predict", containerName, dockerImage, modelPath, cuda, config.getBool("cuda", true) ? 1 : 0,
                     "running", "0%", 0, currentTime, currentTime, 0, config.toString());
 
             log.info("预测任务已保存到数据库: taskId={}, modelName={}, category={}, framework={}",

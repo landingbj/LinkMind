@@ -17,6 +17,7 @@ import com.google.gson.Gson;
 import com.jcraft.jsch.ChannelExec;
 import com.jcraft.jsch.Session;
 import lombok.extern.slf4j.Slf4j;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.BufferedReader;
 import java.io.InputStream;
@@ -838,108 +839,96 @@ public class AITrainingServlet extends BaseServlet {
                 trackId = YoloTrainerAdapter.generateTrackId();
             }
 
-            // 根据模型类型调用对应的训练器
-            String result;
-            if (trainer instanceof YoloTrainerAdapter) {
-                result = startYoloTraining((YoloTrainerAdapter) trainer, taskId, trackId, userId, config);
-            } else if (trainer instanceof DeeplabAdapter) {
-                result = startDeeplabTraining((DeeplabAdapter) trainer, taskId, trackId, userId, config);
-            } else if (trainer instanceof TrackNetV3Adapter) {
-                result = startTrackNetV3Training((TrackNetV3Adapter) trainer, taskId, trackId, userId, config);
-            } else {
-                // TODO: 支持其他模型类型
-                resp.setStatus(501);
-                Map<String, String> error = new HashMap<>();
-                error.put("error", "模型 " + modelName + " 的训练功能尚未实现");
-                responsePrint(resp, toJson(error));
-                return;
-            }
+            final String finalTaskId = taskId;
+            final String finalTrackId = trackId;
+            final String finalUserId = userId;
+            final String finalModelName = modelName;
+            final JSONObject finalConfig = config;
+            final Object finalTrainer = trainer;
 
-            // 保存任务到容器的映射并构建返回结果
-            if (YoloTrainerAdapter.isSuccess(result)) {
-                JSONObject resultJson = JSONUtil.parseObj(result);
-                String containerName = resultJson.getStr("containerName");
-                String containerId = resultJson.getStr("containerId");
-
-                if (containerName != null) {
-                    taskContainerMap.put(taskId, containerName);
-                }
-
-                // 构建标准化的返回结果（保留所有原始字段）
-                JSONObject response = new JSONObject();
-                response.put("status", "success");
-                response.put("msg", "训练任务已启动");
-                response.put("task_id", taskId);
-                response.put("track_id", trackId);
-                response.put("model_name", config.getStr("model_name", "yolov8"));
-
-                // 添加用户ID（总是返回，即使为空）
-                response.put("user_id", userId != null ? userId : "");
-
-                // 添加容器信息
-                if (containerName != null) {
-                    response.put("containerName", containerName);
-                }
-                if (containerId != null) {
-                    response.put("containerId", containerId);
-                }
-
-                // 添加时间戳（当前时间，格式：yyyy-MM-dd HH:mm:ss）
-                String timestamp = java.time.LocalDateTime.now()
-                        .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-                response.put("timestamp", timestamp);
-
-                // 提取训练配置信息（根据模型类型使用不同的参数名）
-                JSONObject trainConfig = new JSONObject();
-                if (modelName.contains("deeplab")) {
-                    // Deeplab 使用 dataset_path
-                    trainConfig.put("dataset_path", config.getStr("dataset_path", ""));
-                    trainConfig.put("model_path", config.getStr("model_path", ""));
-                    trainConfig.put("epochs", config.getInt("epochs", 0));
-                    trainConfig.put("freeze_batch_size", config.getInt("freeze_batch_size", 0));
-                    trainConfig.put("input_shape", config.getInt("input_shape", 512));
-                } else {
-                    // YOLO 使用 data
-                    trainConfig.put("dataset_path", config.getStr("data", ""));
-                    trainConfig.put("model_path", config.getStr("model_path", ""));
-                    trainConfig.put("epochs", config.getInt("epochs", 0));
-                    trainConfig.put("batch", config.getInt("batch", 0));
-                    trainConfig.put("imgsz", config.getInt("imgsz", 640));
-                }
-
-                // 判断是否使用GPU
-                String device = config.getStr("device", "cpu");
-                boolean useGpu = !device.equalsIgnoreCase("cpu");
-                trainConfig.put("use_gpu", useGpu);
-
-                response.put("train_config", trainConfig);
-
-                // 添加创建时间（ISO 8601格式）
-                String createdAt = java.time.ZonedDateTime.now()
-                        .format(java.time.format.DateTimeFormatter.ISO_INSTANT);
-                response.put("created_at", createdAt);
-
-                responsePrint(resp, response.toString());
-            } else {
-                // 训练启动失败，返回错误信息
-                JSONObject errorResponse = new JSONObject();
-                errorResponse.put("status", "ERROR");
-
-                // 尝试解析原始错误信息
+            asyncTaskExecutor.submit(() -> {
                 try {
-                    JSONObject resultJson = JSONUtil.parseObj(result);
-                    errorResponse.put("msg", resultJson.getStr("message", "训练任务启动失败"));
-                    if (resultJson.containsKey("error")) {
-                        errorResponse.put("error", resultJson.getStr("error"));
+                    log.info("开始异步执行训练任务: taskId={}, model={}", finalTaskId, finalModelName);
+
+                    // 根据模型类型调用对应的训练器
+                    String result;
+                    if (finalTrainer instanceof YoloTrainerAdapter) {
+                        result = startYoloTraining((YoloTrainerAdapter) finalTrainer, finalTaskId, finalTrackId, finalUserId, finalConfig);
+                    } else if (finalTrainer instanceof DeeplabAdapter) {
+                        result = startDeeplabTraining((DeeplabAdapter) finalTrainer, finalTaskId, finalTrackId, finalUserId, finalConfig);
+                    } else if (finalTrainer instanceof TrackNetV3Adapter) {
+                        result = startTrackNetV3Training((TrackNetV3Adapter) finalTrainer, finalTaskId, finalTrackId, finalUserId, finalConfig);
+                    } else {
+                        log.error("不支持的训练器类型: taskId={}, trainerClass={}", finalTaskId, finalTrainer.getClass().getName());
+                        return;
+                    }
+
+                    // 保存任务到容器的映射
+                    if (YoloTrainerAdapter.isSuccess(result)) {
+                        JSONObject resultJson = JSONUtil.parseObj(result);
+                        String containerName = resultJson.getStr("containerName");
+                        String containerId = resultJson.getStr("containerId");
+
+                        if (containerName != null) {
+                            // 使用同步方法更新共享的Map
+                            synchronized (taskContainerMap) {
+                                taskContainerMap.put(finalTaskId, containerName);
+                            }
+                        }
+
+                        log.info("训练任务启动成功: taskId={}, container={}", finalTaskId, containerName);
+
+                        // 如果需要返回更详细的信息，可以在这里记录到数据库或日志
+                        if (containerId != null) {
+                            log.info("训练任务容器信息: taskId={}, containerId={}", finalTaskId, containerId);
+                        }
+                    } else {
+                        // 训练启动失败
+                        log.error("训练任务启动失败: taskId={}, result={}", finalTaskId, result);
+
+                        // 尝试解析原始错误信息
+                        String errorMsg = "训练任务启动失败";
+                        try {
+                            JSONObject resultJson = JSONUtil.parseObj(result);
+                            String message = resultJson.getStr("message");
+                            if (message != null && !message.isEmpty()) {
+                                errorMsg = message;
+                            }
+                            if (resultJson.containsKey("error")) {
+                                errorMsg += ": " + resultJson.getStr("error");
+                            }
+                        } catch (Exception e) {
+                            // 如果解析失败，使用原始结果作为错误信息
+                            if (result != null && !result.isEmpty()) {
+                                errorMsg += ": " + result;
+                            }
+                        }
                     }
                 } catch (Exception e) {
-                    errorResponse.put("msg", "训练任务启动失败");
-                    errorResponse.put("error", result);
+                    log.error("异步训练任务执行异常: taskId={}", finalTaskId, e);
                 }
+            });
 
-                resp.setStatus(500);
-                responsePrint(resp, errorResponse.toString());
-            }
+            // 立即返回响应，告知任务已提交
+            JSONObject response = new JSONObject();
+            response.put("status", "success");
+            response.put("msg", "训练任务已提交");
+            response.put("task_id", taskId);
+            response.put("track_id", trackId);
+            response.put("model_name", config.getStr("model_name", modelName));
+            response.put("user_id", userId != null ? userId : "");
+
+            String timestamp = java.time.LocalDateTime.now()
+                    .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            response.put("submit_time", timestamp);
+            response.put("queue_status", "PENDING");
+
+            // 添加创建时间（ISO 8601格式）
+            String createdAt = java.time.ZonedDateTime.now()
+                    .format(java.time.format.DateTimeFormatter.ISO_INSTANT);
+            response.put("created_at", createdAt);
+
+            responsePrint(resp, response.toString());
 
         } catch (Exception e) {
             log.error("启动训练任务失败", e);
@@ -1510,8 +1499,8 @@ public class AITrainingServlet extends BaseServlet {
         }
     }
 
-    //用于异步执行预测任务
-    private ExecutorService predictExecutor = new ThreadPoolExecutor(
+    //用于异步执行任务
+    private ExecutorService asyncTaskExecutor = new ThreadPoolExecutor(
             2, // 核心线程数
             5, // 最大线程数
             60L, TimeUnit.SECONDS,
@@ -1539,8 +1528,13 @@ public class AITrainingServlet extends BaseServlet {
             String uuidPart = UUID.randomUUID().toString().substring(0, 8);
             String taskId = "task_" + timestamp + "_" + uuidPart;
             config.put("task_id", taskId);
+            String trackId = config.getStr("track_id");
+            if (trackId == null || trackId.isEmpty()) {
+                trackId = YoloTrainerAdapter.generateTrackId();
+                config.put("track_id", trackId);
+            }
 
-            predictExecutor.submit(() -> {
+            asyncTaskExecutor.submit(() -> {
                 try {
                     if (trainer instanceof DeeplabAdapter) {
                         ((DeeplabAdapter) trainer).predict(config);

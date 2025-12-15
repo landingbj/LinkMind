@@ -511,6 +511,16 @@
         <url-pattern>/api/model/introduction/*</url-pattern>
     </servlet-mapping>
 
+    <servlet>
+        <servlet-name>VersionManagementServlet</servlet-name>
+        <servlet-class>ai.servlet.api.VersionManagementServlet</servlet-class>
+        <load-on-startup>1</load-on-startup>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>VersionManagementServlet</servlet-name>
+        <url-pattern>/api/model/versionManagement/*</url-pattern>
+    </servlet-mapping>
+
 
 
 </web-app>

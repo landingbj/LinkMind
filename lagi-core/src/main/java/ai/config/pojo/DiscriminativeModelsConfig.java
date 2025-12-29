@@ -11,7 +11,97 @@ import java.util.Map;
  */
 @Data
 public class DiscriminativeModelsConfig {
-    
+
+
+    @JsonProperty("execution_mode")
+    private String executionMode;  //接收 docker / k8s
+
+    @JsonProperty("k8s")
+    private K8sConfig k8s;   // 新增
+
+    /**
+     * K8s 整体配置
+     * 包含集群配置和各模型的K8s专属配置
+     */
+    @Data
+    public static class K8sConfig {
+        /**
+         * K8s集群基础配置
+         */
+        @JsonProperty("cluster_config")
+        private ClusterConfig clusterConfig;
+
+        /**
+         * YOLO模型的K8s专属配置
+         */
+        @JsonProperty("yolo")
+        private YoloK8sConfig yolo;
+
+        /**
+         * deeplab模型K8s运行配置
+         */
+        @JsonProperty("deeplab")
+        private DeeplabK8sConfig deeplab;
+
+        /**
+         * K8s集群连接配置
+         */
+        @Data
+        public static class ClusterConfig {
+            @JsonProperty("apiServer")
+            private String apiServer;
+            private String token;
+            private String namespace;
+            @JsonProperty("verifyTls")
+            private Boolean verifyTls;
+        }
+
+        /**
+         * YOLO模型的K8s运行配置
+         */
+        @Data
+        public static class YoloK8sConfig {
+            private Boolean enable;  // 独立启用开关
+
+            /**
+             * YOLO模型K8s Pod专属配置
+             */
+            @JsonProperty("k8s_config")
+            private YoloK8sPodConfig k8sConfig;
+
+            /**
+             * YOLO Pod的具体配置
+             */
+            @Data
+            public static class YoloK8sPodConfig {
+                @JsonProperty("dockerImage")
+                private String dockerImage;
+            }
+        }
+
+        /**
+         * YOLO模型的K8s运行配置
+         */
+        @Data
+        public static class DeeplabK8sConfig {
+            private Boolean enable;  // 独立启用开关
+
+            /**
+             * YOLO模型K8s Pod专属配置
+             */
+            @JsonProperty("k8s_config")
+            private Deeplab8sPodConfig k8sConfig;
+
+            /**
+             * YOLO Pod的具体配置
+             */
+            @Data
+            public static class Deeplab8sPodConfig {
+                @JsonProperty("dockerImage")
+                private String dockerImage;
+            }
+        }
+    }
     /**
      * 通用 SSH 配置（可选）
      * 如果某个模型没有单独配置 SSH，则使用此通用配置

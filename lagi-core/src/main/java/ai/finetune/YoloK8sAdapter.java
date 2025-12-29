@@ -1,10 +1,13 @@
 package ai.finetune;
 
 import ai.common.utils.ObservableList;
+import ai.config.ContextLoader;
+import ai.config.pojo.DiscriminativeModelsConfig;
 import ai.database.impl.MysqlAdapter;
 import ai.finetune.config.ModelConfigManager;
+import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
-import cn.hutool.json.JSONUtil;
+
 import lombok.extern.slf4j.Slf4j;
 
 import java.time.LocalDateTime;
@@ -31,7 +34,7 @@ import java.util.concurrent.Executors;
  * 8. 工具辅助方法
  */
 @Slf4j
-public class YoloTrainerAdapter extends DockerTrainerAbstract implements TrainerInterface{
+public class YoloK8sAdapter extends K8sTrainerAbstract {
 
 //    static {
 //        //initialize Profiles
@@ -46,7 +49,8 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
     // 用于异步执行的线程池
     private static final ExecutorService executorService = Executors.newCachedThreadPool();
 
-    // 数据库连接池适配器（单例模式）
+    // 数据库连接池适配器（已废弃，使用全局共享的 MysqlAdapterManager）
+    @Deprecated
     private static volatile MysqlAdapter mysqlAdapter = null;
 
     // 模型配置管理器（单例模式）
@@ -55,71 +59,119 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
     /**
      * 默认构造函数
      */
-    public YoloTrainerAdapter() {
+    public YoloK8sAdapter() {
         super();
         loadConfigFromYaml();
     }
 
-    /**
-     * 带SSH配置的构造函数
-     * @param sshHost SSH主机地址
-     * @param sshPort SSH端口
-     * @param sshUsername SSH用户名
-     * @param sshPassword SSH密码
-     */
-    public YoloTrainerAdapter(String sshHost, int sshPort, String sshUsername, String sshPassword) {
-        super(sshHost, sshPort, sshUsername, sshPassword);
-        loadConfigFromYaml();
-    }
+
 
     /**
-     * 从lagi.yml加载配置
+     * 从 lagi.yml 加载 K8s + YOLO 配置
+     * 只读取：model_platform.discriminative_models.k8s.cluster_config 和 yolo.*
      */
     private void loadConfigFromYaml() {
         try {
-            ai.config.ContextLoader.loadContext();
-            if (ai.config.ContextLoader.configuration != null &&
-                    ai.config.ContextLoader.configuration.getModelPlatformConfig() != null &&
-                    ai.config.ContextLoader.configuration.getModelPlatformConfig().getDiscriminativeModelsConfig() != null) {
+            ContextLoader.loadContext();
+            if (ContextLoader.configuration == null
+                    || ContextLoader.configuration.getModelPlatformConfig() == null
+                    || ContextLoader.configuration.getModelPlatformConfig().getDiscriminativeModelsConfig() == null) {
+                log.warn("判别式模型配置(discriminative_models)不存在，无法加载 K8s/YOLO 配置");
+                return;
+            }
 
-                ai.config.pojo.DiscriminativeModelsConfig discriminativeConfig =
-                        ai.config.ContextLoader.configuration.getModelPlatformConfig().getDiscriminativeModelsConfig();
+            DiscriminativeModelsConfig dm =
+                    ContextLoader.configuration.getModelPlatformConfig().getDiscriminativeModelsConfig();
 
-                ai.config.pojo.DiscriminativeModelsConfig.YoloConfig yoloConfig =
-                        discriminativeConfig.getYolo();
-
-                if (yoloConfig != null && yoloConfig.getDocker() != null) {
-                    ai.config.pojo.DiscriminativeModelsConfig.DockerConfig dockerConfig =
-                            yoloConfig.getDocker();
-
-                    // 加载Docker配置
-                    if (cn.hutool.core.util.StrUtil.isNotBlank(dockerConfig.getImage())) {
-                        this.dockerImage = dockerConfig.getImage();
-                        super.setDockerImage(this.dockerImage);
-                    }
-                    if (cn.hutool.core.util.StrUtil.isNotBlank(dockerConfig.getVolumeMount())) {
-                        this.volumeMount = dockerConfig.getVolumeMount();
-                        super.setVolumeMount(this.volumeMount);
-                    }
-                    if (cn.hutool.core.util.StrUtil.isNotBlank(dockerConfig.getLogPathPrefix())) {
-                        this.logPathPrefix = dockerConfig.getLogPathPrefix();
-                    }
-
-                    log.info("从lagi.yml加载YOLO训练器配置成功");
-                } else {
-                    log.warn("lagi.yml中未配置yolo.docker，使用默认值");
+            // 1) K8s 集群配置：model_platform.discriminative_models.k8s.cluster_config
+            if (dm.getK8s() != null && dm.getK8s().getClusterConfig() != null) {
+                DiscriminativeModelsConfig.K8sConfig.ClusterConfig cluster = dm.getK8s().getClusterConfig();
+                if (StrUtil.isNotBlank(cluster.getApiServer())) {
+                    this.apiServer = cluster.getApiServer();
+                }
+                if (StrUtil.isNotBlank(cluster.getToken())) {
+                    this.token = cluster.getToken();
+                }
+                if (StrUtil.isNotBlank(cluster.getNamespace())) {
+                    this.namespace = cluster.getNamespace();
+                }
+                if (cluster.getVerifyTls() != null) {
+                    // verifyTls = true 表示严格校验证书，这里直接映射到 trustCerts/disableHostnameVerification
+                    this.trustCerts = cluster.getVerifyTls();
                 }
             }
+
+            // 2) 根据 execution_mode 决定从哪个配置读取镜像
+            String executionMode = dm.getExecutionMode();
+            if ("k8s".equalsIgnoreCase(executionMode)) {
+                // K8s 模式：从 k8s.yolo.k8s_config.dockerImage 读取镜像
+                if (dm.getK8s() != null && dm.getK8s().getYolo() != null
+                        && dm.getK8s().getYolo().getK8sConfig() != null) {
+                    DiscriminativeModelsConfig.K8sConfig.YoloK8sConfig.YoloK8sPodConfig k8sConfig =
+                            dm.getK8s().getYolo().getK8sConfig();
+                    if (StrUtil.isNotBlank(k8sConfig.getDockerImage())) {
+                        this.dockerImage = k8sConfig.getDockerImage();
+                        super.setDockerImage(this.dockerImage);
+                        log.info("K8s模式：从 k8s.yolo.k8s_config.dockerImage 读取镜像: {}", this.dockerImage);
+                    }
+                }
+            } else {
+                // Docker 模式：从 yolo.docker.image 读取镜像（兼容旧配置）
+                if (dm.getYolo() != null) {
+                    // 2.1 docker 节点（镜像 + volume_mount + 日志前缀）
+                    if (dm.getYolo().getDocker() != null) {
+                        DiscriminativeModelsConfig.DockerConfig docker = dm.getYolo().getDocker();
+                        if (StrUtil.isNotBlank(docker.getImage())) {
+                            this.dockerImage = docker.getImage();
+                            super.setDockerImage(this.dockerImage);
+                            log.info("Docker模式：从 yolo.docker.image 读取镜像: {}", this.dockerImage);
+                        }
+                        if (StrUtil.isNotBlank(docker.getVolumeMount())) {
+                            this.volumeMount = docker.getVolumeMount();
+                            super.setVolumeMount(this.volumeMount);
+                        }
+                        if (StrUtil.isNotBlank(docker.getLogPathPrefix())) {
+                            this.logPathPrefix = docker.getLogPathPrefix();
+                        }
+                        if (StrUtil.isNotBlank(docker.getShmSize())) {
+                            this.shmSize = docker.getShmSize();
+                        }
+                    }
+                }
+            }
+
+            // 3) 如果 K8s 模式下也需要读取 volume_mount 等配置，可以从 yolo.docker 读取（作为fallback）
+            if ("k8s".equalsIgnoreCase(executionMode) && dm.getYolo() != null
+                    && dm.getYolo().getDocker() != null) {
+                DiscriminativeModelsConfig.DockerConfig docker = dm.getYolo().getDocker();
+                if (StrUtil.isBlank(this.volumeMount) && StrUtil.isNotBlank(docker.getVolumeMount())) {
+                    this.volumeMount = docker.getVolumeMount();
+                    super.setVolumeMount(this.volumeMount);
+                }
+                if (StrUtil.isBlank(this.logPathPrefix) && StrUtil.isNotBlank(docker.getLogPathPrefix())) {
+                    this.logPathPrefix = docker.getLogPathPrefix();
+                }
+                if (StrUtil.isBlank(this.shmSize) && StrUtil.isNotBlank(docker.getShmSize())) {
+                    this.shmSize = docker.getShmSize();
+                }
+            }
+
+            log.info("已从 model_platform.discriminative_models 加载 K8s/YOLO 配置: apiServer={}, ns={}, image={}, volumeMount={}",
+                    this.apiServer, this.namespace, this.dockerImage, this.volumeMount);
         } catch (Exception e) {
-            log.warn("加载配置失败，使用默认值: {}", e.getMessage());
+            log.warn("加载 lagi.yml 中的 K8s/YOLO 配置失败: {}", e.getMessage());
         }
     }
+
     /**
      * 启动训练任务
      */
     @Override
     public String startTraining(String taskId, String trackId, JSONObject config) {
         try {
+            // 确保 K8s 客户端已初始化
+            initK8sClient();
+
             // 确保配置中包含必要的字段
             if (!config.containsKey("the_train_type")) {
                 config.put("the_train_type", "train");
@@ -131,9 +183,8 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
                 config.put("track_id", trackId);
             }
 
-            // 如果没有指定训练日志文件路径，自动生成到指定目录
+            // 生成日志文件路径（保留原有逻辑）
             if (!config.containsKey("train_log_file") || config.getStr("train_log_file") == null || config.getStr("train_log_file").isEmpty()) {
-                // 从volumeMount中解析容器内路径，或使用默认值
                 String containerDataPath = "/app/data";
                 if (volumeMount != null && volumeMount.contains(":")) {
                     String[] parts = volumeMount.split(":");
@@ -145,51 +196,24 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
                 config.put("train_log_file", trainLogFile);
             }
 
-            // 确保训练日志目录存在（容器内路径）
-            String trainLogFile = config.getStr("train_log_file");
-            if (trainLogFile != null && volumeMount != null && volumeMount.contains(":")) {
-                String[] mountParts = volumeMount.split(":");
-                if (mountParts.length >= 2) {
-                    String containerPath = mountParts[1];
-                    String hostPath = mountParts[0];
-                    if (trainLogFile.startsWith(containerPath)) {
-                        String logDir = trainLogFile.substring(0, trainLogFile.lastIndexOf("/"));
-                        // 通过 SSH 在宿主机上创建目录（宿主机路径）
-                        String hostLogDir = logDir.replace(containerPath, hostPath);
-                        String mkdirCommand = "mkdir -p " + hostLogDir;
-                        executeRemoteCommand(mkdirCommand);
-                    }
-                }
-            }
+            // 生成 Job 名称（对应原来的容器名称）
+            String jobName = generateContainerName("yolo_train");
+            jobName = jobName.replace("_", "-");
 
-            // 构建 Docker 命令
-            StringBuilder dockerCmd = new StringBuilder();
-//            dockerCmd.append("docker run --rm -d"); // -d 后台运行
-            dockerCmd.append("docker run -d"); // -d 后台运行
-
-
-            // 添加容器名称，便于后续管理
-            String containerName = generateContainerName("yolo_train");
-            dockerCmd.append(" --name ").append(containerName);
-
-            // GPU 支持
-            dockerCmd.append(" --gpus all");
-
-            // 数据卷挂载
-            dockerCmd.append(" -v ").append(volumeMount);
-
-            // 配置环境变量（使用单引号包裹 JSON）
+            // 构建配置 JSON
             String configJson = config.toString();
-            configJson = configJson.replace("'", "'\\''");
-            dockerCmd.append(" -e CONFIG='").append(configJson).append("'");
 
-            // 镜像名称
-            dockerCmd.append(" ").append(dockerImage);
+            // 根据 device 配置判断是否启用 GPU
+            // device 为 "cpu" 或空时，不启用 GPU；否则启用 GPU
+            String device = config.getStr("device", "cpu");
+            boolean useGpu = device != null && !device.equalsIgnoreCase("cpu") && !device.isEmpty();
 
-            String fullCommand = dockerCmd.toString();
-            log.info("开始启动训练任务: taskId={}, trackId={}", taskId, trackId);
-            log.info("执行命令: {}", fullCommand);
+            //String dockerImage = "yolov8_trainer:last";
+            // 创建 Kubernetes Job
+            createOneOffJob(jobName, dockerImage, configJson, useGpu, null);
+            log.info("createOneOffJob called, jobName={}, image={}, useGpu={}, device={}", jobName, dockerImage, useGpu, device);
 
+            // 保存任务到数据库（保留原有逻辑）
             String datasetPath = (String)config.get("data");
             if (datasetPath != null && !datasetPath.isEmpty()){
                 String sql = "SELECT dataset_name FROM dataset_records WHERE dataset_path = ?";
@@ -199,51 +223,24 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
                     config.put("dataset_name", datasetName);
                 }
             }
-            // 保存启动任务到数据库
-            saveStartTrainingToDB(taskId, trackId, containerName, config);
-            // 添加启动训练任务日志
-            addYoloTrainingLog(taskId, "INFO", "YOLO训练任务已启动，容器名称: " + containerName);
 
-            String result = executeRemoteCommand(fullCommand);
+            // 注意：containerName 改为 jobName，containerId 也使用 jobName
+            saveStartTrainingToDB(taskId, trackId, jobName, config);
+            addYoloTrainingLog(taskId, "INFO", "YOLO训练任务已启动，Job名称: " + jobName);
 
-            // 如果成功，将容器名称添加到结果中
-            if (isSuccess(result)) {
-                JSONObject resultJson = JSONUtil.parseObj(result);
-                resultJson.put("containerName", containerName);
-                resultJson.put("taskId", taskId);
-                resultJson.put("trackId", trackId);
+            // 构建返回结果
+            JSONObject result = new JSONObject();
+            result.put("status", "success");
+            result.put("message", "训练任务已启动");
+            result.put("containerName", jobName);
+            result.put("containerId", jobName);  // K8s中Job名称即容器标识
+            result.put("jobName", jobName);
+            result.put("namespace", namespace);
 
-                // 更新数据库为运行中状态
-                updateYoloTaskStatus(taskId, "running", "训练任务启动成功");
-
-                String hostLogFilePath = null;
-                if (trainLogFile != null && volumeMount != null && volumeMount.contains(":")) {
-                    String[] mountParts = volumeMount.split(":");
-                    if (mountParts.length >= 2) {
-                        String containerPath = mountParts[1];
-                        String hostPath = mountParts[0];
-                        if (trainLogFile.startsWith(containerPath)) {
-                            hostLogFilePath = trainLogFile.replace(containerPath, hostPath);
-                        }
-                    }
-                }
-                addYoloTrainingLog(taskId, "INFO", "容器启动成功，开始训练", hostLogFilePath);
-
-                return resultJson.toString();
-            } else {
-                // 启动失败，更新数据库状态
-                updateYoloTaskStatus(taskId, "failed", "容器启动失败");
-                addYoloTrainingLog(taskId, "ERROR", "容器启动失败: " + result);
-            }
-
-            return result;
+            return result.toString();
 
         } catch (Exception e) {
-            log.error("启动训练任务失败", e);
-            // 更新数据库状态为失败
-            updateYoloTaskStatus(taskId, "failed", "启动训练任务异常: " + e.getMessage());
-            addYoloTrainingLog(taskId, "ERROR", "启动训练任务失败: " + e.getMessage());
-
+            log.error("启动训练任务失败: taskId={}", taskId, e);
             JSONObject errorResult = new JSONObject();
             errorResult.put("status", "error");
             errorResult.put("message", "启动训练任务失败");
@@ -279,26 +276,12 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
             saveEvaluateTaskToDB(taskId, config);
             addYoloTrainingLog(taskId, "INFO", "开始执行评估任务");
 
-            // 构建 Docker 命令
-            StringBuilder dockerCmd = new StringBuilder();
-            dockerCmd.append("docker run --rm"); // --rm 自动删除容器
-
-            // 数据卷挂载
-            dockerCmd.append(" -v ").append(volumeMount);
-
-            // 配置环境变量
-            String configJson = config.toString();
-            configJson = configJson.replace("'", "'\\''");
-            dockerCmd.append(" -e CONFIG='").append(configJson).append("'");
-
-            // 镜像名称
-            dockerCmd.append(" ").append(dockerImage);
-
-            String fullCommand = dockerCmd.toString();
-            log.info("开始执行评估任务: taskId={}", taskId);
-            log.info("执行命令: {}", fullCommand);
-
-            String result = executeRemoteCommand(fullCommand);
+            String jobName = generateContainerName("yolo_eval");
+            jobName = jobName.replace("_", "-");
+            // 根据 device 配置判断是否启用 GPU
+            String device = config.getStr("device", "cpu");
+            boolean useGpu = device != null && !device.equalsIgnoreCase("cpu") && !device.isEmpty();
+            String result = createOneOffJob(jobName, dockerImage, config.toString(), useGpu, null).toString();
 
             // 更新评估任务状态
             if (isSuccess(result)) {
@@ -361,47 +344,18 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
                 config.put("train_log_file", predictLogFile);
             }
 
-            // 确保推理日志目录存在（容器内路径）
-            String predictLogFile = config.getStr("train_log_file");
-            if (predictLogFile != null && volumeMount != null && volumeMount.contains(":")) {
-                String[] mountParts = volumeMount.split(":");
-                if (mountParts.length >= 2) {
-                    String containerPath = mountParts[1];
-                    String hostPath = mountParts[0];
-                    if (predictLogFile.startsWith(containerPath)) {
-                        String logDir = predictLogFile.substring(0, predictLogFile.lastIndexOf("/"));
-                        // 通过 SSH 在宿主机上创建目录（宿主机路径）
-                        String hostLogDir = logDir.replace(containerPath, hostPath);
-                        String mkdirCommand = "mkdir -p " + hostLogDir;
-                        executeRemoteCommand(mkdirCommand);
-                    }
-                }
-            }
-
-            // 保存预测任务到数据库
+            // 保存预测任务到数据库（初始状态为pending）
             savePredictTaskToDB(taskId, config);
-            addYoloPredictLog(taskId, "INFO", "开始执行预测任务");
+            addYoloPredictLog(taskId, "INFO", "预测任务已创建，等待执行");
 
-            // 构建 Docker 命令
-            StringBuilder dockerCmd = new StringBuilder();
-            dockerCmd.append("docker run --rm");
+            String predictLogFile = config.getStr("train_log_file");
 
-            // 数据卷挂载
-            dockerCmd.append(" -v ").append(volumeMount);
-
-            // 配置环境变量
-            String configJson = config.toString();
-            configJson = configJson.replace("'", "'\\''");
-            dockerCmd.append(" -e CONFIG='").append(configJson).append("'");
-
-            // 镜像名称
-            dockerCmd.append(" ").append(dockerImage);
-
-            String fullCommand = dockerCmd.toString();
-            log.info("开始执行预测任务: taskId={}", taskId);
-            log.info("执行命令: {}", fullCommand);
-
-            String result = executeRemoteCommand(fullCommand);
+            String jobName = generateContainerName("yolo_predict");
+            jobName = jobName.replace("_", "-");
+            // 根据 device 配置判断是否启用 GPU
+            String device = config.getStr("device", "cpu");
+            boolean useGpu = device != null && !device.equalsIgnoreCase("cpu") && !device.isEmpty();
+            String result = createOneOffJob(jobName, dockerImage, config.toString(), useGpu, null).toString();
 
             // 获取推理日志文件路径（宿主机路径），用于记录到数据库
             String hostLogFilePath = null;
@@ -418,15 +372,13 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
 
             // 更新预测任务状态
             if (isSuccess(result)) {
-                updateYoloTaskStatus(taskId, "completed", "预测任务完成");
-                updateDeeplabTaskProgress(taskId, "100%");
-                addYoloPredictLog(taskId, "INFO", "预测任务完成", hostLogFilePath);
-
-                // 确保日志文件已上传到指定路径
-                uploadPredictLogFile(taskId, hostLogFilePath);
+                // Job创建成功，更新状态为running（Job实际执行是异步的，但此时Job已提交到K8s）
+                updateYoloTaskStatus(taskId, "running", "预测任务已提交到K8s，等待执行");
+                addYoloPredictLog(taskId, "INFO", "预测任务已提交到K8s，Job名称: " + jobName, hostLogFilePath);
+                // 注意：Job的实际执行完成状态需要通过监控Job状态来更新，这里不直接设置为completed
             } else {
-                updateYoloTaskStatus(taskId, "failed", "预测任务失败");
-                addYoloPredictLog(taskId, "ERROR", "预测任务失败: " + result, hostLogFilePath);
+                updateYoloTaskStatus(taskId, "failed", "创建预测任务失败: " + result);
+                addYoloPredictLog(taskId, "ERROR", "创建预测任务失败: " + result, hostLogFilePath);
             }
 
             return result;
@@ -480,26 +432,12 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
             saveExportTaskToDB(taskId, config);
             addYoloTrainingLog(taskId, "INFO", "开始导出模型");
 
-            // 构建 Docker 命令
-            StringBuilder dockerCmd = new StringBuilder();
-            dockerCmd.append("docker run --rm");
-
-            // 数据卷挂载
-            dockerCmd.append(" -v ").append(volumeMount);
-
-            // 配置环境变量
-            String configJson = config.toString();
-            configJson = configJson.replace("'", "'\\''");
-            dockerCmd.append(" -e CONFIG='").append(configJson).append("'");
-
-            // 镜像名称
-            dockerCmd.append(" ").append(dockerImage);
-
-            String fullCommand = dockerCmd.toString();
-            log.info("开始导出模型: taskId={}", taskId);
-            log.info("执行命令: {}", fullCommand);
-
-            String result = executeRemoteCommand(fullCommand);
+            String jobName = generateContainerName("yolo_export");
+            jobName = jobName.replace("_", "-");
+            // 根据 device 配置判断是否启用 GPU
+            String device = config.getStr("device", "cpu");
+            boolean useGpu = device != null && !device.equalsIgnoreCase("cpu") && !device.isEmpty();
+            String result = createOneOffJob(jobName, dockerImage, config.toString(), useGpu, null).toString();
 
             // 更新导出任务状态
             if (isSuccess(result)) {
@@ -536,61 +474,45 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
     /**
      * 暂停容器（带业务逻辑）
      */
-    @Override
     public String pauseContainer(String containerId) {
-        String result = super.pauseContainer(containerId);
+        JSONObject res = new JSONObject();
+        res.put("status", "error");
+        res.put("message", "K8s Job 不支持暂停/恢复，请使用停止或删除");
 
         // 从containerId获取taskId
         String taskId = getTaskIdByContainerId(containerId);
 
-        if (isSuccess(result)) {
-            // 更新数据库状态为暂停
-            if (taskId != null) {
-                updateYoloTaskStatus(taskId, "paused", "容器已暂停");
-                addYoloTrainingLog(taskId, "INFO", "容器已暂停: " + containerId);
-            }
-        } else {
-            // 暂停失败，记录日志
-            if (taskId != null) {
-                addYoloTrainingLog(taskId, "ERROR", "暂停容器失败: " + result);
-            }
+        if (taskId != null) {
+            updateYoloTaskStatus(taskId, "paused", "K8s Job 不支持暂停，建议停止后重启");
+            addYoloTrainingLog(taskId, "WARN", "K8s Job 不支持暂停: " + containerId);
         }
 
-        return result;
+        return res.toString();
     }
 
     /**
      * 继续容器（恢复暂停的容器，带业务逻辑）
      */
-    @Override
     public String resumeContainer(String containerId) {
-        String result = super.resumeContainer(containerId);
+        JSONObject res = new JSONObject();
+        res.put("status", "error");
+        res.put("message", "K8s Job 不支持暂停/恢复，请重新提交任务");
 
         // 从containerId获取taskId
         String taskId = getTaskIdByContainerId(containerId);
 
-        if (isSuccess(result)) {
-            // 更新数据库状态为运行中
-            if (taskId != null) {
-                updateYoloTaskStatus(taskId, "running", "容器已恢复运行");
-                addYoloTrainingLog(taskId, "INFO", "容器已恢复运行: " + containerId);
-            }
-        } else {
-            // 恢复失败，记录日志
-            if (taskId != null) {
-                addYoloTrainingLog(taskId, "ERROR", "恢复容器失败: " + result);
-            }
+        if (taskId != null) {
+            addYoloTrainingLog(taskId, "WARN", "K8s Job 不支持恢复: " + containerId);
         }
 
-        return result;
+        return res.toString();
     }
 
     /**
      * 停止容器（带业务逻辑）
      */
-    @Override
     public String stopContainer(String containerId) {
-        String result = super.stopContainer(containerId);
+        String result = deleteJob(containerId).toString();
 
         // 从containerId获取taskId
         String taskId = getTaskIdByContainerId(containerId);
@@ -615,9 +537,8 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
     /**
      * 删除容器（带业务逻辑）
      */
-    @Override
     public String removeContainer(String containerId) {
-        String result = super.removeContainer(containerId);
+        String result = deleteJob(containerId).toString();
 
         // 从containerId获取taskId
         String taskId = getTaskIdByContainerId(containerId);
@@ -646,69 +567,89 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
         resultJson.put("status", "success");
         resultJson.put("message", "远程任务执行成功");
         String containerName = getContainerNameByTaskId(taskId);
-        super.removeContainer(containerName);
+        deleteJob(containerName);
         return resultJson.toString();
     }
 
     /**
      * 查看容器状态（带业务逻辑）
      */
-    @Override
     public String getContainerStatus(String containerId) {
-        String result = super.getContainerStatus(containerId);
-
-        if (isSuccess(result)) {
-            try {
-                JSONObject resultJson = JSONUtil.parseObj(result);
-                String status = resultJson.getStr("containerStatus", "").trim();
-
-                String[] parts = status.split(";");
-                String statusPart = parts.length > 0 ? parts[0].trim() : "";
-                String exitCodeStr = parts.length > 1 ? parts[1].trim() : "";
-
-                // 检查容器退出码，判断任务是否失败
-                if (!exitCodeStr.isEmpty()) {
-                    try {
-                        int exitCode = Integer.parseInt(exitCodeStr);
-                        if (exitCode != 0 && "exited".equals(statusPart)) {
-                            // 容器已退出且退出码不为0，表示任务失败
-                            String taskId = getTaskIdByContainerId(containerId);
-                            if (taskId != null) {
-                                updateYoloTaskStatus(taskId, "failed", "容器异常退出，退出码: " + exitCode);
-                                addYoloTrainingLog(taskId, "ERROR", "容器异常退出，退出码: " + exitCode);
-                            }
-                        }
-                    } catch (NumberFormatException e) {
-                        log.warn("解析退出码失败: {}", exitCodeStr);
-                    }
+        JSONObject jobStatus = getJobStatus(containerId);
+        if (isSuccess(jobStatus.toString())) {
+            String taskId = getTaskIdByContainerId(containerId);
+            String phase = jobStatus.getStr("jobPhase", "Unknown");
+            if (taskId != null) {
+                if ("Failed".equalsIgnoreCase(phase)) {
+                    updateYoloTaskStatus(taskId, "failed", "Job 失败");
+                } else if ("Complete".equalsIgnoreCase(phase) || "Succeeded".equalsIgnoreCase(phase)) {
+                    updateYoloTaskStatus(taskId, "completed", "Job 完成");
                 }
-            } catch (Exception e) {
-                log.warn("处理容器状态结果失败: {}", e.getMessage());
             }
-        }
 
-        return result;
+            // 生成 containerStatus 字段，根据优先级：containerState -> podPhase -> jobPhase
+            String containerStatus = null;
+            String containerState = jobStatus.getStr("containerState");
+            String podPhase = jobStatus.getStr("podPhase");
+            String jobPhase = jobStatus.getStr("jobPhase");
+            Integer exitCode = jobStatus.getInt("containerExitCode");
+
+            if (containerState != null) {
+                // 根据 containerState 映射到 containerStatus
+                if ("Running".equals(containerState)) {
+                    containerStatus = "running";
+                } else if ("Terminated".equals(containerState)) {
+                    if (exitCode != null && exitCode != 0) {
+                        containerStatus = "exited";
+                    } else {
+                        containerStatus = "exited";
+                    }
+                } else if ("Waiting".equals(containerState)) {
+                    containerStatus = "waiting";
+                }
+            } else if (podPhase != null) {
+                // 根据 podPhase 映射
+                if ("Running".equalsIgnoreCase(podPhase)) {
+                    containerStatus = "running";
+                } else if ("Succeeded".equalsIgnoreCase(podPhase)) {
+                    containerStatus = "exited";
+                } else if ("Failed".equalsIgnoreCase(podPhase)) {
+                    containerStatus = "exited";
+                } else if ("Pending".equalsIgnoreCase(podPhase)) {
+                    containerStatus = "waiting";
+                }
+            } else if (jobPhase != null) {
+                // 根据 jobPhase 映射
+                if ("Complete".equalsIgnoreCase(jobPhase) || "Succeeded".equalsIgnoreCase(jobPhase)) {
+                    containerStatus = "exited";
+                } else if ("Failed".equalsIgnoreCase(jobPhase)) {
+                    containerStatus = "exited";
+                }
+            }
+
+            // 如果还是没有状态，使用默认值
+            if (containerStatus == null || containerStatus.isEmpty()) {
+                containerStatus = "unknown";
+            }
+
+            // 设置 containerStatus 字段
+            jobStatus.put("containerStatus", containerStatus);
+
+            // 生成 output 字段，格式：状态;退出码（与 Docker 实现保持一致）
+            String output = containerStatus;
+            if (exitCode != null) {
+                output = containerStatus + ";" + exitCode;
+            } else {
+                output = containerStatus + ";0";
+            }
+            jobStatus.put("output", output);
+        }
+        return jobStatus.toString();
     }
 
 
 
-    /**
-     * 列出所有 YOLO 训练容器
-     */
-    public String listTrainingContainers() {
-        try {
-            String command = "docker ps -a --filter name=yolo_train --format 'table {{.ID}}\\t{{.Names}}\\t{{.Status}}\\t{{.CreatedAt}}'";
-            log.info("列出所有 YOLO 训练容器");
-            return executeRemoteCommand(command);
-        } catch (Exception e) {
-            log.error("列出容器失败", e);
-            JSONObject errorResult = new JSONObject();
-            errorResult.put("status", "error");
-            errorResult.put("message", "列出容器失败");
-            errorResult.put("error", e.getMessage());
-            return errorResult.toString();
-        }
-    }
+
 
     // ==================== 日志流式获取方法 ====================
 
@@ -722,12 +663,8 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
 
         executorService.submit(() -> {
             try {
-                // 构建命令：docker logs -f containerId
-                String command = "docker logs -f " + containerId;
                 log.info("开始流式获取容器日志: {}", containerId);
-
-                // 执行远程命令并流式读取输出
-                executeRemoteCommandStream(command, logStream);
+                streamJobLogs(containerId, logStream::add);
 
             } catch (Exception e) {
                 log.error("流式获取容器日志失败: {}", containerId, e);
@@ -738,58 +675,6 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
         });
 
         return logStream;
-    }
-
-    /**
-     * 流式执行远程命令（用于长时间运行的命令，使用连接池复用SSH连接）
-     */
-    private void executeRemoteCommandStream(String command, ObservableList<String> outputStream) {
-        com.jcraft.jsch.Session session = null;
-        com.jcraft.jsch.ChannelExec channelExec = null;
-
-        try {
-            // 使用SSH连接管理器获取或创建连接（复用连接池）
-            SSHConnectionManager connectionManager = SSHConnectionManager.getInstance();
-            session = connectionManager.getSession(sshHost, sshPort, sshUsername, sshPassword);
-            log.debug("使用SSH连接池中的连接（流式执行）: {}:{}", sshHost, sshPort);
-
-            // 打开执行通道
-            channelExec = (com.jcraft.jsch.ChannelExec) session.openChannel("exec");
-            channelExec.setCommand(command);
-
-            // 获取输入流
-            java.io.InputStream in = channelExec.getInputStream();
-            java.io.InputStream err = channelExec.getErrStream();
-
-            // 执行命令
-            channelExec.connect();
-
-            // 读取标准输出（流式）
-            try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(in))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    outputStream.add(line);
-                }
-            }
-
-            // 读取错误输出
-            try (java.io.BufferedReader errorReader = new java.io.BufferedReader(new java.io.InputStreamReader(err))) {
-                String line;
-                while ((line = errorReader.readLine()) != null) {
-                    outputStream.add("[ERROR] " + line);
-                }
-            }
-
-        } catch (Exception e) {
-            log.error("流式执行远程命令失败", e);
-            outputStream.add("[ERROR] " + e.getMessage());
-        } finally {
-            // 只关闭ChannelExec，不关闭Session（保留在连接池中复用）
-            if (channelExec != null && channelExec.isConnected()) {
-                channelExec.disconnect();
-            }
-            // Session保留在连接池中，不在这里关闭
-        }
     }
 
     // ==================== 配置创建方法（业务配置） ====================
@@ -859,12 +744,12 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
     // ==================== 数据库操作方法（CRUD） ====================
 
     /**
-     * 获取数据库连接池适配器实例（单例模式，双重检查锁定）
-     * 使用数据库连接池提高性能和资源利用率
+     * 获取数据库连接池适配器实例（使用全局共享的连接池）
+     * 所有训练器共享同一个连接池，避免 "Too many connections" 错误
      */
     private static MysqlAdapter getMysqlAdapter() {
         if (mysqlAdapter == null) {
-            synchronized (YoloTrainerAdapter.class) {
+            synchronized (YoloK8sAdapter.class) {
                 if (mysqlAdapter == null) {
                     mysqlAdapter = new MysqlAdapter("mysql");
                     log.info("数据库连接池已初始化");
@@ -880,7 +765,7 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
      */
     private static ModelConfigManager getModelConfigManager() {
         if (modelConfigManager == null) {
-            synchronized (YoloTrainerAdapter.class) {
+            synchronized (YoloK8sAdapter.class) {
                 if (modelConfigManager == null) {
                     modelConfigManager = new ModelConfigManager(getMysqlAdapter());
                     modelConfigManager.loadConfigsFromDatabase();
@@ -891,6 +776,7 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
         }
         return modelConfigManager;
     }
+
 
     /**
      * 任务数据传输对象 - 用于统一保存任务信息
@@ -1100,7 +986,7 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
                     modelPath,
                     device,             // gpu_ids
                     !device.equals("cpu") ? 1 : 0, // use_gpu
-                    "running",
+                    "pending",
                     "0%",
                     0,
                     currentTime,
@@ -1333,7 +1219,7 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
     private void addYoloTrainingLog(String taskId, String logLevel, String logMessage, String trainingLogFilePath) {
         String currentTime = getCurrentTime();
         // 使用实际的训练日志文件路径（如果提供），否则使用默认路径
-        String defaultLogPath = logPathPrefix != null ? logPathPrefix : "/data/wangshuanglong/log/train/";
+        String defaultLogPath = logPathPrefix != null ? logPathPrefix : "/mnt/k8s_data/wangshuanglong/";
         if (!defaultLogPath.endsWith("/")) {
             defaultLogPath += "/";
         }
@@ -1509,33 +1395,10 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
                 }
             }
 
-            // 确保目标目录存在
-            String mkdirCommand = "mkdir -p " + targetLogPath;
-            executeRemoteCommand(mkdirCommand);
-
-            // 如果源文件存在，复制到目标路径
+            // K8s 模式下不再通过宿主机 SSH 复制日志，只记录路径提示
             if (sourceLogFilePath != null && !sourceLogFilePath.isEmpty()) {
-                // 检查源文件是否存在
-                String checkFileCommand = "test -f " + sourceLogFilePath + " && echo 'exists' || echo 'not_exists'";
-                String checkResult = executeRemoteCommand(checkFileCommand);
-                JSONObject checkJson = JSONUtil.parseObj(checkResult);
-                String output = checkJson.getStr("output", "").trim();
-
-                if ("exists".equals(output)) {
-                    // 复制文件到目标路径
-                    String copyCommand = "cp " + sourceLogFilePath + " " + targetLogFile;
-                    String copyResult = executeRemoteCommand(copyCommand);
-                    if (isSuccess(copyResult)) {
-                        log.info("推理日志文件已上传: taskId={}, targetPath={}", taskId, targetLogFile);
-                        addYoloPredictLog(taskId, "INFO", "推理日志文件已上传到: " + targetLogFile, targetLogFile);
-                    } else {
-                        log.warn("推理日志文件上传失败: taskId={}, sourcePath={}, targetPath={}", taskId, sourceLogFilePath, targetLogFile);
-                        addYoloPredictLog(taskId, "WARN", "推理日志文件上传失败: " + copyResult, null);
-                    }
-                } else {
-                    log.warn("推理日志源文件不存在: taskId={}, sourcePath={}", taskId, sourceLogFilePath);
-                    addYoloPredictLog(taskId, "WARN", "推理日志源文件不存在: " + sourceLogFilePath, null);
-                }
+                log.info("推理日志文件可在宿主机路径查找: {}", sourceLogFilePath);
+                addYoloPredictLog(taskId, "INFO", "推理日志文件路径: " + sourceLogFilePath, sourceLogFilePath);
             } else {
                 log.warn("无法确定推理日志源文件路径: taskId={}", taskId);
                 addYoloPredictLog(taskId, "WARN", "无法确定推理日志源文件路径", null);
@@ -1717,10 +1580,9 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
      * @return TrainingTaskRepository 实例
      */
     public ai.finetune.repository.TrainingTaskRepository getRepository() {
-        if (mysqlAdapter == null) {
-            mysqlAdapter = getMysqlAdapter();
-        }
-        return new ai.finetune.repository.TrainingTaskRepository(mysqlAdapter);
+        // 使用全局共享的连接池
+        MysqlAdapter adapter = getMysqlAdapter();
+        return new ai.finetune.repository.TrainingTaskRepository(adapter);
     }
 }
 

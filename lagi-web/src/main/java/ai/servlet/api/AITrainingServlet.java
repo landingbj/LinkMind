@@ -8,11 +8,17 @@ import ai.dto.TrainingTasks;
 import ai.finetune.YoloTrainerAdapter;
 import ai.finetune.DeeplabAdapter;
 import ai.finetune.TrackNetV3Adapter;
+import ai.finetune.TrainerFactory;
+import ai.finetune.TrainerInterface;
+import ai.finetune.YoloK8sAdapter;
+import ai.finetune.DeeplabK8sAdapter;
+import ai.finetune.TrackNetV3K8sAdapter;
 import ai.finetune.SSHConnectionManager;
 import ai.finetune.repository.TrainingTaskRepository;
 import ai.servlet.BaseServlet;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
+import cn.hutool.setting.yaml.YamlUtil;
 import com.google.gson.Gson;
 import com.jcraft.jsch.ChannelExec;
 import com.jcraft.jsch.Session;
@@ -54,8 +60,8 @@ public class AITrainingServlet extends BaseServlet {
     private static final long serialVersionUID = 1L;
     private final Gson gson = new Gson();
 
-    // 存储不同模型的 Trainer 实例
-    private static final Map<String, Object> trainerMap = new ConcurrentHashMap<>();
+    // 统一的训练器映射（支持 Docker 和 K8s），key 为模型名（小写）
+    private static final Map<String, TrainerInterface> trainerMap = new ConcurrentHashMap<>();
 
     // 存储 YoloTrainer 实例（单例，向后兼容）
     public static YoloTrainerAdapter yoloTrainer;
@@ -77,6 +83,57 @@ public class AITrainingServlet extends BaseServlet {
     }
 
     /**
+     * 从配置中获取执行模式（docker / k8s），默认 docker
+     */
+    @NotNull
+    private String getExecutionMode(String modelType, DiscriminativeModelsConfig discriminativeConfig) {
+        // 目前 execution_mode 配在 lagi.yml 的 model_platform.discriminative_models.execution_mode
+        try {
+            Map<?, ?> root = YamlUtil.loadByPath("lagi.yml");
+            if (root != null && root.get("model_platform") instanceof Map) {
+                Map<?, ?> mp = (Map<?, ?>) root.get("model_platform");
+                Object dmObj = mp.get("discriminative_models");
+                if (dmObj instanceof Map) {
+                    Map<?, ?> dm = (Map<?, ?>) dmObj;
+                    Object mode = dm.get("execution_mode");
+                    if (mode != null) {
+                        String v = mode.toString().trim().toLowerCase();
+                        if ("docker".equals(v) || "k8s".equals(v)) {
+                            return v;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("读取执行模式失败，使用默认 docker: {}", e.getMessage());
+        }
+        return "docker";
+    }
+
+    /**
+     * 获取指定模型的 Docker 训练器（向后兼容）
+     */
+    private TrainerInterface getDockerTrainer(String modelType) {
+        String key = modelType.toLowerCase();
+        switch (key) {
+            case "yolo":
+            case "yolov8":
+            case "yolov11":
+                return yoloTrainer;
+            case "deeplab":
+            case "deeplabv3":
+                return deeplabAdapter;
+            case "tracknetv3":
+            case "tracknet":
+            case "tracknetv2":
+                // 目前 TrackNetV3 只在本类中以局部变量创建，不暴露静态实例
+                return trainerMap.get("tracknet");
+            default:
+                return null;
+        }
+    }
+
+    /**
      * 返回服务不可用的错误响应
      */
     private void sendServiceUnavailableError(HttpServletResponse response, String modelName) throws IOException {
@@ -92,6 +149,195 @@ public class AITrainingServlet extends BaseServlet {
         error.put("detail", "请检查 lagi.yml 中的 discriminative_models 配置");
 
         response.getWriter().write(error.toString());
+    }
+
+    /**
+     * 获取 YOLO 训练器（支持 Docker 和 K8s 模式）
+     * 优先从 trainerMap 获取，如果获取不到则使用静态字段 yoloTrainer（向后兼容）
+     */
+    private TrainerInterface getYoloTrainer() {
+        // 优先从 trainerMap 获取（支持 K8s 模式）
+        TrainerInterface trainer = trainerMap.get("yolo");
+        // 如果 trainerMap 中没有，尝试使用静态字段（向后兼容 Docker 模式）
+        if (trainer == null && yoloTrainer != null) {
+            trainer = yoloTrainer;
+        }
+        return trainer;
+    }
+
+    /**
+     * 根据模型名称和执行模式获取或创建训练器
+     * 支持动态创建 Docker 或 K8s 训练器
+     * @param modelName 模型名称（yolo, deeplab, tracknetv3等）
+     * @return TrainerInterface实例，如果无法创建则返回null
+     */
+    private TrainerInterface getOrCreateTrainer(String modelName) {
+        if (modelName == null || modelName.isEmpty()) {
+            log.warn("模型名称为空，无法获取训练器");
+            return null;
+        }
+
+        try {
+            // 加载配置
+            ContextLoader.loadContext();
+            DiscriminativeModelsConfig discriminativeConfig = ContextLoader.configuration
+                    .getModelPlatformConfig()
+                    .getDiscriminativeModelsConfig();
+
+            if (discriminativeConfig == null) {
+                log.warn("判别式模型配置不存在");
+                return null;
+            }
+
+            // 标准化模型名称
+            String lowerModelName = modelName.toLowerCase();
+            String modelType = normalizeModelType(lowerModelName);
+
+            // 获取执行模式
+            String executionMode = getExecutionMode(modelType, discriminativeConfig);
+
+            // 检查trainerMap中是否已有对应执行模式的trainer（使用标准化的模型类型）
+            TrainerInterface existingTrainer = trainerMap.get(modelType);
+            if (existingTrainer != null) {
+                // 检查现有trainer是否匹配当前执行模式
+                boolean isK8sTrainer = existingTrainer instanceof YoloK8sAdapter 
+                        || existingTrainer instanceof DeeplabK8sAdapter 
+                        || existingTrainer instanceof TrackNetV3K8sAdapter;
+                boolean isDockerTrainer = existingTrainer instanceof YoloTrainerAdapter 
+                        || existingTrainer instanceof DeeplabAdapter 
+                        || existingTrainer instanceof TrackNetV3Adapter;
+
+                if (("k8s".equals(executionMode) && isK8sTrainer) 
+                        || ("docker".equals(executionMode) && isDockerTrainer)) {
+                    log.debug("使用已存在的训练器: model={}, mode={}", modelName, executionMode);
+                    return existingTrainer;
+                } else {
+                    log.info("现有训练器执行模式不匹配，重新创建: model={}, expected={}, actual={}", 
+                            modelName, executionMode, isK8sTrainer ? "k8s" : "docker");
+                }
+            }
+
+            // 创建新的trainer
+            TrainerInterface trainer = TrainerFactory.createTrainer(modelType, executionMode);
+
+            // 根据执行模式配置trainer
+            if ("docker".equals(executionMode)) {
+                configureDockerTrainer(modelType, trainer, discriminativeConfig);
+            } else if ("k8s".equals(executionMode)) {
+                // K8s trainer在构造函数中会自动加载配置，无需额外配置
+                log.debug("K8s训练器已创建，配置将从lagi.yml自动加载: model={}", modelName);
+            }
+
+            // 注册到trainerMap（使用标准化的模型类型名称）
+            trainerMap.put(modelType, trainer);
+
+            log.info("成功创建训练器: model={}, mode={}", modelName, executionMode);
+            return trainer;
+
+        } catch (Exception e) {
+            log.error("获取或创建训练器失败: model={}", modelName, e);
+            return null;
+        }
+    }
+
+    /**
+     * 标准化模型类型名称
+     */
+    private String normalizeModelType(String modelName) {
+        if (modelName.startsWith("yolo")) {
+            return "yolo";
+        } else if (modelName.startsWith("deeplab")) {
+            return "deeplab";
+        } else if (modelName.startsWith("tracknet")) {
+            return "tracknet";
+        }
+        return modelName;
+    }
+
+    /**
+     * 配置Docker训练器（设置SSH和Docker配置）
+     */
+    private void configureDockerTrainer(String modelType, TrainerInterface trainer, 
+                                        DiscriminativeModelsConfig discriminativeConfig) {
+        try {
+            if ("yolo".equals(modelType)) {
+                DiscriminativeModelsConfig.YoloConfig yoloConfig = discriminativeConfig.getYolo();
+                if (yoloConfig == null) {
+                    log.error("YOLO配置不存在");
+                    return;
+                }
+
+                DiscriminativeModelsConfig.SshConfig ssh = discriminativeConfig.getEffectiveSshConfig(yoloConfig);
+                DiscriminativeModelsConfig.DockerConfig docker = yoloConfig.getDocker();
+
+                if (ssh == null || !ssh.isValid() || docker == null || !docker.isValid()) {
+                    log.error("YOLO Docker配置不完整");
+                    return;
+                }
+
+                YoloTrainerAdapter dockerTrainer = (YoloTrainerAdapter) trainer;
+                dockerTrainer.setRemoteServer(ssh.getHost(), ssh.getPort(), ssh.getUsername(), ssh.getPassword());
+                if (docker.getImage() != null) {
+                    dockerTrainer.setDockerImage(docker.getImage());
+                }
+                if (docker.getVolumeMount() != null) {
+                    dockerTrainer.setVolumeMount(docker.getVolumeMount());
+                }
+                // 保持向后兼容
+                yoloTrainer = dockerTrainer;
+
+            } else if ("deeplab".equals(modelType)) {
+                DiscriminativeModelsConfig.DeeplabConfig deeplabConfig = discriminativeConfig.getDeeplab();
+                if (deeplabConfig == null) {
+                    log.error("DeepLab配置不存在");
+                    return;
+                }
+
+                DiscriminativeModelsConfig.SshConfig ssh = discriminativeConfig.getEffectiveSshConfig(deeplabConfig);
+                DiscriminativeModelsConfig.DockerConfig docker = deeplabConfig.getDocker();
+
+                if (ssh == null || !ssh.isValid() || docker == null || !docker.isValid()) {
+                    log.error("DeepLab Docker配置不完整");
+                    return;
+                }
+
+                DeeplabAdapter dockerTrainer = (DeeplabAdapter) trainer;
+                dockerTrainer.setRemoteServer(ssh.getHost(), ssh.getPort(), ssh.getUsername(), ssh.getPassword());
+                if (docker.getImage() != null) {
+                    dockerTrainer.setDockerImage(docker.getImage());
+                }
+                if (docker.getVolumeMount() != null) {
+                    dockerTrainer.setVolumeMount(docker.getVolumeMount());
+                }
+                deeplabAdapter = dockerTrainer;
+
+            } else if ("tracknetv3".equals(modelType)) {
+                DiscriminativeModelsConfig.TrackNetV3Config tracknetv3Config = discriminativeConfig.getTracknetv3();
+                if (tracknetv3Config == null) {
+                    log.error("TrackNetV3配置不存在");
+                    return;
+                }
+
+                DiscriminativeModelsConfig.SshConfig ssh = discriminativeConfig.getEffectiveSshConfig(tracknetv3Config);
+                DiscriminativeModelsConfig.DockerConfig docker = tracknetv3Config.getDocker();
+
+                if (ssh == null || !ssh.isValid() || docker == null || !docker.isValid()) {
+                    log.error("TrackNetV3 Docker配置不完整");
+                    return;
+                }
+
+                TrackNetV3Adapter dockerTrainer = (TrackNetV3Adapter) trainer;
+                dockerTrainer.setRemoteServer(ssh.getHost(), ssh.getPort(), ssh.getUsername(), ssh.getPassword());
+                if (docker.getImage() != null) {
+                    dockerTrainer.setDockerImage(docker.getImage());
+                }
+                if (docker.getVolumeMount() != null) {
+                    dockerTrainer.setVolumeMount(docker.getVolumeMount());
+                }
+            }
+        } catch (Exception e) {
+            log.error("配置Docker训练器失败: modelType={}", modelType, e);
+        }
     }
 
     @Override
@@ -158,37 +404,49 @@ public class AITrainingServlet extends BaseServlet {
                 return;
             }
 
-            // 获取有效的 SSH 配置
-            DiscriminativeModelsConfig.SshConfig ssh = discriminativeConfig.getEffectiveSshConfig(yoloConfig);
-            DiscriminativeModelsConfig.DockerConfig docker = yoloConfig.getDocker();
+            // 读取执行模式：docker 或 k8s
+            String executionMode = getExecutionMode("yolo", discriminativeConfig);
+            TrainerInterface trainer = TrainerFactory.createTrainer("yolo", executionMode);
 
-            // 验证配置
-            if (ssh == null || !ssh.isValid()) {
-                log.error("YOLO SSH 配置不完整或无效");
-                return;
+            if ("docker".equals(executionMode)) {
+                // 使用 Docker 训练器，保持原有 SSH + Docker 配置逻辑
+                DiscriminativeModelsConfig.SshConfig ssh = discriminativeConfig.getEffectiveSshConfig(yoloConfig);
+                DiscriminativeModelsConfig.DockerConfig docker = yoloConfig.getDocker();
+
+                if (ssh == null || !ssh.isValid()) {
+                    log.error("YOLO SSH 配置不完整或无效");
+                    return;
+                }
+                if (docker == null || !docker.isValid()) {
+                    log.error("YOLO Docker 配置不完整或无效");
+                    return;
+                }
+
+                YoloTrainerAdapter dockerTrainer = (YoloTrainerAdapter) trainer;
+                dockerTrainer.setRemoteServer(ssh.getHost(), ssh.getPort(), ssh.getUsername(), ssh.getPassword());
+                if (docker.getImage() != null) {
+                    dockerTrainer.setDockerImage(docker.getImage());
+                }
+                if (docker.getVolumeMount() != null) {
+                    dockerTrainer.setVolumeMount(docker.getVolumeMount());
+                }
+
+                // 保持向后兼容的静态实例
+                yoloTrainer = dockerTrainer;
+                log.info("✓ YOLO Docker 训练器初始化成功: {}:{}", ssh.getHost(), ssh.getPort());
+            } else if ("k8s".equals(executionMode)) {
+                // 使用 K8s 训练器，K8s 连接配置在适配器内部从 lagi.yml 读取
+                if (!(trainer instanceof YoloK8sAdapter)) {
+                    log.error("YOLO K8s 训练器类型不匹配: {}", trainer.getClass().getName());
+                    return;
+                }
+                log.info("✓ YOLO K8s 训练器初始化成功（使用 K8s 集群配置）");
             }
 
-            if (docker == null || !docker.isValid()) {
-                log.error("YOLO Docker 配置不完整或无效");
-                return;
-            }
+            // 注册到统一映射（两种模式共用相同 key）
+            trainerMap.put("yolo", trainer);
 
-            // 创建 YoloTrainer 实例
-            yoloTrainer = new YoloTrainerAdapter();
-            yoloTrainer.setRemoteServer(ssh.getHost(), ssh.getPort(), ssh.getUsername(), ssh.getPassword());
-
-            if (docker.getImage() != null) {
-                yoloTrainer.setDockerImage(docker.getImage());
-            }
-            if (docker.getVolumeMount() != null) {
-                yoloTrainer.setVolumeMount(docker.getVolumeMount());
-            }
-
-            // 注册到 trainerMap
-            trainerMap.put("yolov8", yoloTrainer);
-            trainerMap.put("yolov11", yoloTrainer); // YOLOv11 也使用同一个 trainer
-
-            log.info("✓ YOLO 训练器初始化成功: {}:{}", ssh.getHost(), ssh.getPort());
+            log.info("✓ YOLO 训练器初始化完成，执行模式: {}", executionMode);
 
         } catch (Exception e) {
             log.error("YOLO 训练器初始化失败: {}", e.getMessage(), e);
@@ -212,37 +470,41 @@ public class AITrainingServlet extends BaseServlet {
                 return;
             }
 
-            // 获取有效的 SSH 配置
-            DiscriminativeModelsConfig.SshConfig ssh = discriminativeConfig.getEffectiveSshConfig(deeplabConfig);
-            DiscriminativeModelsConfig.DockerConfig docker = deeplabConfig.getDocker();
+            String executionMode = getExecutionMode("deeplab", discriminativeConfig);
+            TrainerInterface trainer = TrainerFactory.createTrainer("deeplab", executionMode);
 
-            // 验证配置
-            if (ssh == null || !ssh.isValid()) {
-                log.error("DeepLab SSH 配置不完整或无效");
-                return;
+            if ("docker".equals(executionMode)) {
+                DiscriminativeModelsConfig.SshConfig ssh = discriminativeConfig.getEffectiveSshConfig(deeplabConfig);
+                DiscriminativeModelsConfig.DockerConfig docker = deeplabConfig.getDocker();
+
+                if (ssh == null || !ssh.isValid()) {
+                    log.error("DeepLab SSH 配置不完整或无效");
+                    return;
+                }
+                if (docker == null || !docker.isValid()) {
+                    log.error("DeepLab Docker 配置不完整或无效");
+                    return;
+                }
+
+                DeeplabAdapter dockerTrainer = (DeeplabAdapter) trainer;
+                dockerTrainer.setRemoteServer(ssh.getHost(), ssh.getPort(), ssh.getUsername(), ssh.getPassword());
+                if (docker.getImage() != null) {
+                    dockerTrainer.setDockerImage(docker.getImage());
+                }
+                if (docker.getVolumeMount() != null) {
+                    dockerTrainer.setVolumeMount(docker.getVolumeMount());
+                }
+
+                // 向后兼容静态实例
+                deeplabAdapter = dockerTrainer;
+                log.info("✓ DeepLab Docker 训练器初始化成功: {}:{}", ssh.getHost(), ssh.getPort());
+            } else if ("k8s".equals(executionMode)) {
+                log.info("✓ DeepLab K8s 训练器初始化成功（使用 K8s 集群配置）");
             }
 
-            if (docker == null || !docker.isValid()) {
-                log.error("DeepLab Docker 配置不完整或无效");
-                return;
-            }
+            trainerMap.put("deeplab", trainer);
 
-            // 创建 DeeplabAdapter 实例
-            deeplabAdapter = new DeeplabAdapter();
-            deeplabAdapter.setRemoteServer(ssh.getHost(), ssh.getPort(), ssh.getUsername(), ssh.getPassword());
-
-            if (docker.getImage() != null) {
-                deeplabAdapter.setDockerImage(docker.getImage());
-            }
-            if (docker.getVolumeMount() != null) {
-                deeplabAdapter.setVolumeMount(docker.getVolumeMount());
-            }
-
-            // 注册到 trainerMap
-            trainerMap.put("deeplab", deeplabAdapter);
-            trainerMap.put("deeplabv3", deeplabAdapter); // deeplabv3 也使用同一个 adapter
-
-            log.info("✓ DeepLab 训练器初始化成功: {}:{}", ssh.getHost(), ssh.getPort());
+            log.info("✓ DeepLab 训练器初始化完成，执行模式: {}", executionMode);
 
         } catch (Exception e) {
             log.error("DeepLab 训练器初始化失败: {}", e.getMessage(), e);
@@ -266,38 +528,39 @@ public class AITrainingServlet extends BaseServlet {
                 return;
             }
 
-            // 获取有效的 SSH 配置
-            DiscriminativeModelsConfig.SshConfig ssh = discriminativeConfig.getEffectiveSshConfig(tracknetv3Config);
-            DiscriminativeModelsConfig.DockerConfig docker = tracknetv3Config.getDocker();
+            String executionMode = getExecutionMode("tracknetv3", discriminativeConfig);
+            TrainerInterface trainer = TrainerFactory.createTrainer("tracknetv3", executionMode);
 
-            // 验证配置
-            if (ssh == null || !ssh.isValid()) {
-                log.error("TrackNetV3 SSH 配置不完整或无效");
-                return;
+            if ("docker".equals(executionMode)) {
+                DiscriminativeModelsConfig.SshConfig ssh = discriminativeConfig.getEffectiveSshConfig(tracknetv3Config);
+                DiscriminativeModelsConfig.DockerConfig docker = tracknetv3Config.getDocker();
+
+                if (ssh == null || !ssh.isValid()) {
+                    log.error("TrackNetV3 SSH 配置不完整或无效");
+                    return;
+                }
+                if (docker == null || !docker.isValid()) {
+                    log.error("TrackNetV3 Docker 配置不完整或无效");
+                    return;
+                }
+
+                TrackNetV3Adapter dockerTrainer = (TrackNetV3Adapter) trainer;
+                dockerTrainer.setRemoteServer(ssh.getHost(), ssh.getPort(), ssh.getUsername(), ssh.getPassword());
+                if (docker.getImage() != null) {
+                    dockerTrainer.setDockerImage(docker.getImage());
+                }
+                if (docker.getVolumeMount() != null) {
+                    dockerTrainer.setVolumeMount(docker.getVolumeMount());
+                }
+
+                log.info("✓ TrackNetV3 Docker 训练器初始化成功: {}:{}", ssh.getHost(), ssh.getPort());
+            } else if ("k8s".equals(executionMode)) {
+                log.info("✓ TrackNetV3 K8s 训练器初始化成功（使用 K8s 集群配置）");
             }
 
-            if (docker == null || !docker.isValid()) {
-                log.error("TrackNetV3 Docker 配置不完整或无效");
-                return;
-            }
+            trainerMap.put("tracknet", trainer);
 
-            // 创建 TrackNetV3Adapter 实例
-            TrackNetV3Adapter trackNetV3Adapter = new TrackNetV3Adapter();
-            trackNetV3Adapter.setRemoteServer(ssh.getHost(), ssh.getPort(), ssh.getUsername(), ssh.getPassword());
-
-            if (docker.getImage() != null) {
-                trackNetV3Adapter.setDockerImage(docker.getImage());
-            }
-            if (docker.getVolumeMount() != null) {
-                trackNetV3Adapter.setVolumeMount(docker.getVolumeMount());
-            }
-
-            // 注册到 trainerMap
-            trainerMap.put("tracknetv3", trackNetV3Adapter);
-            trainerMap.put("tracknet", trackNetV3Adapter); // tracknet 也使用同一个 adapter
-            trainerMap.put("TrackNetV2", trackNetV3Adapter);
-
-            log.info("✓ TrackNetV3 训练器初始化成功: {}:{}", ssh.getHost(), ssh.getPort());
+            log.info("✓ TrackNetV3 训练器初始化完成，执行模式: {}", executionMode);
 
         } catch (Exception e) {
             log.error("TrackNetV3 训练器初始化失败: {}", e.getMessage(), e);
@@ -652,7 +915,7 @@ public class AITrainingServlet extends BaseServlet {
             //Object startTimeObj = taskDetail.get("start_time");
             //Object endTimeObj = taskDetail.get("end_time");
             //String trainingDuration = calculateTrainingDuration(startTimeObj, endTimeObj);
-           // result.put("training_duration", trainingDuration);
+            // result.put("training_duration", trainingDuration);
             result.put("task", taskDetail);
 
             response.put("code", "200");
@@ -768,15 +1031,12 @@ public class AITrainingServlet extends BaseServlet {
 
             // 检查模型是否支持（忽略大小写和空格）
             String normalizedModelName = modelName.toLowerCase().trim();
-            Object trainer = trainerMap.get(normalizedModelName);
+            // 先标准化模型名称，然后从 trainerMap 获取
+            String modelType = normalizeModelType(normalizedModelName);
+            TrainerInterface trainer = trainerMap.get(modelType);
+            // 找不到则降级到 Docker 版本（向后兼容）
             if (trainer == null) {
-                // 如果通过标准方式没找到，尝试忽略大小写查找
-                for (Map.Entry<String, Object> entry : trainerMap.entrySet()) {
-                    if (entry.getKey().equalsIgnoreCase(normalizedModelName)) {
-                        trainer = entry.getValue();
-                        break;
-                    }
-                }
+                trainer = getDockerTrainer(normalizedModelName);
             }
             if (trainer == null) {
                 resp.setStatus(400);
@@ -803,22 +1063,23 @@ public class AITrainingServlet extends BaseServlet {
             final String finalUserId = userId;
             final String finalModelName = modelName;
             final JSONObject finalConfig = config;
-            final Object finalTrainer = trainer;
+            final TrainerInterface finalTrainer = trainer;
 
             asyncTaskExecutor.submit(() -> {
                 try {
                     log.info("开始异步执行训练任务: taskId={}, model={}", finalTaskId, finalModelName);
 
-                    // 根据模型类型调用对应的训练器
+                    // 根据模型名称选择配置构建逻辑，然后通过统一接口启动
                     String result;
-                    if (finalTrainer instanceof YoloTrainerAdapter) {
-                        result = startYoloTraining((YoloTrainerAdapter) finalTrainer, finalTaskId, finalTrackId, finalUserId, finalConfig);
-                    } else if (finalTrainer instanceof DeeplabAdapter) {
-                        result = startDeeplabTraining((DeeplabAdapter) finalTrainer, finalTaskId, finalTrackId, finalUserId, finalConfig);
-                    } else if (finalTrainer instanceof TrackNetV3Adapter) {
-                        result = startTrackNetV3Training((TrackNetV3Adapter) finalTrainer, finalTaskId, finalTrackId, finalUserId, finalConfig);
+                    String lowerName = finalModelName.toLowerCase();
+                    if (lowerName.startsWith("yolo")) {
+                        result = startYoloTraining(finalTrainer, finalTaskId, finalTrackId, finalUserId, finalConfig);
+                    } else if (lowerName.startsWith("deeplab")) {
+                        result = startDeeplabTraining(finalTrainer, finalTaskId, finalTrackId, finalUserId, finalConfig);
+                    } else if (lowerName.startsWith("tracknet")) {
+                        result = startTrackNetV3Training(finalTrainer, finalTaskId, finalTrackId, finalUserId, finalConfig);
                     } else {
-                        log.error("不支持的训练器类型: taskId={}, trainerClass={}", finalTaskId, finalTrainer.getClass().getName());
+                        log.error("不支持的模型类型: taskId={}, model={}", finalTaskId, finalModelName);
                         return;
                     }
 
@@ -901,7 +1162,7 @@ public class AITrainingServlet extends BaseServlet {
     /**
      * 启动 YOLO 训练任务
      */
-    private String startYoloTraining(YoloTrainerAdapter trainer, String taskId, String trackId, String userId, JSONObject config) {
+    private String startYoloTraining(TrainerInterface trainer, String taskId, String trackId, String userId, JSONObject config) {
         // 从配置文件获取默认配置
         ai.config.ContextLoader.loadContext();
         ai.config.pojo.DiscriminativeModelsConfig discriminativeConfig = ai.config.ContextLoader.configuration
@@ -967,7 +1228,7 @@ public class AITrainingServlet extends BaseServlet {
     /**
      * 启动 DeepLab 训练任务
      */
-    private String startDeeplabTraining(DeeplabAdapter trainer, String taskId, String trackId, String userId, JSONObject config) {
+    private String startDeeplabTraining(TrainerInterface trainer, String taskId, String trackId, String userId, JSONObject config) {
         // 从配置文件获取默认配置
         ai.config.ContextLoader.loadContext();
         ai.config.pojo.DiscriminativeModelsConfig discriminativeConfig = ai.config.ContextLoader.configuration
@@ -1063,7 +1324,7 @@ public class AITrainingServlet extends BaseServlet {
     /**
      * 启动 TrackNetV3 训练任务
      */
-    private String startTrackNetV3Training(TrackNetV3Adapter trainer, String taskId, String trackId, String userId, JSONObject config) {
+    private String startTrackNetV3Training(TrainerInterface trainer, String taskId, String trackId, String userId, JSONObject config) {
         // 从配置文件获取默认配置
         ai.config.ContextLoader.loadContext();
         ai.config.pojo.DiscriminativeModelsConfig discriminativeConfig = ai.config.ContextLoader.configuration
@@ -1248,7 +1509,30 @@ public class AITrainingServlet extends BaseServlet {
                 responsePrint(resp, toJson(error));
                 return;
             }
-            String result = yoloTrainer.removeContainer(null,taskId);
+
+            TrainerInterface trainer = getYoloTrainer();
+            if (trainer == null) {
+                resp.setStatus(503);
+                Map<String, String> error = new HashMap<>();
+                error.put("error", "YOLO 训练服务未初始化");
+                responsePrint(resp, toJson(error));
+                return;
+            }
+
+            // 检查 trainer 是否支持 removeContainer(String, String) 方法
+            String result;
+            if (trainer instanceof YoloTrainerAdapter) {
+                result = ((YoloTrainerAdapter) trainer).removeContainer(null, taskId);
+            } else if (trainer instanceof YoloK8sAdapter) {
+                result = ((YoloK8sAdapter) trainer).removeContainer(null, taskId);
+            } else {
+                resp.setStatus(501);
+                Map<String, String> error = new HashMap<>();
+                error.put("error", "不支持的训练器类型: " + trainer.getClass().getName());
+                responsePrint(resp, toJson(error));
+                return;
+            }
+
             if (taskId != null) {
                 taskContainerMap.remove(taskId);
                 taskStreamMap.remove(taskId);
@@ -1281,7 +1565,16 @@ public class AITrainingServlet extends BaseServlet {
                 return;
             }
 
-            String result = yoloTrainer.removeContainer(containerId);
+            TrainerInterface trainer = getYoloTrainer();
+            if (trainer == null) {
+                resp.setStatus(503);
+                Map<String, String> error = new HashMap<>();
+                error.put("error", "训练服务未初始化");
+                responsePrint(resp, toJson(error));
+                return;
+            }
+
+            String result = trainer.removeContainer(containerId);
 
             // 清理任务映射
             String taskId = req.getParameter("taskId");
@@ -1317,7 +1610,15 @@ public class AITrainingServlet extends BaseServlet {
                 return;
             }
 
-            String result = yoloTrainer.getContainerStatus(containerId);
+            TrainerInterface trainer = getYoloTrainer();
+            if (trainer == null) {
+                resp.setStatus(503);
+                Map<String, String> error = new HashMap<>();
+                error.put("error", "训练服务未初始化");
+                responsePrint(resp, toJson(error));
+                return;
+            }
+            String result = trainer.getContainerStatus(containerId);
             responsePrint(resp, result);
 
         } catch (Exception e) {
@@ -1338,7 +1639,7 @@ public class AITrainingServlet extends BaseServlet {
         try {
             String containerId = getContainerIdFromRequest(req);
             if (containerId == null) {
-                // 如果通过 taskId 无法找到 containerId，则直接使用 taskId 作为 containerId
+                // 通过 taskId 解析出真正的容器 / Job 名称，而不是直接用 taskId 作为容器ID
                 String taskId = req.getParameter("taskId");
                 if (taskId == null || taskId.isEmpty()) {
                     resp.setStatus(400);
@@ -1347,13 +1648,31 @@ public class AITrainingServlet extends BaseServlet {
                     responsePrint(resp, toJson(error));
                     return;
                 }
-                containerId = taskId;
+
+                // 复用 getContainerIdFromTaskId，支持 Docker 和 K8s（container_id 或 container_name）
+                containerId = getContainerIdFromTaskId(taskId);
+                if (containerId == null || containerId.isEmpty()) {
+                    resp.setStatus(404);
+                    Map<String, String> error = new HashMap<>();
+                    error.put("error", "未找到任务对应的容器: " + taskId);
+                    responsePrint(resp, toJson(error));
+                    return;
+                }
             }
 
             String linesStr = req.getParameter("lines");
             int lines = linesStr != null ? Integer.parseInt(linesStr) : 100;
+            TrainerInterface trainer = getYoloTrainer();
 
-            String result = yoloTrainer.getContainerLogs(containerId, lines);
+            if (trainer == null) {
+                resp.setStatus(503);
+                Map<String, String> error = new HashMap<>();
+                error.put("error", "训练服务未初始化");
+                responsePrint(resp, toJson(error));
+                return;
+            }
+
+            String result = trainer.getContainerLogs(containerId, lines);
             responsePrint(resp, result);
 
         } catch (Exception e) {
@@ -1427,18 +1746,39 @@ public class AITrainingServlet extends BaseServlet {
             String jsonBody = requestToJson(req);
             JSONObject config = JSONUtil.parseObj(jsonBody);
 
-            // 根据模型名称选择对应的训练器
+            // 根据模型名称获取或创建训练器（支持docker/k8s）
             String modelName = config.getStr("model_name", "");
-            Object trainer = trainerMap.get(modelName.toLowerCase());
+            if (modelName == null || modelName.isEmpty()) {
+                resp.setStatus(400);
+                Map<String, String> error = new HashMap<>();
+                error.put("error", "缺少model_name参数");
+                responsePrint(resp, toJson(error));
+                return;
+            }
 
+            TrainerInterface trainer = getOrCreateTrainer(modelName);
+            if (trainer == null) {
+                resp.setStatus(503);
+                Map<String, String> error = new HashMap<>();
+                error.put("error", "无法获取或创建训练器: " + modelName);
+                responsePrint(resp, toJson(error));
+                return;
+            }
+
+            // 根据trainer类型调用对应的evaluate方法
             String result;
-            if (trainer instanceof DeeplabAdapter) {
+            if (trainer instanceof YoloK8sAdapter) {
+                result = ((YoloK8sAdapter) trainer).evaluate(config);
+            } else if (trainer instanceof YoloTrainerAdapter) {
+                result = ((YoloTrainerAdapter) trainer).evaluate(config);
+            } else if (trainer instanceof DeeplabK8sAdapter) {
+                result = ((DeeplabK8sAdapter) trainer).evaluate(config);
+            } else if (trainer instanceof DeeplabAdapter) {
                 result = ((DeeplabAdapter) trainer).evaluate(config);
+            } else if (trainer instanceof TrackNetV3K8sAdapter) {
+                result = ((TrackNetV3K8sAdapter) trainer).evaluate(config);
             } else if (trainer instanceof TrackNetV3Adapter) {
                 result = ((TrackNetV3Adapter) trainer).evaluate(config);
-            } else if (trainer instanceof YoloTrainerAdapter || trainer == null) {
-                // 默认使用 yoloTrainer（向后兼容）
-                result = yoloTrainer.evaluate(config);
             } else {
                 resp.setStatus(501);
                 Map<String, String> error = new HashMap<>();
@@ -1478,9 +1818,24 @@ public class AITrainingServlet extends BaseServlet {
             String jsonBody = requestToJson(req);
             JSONObject config = JSONUtil.parseObj(jsonBody);
 
-            // 根据模型名称选择对应的训练器
+            // 根据模型名称获取或创建训练器（支持docker/k8s）
             String modelName = config.getStr("model_name", "");
-            Object trainer = trainerMap.get(modelName.toLowerCase());
+            if (modelName == null || modelName.isEmpty()) {
+                resp.setStatus(400);
+                Map<String, String> error = new HashMap<>();
+                error.put("error", "缺少model_name参数");
+                responsePrint(resp, toJson(error));
+                return;
+            }
+
+            TrainerInterface trainer = getOrCreateTrainer(modelName);
+            if (trainer == null) {
+                resp.setStatus(503);
+                Map<String, String> error = new HashMap<>();
+                error.put("error", "无法获取或创建训练器: " + modelName);
+                responsePrint(resp, toJson(error));
+                return;
+            }
 
             SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMddHHmmss");
             String timestamp = sdf.format(new Date());
@@ -1493,26 +1848,34 @@ public class AITrainingServlet extends BaseServlet {
                 config.put("track_id", trackId);
             }
 
+            // 保存trainer引用，用于异步执行
+            final TrainerInterface finalTrainer = trainer;
+            final String finalModelName = modelName;
+            final String finalTaskId = taskId;
+
             asyncTaskExecutor.submit(() -> {
                 try {
-                    if (trainer instanceof DeeplabAdapter) {
-                        ((DeeplabAdapter) trainer).predict(config);
-                    } else if (trainer instanceof TrackNetV3Adapter) {
-                        ((TrackNetV3Adapter) trainer).predict(config);
-                    } else if (trainer instanceof YoloTrainerAdapter || trainer == null) {
-                        // 默认使用 yoloTrainer（向后兼容）
-                        yoloTrainer.predict(config);
+                    // 根据trainer类型调用对应的predict方法
+                    if (finalTrainer instanceof YoloK8sAdapter) {
+                        ((YoloK8sAdapter) finalTrainer).predict(config);
+                    } else if (finalTrainer instanceof YoloTrainerAdapter) {
+                        ((YoloTrainerAdapter) finalTrainer).predict(config);
+                    } else if (finalTrainer instanceof DeeplabK8sAdapter) {
+                        ((DeeplabK8sAdapter) finalTrainer).predict(config);
+                    } else if (finalTrainer instanceof DeeplabAdapter) {
+                        ((DeeplabAdapter) finalTrainer).predict(config);
+                    } else if (finalTrainer instanceof TrackNetV3K8sAdapter) {
+                        ((TrackNetV3K8sAdapter) finalTrainer).predict(config);
+                    } else if (finalTrainer instanceof TrackNetV3Adapter) {
+                        ((TrackNetV3Adapter) finalTrainer).predict(config);
                     } else {
-                        resp.setStatus(501);
-                        Map<String, String> error = new HashMap<>();
-                        error.put("error", "模型 " + modelName + " 的预测功能尚未实现");
-                        responsePrint(resp, toJson(error));
+                        log.error("模型 {} 的预测功能尚未实现", finalModelName);
                         return;
                     }
 
-                    log.info("异步预测完成：taskId={}, model={}", taskId, modelName);
+                    log.info("异步预测完成：taskId={}, model={}", finalTaskId, finalModelName);
                 } catch (Exception e) {
-                    log.error("异步预测失败：taskId={}", taskId, e);
+                    log.error("异步预测失败：taskId={}", finalTaskId, e);
                 }
             });
 
@@ -1543,7 +1906,10 @@ public class AITrainingServlet extends BaseServlet {
 
             // 根据模型名称选择对应的训练器
             String modelName = config.getStr("model_name", "");
-            Object trainer = trainerMap.get(modelName.toLowerCase());
+            // 先标准化模型名称，然后从 trainerMap 获取
+            String normalizedModelName = modelName.toLowerCase().trim();
+            String modelType = normalizeModelType(normalizedModelName);
+            TrainerInterface trainer = trainerMap.get(modelType);
 
             String result;
             if (trainer instanceof DeeplabAdapter) {
@@ -1726,7 +2092,31 @@ public class AITrainingServlet extends BaseServlet {
         resp.setContentType("application/json;charset=utf-8");
 
         try {
-            String result = yoloTrainer.listTrainingContainers();
+            // 根据执行模式获取合适的训练器
+            TrainerInterface trainer = getYoloTrainer();
+            if (trainer == null) {
+                resp.setStatus(503);
+                Map<String, String> error = new HashMap<>();
+                error.put("error", "训练服务未初始化");
+                responsePrint(resp, toJson(error));
+                return;
+            }
+
+            String result;
+            if (trainer instanceof ai.finetune.K8sTrainerAbstract) {
+                // K8s 模式：返回训练 Job 列表（跨模型）
+                result = ((ai.finetune.K8sTrainerAbstract) trainer).listTrainingJobs();
+            } else if (trainer instanceof ai.finetune.DockerTrainerAbstract) {
+                // Docker 模式：按名称包含 train 的容器列表（跨模型）
+                result = ((ai.finetune.DockerTrainerAbstract) trainer).listTrainingContainers();
+            } else {
+                resp.setStatus(501);
+                Map<String, String> error = new HashMap<>();
+                error.put("error", "不支持的训练器类型: " + trainer.getClass().getName());
+                responsePrint(resp, toJson(error));
+                return;
+            }
+
             responsePrint(resp, result);
 
         } catch (Exception e) {
@@ -2035,7 +2425,42 @@ public class AITrainingServlet extends BaseServlet {
 
         // 2. 从数据库查询
         try {
-            TrainingTaskRepository repository = yoloTrainer.getRepository();
+            TrainingTaskRepository repository = null;
+
+            // 优先使用 YOLO 训练器（Docker 或 K8s）
+            if (yoloTrainer instanceof ai.finetune.YoloTrainerAdapter) {
+                repository = ((ai.finetune.YoloTrainerAdapter) yoloTrainer).getRepository();
+            } else if (getYoloTrainer() instanceof ai.finetune.YoloK8sAdapter) {
+                repository = ((ai.finetune.YoloK8sAdapter) getYoloTrainer()).getRepository();
+            }
+
+            // 如果 YOLO 不可用，尝试使用 Deeplab / TrackNet 等其他训练器的仓库
+            if (repository == null && deeplabAdapter instanceof ai.finetune.DeeplabAdapter) {
+                repository = ((ai.finetune.DeeplabAdapter) deeplabAdapter).getRepository();
+            }
+            if (repository == null && !trainerMap.isEmpty()) {
+                for (TrainerInterface t : trainerMap.values()) {
+                    if (t instanceof ai.finetune.YoloK8sAdapter) {
+                        repository = ((ai.finetune.YoloK8sAdapter) t).getRepository();
+                        break;
+                    } else if (t instanceof ai.finetune.DeeplabK8sAdapter) {
+                        repository = ((ai.finetune.DeeplabK8sAdapter) t).getRepository();
+                        break;
+                    } else if (t instanceof ai.finetune.TrackNetV3K8sAdapter) {
+                        repository = ((ai.finetune.TrackNetV3K8sAdapter) t).getRepository();
+                        break;
+                    } else if (t instanceof ai.finetune.TrackNetV3Adapter) {
+                        repository = ((ai.finetune.TrackNetV3Adapter) t).getRepository();
+                        break;
+                    }
+                }
+            }
+
+            if (repository == null) {
+                log.warn("无法获取 TrainingTaskRepository，yoloTrainer/deeplabAdapter/trainerMap 均未初始化，taskId={}", taskId);
+                return null;
+            }
+
             Map<String, Object> taskDetail = repository.getTaskDetailByTaskId(taskId);
             if (taskDetail != null) {
                 String containerId = (String) taskDetail.get("container_id");
@@ -2066,25 +2491,41 @@ public class AITrainingServlet extends BaseServlet {
             result.put("containerId", containerId);
             result.put("timestamp", System.currentTimeMillis());
 
-            // 获取可用的训练器来执行命令（复用SSH连接池）
-            // 优先使用 yoloTrainer，如果为 null 则使用 deeplabAdapter
-            ai.finetune.DockerTrainerAbstract trainer = yoloTrainer != null ? yoloTrainer : deeplabAdapter;
+            // 根据任务ID获取对应的训练器
+            TrainerInterface trainer = getTrainerForTask(taskId);
             if (trainer == null) {
                 throw new RuntimeException("训练器未初始化");
             }
 
-            // 1. 获取 CPU 和内存使用率
-            JSONObject cpuMemory = getContainerCpuMemoryUsage(containerId, trainer);
-            result.put("cpu", cpuMemory.getObj("cpu"));
-            result.put("memory", cpuMemory.getObj("memory"));
+            // 判断训练器类型：K8s 还是 Docker
+            if (trainer instanceof ai.finetune.K8sTrainerAbstract) {
+                // K8s 模式：使用 K8s API 获取资源利用率
+                ai.finetune.K8sTrainerAbstract k8sTrainer = (ai.finetune.K8sTrainerAbstract) trainer;
+                // containerId 在 K8s 模式下是 Job 名称
+                String namespace = k8sTrainer.getNamespace();
+                if (namespace == null || namespace.isEmpty()) {
+                    namespace = "default";
+                }
+                return k8sTrainer.getJobResourceUsage(containerId, namespace);
+            } else if (trainer instanceof ai.finetune.DockerTrainerAbstract) {
+                // Docker 模式：使用 Docker 命令获取资源利用率
+                ai.finetune.DockerTrainerAbstract dockerTrainer = (ai.finetune.DockerTrainerAbstract) trainer;
 
-            // 2. 获取 GPU 和显存使用率
-            JSONObject gpuUsage = getContainerGpuUsage(containerId, trainer);
-            result.put("gpu", gpuUsage.getObj("gpu"));
-            result.put("gpuMemory", gpuUsage.getObj("gpuMemory"));
+                // 1. 获取 CPU 和内存使用率
+                JSONObject cpuMemory = getContainerCpuMemoryUsage(containerId, dockerTrainer);
+                result.put("cpu", cpuMemory.getObj("cpu"));
+                result.put("memory", cpuMemory.getObj("memory"));
 
-            result.put("status", "success");
-            return result.toString();
+                // 2. 获取 GPU 和显存使用率
+                JSONObject gpuUsage = getContainerGpuUsage(containerId, dockerTrainer);
+                result.put("gpu", gpuUsage.getObj("gpu"));
+                result.put("gpuMemory", gpuUsage.getObj("gpuMemory"));
+
+                result.put("status", "success");
+                return result.toString();
+            } else {
+                throw new RuntimeException("不支持的训练器类型: " + trainer.getClass().getName());
+            }
 
         } catch (Exception e) {
             log.error("获取容器资源利用率失败: containerId={}, taskId={}", containerId, taskId, e);
@@ -2095,6 +2536,83 @@ public class AITrainingServlet extends BaseServlet {
             error.put("containerId", containerId);
             error.put("taskId", taskId);
             return error.toString();
+        }
+    }
+
+
+    /**
+     * 根据任务ID获取对应的训练器
+     * 从数据库查询任务的模型名称，然后从 trainerMap 获取对应的训练器
+     */
+    private TrainerInterface getTrainerForTask(String taskId) {
+        if (taskId == null || taskId.isEmpty()) {
+            log.warn("任务ID为空，无法获取训练器");
+            return null;
+        }
+
+        try {
+            // 从数据库查询任务详情，获取模型名称
+            TrainingTaskRepository repository = null;
+
+            // 优先使用 YOLO 训练器（Docker 或 K8s）
+            if (yoloTrainer instanceof ai.finetune.YoloTrainerAdapter) {
+                repository = ((ai.finetune.YoloTrainerAdapter) yoloTrainer).getRepository();
+            } else if (getYoloTrainer() instanceof ai.finetune.YoloK8sAdapter) {
+                repository = ((ai.finetune.YoloK8sAdapter) getYoloTrainer()).getRepository();
+            }
+
+            // 如果 YOLO 不可用，尝试使用 Deeplab / TrackNet 等其他训练器的仓库
+            if (repository == null && deeplabAdapter instanceof ai.finetune.DeeplabAdapter) {
+                repository = ((ai.finetune.DeeplabAdapter) deeplabAdapter).getRepository();
+            }
+            if (repository == null && !trainerMap.isEmpty()) {
+                for (TrainerInterface t : trainerMap.values()) {
+                    if (t instanceof ai.finetune.YoloK8sAdapter) {
+                        repository = ((ai.finetune.YoloK8sAdapter) t).getRepository();
+                        break;
+                    } else if (t instanceof ai.finetune.DeeplabK8sAdapter) {
+                        repository = ((ai.finetune.DeeplabK8sAdapter) t).getRepository();
+                        break;
+                    } else if (t instanceof ai.finetune.TrackNetV3K8sAdapter) {
+                        repository = ((ai.finetune.TrackNetV3K8sAdapter) t).getRepository();
+                        break;
+                    } else if (t instanceof ai.finetune.TrackNetV3Adapter) {
+                        repository = ((ai.finetune.TrackNetV3Adapter) t).getRepository();
+                        break;
+                    }
+                }
+            }
+
+            if (repository == null) {
+                log.warn("无法获取 TrainingTaskRepository，taskId={}", taskId);
+                // 降级：尝试使用默认的 yoloTrainer
+                return getYoloTrainer();
+            }
+
+            // 从数据库查询任务详情
+            Map<String, Object> taskDetail = repository.getTaskDetailByTaskId(taskId);
+            if (taskDetail != null) {
+                String modelName = (String) taskDetail.get("model_name");
+                if (modelName != null && !modelName.isEmpty()) {
+                    // 标准化模型名称
+                    String normalizedModelName = modelName.toLowerCase().trim();
+                    // 先标准化模型类型，然后从 trainerMap 获取
+                    String modelType = normalizeModelType(normalizedModelName);
+                    TrainerInterface trainer = trainerMap.get(modelType);
+                    if (trainer != null) {
+                        return trainer;
+                    }
+                }
+            }
+
+            // 降级：如果无法从数据库获取，尝试使用默认的 yoloTrainer
+            log.warn("无法从数据库获取任务模型信息，使用默认训练器，taskId={}", taskId);
+            return getYoloTrainer();
+
+        } catch (Exception e) {
+            log.error("根据任务ID获取训练器失败: taskId={}", taskId, e);
+            // 降级：尝试使用默认的 yoloTrainer
+            return getYoloTrainer();
         }
     }
 

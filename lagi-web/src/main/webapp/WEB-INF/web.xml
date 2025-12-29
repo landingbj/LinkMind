@@ -521,6 +521,16 @@
         <url-pattern>/api/model/versionManagement/*</url-pattern>
     </servlet-mapping>
 
+    <servlet>
+        <servlet-name>FileManagementServlet</servlet-name>
+        <servlet-class>ai.servlet.api.FileManagementServlet</servlet-class>
+        <load-on-startup>1</load-on-startup>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>FileManagementServlet</servlet-name>
+        <url-pattern>/api/file/*</url-pattern>
+    </servlet-mapping>
+
 
 
 </web-app>

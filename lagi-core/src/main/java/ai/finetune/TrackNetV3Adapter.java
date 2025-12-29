@@ -29,7 +29,7 @@ import java.util.concurrent.Executors;
  * 7. 工具辅助方法
  */
 @Slf4j
-public class TrackNetV3Adapter extends DockerTrainerAbstract {
+public class TrackNetV3Adapter extends DockerTrainerAbstract implements TrainerInterface{
 
     private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 

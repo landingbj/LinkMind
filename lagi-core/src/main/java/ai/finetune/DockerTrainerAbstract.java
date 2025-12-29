@@ -593,5 +593,24 @@ public abstract class DockerTrainerAbstract {
         String uuidPart = UUID.randomUUID().toString().substring(0, 8);
         return prefix + "_" + timestamp + "_" + uuidPart;
     }
+
+    /**
+     * 列出所有训练容器（通用 Docker 实现）
+     * 约定：训练容器名称包含 "train" 片段，例如 yolo_train_xxx、deeplab_train_xxx。
+     */
+    public String listTrainingContainers() {
+        try {
+            String command = "docker ps -a --filter name=train --format 'table {{.ID}}\\t{{.Names}}\\t{{.Image}}\\t{{.Status}}\\t{{.CreatedAt}}'";
+            log.info("列出所有训练容器 (Docker)");
+            return executeRemoteCommand(command);
+        } catch (Exception e) {
+            log.error("列出训练容器失败", e);
+            JSONObject errorResult = new JSONObject();
+            errorResult.put("status", "error");
+            errorResult.put("message", "列出训练容器失败");
+            errorResult.put("error", e.getMessage());
+            return errorResult.toString();
+        }
+    }
 }
 

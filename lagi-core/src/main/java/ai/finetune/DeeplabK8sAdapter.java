@@ -30,7 +30,7 @@ import java.util.concurrent.Executors;
  * 8. 工具辅助方法
  */
 @Slf4j
-public class DeeplabAdapter extends DockerTrainerAbstract implements TrainerInterface{
+public class DeeplabK8sAdapter extends K8sTrainerAbstract {
 
     private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -49,25 +49,16 @@ public class DeeplabAdapter extends DockerTrainerAbstract implements TrainerInte
     /**
      * 默认构造函数
      */
-    public DeeplabAdapter() {
+    public DeeplabK8sAdapter() {
         super();
         loadConfigFromYaml();
     }
 
-    /**
-     * 带SSH配置的构造函数
-     * @param sshHost SSH主机地址
-     * @param sshPort SSH端口
-     * @param sshUsername SSH用户名
-     * @param sshPassword SSH密码
-     */
-    public DeeplabAdapter(String sshHost, int sshPort, String sshUsername, String sshPassword) {
-        super(sshHost, sshPort, sshUsername, sshPassword);
-        loadConfigFromYaml();
-    }
+    // 删除 SSH 构造函数，K8s 模式统一无参构造
 
     /**
      * 从lagi.yml加载配置
+     * 加载 K8s 集群配置和 DeepLab Docker 配置
      */
     private void loadConfigFromYaml() {
         try {
@@ -79,33 +70,84 @@ public class DeeplabAdapter extends DockerTrainerAbstract implements TrainerInte
                 ai.config.pojo.DiscriminativeModelsConfig discriminativeConfig =
                     ai.config.ContextLoader.configuration.getModelPlatformConfig().getDiscriminativeModelsConfig();
 
-                ai.config.pojo.DiscriminativeModelsConfig.DeeplabConfig deeplabConfig =
-                    discriminativeConfig.getDeeplab();
-
-                if (deeplabConfig != null && deeplabConfig.getDocker() != null) {
-                    ai.config.pojo.DiscriminativeModelsConfig.DockerConfig dockerConfig =
-                        deeplabConfig.getDocker();
-
-                    // 加载Docker配置
-                    if (cn.hutool.core.util.StrUtil.isNotBlank(dockerConfig.getImage())) {
-                        this.dockerImage = dockerConfig.getImage();
-                        super.setDockerImage(this.dockerImage);
+                // 1) K8s 集群配置：model_platform.discriminative_models.k8s.cluster_config
+                if (discriminativeConfig.getK8s() != null && discriminativeConfig.getK8s().getClusterConfig() != null) {
+                    ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.ClusterConfig cluster = 
+                        discriminativeConfig.getK8s().getClusterConfig();
+                    if (cn.hutool.core.util.StrUtil.isNotBlank(cluster.getApiServer())) {
+                        this.apiServer = cluster.getApiServer();
                     }
-                    if (cn.hutool.core.util.StrUtil.isNotBlank(dockerConfig.getVolumeMount())) {
-                        this.volumeMount = dockerConfig.getVolumeMount();
+                    if (cn.hutool.core.util.StrUtil.isNotBlank(cluster.getToken())) {
+                        this.token = cluster.getToken();
+                    }
+                    if (cn.hutool.core.util.StrUtil.isNotBlank(cluster.getNamespace())) {
+                        this.namespace = cluster.getNamespace();
+                    }
+                    if (cluster.getVerifyTls() != null) {
+                        this.trustCerts = cluster.getVerifyTls();
+                    }
+                }
+
+                // 2) 根据 execution_mode 决定从哪个配置读取镜像（与 YOLO 保持一致）
+                String executionMode = discriminativeConfig.getExecutionMode();
+                if ("k8s".equalsIgnoreCase(executionMode)) {
+                    // K8s 模式：从 k8s.deeplab.k8s_config.dockerImage 读取镜像
+                    if (discriminativeConfig.getK8s() != null && discriminativeConfig.getK8s().getDeeplab() != null 
+                            && discriminativeConfig.getK8s().getDeeplab().getK8sConfig() != null) {
+                        ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.DeeplabK8sConfig.Deeplab8sPodConfig k8sConfig = 
+                                discriminativeConfig.getK8s().getDeeplab().getK8sConfig();
+                        if (cn.hutool.core.util.StrUtil.isNotBlank(k8sConfig.getDockerImage())) {
+                            this.dockerImage = k8sConfig.getDockerImage();
+                            super.setDockerImage(this.dockerImage);
+                            log.info("K8s模式：从 k8s.deeplab.k8s_config.dockerImage 读取镜像: {}", this.dockerImage);
+                        }
+                    }
+                } else {
+                    // Docker 模式：从 deeplab.docker.image 读取镜像（兼容旧配置）
+                    ai.config.pojo.DiscriminativeModelsConfig.DeeplabConfig deeplabConfig =
+                        discriminativeConfig.getDeeplab();
+                    if (deeplabConfig != null && deeplabConfig.getDocker() != null) {
+                        ai.config.pojo.DiscriminativeModelsConfig.DockerConfig dockerConfig =
+                            deeplabConfig.getDocker();
+                        if (cn.hutool.core.util.StrUtil.isNotBlank(dockerConfig.getImage())) {
+                            this.dockerImage = dockerConfig.getImage();
+                            super.setDockerImage(this.dockerImage);
+                            log.info("Docker模式：从 deeplab.docker.image 读取镜像: {}", this.dockerImage);
+                        }
+                        if (cn.hutool.core.util.StrUtil.isNotBlank(dockerConfig.getVolumeMount())) {
+                            this.volumeMount = dockerConfig.getVolumeMount();
+                            super.setVolumeMount(this.volumeMount);
+                        }
+                        if (cn.hutool.core.util.StrUtil.isNotBlank(dockerConfig.getLogPathPrefix())) {
+                            this.logPathPrefix = dockerConfig.getLogPathPrefix();
+                        }
+                        if (cn.hutool.core.util.StrUtil.isNotBlank(dockerConfig.getShmSize())) {
+                            this.shmSize = dockerConfig.getShmSize();
+                        }
+                    }
+                }
+                
+                // 3) 如果 K8s 模式下也需要读取 volume_mount 等配置，可以从 deeplab.docker 读取（作为fallback）
+                if ("k8s".equalsIgnoreCase(executionMode) && discriminativeConfig.getDeeplab() != null 
+                        && discriminativeConfig.getDeeplab().getDocker() != null) {
+                    ai.config.pojo.DiscriminativeModelsConfig.DockerConfig docker = discriminativeConfig.getDeeplab().getDocker();
+                    if (cn.hutool.core.util.StrUtil.isBlank(this.volumeMount) && cn.hutool.core.util.StrUtil.isNotBlank(docker.getVolumeMount())) {
+                        this.volumeMount = docker.getVolumeMount();
                         super.setVolumeMount(this.volumeMount);
                     }
-                    if (cn.hutool.core.util.StrUtil.isNotBlank(dockerConfig.getLogPathPrefix())) {
-                        this.logPathPrefix = dockerConfig.getLogPathPrefix();
+                    if (cn.hutool.core.util.StrUtil.isBlank(this.logPathPrefix) && cn.hutool.core.util.StrUtil.isNotBlank(docker.getLogPathPrefix())) {
+                        this.logPathPrefix = docker.getLogPathPrefix();
                     }
-
-                    log.info("从lagi.yml加载DeepLab训练器配置成功");
-                } else {
-                    log.warn("lagi.yml中未配置deeplab.docker，使用默认值");
+                    if (cn.hutool.core.util.StrUtil.isBlank(this.shmSize) && cn.hutool.core.util.StrUtil.isNotBlank(docker.getShmSize())) {
+                        this.shmSize = docker.getShmSize();
+                    }
                 }
+
+                log.info("已从 model_platform.discriminative_models 加载 K8s/DeepLab 配置: apiServer={}, ns={}, image={}, volumeMount={}",
+                        this.apiServer, this.namespace, this.dockerImage, this.volumeMount);
             }
         } catch (Exception e) {
-            log.warn("加载配置失败，使用默认值: {}", e.getMessage());
+            log.warn("加载 lagi.yml 中的 K8s/DeepLab 配置失败: {}", e.getMessage());
         }
     }
     /**
@@ -114,6 +156,9 @@ public class DeeplabAdapter extends DockerTrainerAbstract implements TrainerInte
     @Override
     public String startTraining(String taskId, String trackId, JSONObject config) {
         try {
+            // 确保 K8s 客户端已初始化
+            initK8sClient();
+
             // 确保配置中包含必要的字段
             if (!config.containsKey("the_train_type")) {
                 config.put("the_train_type", "train");
@@ -139,52 +184,13 @@ public class DeeplabAdapter extends DockerTrainerAbstract implements TrainerInte
                 config.put("train_log_file", trainLogFile);
             }
 
-            // 确保训练日志目录存在（容器内路径）
             String trainLogFile = config.getStr("train_log_file");
-            if (trainLogFile != null && volumeMount != null && volumeMount.contains(":")) {
-                String[] mountParts = volumeMount.split(":");
-                if (mountParts.length >= 2) {
-                    String containerPath = mountParts[1];
-                    String hostPath = mountParts[0];
-                    if (trainLogFile.startsWith(containerPath)) {
-                        String logDir = trainLogFile.substring(0, trainLogFile.lastIndexOf("/"));
-                        // 通过 SSH 在宿主机上创建目录（宿主机路径）
-                        String hostLogDir = logDir.replace(containerPath, hostPath);
-                        String mkdirCommand = "mkdir -p " + hostLogDir;
-                        executeRemoteCommand(mkdirCommand);
-                    }
-                }
-            }
-
-            // 构建 Docker 命令
-            StringBuilder dockerCmd = new StringBuilder();
-//            dockerCmd.append("docker run --rm -d"); // -d 后台运行
-            dockerCmd.append("docker run -d"); // -d 后台运行
 
             // 添加容器名称，便于后续管理
             String containerName = generateContainerName("deeplab_train");
-            dockerCmd.append(" --name ").append(containerName);
+            containerName = containerName.replace("_","-");
 
-            // GPU 支持
-            dockerCmd.append(" --gpus all");
-
-            // 共享内存大小（Deeplab 需要）
-            dockerCmd.append(" --shm-size=2g");
-
-            // 数据卷挂载
-            dockerCmd.append(" -v ").append(volumeMount);
-
-            // 配置环境变量（使用单引号包裹 JSON）
-            String configJson = config.toString();
-            configJson = configJson.replace("'", "'\\''");
-            dockerCmd.append(" -e CONFIG='").append(configJson).append("'");
-
-            // 镜像名称
-            dockerCmd.append(" ").append(dockerImage);
-
-            String fullCommand = dockerCmd.toString();
-            log.info("开始启动训练任务: taskId={}, trackId={}", taskId, trackId);
-            log.info("执行命令: {}", fullCommand);
+            log.info("开始启动训练任务: taskId={}, trackId={}, job={}", taskId, trackId, containerName);
 
             String datasetPath = (String)config.get("dataset_path");
             if (datasetPath != null && !datasetPath.isEmpty()){
@@ -200,7 +206,17 @@ public class DeeplabAdapter extends DockerTrainerAbstract implements TrainerInte
             // 添加启动训练任务日志
             addDeeplabTrainingLog(taskId, "INFO", "DeepLab训练任务已启动，容器名称: " + containerName);
 
-            String result = executeRemoteCommand(fullCommand);
+            // 构建配置 JSON
+            String configJson = config.toString();
+
+            // 根据 device 配置判断是否启用 GPU（与 YOLO 保持一致）
+            // device 为 "cpu" 或空时，不启用 GPU；否则启用 GPU
+            String device = config.getStr("device", "cpu");
+            boolean useGpu = device != null && !device.equalsIgnoreCase("cpu") && !device.isEmpty();
+            
+            // 创建 Kubernetes Job（传入共享内存 "2Gi"）
+            String result = createOneOffJob(containerName, dockerImage, configJson, useGpu, "2Gi").toString();
+            log.info("createOneOffJob called, jobName={}, image={}, useGpu={}, device={}, shmSize=2Gi", containerName, dockerImage, useGpu, device);
 
             // 如果成功，将容器名称添加到结果中
             if (isSuccess(result)) {
@@ -212,19 +228,7 @@ public class DeeplabAdapter extends DockerTrainerAbstract implements TrainerInte
                 // 更新数据库为运行中状态
                 updateDeeplabTaskStatus(taskId, "running", "训练任务启动成功");
 
-                // 获取训练日志文件路径（宿主机路径），用于记录到数据库
-                String hostLogFilePath = null;
-                if (trainLogFile != null && volumeMount != null && volumeMount.contains(":")) {
-                    String[] mountParts = volumeMount.split(":");
-                    if (mountParts.length >= 2) {
-                        String containerPath = mountParts[1];
-                        String hostPath = mountParts[0];
-                        if (trainLogFile.startsWith(containerPath)) {
-                            hostLogFilePath = trainLogFile.replace(containerPath, hostPath);
-                        }
-                    }
-                }
-                addDeeplabTrainingLog(taskId, "INFO", "容器启动成功，开始训练", hostLogFilePath);
+                addDeeplabTrainingLog(taskId, "INFO", "容器启动成功，开始训练", trainLogFile);
 
                 return resultJson.toString();
             } else {
@@ -270,36 +274,18 @@ public class DeeplabAdapter extends DockerTrainerAbstract implements TrainerInte
             if (!config.containsKey("the_train_type")) {
                 config.put("the_train_type", "valuate");
             }
-            if (!config.containsKey("train_log_file")) {
-                config.put("train_log_file", "/app/data/valuate_" + taskId + ".log");
-            }
             config.put("task_id", taskId);
 
             // 保存评估任务到数据库
             saveEvaluateTaskToDB(taskId, config);
             addDeeplabTrainingLog(taskId, "INFO", "开始执行评估任务");
 
-            // 构建 Docker 命令
-            StringBuilder dockerCmd = new StringBuilder();
-            dockerCmd.append("docker run --rm "); // --rm 自动删除容器
-            dockerCmd.append(" --gpus all");
-
-            // 数据卷挂载
-            dockerCmd.append(" -v ").append(volumeMount);
-
-            // 配置环境变量
-            String configJson = config.toString();
-            configJson = configJson.replace("'", "'\\''");
-            dockerCmd.append(" -e CONFIG='").append(configJson).append("'");
-
-            // 镜像名称
-            dockerCmd.append(" ").append(dockerImage);
-
-            String fullCommand = dockerCmd.toString();
-            log.info("开始执行评估任务: taskId={}", taskId);
-            log.info("执行命令: {}", fullCommand);
-
-            String result = executeRemoteCommand(fullCommand);
+            String jobName = generateContainerName("deeplab_eval");
+            jobName = jobName.replace("_", "-");
+            // 根据 device 配置判断是否启用 GPU
+            String device = config.getStr("device", "cpu");
+            boolean useGpu = device != null && !device.equalsIgnoreCase("cpu") && !device.isEmpty();
+            String result = createOneOffJob(jobName, dockerImage, config.toString(), useGpu, "2Gi").toString();
 
             // 更新评估任务状态
             if (isSuccess(result)) {
@@ -365,48 +351,18 @@ public class DeeplabAdapter extends DockerTrainerAbstract implements TrainerInte
                 config.put("train_log_file", predictLogFile);
             }
 
-            // 确保推理日志目录存在（容器内路径）
-            String predictLogFile = config.getStr("train_log_file");
-            if (predictLogFile != null && volumeMount != null && volumeMount.contains(":")) {
-                String[] mountParts = volumeMount.split(":");
-                if (mountParts.length >= 2) {
-                    String containerPath = mountParts[1];
-                    String hostPath = mountParts[0];
-                    if (predictLogFile.startsWith(containerPath)) {
-                        String logDir = predictLogFile.substring(0, predictLogFile.lastIndexOf("/"));
-                        // 通过 SSH 在宿主机上创建目录（宿主机路径）
-                        String hostLogDir = logDir.replace(containerPath, hostPath);
-                        String mkdirCommand = "mkdir -p " + hostLogDir;
-                        executeRemoteCommand(mkdirCommand);
-                    }
-                }
-            }
-
-            // 保存预测任务到数据库
+            // 保存预测任务到数据库（初始状态为pending）
             savePredictTaskToDB(taskId, config);
-            addDeeplabPredictLog(taskId, "INFO", "开始执行预测任务");
+            addDeeplabPredictLog(taskId, "INFO", "预测任务已创建，等待执行");
 
-            // 构建 Docker 命令
-            StringBuilder dockerCmd = new StringBuilder();
-            dockerCmd.append("docker run --rm");
-            dockerCmd.append(" --gpus all");
+            String predictLogFile = config.getStr("train_log_file");
 
-            // 数据卷挂载
-            dockerCmd.append(" -v ").append(volumeMount);
-
-            // 配置环境变量
-            String configJson = config.toString();
-            configJson = configJson.replace("'", "'\\''");
-            dockerCmd.append(" -e CONFIG='").append(configJson).append("'");
-
-            // 镜像名称
-            dockerCmd.append(" ").append(dockerImage);
-
-            String fullCommand = dockerCmd.toString();
-            log.info("开始执行预测任务: taskId={}", taskId);
-            log.info("执行命令: {}", fullCommand);
-
-            String result = executeRemoteCommand(fullCommand);
+            String jobName = generateContainerName("deeplab_predict");
+            jobName = jobName.replace("_","-");
+            // 根据 device 配置判断是否启用 GPU
+            String device = config.getStr("device", "cpu");
+            boolean useGpu = device != null && !device.equalsIgnoreCase("cpu") && !device.isEmpty();
+            String result = createOneOffJob(jobName, dockerImage, config.toString(), useGpu, "2Gi").toString();
 
             // 获取推理日志文件路径（宿主机路径），用于记录到数据库
             String hostLogFilePath = null;
@@ -423,15 +379,13 @@ public class DeeplabAdapter extends DockerTrainerAbstract implements TrainerInte
 
             // 更新预测任务状态
             if (isSuccess(result)) {
-                updateDeeplabTaskStatus(taskId, "completed", "预测任务完成");
-                updateDeeplabTaskProgress(taskId, "100%");
-                addDeeplabPredictLog(taskId, "INFO", "预测任务完成", hostLogFilePath);
-                
-                // 确保日志文件已上传到指定路径
-                uploadPredictLogFile(taskId, hostLogFilePath);
+                // Job创建成功，更新状态为running（Job实际执行是异步的，但此时Job已提交到K8s）
+                updateDeeplabTaskStatus(taskId, "running", "预测任务已提交到K8s，等待执行");
+                addDeeplabPredictLog(taskId, "INFO", "预测任务已提交到K8s，Job名称: " + jobName, hostLogFilePath);
+                // 注意：Job的实际执行完成状态需要通过监控Job状态来更新，这里不直接设置为completed
             } else {
-                updateDeeplabTaskStatus(taskId, "failed", "预测任务失败");
-                addDeeplabPredictLog(taskId, "ERROR", "预测任务失败: " + result, hostLogFilePath);
+                updateDeeplabTaskStatus(taskId, "failed", "创建预测任务失败: " + result);
+                addDeeplabPredictLog(taskId, "ERROR", "创建预测任务失败: " + result, hostLogFilePath);
             }
 
             return result;
@@ -488,27 +442,12 @@ public class DeeplabAdapter extends DockerTrainerAbstract implements TrainerInte
             saveExportTaskToDB(taskId, config);
             addDeeplabTrainingLog(taskId, "INFO", "开始导出模型");
 
-            // 构建 Docker 命令
-            StringBuilder dockerCmd = new StringBuilder();
-            dockerCmd.append("docker run --rm");
-            dockerCmd.append(" --gpus all");
-
-            // 数据卷挂载
-            dockerCmd.append(" -v ").append(volumeMount);
-
-            // 配置环境变量
-            String configJson = config.toString();
-            configJson = configJson.replace("'", "'\\''");
-            dockerCmd.append(" -e CONFIG='").append(configJson).append("'");
-
-            // 镜像名称
-            dockerCmd.append(" ").append(dockerImage);
-
-            String fullCommand = dockerCmd.toString();
-            log.info("开始导出模型: taskId={}", taskId);
-            log.info("执行命令: {}", fullCommand);
-
-            String result = executeRemoteCommand(fullCommand);
+            String jobName = generateContainerName("deeplab_export");
+            jobName = jobName.replace("_", "-");
+            // 根据 device 配置判断是否启用 GPU
+            String device = config.getStr("device", "cpu");
+            boolean useGpu = device != null && !device.equalsIgnoreCase("cpu") && !device.isEmpty();
+            String result = createOneOffJob(jobName, dockerImage, config.toString(), useGpu, "2Gi").toString();
 
             // 更新导出任务状态
             if (isSuccess(result)) {
@@ -545,61 +484,44 @@ public class DeeplabAdapter extends DockerTrainerAbstract implements TrainerInte
     /**
      * 暂停容器（带业务逻辑）
      */
-    @Override
     public String pauseContainer(String containerId) {
-        String result = super.pauseContainer(containerId);
+        JSONObject resultJson = new JSONObject();
+        resultJson.put("status", "error");
+        resultJson.put("message", "K8s Job 不支持暂停/恢复，请使用停止或删除");
 
         // 从containerId获取taskId
         String taskId = getTaskIdByContainerId(containerId);
 
-        if (isSuccess(result)) {
-            // 更新数据库状态为暂停
-            if (taskId != null) {
-                updateDeeplabTaskStatus(taskId, "paused", "容器已暂停");
-                addDeeplabTrainingLog(taskId, "INFO", "容器已暂停: " + containerId);
-            }
-        } else {
-            // 暂停失败，记录日志
-            if (taskId != null) {
-                addDeeplabTrainingLog(taskId, "ERROR", "暂停容器失败: " + result);
-            }
+        if (taskId != null) {
+            addDeeplabTrainingLog(taskId, "WARN", "K8s Job 不支持暂停: " + containerId);
         }
 
-        return result;
+        return resultJson.toString();
     }
 
     /**
      * 继续容器（恢复暂停的容器，带业务逻辑）
      */
-    @Override
     public String resumeContainer(String containerId) {
-        String result = super.resumeContainer(containerId);
+        JSONObject resultJson = new JSONObject();
+        resultJson.put("status", "error");
+        resultJson.put("message", "K8s Job 不支持暂停/恢复，请重新提交任务");
 
         // 从containerId获取taskId
         String taskId = getTaskIdByContainerId(containerId);
 
-        if (isSuccess(result)) {
-            // 更新数据库状态为运行中
-            if (taskId != null) {
-                updateDeeplabTaskStatus(taskId, "running", "容器已恢复运行");
-                addDeeplabTrainingLog(taskId, "INFO", "容器已恢复运行: " + containerId);
-            }
-        } else {
-            // 恢复失败，记录日志
-            if (taskId != null) {
-                addDeeplabTrainingLog(taskId, "ERROR", "恢复容器失败: " + result);
-            }
+        if (taskId != null) {
+            addDeeplabTrainingLog(taskId, "WARN", "K8s Job 不支持恢复: " + containerId);
         }
 
-        return result;
+        return resultJson.toString();
     }
 
     /**
      * 停止容器（带业务逻辑）
      */
-    @Override
     public String stopContainer(String containerId) {
-        String result = super.stopContainer(containerId);
+        String result = deleteJob(containerId).toString();
 
         // 从containerId获取taskId
         String taskId = getTaskIdByContainerId(containerId);
@@ -624,9 +546,8 @@ public class DeeplabAdapter extends DockerTrainerAbstract implements TrainerInte
     /**
      * 删除容器（带业务逻辑）
      */
-    @Override
     public String removeContainer(String containerId) {
-        String result = super.removeContainer(containerId);
+        String result = deleteJob(containerId).toString();
 
         // 从containerId获取taskId
         String taskId = getTaskIdByContainerId(containerId);
@@ -650,29 +571,83 @@ public class DeeplabAdapter extends DockerTrainerAbstract implements TrainerInte
     /**
      * 查看容器状态（带业务逻辑）
      */
-    @Override
     public String getContainerStatus(String containerId) {
-        String result = super.getContainerStatus(containerId);
+        JSONObject jobStatus = getJobStatus(containerId);
+        String result = jobStatus.toString();
 
         if (isSuccess(result)) {
             try {
-                JSONObject resultJson = JSONUtil.parseObj(result);
-                String status = resultJson.getStr("containerStatus", "").trim();
-
-                String[] parts = status.split(";");
+                // 生成 containerStatus 字段，根据优先级：containerState -> podPhase -> jobPhase
+                String containerStatus = null;
+                String containerState = jobStatus.getStr("containerState");
+                String podPhase = jobStatus.getStr("podPhase");
+                String jobPhase = jobStatus.getStr("jobPhase");
+                Integer exitCode = jobStatus.getInt("containerExitCode");
+                
+                if (containerState != null) {
+                    // 根据 containerState 映射到 containerStatus
+                    if ("Running".equals(containerState)) {
+                        containerStatus = "running";
+                    } else if ("Terminated".equals(containerState)) {
+                        containerStatus = "exited";
+                    } else if ("Waiting".equals(containerState)) {
+                        containerStatus = "waiting";
+                    }
+                } else if (podPhase != null) {
+                    // 根据 podPhase 映射
+                    if ("Running".equalsIgnoreCase(podPhase)) {
+                        containerStatus = "running";
+                    } else if ("Succeeded".equalsIgnoreCase(podPhase)) {
+                        containerStatus = "exited";
+                    } else if ("Failed".equalsIgnoreCase(podPhase)) {
+                        containerStatus = "exited";
+                    } else if ("Pending".equalsIgnoreCase(podPhase)) {
+                        containerStatus = "waiting";
+                    }
+                } else if (jobPhase != null) {
+                    // 根据 jobPhase 映射
+                    if ("Complete".equalsIgnoreCase(jobPhase) || "Succeeded".equalsIgnoreCase(jobPhase)) {
+                        containerStatus = "exited";
+                    } else if ("Failed".equalsIgnoreCase(jobPhase)) {
+                        containerStatus = "exited";
+                    }
+                }
+                
+                // 如果还是没有状态，使用默认值
+                if (containerStatus == null || containerStatus.isEmpty()) {
+                    containerStatus = "unknown";
+                }
+                
+                // 设置 containerStatus 字段
+                jobStatus.put("containerStatus", containerStatus);
+                
+                // 生成 output 字段，格式：状态;退出码（与 Docker 实现保持一致）
+                String output = containerStatus;
+                if (exitCode != null) {
+                    output = containerStatus + ";" + exitCode;
+                } else {
+                    output = containerStatus + ";0";
+                }
+                jobStatus.put("output", output);
+                
+                // 更新 result
+                result = jobStatus.toString();
+                
+                // 解析状态和退出码
+                String[] parts = output.split(";");
                 String statusPart = parts.length > 0 ? parts[0].trim() : "";
                 String exitCodeStr = parts.length > 1 ? parts[1].trim() : "";
 
                 // 检查容器退出码，判断任务是否失败
                 if (!exitCodeStr.isEmpty()) {
                     try {
-                        int exitCode = Integer.parseInt(exitCodeStr);
-                        if (exitCode != 0 && "exited".equals(statusPart)) {
+                        int exitCodeInt = Integer.parseInt(exitCodeStr);
+                        if (exitCodeInt != 0 && "exited".equals(statusPart)) {
                             // 容器已退出且退出码不为0，表示任务失败
                             String taskId = getTaskIdByContainerId(containerId);
                             if (taskId != null) {
-                                updateDeeplabTaskStatus(taskId, "failed", "容器异常退出，退出码: " + exitCode);
-                                addDeeplabTrainingLog(taskId, "ERROR", "容器异常退出，退出码: " + exitCode);
+                                updateDeeplabTaskStatus(taskId, "failed", "容器异常退出，退出码: " + exitCodeInt);
+                                addDeeplabTrainingLog(taskId, "ERROR", "容器异常退出，退出码: " + exitCodeInt);
                             }
                         }
                     } catch (NumberFormatException e) {
@@ -776,7 +751,7 @@ public class DeeplabAdapter extends DockerTrainerAbstract implements TrainerInte
      */
     private static MysqlAdapter getMysqlAdapter() {
         if (mysqlAdapter == null) {
-            synchronized (DeeplabAdapter.class) {
+            synchronized (DeeplabK8sAdapter.class) {
                 if (mysqlAdapter == null) {
                     mysqlAdapter = new MysqlAdapter("mysql");
                     log.info("数据库连接池已初始化");
@@ -791,7 +766,7 @@ public class DeeplabAdapter extends DockerTrainerAbstract implements TrainerInte
      */
     private static ModelConfigManager getModelConfigManager() {
         if (modelConfigManager == null) {
-            synchronized (DeeplabAdapter.class) {
+            synchronized (DeeplabK8sAdapter.class) {
                 if (modelConfigManager == null) {
                     modelConfigManager = new ModelConfigManager(getMysqlAdapter());
                     modelConfigManager.loadConfigsFromDatabase();
@@ -905,7 +880,7 @@ public class DeeplabAdapter extends DockerTrainerAbstract implements TrainerInte
             getMysqlAdapter().executeUpdate(sql,
                     taskId, trackId, modelName, modelCategory, modelFramework,
                     "predict", containerName, dockerImage, modelPath, cuda, config.getBool("cuda", true) ? 1 : 0,
-                    "running", "0%", 0, currentTime, currentTime, 0, config.toString());
+                    "pending", "0%", 0, currentTime, currentTime, 0, config.toString());
 
             log.info("预测任务已保存到数据库: taskId={}, modelName={}, category={}, framework={}",
                     taskId, modelName, modelCategory, modelFramework);
@@ -1179,33 +1154,10 @@ public class DeeplabAdapter extends DockerTrainerAbstract implements TrainerInte
                 }
             }
 
-            // 确保目标目录存在
-            String mkdirCommand = "mkdir -p " + targetLogPath;
-            executeRemoteCommand(mkdirCommand);
-
-            // 如果源文件存在，复制到目标路径
+            // K8s 模式下不再通过宿主机 SSH 复制日志，只记录路径提示
             if (sourceLogFilePath != null && !sourceLogFilePath.isEmpty()) {
-                // 检查源文件是否存在
-                String checkFileCommand = "test -f " + sourceLogFilePath + " && echo 'exists' || echo 'not_exists'";
-                String checkResult = executeRemoteCommand(checkFileCommand);
-                JSONObject checkJson = JSONUtil.parseObj(checkResult);
-                String output = checkJson.getStr("output", "").trim();
-
-                if ("exists".equals(output)) {
-                    // 复制文件到目标路径
-                    String copyCommand = "cp " + sourceLogFilePath + " " + targetLogFile;
-                    String copyResult = executeRemoteCommand(copyCommand);
-                    if (isSuccess(copyResult)) {
-                        log.info("推理日志文件已上传: taskId={}, targetPath={}", taskId, targetLogFile);
-                        addDeeplabPredictLog(taskId, "INFO", "推理日志文件已上传到: " + targetLogFile, targetLogFile);
-                    } else {
-                        log.warn("推理日志文件上传失败: taskId={}, sourcePath={}, targetPath={}", taskId, sourceLogFilePath, targetLogFile);
-                        addDeeplabPredictLog(taskId, "WARN", "推理日志文件上传失败: " + copyResult, null);
-                    }
-                } else {
-                    log.warn("推理日志源文件不存在: taskId={}, sourcePath={}", taskId, sourceLogFilePath);
-                    addDeeplabPredictLog(taskId, "WARN", "推理日志源文件不存在: " + sourceLogFilePath, null);
-                }
+                log.info("推理日志文件可在宿主机路径查找: {}", sourceLogFilePath);
+                addDeeplabPredictLog(taskId, "INFO", "推理日志文件路径: " + sourceLogFilePath, sourceLogFilePath);
             } else {
                 log.warn("无法确定推理日志源文件路径: taskId={}", taskId);
                 addDeeplabPredictLog(taskId, "WARN", "无法确定推理日志源文件路径", null);

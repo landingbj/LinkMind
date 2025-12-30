@@ -530,6 +530,15 @@
         <servlet-name>FileManagementServlet</servlet-name>
         <url-pattern>/api/file/*</url-pattern>
     </servlet-mapping>
+    <servlet>
+        <servlet-name>FileLocalhostServlet</servlet-name>
+        <servlet-class>ai.servlet.api.FileLocalhostServlet</servlet-class>
+        <load-on-startup>1</load-on-startup>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>FileLocalhostServlet</servlet-name>
+        <url-pattern>/api/localhostFile/*</url-pattern>
+    </servlet-mapping>
 
 
 

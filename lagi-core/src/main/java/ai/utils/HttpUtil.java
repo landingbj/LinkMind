@@ -20,13 +20,18 @@ import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.message.BasicNameValuePair;
 import org.apache.http.util.EntityUtils;
+import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 import java.io.File;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -195,16 +200,54 @@ public class HttpUtil {
         final HttpEntity entity = builder.build();
         post.setEntity(entity);
         String responseMessage = null;
-        try (CloseableHttpClient client = HttpClientBuilder.create().build()) {
-            HttpResponse response = client.execute(post);
-            int statusCode = response.getStatusLine().getStatusCode();
-            if (statusCode == 200) {
+        try {
+            // 创建信任所有证书的 TrustManager
+            TrustManager[] trustAllCerts = new TrustManager[]{
+                new X509TrustManager() {
+                    @Override
+                    public X509Certificate[] getAcceptedIssuers() {
+                        return new X509Certificate[]{};
+                    }
+                    
+                    @Override
+                    public void checkClientTrusted(X509Certificate[] certs, String authType) {
+                        // 信任所有客户端证书
+                    }
+                    
+                    @Override
+                    public void checkServerTrusted(X509Certificate[] certs, String authType) {
+                        // 信任所有服务器证书
+                    }
+                }
+            };
+            
+            // 创建 SSL 上下文
+            SSLContext sslContext = SSLContext.getInstance("TLS");
+            sslContext.init(null, trustAllCerts, new java.security.SecureRandom());
+            
+            // 创建 SSL 连接工厂，允许所有主机名
+            SSLConnectionSocketFactory sslSocketFactory = new SSLConnectionSocketFactory(
+                    sslContext,
+                    (hostname, session) -> true // 接受所有主机名
+            );
+            
+            // 创建支持 SSL 的 HttpClient
+            CloseableHttpClient client = HttpClientBuilder.create()
+                    .setSSLSocketFactory(sslSocketFactory)
+                    .build();
+            
+            try {
+                HttpResponse response = client.execute(post);
+                int statusCode = response.getStatusLine().getStatusCode();
+                // 无论状态码是什么，都返回响应体，以便解析错误信息
                 responseMessage = EntityUtils.toString(response.getEntity(), "UTF-8");
-            } else {
-                String message = EntityUtils.toString(response.getEntity(), "UTF-8");
-                logger.info("Http multipartUpload " + url + " statusCode = " + statusCode + " response: " + message);
+                if (statusCode != 200) {
+                    logger.warn("Http multipartUpload " + url + " statusCode = " + statusCode + " response: " + responseMessage);
+                }
+            } finally {
+                client.close();
             }
-        } catch (IOException e) {
+        } catch (Exception e) {
             logger.info("Http multipartUpload " + url + " Exception: ", e);
         }
         return responseMessage;

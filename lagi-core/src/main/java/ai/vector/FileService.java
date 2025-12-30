@@ -60,7 +60,18 @@ public class FileService {
         }
         headers.put("Authorization", "Bearer " + LagiGlobal.getLandingApikey());
         String returnStr = HttpUtil.multipartUpload(TO_MARKDOWN_URL, filePramName, fileList, formParmMap, headers);
-        return gson.fromJson(returnStr, Response.class);
+        if (returnStr == null || returnStr.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return gson.fromJson(returnStr, Response.class);
+        } catch (Exception e) {
+            // 如果JSON解析失败，返回一个包含错误信息的Response对象
+            return Response.builder()
+                    .status("failed")
+                    .msg("解析API响应失败: " + e.getMessage())
+                    .build();
+        }
     }
 
     public List<FileChunkResponse.Document> splitChunks(File file, int chunkSize) throws IOException {

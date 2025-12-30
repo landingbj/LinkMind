@@ -63,14 +63,32 @@ public class HsrSummaryApiServlet extends BaseServlet {
             try {
                 // Step 1: 将 PDF 转换为 Markdown
                 logger.info("开始将 PDF 转换为 Markdown，文件: {}", files.get(0).getName());
+                String markdownContent = null;
+                
+                // 首先尝试使用外部 API 转换为 Markdown
                 Response markdownResponse = fileService.toMarkdown(files.get(0));
-                if (markdownResponse == null || !"success".equals(markdownResponse.getStatus())) {
+                if (markdownResponse != null && "success".equals(markdownResponse.getStatus())) {
+                    markdownContent = markdownResponse.getData().toString();
+                    logger.info("使用外部 API 成功转换为 Markdown，内容长度: {}", markdownContent.length());
+                } else {
+                    // 外部 API 失败（可能是配额超限），使用本地 PDF 处理作为降级方案
                     String errorMsg = markdownResponse != null ? markdownResponse.getMsg() : "未知错误";
-                    logger.error("PDF 转换 Markdown 失败: {}", errorMsg);
-                    throw new RuntimeException("PDF 转换为 Markdown 失败: " + errorMsg);
+                    logger.warn("外部 API 转换 Markdown 失败: {}，尝试使用本地 PDF 处理", errorMsg);
+                    
+                    try {
+                        // 使用本地 PDF 处理
+                        markdownContent = fileService.getFileContent(files.get(0));
+                        if (markdownContent == null || markdownContent.trim().isEmpty()) {
+                            throw new RuntimeException("本地 PDF 处理失败：无法提取 PDF 内容（可能是扫描件）");
+                        }
+                        logger.info("使用本地 PDF 处理成功，内容长度: {}", markdownContent.length());
+                    } catch (Exception e) {
+                        logger.error("本地 PDF 处理也失败", e);
+                        throw new RuntimeException("PDF 转换为 Markdown 失败: " + errorMsg + "，且本地处理失败: " + e.getMessage());
+                    }
                 }
-                String markdownContent = markdownResponse.getData().toString();
-                logger.info("Markdown 内容长度: {}", markdownContent.length());
+                
+                logger.info("最终 Markdown 内容长度: {}", markdownContent.length());
 
                 // Step 2: 使用多轮对话生成 HSR Summary
                 logger.info("开始使用 AI 生成 HSR Summary");
@@ -90,7 +108,17 @@ public class HsrSummaryApiServlet extends BaseServlet {
 
             } catch (Exception e) {
                 logger.error("生成 HSR Summary 失败", e);
-                resp.getWriter().write("{\"status\": \"failed\", \"msg\": \"生成 HSR Summary 失败\"}");
+                String errorMsg = "生成 HSR Summary 失败";
+                String detailMsg = e.getMessage();
+                if (detailMsg != null && !detailMsg.isEmpty()) {
+                    errorMsg += ": " + detailMsg;
+                }
+                // 返回详细的错误信息
+                Response errorResponse = Response.builder()
+                        .status("failed")
+                        .msg(errorMsg)
+                        .build();
+                responsePrint(resp, gson.toJson(errorResponse));
             }
         } else {
             logger.warn("没有上传文件，错误信息: {}", msg);

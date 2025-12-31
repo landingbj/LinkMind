@@ -3,6 +3,7 @@ package ai.config.pojo;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -54,6 +55,12 @@ public class DiscriminativeModelsConfig {
             private String namespace;
             @JsonProperty("verifyTls")
             private Boolean verifyTls;
+            @JsonProperty("registryUrl")
+            private String registryUrl;
+            @JsonProperty("registryUsername")
+            private String registryUsername;
+            @JsonProperty("registryPassword")
+            private String registryPassword;
         }
 
         /**
@@ -69,6 +76,14 @@ public class DiscriminativeModelsConfig {
             @JsonProperty("k8s_config")
             private YoloK8sPodConfig k8sConfig;
 
+            // 新增：YAML 中 yolo 节点下的同级配置
+            private List<Volume> volumes;
+
+            @JsonProperty("resources")
+            private Resources resources;
+
+            @JsonProperty("restart_policy")
+            private String restartPolicy;
             /**
              * YOLO Pod的具体配置
              */
@@ -76,30 +91,103 @@ public class DiscriminativeModelsConfig {
             public static class YoloK8sPodConfig {
                 @JsonProperty("dockerImage")
                 private String dockerImage;
+
+                // 新增：镜像拉取密钥（YAML 中注释的可选字段）
+                @JsonProperty("imagePullSecret")
+                private String imagePullSecret;
+
+                // 新增：Pod 挂载卷配置
+                @JsonProperty("volumeMounts")
+                private List<VolumeMount> volumeMounts;
             }
         }
 
         /**
-         * YOLO模型的K8s运行配置
+         * Deeplab 模型的 K8s 运行配置（修正原命名错误，保持与 YOLO 配置结构一致）
          */
         @Data
         public static class DeeplabK8sConfig {
             private Boolean enable;  // 独立启用开关
 
             /**
-             * YOLO模型K8s Pod专属配置
+             * Deeplab 模型 K8s Pod 专属基础配置（修正原类名错误 Deeplab8sPodConfig → DeeplabK8sPodConfig）
              */
             @JsonProperty("k8s_config")
-            private Deeplab8sPodConfig k8sConfig;
+            private DeeplabK8sPodConfig k8sConfig;
+
+            // 新增：与 YOLO 配置一致的同级配置
+            private List<Volume> volumes;
+
+            @JsonProperty("resources")
+            private Resources resources;
+
+            @JsonProperty("restart_policy")
+            private String restartPolicy;
 
             /**
-             * YOLO Pod的具体配置
+             * Deeplab Pod 的具体基础配置
              */
             @Data
-            public static class Deeplab8sPodConfig {
+            public static class DeeplabK8sPodConfig {
                 @JsonProperty("dockerImage")
                 private String dockerImage;
+
+                // 新增：镜像拉取密钥（保持与 YOLO 配置一致）
+                @JsonProperty("imagePullSecret")
+                private String imagePullSecret;
+
+                // 新增：Pod 挂载卷配置（保持与 YOLO 配置一致）
+                @JsonProperty("volumeMounts")
+                private List<VolumeMount> volumeMounts;
             }
+        }
+
+        // 新增：K8s 卷挂载配置（对应 YAML 中的 volumeMounts）
+        @Data
+        public static class VolumeMount {
+            private String name;
+
+            @JsonProperty("mountPath")
+            private String mountPath;
+        }
+
+        // 新增：K8s 卷配置（对应 YAML 中的 volumes）
+        @Data
+        public static class Volume {
+            private String name;
+
+            @JsonProperty("hostPath")
+            private HostPath hostPath;
+        }
+
+        // 新增：K8s HostPath 卷配置（对应 YAML 中的 hostPath）
+        @Data
+        public static class HostPath {
+            private String path;
+
+            private String type;  // 对应 YAML 中的 DirectoryOrCreate 等类型
+        }
+
+        // 新增：K8s 资源限制配置（对应 YAML 中的 resources）
+        @Data
+        public static class Resources {
+            @JsonProperty("limits")
+            private ResourceRequirements limits;
+
+            @JsonProperty("requests")
+            private ResourceRequirements requests;
+        }
+
+        // 新增：K8s 资源需求配置（对应 limits 和 requests 内部字段）
+        @Data
+        public static class ResourceRequirements {
+            private String cpu;
+
+            private String memory;
+
+            // 对应 YAML 中的 nvidia.com/gpu，使用 JsonProperty 映射下划线和点号命名
+            @JsonProperty("nvidia.com/gpu")
+            private String nvidiaGpu;
         }
     }
     /**

@@ -1,12 +1,15 @@
 package ai.finetune;
 
-
+import ai.config.ContextLoader;
+import ai.config.pojo.DiscriminativeModelsConfig;
 import io.kubernetes.client.openapi.ApiClient;
 import io.kubernetes.client.openapi.Configuration;
 import io.kubernetes.client.util.ClientBuilder;
 import io.kubernetes.client.util.KubeConfig;
 import io.kubernetes.client.util.credentials.AccessTokenAuthentication;
 import okhttp3.OkHttpClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocketFactory;
@@ -14,20 +17,18 @@ import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 import java.io.FileReader;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.security.cert.X509Certificate;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 统一的 K8s 客户端构建器，复用“信任所有证书 + kubeconfig 优先”逻辑。
+ * 统一的 K8s 客户端构建器，复用"信任所有证书 + kubeconfig 优先"逻辑。
  * 同时支持官方 Java SDK（io.kubernetes.client） 客户端。
  */
 public final class K8sClientSupport {
 
-    private static final String DEFAULT_SERVER = "https://103.85.179.118:26443";
-    private static final String DEFAULT_TOKEN = "eyJhbGciOiJSUzI1NiIsImtpZCI6Imh6SldEVzVHakFnRWI4dFl2a3M2T0dyWTVRTkxFU3p6MERTdmZJVGxvQ3cifQ.eyJpc3MiOiJrdWJlcm5ldGVzL3NlcnZpY2VhY2NvdW50Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9uYW1lc3BhY2UiOiJrdWJlcm5ldGVzLWRhc2hib2FyZCIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VjcmV0Lm5hbWUiOiJhZG1pbi11c2VyLXRva2VuLWdqc3E5Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9zZXJ2aWNlLWFjY291bnQubmFtZSI6ImFkbWluLXVzZXIiLCJrdWJlcm5ldGVzLmlvL3NlcnZpY2VhY2NvdW50L3NlcnZpY2UtYWNjb3VudC51aWQiOiI2NzA2N2RjZi05MGI3LTQ0YTYtYTUyNy1mMDQwZTM1MzkwY2EiLCJzdWIiOiJzeXN0ZW06c2VydmljZWFjY291bnQ6a3ViZXJuZXRlcy1kYXNoYm9hcmQ6YWRtaW4tdXNlciJ9.AzH-CqyfYbKh0BFl8NWrUNvUtPN45XH3C509lU0_ShA4i1YFRMSFHzaElkcqVO0HIVxWnfk_AHumSCeQMKOHBC77rsjjYsfnNYimQXWXq3rWggfhQFnk-91jq4LC5_c0irnYTG8eMenCJwYrX-T4XpepMLhMVVKwM0kMaV6LLk1aJE9XPb5kJiSeXNLWMaBO9HJhADjmUYc8e2b1l-3MXdloYR0Iqy32yoWzNKG6uh3YP92eMMym_PVMeFPYeS4dIYJOXkBjQSglJLVPIwHWgQnWC0YTiIn2AZCoJ6GopDDQYC5OtKRhAaqNDNeDDxez2ByYbG81km0YkLufPywamA";
+    private static final Logger log = LoggerFactory.getLogger(K8sClientSupport.class);
 
     static {
         System.setProperty("jdk.internal.httpclient.disableHostnameVerification", "true");
@@ -60,7 +61,8 @@ public final class K8sClientSupport {
     }
 
     /**
-     * 构建官方 Java SDK 的 ApiClient，优先 kubeconfig，退化到内置 server/token。
+     * 构建官方 Java SDK 的 ApiClient，优先 kubeconfig，退化到配置文件、环境变量。
+     * 优先级：preferred参数 > kubeconfig > 配置文件 > 环境变量
      */
     public static ApiClient buildOpenApiClient(String preferredServer, String preferredToken) {
         String kubeConfigPath = resolveKubeConfigPath();
@@ -69,8 +71,18 @@ public final class K8sClientSupport {
             if (Files.exists(Paths.get(kubeConfigPath))) {
                 client = ClientBuilder.kubeconfig(KubeConfig.loadKubeConfig(new FileReader(kubeConfigPath))).build();
             } else {
-                String server = firstNonEmpty(preferredServer, System.getenv("K8S_API_SERVER"), DEFAULT_SERVER);
-                String token = firstNonEmpty(preferredToken, System.getenv("K8S_TOKEN"), DEFAULT_TOKEN);
+                // 从配置文件读取默认值
+                String configServer = getServerFromConfig();
+                String configToken = getTokenFromConfig();
+                
+                // 优先级：preferred参数 > 环境变量 > 配置文件
+                String server = firstNonEmpty(preferredServer, System.getenv("K8S_API_SERVER"), configServer);
+                String token = firstNonEmpty(preferredToken, System.getenv("K8S_TOKEN"), configToken);
+                
+                if (server == null || token == null) {
+                    throw new RuntimeException("无法获取 K8s API Server 或 Token。请配置 lagi.yml 中的 model_platform.discriminative_models.k8s.cluster_config，或设置环境变量 K8S_API_SERVER 和 K8S_TOKEN");
+                }
+                
                 client = new ClientBuilder()
                         .setBasePath(server)
                         .setAuthentication(new AccessTokenAuthentication(token))
@@ -84,6 +96,56 @@ public final class K8sClientSupport {
         } catch (IOException e) {
             throw new RuntimeException("创建 K8s ApiClient 失败", e);
         }
+    }
+
+    /**
+     * 从配置文件读取 K8s API Server 地址
+     * 配置路径：model_platform.discriminative_models.k8s.cluster_config.apiServer
+     */
+    private static String getServerFromConfig() {
+        try {
+            ContextLoader.loadContext();
+            if (ContextLoader.configuration != null
+                    && ContextLoader.configuration.getModelPlatformConfig() != null
+                    && ContextLoader.configuration.getModelPlatformConfig().getDiscriminativeModelsConfig() != null) {
+                
+                DiscriminativeModelsConfig dm = ContextLoader.configuration.getModelPlatformConfig().getDiscriminativeModelsConfig();
+                if (dm.getK8s() != null && dm.getK8s().getClusterConfig() != null) {
+                    String apiServer = dm.getK8s().getClusterConfig().getApiServer();
+                    if (apiServer != null && !apiServer.trim().isEmpty()) {
+                        return apiServer.trim();
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("从配置文件读取 K8s API Server 失败: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * 从配置文件读取 K8s Token
+     * 配置路径：model_platform.discriminative_models.k8s.cluster_config.token
+     */
+    private static String getTokenFromConfig() {
+        try {
+            ContextLoader.loadContext();
+            if (ContextLoader.configuration != null
+                    && ContextLoader.configuration.getModelPlatformConfig() != null
+                    && ContextLoader.configuration.getModelPlatformConfig().getDiscriminativeModelsConfig() != null) {
+                
+                DiscriminativeModelsConfig dm = ContextLoader.configuration.getModelPlatformConfig().getDiscriminativeModelsConfig();
+                if (dm.getK8s() != null && dm.getK8s().getClusterConfig() != null) {
+                    String token = dm.getK8s().getClusterConfig().getToken();
+                    if (token != null && !token.trim().isEmpty()) {
+                        return token.trim();
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("从配置文件读取 K8s Token 失败: {}", e.getMessage());
+        }
+        return null;
     }
 
 

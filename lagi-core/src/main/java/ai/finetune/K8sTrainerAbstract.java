@@ -32,11 +32,23 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
     protected boolean disableHostnameVerification = true;
     protected String imagePullSecret;
 
+    // 私有镜像仓库配置
+    protected String registryUrl;
+    protected String registryUsername;
+    protected String registryPassword;
+
+    // 重启策略配置
+    protected String restartPolicy = "Never";
+
     // 训练镜像与挂载
     protected String dockerImage;
     protected String volumeMount; // hostPath:containerPath
     protected String shmSize;
     protected boolean gpuEnabled = true;
+
+    // K8s 自定义配置
+    protected List<ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.VolumeMount> customVolumeMounts;
+    protected List<ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.Volume> customVolumes;
     
     // GPU 节点选择器（用于指定 GPU 节点标签）
     protected String gpuNodeSelectorKey = "node-type";
@@ -66,14 +78,103 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
     public abstract String exportModel(JSONObject config);
 
     /**
-     * 创建一次性 Job。
+     * 确保私有镜像仓库的拉取密钥存在，如果不存在则创建
+     */
+    protected void ensureImagePullSecret() {
+        if (registryUrl == null || registryUrl.isEmpty() ||
+            registryUsername == null || registryUsername.isEmpty() ||
+            registryPassword == null || registryPassword.isEmpty()) {
+            log.info("私有镜像仓库配置不完整，跳过创建镜像拉取密钥");
+            return;
+        }
+
+        if (imagePullSecret == null || imagePullSecret.isEmpty()) {
+            log.info("未配置imagePullSecret名称，跳过创建镜像拉取密钥");
+            return;
+        }
+
+        try {
+            ensureClient();
+
+            // 检查密钥是否已存在
+            try {
+                coreApi.readNamespacedSecret(imagePullSecret, namespace, null, null, null);
+                log.info("镜像拉取密钥 '{}' 已存在", imagePullSecret);
+                return;
+            } catch (ApiException e) {
+                if (e.getCode() != 404) {
+                    log.warn("检查镜像拉取密钥存在性时出错: {}", e.getMessage());
+                    return;
+                }
+                // 404表示密钥不存在，需要创建
+            }
+
+            // 创建 docker-registry 类型的密钥
+            V1Secret secret = new V1Secret();
+            secret.setApiVersion("v1");
+            secret.setKind("Secret");
+            secret.setType("kubernetes.io/dockerconfigjson");
+
+            V1ObjectMeta metadata = new V1ObjectMeta();
+            metadata.setName(imagePullSecret);
+            metadata.setNamespace(namespace);
+            secret.setMetadata(metadata);
+
+            // 创建 .dockerconfigjson 数据
+            String auth = java.util.Base64.getEncoder().encodeToString(
+                (registryUsername + ":" + registryPassword).getBytes(java.nio.charset.StandardCharsets.UTF_8)
+            );
+
+            // 提取registry主机名（去掉协议和路径）
+            String registryHost = registryUrl.replaceFirst("https?://", "").split("/")[0];
+
+            String dockerConfigJson = String.format(
+                "{\"auths\":{\"%s\":{\"username\":\"%s\",\"password\":\"%s\",\"auth\":\"%s\"}}}",
+                registryHost, registryUsername, registryPassword, auth
+            );
+
+            String encodedConfig = java.util.Base64.getEncoder().encodeToString(
+                dockerConfigJson.getBytes(java.nio.charset.StandardCharsets.UTF_8)
+            );
+
+            Map<String, byte[]> data = new HashMap<>();
+            data.put(".dockerconfigjson", encodedConfig.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            secret.setData(data);
+
+            // 创建密钥
+            coreApi.createNamespacedSecret(namespace, secret, null, null, null);
+            log.info("成功创建私有镜像仓库拉取密钥: {}", imagePullSecret);
+
+        } catch (ApiException e) {
+            log.error("创建镜像拉取密钥失败: {}", e.getMessage(), e);
+        } catch (Exception e) {
+            log.error("创建镜像拉取密钥时发生异常: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 创建一次性 Job（使用默认资源配置）。
      */
     protected JSONObject createOneOffJob(String jobName,
                                          String image,
                                          String configJson,
                                          boolean gpu,
                                          String shm) {
+        return createOneOffJob(jobName, image, configJson, gpu, shm, null);
+    }
+
+    /**
+     * 创建一次性 Job（支持自定义资源配置）。
+     */
+    protected JSONObject createOneOffJob(String jobName,
+                                         String image,
+                                         String configJson,
+                                         boolean gpu,
+                                         String shm,
+                                         ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.Resources customResources) {
         ensureClient();
+        // 确保私有镜像仓库的拉取密钥存在
+        ensureImagePullSecret();
         try {
             String[] mounts = parseMount(volumeMount);
             String hostPath = mounts[0];
@@ -110,11 +211,24 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
 //            }
 
             // 数据卷挂载
-            V1VolumeMount dataMount = new V1VolumeMount();
-            dataMount.setName("data-volume");
-            dataMount.setMountPath(containerPath);
             List<V1VolumeMount> volumeMounts = new ArrayList<>();
-            volumeMounts.add(dataMount);
+
+            // 如果有自定义的volumeMounts配置，则使用配置
+            if (customVolumeMounts != null && !customVolumeMounts.isEmpty()) {
+                for (ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.VolumeMount vm : customVolumeMounts) {
+                    V1VolumeMount mount = new V1VolumeMount();
+                    mount.setName(vm.getName());
+                    mount.setMountPath(vm.getMountPath());
+                    volumeMounts.add(mount);
+                    log.info("添加自定义卷挂载: name={}, mountPath={}", vm.getName(), vm.getMountPath());
+                }
+            } else {
+                // 使用默认的数据卷挂载
+                V1VolumeMount dataMount = new V1VolumeMount();
+                dataMount.setName("data-volume");
+                dataMount.setMountPath(containerPath);
+                volumeMounts.add(dataMount);
+            }
 
             // 共享内存挂载
             if (shm != null && !shm.isEmpty()) {
@@ -129,30 +243,63 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
             V1ResourceRequirements resources = new V1ResourceRequirements();
             Map<String, Quantity> requests = new HashMap<>();
             Map<String, Quantity> limits = new HashMap<>();
-            
-            // 设置 CPU 和内存的 requests 和 limits
-            // 注意：YOLO 训练需要更多内存，1Gi 可能导致 OOMKilled
-            // 建议：CPU 2-4核，内存 4-8Gi（根据实际需求调整）
-            requests.put("cpu", new Quantity("2"));
-            requests.put("memory", new Quantity("4Gi"));
-            limits.put("cpu", new Quantity("4"));
-            limits.put("memory", new Quantity("8Gi"));
-            
-            // GPU 资源（如果启用）
-            if (gpu) {
-                requests.put("nvidia.com/gpu", new Quantity("1"));
-                limits.put("nvidia.com/gpu", new Quantity("1"));
-                log.info("已启用 GPU 资源: 1 GPU");
+
+            // 如果提供了自定义资源配置，则使用配置值
+            if (customResources != null) {
+                if (customResources.getRequests() != null) {
+                    if (customResources.getRequests().getCpu() != null) {
+                        requests.put("cpu", new Quantity(customResources.getRequests().getCpu()));
+                    }
+                    if (customResources.getRequests().getMemory() != null) {
+                        requests.put("memory", new Quantity(customResources.getRequests().getMemory()));
+                    }
+                    if (customResources.getRequests().getNvidiaGpu() != null) {
+                        requests.put("nvidia.com/gpu", new Quantity(customResources.getRequests().getNvidiaGpu()));
+                    }
+                }
+
+                if (customResources.getLimits() != null) {
+                    if (customResources.getLimits().getCpu() != null) {
+                        limits.put("cpu", new Quantity(customResources.getLimits().getCpu()));
+                    }
+                    if (customResources.getLimits().getMemory() != null) {
+                        limits.put("memory", new Quantity(customResources.getLimits().getMemory()));
+                    }
+                    if (customResources.getLimits().getNvidiaGpu() != null) {
+                        limits.put("nvidia.com/gpu", new Quantity(customResources.getLimits().getNvidiaGpu()));
+                    }
+                }
+
+                log.info("已从配置设置资源限制: CPU requests={}, limits={}, Memory requests={}, limits={}, GPU requests={}, limits={}",
+                        requests.get("cpu"), limits.get("cpu"),
+                        requests.get("memory"), limits.get("memory"),
+                        requests.get("nvidia.com/gpu"), limits.get("nvidia.com/gpu"));
+            } else {
+                // 使用默认资源配置
+                // 注意：训练需要更多内存，1Gi 可能导致 OOMKilled
+                // 建议：CPU 2-4核，内存 4-8Gi（根据实际需求调整）
+                requests.put("cpu", new Quantity("2"));
+                requests.put("memory", new Quantity("4Gi"));
+                limits.put("cpu", new Quantity("4"));
+                limits.put("memory", new Quantity("8Gi"));
+
+                // GPU 资源（如果启用）
+                if (gpu) {
+                    requests.put("nvidia.com/gpu", new Quantity("1"));
+                    limits.put("nvidia.com/gpu", new Quantity("1"));
+                    log.info("已启用 GPU 资源: 1 GPU");
+                }
+
+                log.info("已设置默认资源限制: CPU requests=2, limits=4, Memory requests=4Gi, limits=8Gi");
             }
-            
+
             resources.setRequests(requests);
             resources.setLimits(limits);
             container.setResources(resources);
-            log.info("已设置资源限制: CPU requests=2, limits=4, Memory requests=4Gi, limits=8Gi");
 
             // 构建 Pod 规格
             V1PodSpec podSpec = new V1PodSpec();
-            podSpec.setRestartPolicy("Never");
+            podSpec.setRestartPolicy(restartPolicy);
             podSpec.setContainers(Collections.singletonList(container));
 
             // ========== 添加Master节点污点容忍（解决调度失败，与 Deployment 保持一致） ==========
@@ -174,14 +321,33 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
             }
 
             // 数据卷
-            V1Volume dataVolume = new V1Volume();
-            dataVolume.setName("data-volume");
-            V1HostPathVolumeSource hostPathSource = new V1HostPathVolumeSource();
-            hostPathSource.setPath(hostPath);
-            hostPathSource.setType("DirectoryOrCreate");
-            dataVolume.setHostPath(hostPathSource);
             List<V1Volume> volumes = new ArrayList<>();
-            volumes.add(dataVolume);
+
+            // 如果有自定义的volumes配置，则使用配置
+            if (customVolumes != null && !customVolumes.isEmpty()) {
+                for (ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.Volume vol : customVolumes) {
+                    V1Volume volume = new V1Volume();
+                    volume.setName(vol.getName());
+                    if (vol.getHostPath() != null) {
+                        V1HostPathVolumeSource hostPathSource = new V1HostPathVolumeSource();
+                        hostPathSource.setPath(vol.getHostPath().getPath());
+                        hostPathSource.setType(vol.getHostPath().getType());
+                        volume.setHostPath(hostPathSource);
+                        log.info("添加自定义卷: name={}, hostPath={}, type={}",
+                                vol.getName(), vol.getHostPath().getPath(), vol.getHostPath().getType());
+                    }
+                    volumes.add(volume);
+                }
+            } else {
+                // 使用默认的数据卷
+                V1Volume dataVolume = new V1Volume();
+                dataVolume.setName("data-volume");
+                V1HostPathVolumeSource hostPathSource = new V1HostPathVolumeSource();
+                hostPathSource.setPath(hostPath);
+                hostPathSource.setType("DirectoryOrCreate");
+                dataVolume.setHostPath(hostPathSource);
+                volumes.add(dataVolume);
+            }
 
             // 共享内存卷
             if (shm != null && !shm.isEmpty()) {
@@ -413,7 +579,7 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
         result.put("namespace", namespace);
         
         try {
-            V1Job job = batchApi.readNamespacedJob(jobName, namespace, null,null,null);
+            V1Job job = batchApi.readNamespacedJob(jobName, namespace, null, null, null);
             if (job == null) {
                 result.put("status", "not_found");
                 return result;
@@ -860,7 +1026,7 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
 
         try {
             // 1. 获取Job信息
-            V1Job job = batchApi.readNamespacedJob(jobName, namespace, null,null, null);
+            V1Job job = batchApi.readNamespacedJob(jobName, namespace, null, null, null);
             if (job == null) {
                 result.put("status", "error");
                 result.put("message", "Job不存在: " + jobName);

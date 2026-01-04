@@ -37,6 +37,13 @@ public class DeeplabK8sAdapter extends K8sTrainerAbstract {
     // 从配置中读取的日志路径前缀
     private String logPathPrefix;
 
+    // 从配置中读取的资源限制
+    private ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.Resources resourcesConfig;
+
+    // 从配置中读取的自定义卷挂载和卷配置
+    private List<ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.VolumeMount> customVolumeMounts;
+    private List<ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.Volume> customVolumes;
+
     // 用于异步执行的线程池
     private static final ExecutorService executorService = Executors.newCachedThreadPool();
 
@@ -72,7 +79,7 @@ public class DeeplabK8sAdapter extends K8sTrainerAbstract {
 
                 // 1) K8s 集群配置：model_platform.discriminative_models.k8s.cluster_config
                 if (discriminativeConfig.getK8s() != null && discriminativeConfig.getK8s().getClusterConfig() != null) {
-                    ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.ClusterConfig cluster = 
+                    ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.ClusterConfig cluster =
                         discriminativeConfig.getK8s().getClusterConfig();
                     if (cn.hutool.core.util.StrUtil.isNotBlank(cluster.getApiServer())) {
                         this.apiServer = cluster.getApiServer();
@@ -86,21 +93,61 @@ public class DeeplabK8sAdapter extends K8sTrainerAbstract {
                     if (cluster.getVerifyTls() != null) {
                         this.trustCerts = cluster.getVerifyTls();
                     }
+                    // 读取私有镜像仓库配置
+                    if (cn.hutool.core.util.StrUtil.isNotBlank(cluster.getRegistryUrl())) {
+                        this.registryUrl = cluster.getRegistryUrl();
+                    }
+                    if (cn.hutool.core.util.StrUtil.isNotBlank(cluster.getRegistryUsername())) {
+                        this.registryUsername = cluster.getRegistryUsername();
+                    }
+                    if (cn.hutool.core.util.StrUtil.isNotBlank(cluster.getRegistryPassword())) {
+                        this.registryPassword = cluster.getRegistryPassword();
+                    }
                 }
 
                 // 2) 根据 execution_mode 决定从哪个配置读取镜像（与 YOLO 保持一致）
                 String executionMode = discriminativeConfig.getExecutionMode();
                 if ("k8s".equalsIgnoreCase(executionMode)) {
                     // K8s 模式：从 k8s.deeplab.k8s_config.dockerImage 读取镜像
-                    if (discriminativeConfig.getK8s() != null && discriminativeConfig.getK8s().getDeeplab() != null 
+                    if (discriminativeConfig.getK8s() != null && discriminativeConfig.getK8s().getDeeplab() != null
                             && discriminativeConfig.getK8s().getDeeplab().getK8sConfig() != null) {
-                        ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.DeeplabK8sConfig.Deeplab8sPodConfig k8sConfig = 
+                        ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.DeeplabK8sConfig.DeeplabK8sPodConfig k8sConfig =
                                 discriminativeConfig.getK8s().getDeeplab().getK8sConfig();
                         if (cn.hutool.core.util.StrUtil.isNotBlank(k8sConfig.getDockerImage())) {
                             this.dockerImage = k8sConfig.getDockerImage();
                             super.setDockerImage(this.dockerImage);
                             log.info("K8s模式：从 k8s.deeplab.k8s_config.dockerImage 读取镜像: {}", this.dockerImage);
                         }
+                        // 读取镜像拉取密钥名称
+                        if (cn.hutool.core.util.StrUtil.isNotBlank(k8sConfig.getImagePullSecret())) {
+                            this.imagePullSecret = k8sConfig.getImagePullSecret();
+                            log.info("K8s模式：从 k8s.deeplab.k8s_config.imagePullSecret 读取密钥名称: {}", this.imagePullSecret);
+                        }
+                    }
+                    // 读取DeepLab的重启策略
+                    if (discriminativeConfig.getK8s() != null && discriminativeConfig.getK8s().getDeeplab() != null
+                            && cn.hutool.core.util.StrUtil.isNotBlank(discriminativeConfig.getK8s().getDeeplab().getRestartPolicy())) {
+                        this.restartPolicy = discriminativeConfig.getK8s().getDeeplab().getRestartPolicy();
+                        log.info("K8s模式：从 k8s.deeplab.restart_policy 读取重启策略: {}", this.restartPolicy);
+                    }
+                    // 读取DeepLab的资源配置
+                    if (discriminativeConfig.getK8s() != null && discriminativeConfig.getK8s().getDeeplab() != null
+                            && discriminativeConfig.getK8s().getDeeplab().getResources() != null) {
+                        this.resourcesConfig = discriminativeConfig.getK8s().getDeeplab().getResources();
+                        log.info("K8s模式：从 k8s.deeplab.resources 读取资源配置");
+                    }
+                    // 读取DeepLab的自定义卷挂载配置
+                    if (discriminativeConfig.getK8s() != null && discriminativeConfig.getK8s().getDeeplab() != null
+                            && discriminativeConfig.getK8s().getDeeplab().getK8sConfig() != null
+                            && discriminativeConfig.getK8s().getDeeplab().getK8sConfig().getVolumeMounts() != null) {
+                        this.customVolumeMounts = discriminativeConfig.getK8s().getDeeplab().getK8sConfig().getVolumeMounts();
+                        log.info("K8s模式：从 k8s.deeplab.k8s_config.volumeMounts 读取卷挂载配置");
+                    }
+                    // 读取DeepLab的自定义卷配置
+                    if (discriminativeConfig.getK8s() != null && discriminativeConfig.getK8s().getDeeplab() != null
+                            && discriminativeConfig.getK8s().getDeeplab().getVolumes() != null) {
+                        this.customVolumes = discriminativeConfig.getK8s().getDeeplab().getVolumes();
+                        log.info("K8s模式：从 k8s.deeplab.volumes 读取卷配置");
                     }
                 } else {
                     // Docker 模式：从 deeplab.docker.image 读取镜像（兼容旧配置）
@@ -126,9 +173,9 @@ public class DeeplabK8sAdapter extends K8sTrainerAbstract {
                         }
                     }
                 }
-                
+
                 // 3) 如果 K8s 模式下也需要读取 volume_mount 等配置，可以从 deeplab.docker 读取（作为fallback）
-                if ("k8s".equalsIgnoreCase(executionMode) && discriminativeConfig.getDeeplab() != null 
+                if ("k8s".equalsIgnoreCase(executionMode) && discriminativeConfig.getDeeplab() != null
                         && discriminativeConfig.getDeeplab().getDocker() != null) {
                     ai.config.pojo.DiscriminativeModelsConfig.DockerConfig docker = discriminativeConfig.getDeeplab().getDocker();
                     if (cn.hutool.core.util.StrUtil.isBlank(this.volumeMount) && cn.hutool.core.util.StrUtil.isNotBlank(docker.getVolumeMount())) {
@@ -213,10 +260,11 @@ public class DeeplabK8sAdapter extends K8sTrainerAbstract {
             // device 为 "cpu" 或空时，不启用 GPU；否则启用 GPU
             String device = config.getStr("device", "cpu");
             boolean useGpu = device != null && !device.equalsIgnoreCase("cpu") && !device.isEmpty();
-            
+
             // 创建 Kubernetes Job（传入共享内存 "2Gi"）
-            String result = createOneOffJob(containerName, dockerImage, configJson, useGpu, "2Gi").toString();
-            log.info("createOneOffJob called, jobName={}, image={}, useGpu={}, device={}, shmSize=2Gi", containerName, dockerImage, useGpu, device);
+            String result = createOneOffJob(containerName, dockerImage, configJson, useGpu, "2Gi", resourcesConfig).toString();
+            log.info("createOneOffJob called, jobName={}, image={}, useGpu={}, device={}, shmSize=2Gi, resourcesConfig={}",
+                    containerName, dockerImage, useGpu, device, resourcesConfig != null ? "configured" : "default");
 
             // 如果成功，将容器名称添加到结果中
             if (isSuccess(result)) {
@@ -285,7 +333,7 @@ public class DeeplabK8sAdapter extends K8sTrainerAbstract {
             // 根据 device 配置判断是否启用 GPU
             String device = config.getStr("device", "cpu");
             boolean useGpu = device != null && !device.equalsIgnoreCase("cpu") && !device.isEmpty();
-            String result = createOneOffJob(jobName, dockerImage, config.toString(), useGpu, "2Gi").toString();
+            String result = createOneOffJob(jobName, dockerImage, config.toString(), useGpu, "2Gi", resourcesConfig).toString();
 
             // 更新评估任务状态
             if (isSuccess(result)) {
@@ -362,7 +410,7 @@ public class DeeplabK8sAdapter extends K8sTrainerAbstract {
             // 根据 device 配置判断是否启用 GPU
             String device = config.getStr("device", "cpu");
             boolean useGpu = device != null && !device.equalsIgnoreCase("cpu") && !device.isEmpty();
-            String result = createOneOffJob(jobName, dockerImage, config.toString(), useGpu, "2Gi").toString();
+            String result = createOneOffJob(jobName, dockerImage, config.toString(), useGpu, "2Gi", resourcesConfig).toString();
 
             // 获取推理日志文件路径（宿主机路径），用于记录到数据库
             String hostLogFilePath = null;
@@ -447,7 +495,7 @@ public class DeeplabK8sAdapter extends K8sTrainerAbstract {
             // 根据 device 配置判断是否启用 GPU
             String device = config.getStr("device", "cpu");
             boolean useGpu = device != null && !device.equalsIgnoreCase("cpu") && !device.isEmpty();
-            String result = createOneOffJob(jobName, dockerImage, config.toString(), useGpu, "2Gi").toString();
+            String result = createOneOffJob(jobName, dockerImage, config.toString(), useGpu, "2Gi", resourcesConfig).toString();
 
             // 更新导出任务状态
             if (isSuccess(result)) {
@@ -583,7 +631,7 @@ public class DeeplabK8sAdapter extends K8sTrainerAbstract {
                 String podPhase = jobStatus.getStr("podPhase");
                 String jobPhase = jobStatus.getStr("jobPhase");
                 Integer exitCode = jobStatus.getInt("containerExitCode");
-                
+
                 if (containerState != null) {
                     // 根据 containerState 映射到 containerStatus
                     if ("Running".equals(containerState)) {
@@ -612,15 +660,15 @@ public class DeeplabK8sAdapter extends K8sTrainerAbstract {
                         containerStatus = "exited";
                     }
                 }
-                
+
                 // 如果还是没有状态，使用默认值
                 if (containerStatus == null || containerStatus.isEmpty()) {
                     containerStatus = "unknown";
                 }
-                
+
                 // 设置 containerStatus 字段
                 jobStatus.put("containerStatus", containerStatus);
-                
+
                 // 生成 output 字段，格式：状态;退出码（与 Docker 实现保持一致）
                 String output = containerStatus;
                 if (exitCode != null) {
@@ -629,10 +677,10 @@ public class DeeplabK8sAdapter extends K8sTrainerAbstract {
                     output = containerStatus + ";0";
                 }
                 jobStatus.put("output", output);
-                
+
                 // 更新 result
                 result = jobStatus.toString();
-                
+
                 // 解析状态和退出码
                 String[] parts = output.split(";");
                 String statusPart = parts.length > 0 ? parts[0].trim() : "";

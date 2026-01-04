@@ -46,6 +46,13 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
     // 从配置中读取的日志路径前缀
     private String logPathPrefix;
 
+    // 从配置中读取的资源限制
+    private ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.Resources resourcesConfig;
+
+    // 从配置中读取的自定义卷挂载和卷配置
+    private List<ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.VolumeMount> customVolumeMounts;
+    private List<ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.Volume> customVolumes;
+
     // 用于异步执行的线程池
     private static final ExecutorService executorService = Executors.newCachedThreadPool();
 
@@ -99,6 +106,16 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
                     // verifyTls = true 表示严格校验证书，这里直接映射到 trustCerts/disableHostnameVerification
                     this.trustCerts = cluster.getVerifyTls();
                 }
+                // 读取私有镜像仓库配置
+                if (StrUtil.isNotBlank(cluster.getRegistryUrl())) {
+                    this.registryUrl = cluster.getRegistryUrl();
+                }
+                if (StrUtil.isNotBlank(cluster.getRegistryUsername())) {
+                    this.registryUsername = cluster.getRegistryUsername();
+                }
+                if (StrUtil.isNotBlank(cluster.getRegistryPassword())) {
+                    this.registryPassword = cluster.getRegistryPassword();
+                }
             }
 
             // 2) 根据 execution_mode 决定从哪个配置读取镜像
@@ -114,6 +131,36 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
                         super.setDockerImage(this.dockerImage);
                         log.info("K8s模式：从 k8s.yolo.k8s_config.dockerImage 读取镜像: {}", this.dockerImage);
                     }
+                    // 读取镜像拉取密钥名称
+                    if (StrUtil.isNotBlank(k8sConfig.getImagePullSecret())) {
+                        this.imagePullSecret = k8sConfig.getImagePullSecret();
+                        log.info("K8s模式：从 k8s.yolo.k8s_config.imagePullSecret 读取密钥名称: {}", this.imagePullSecret);
+                    }
+                }
+                // 读取YOLO的重启策略
+                if (dm.getK8s() != null && dm.getK8s().getYolo() != null
+                        && StrUtil.isNotBlank(dm.getK8s().getYolo().getRestartPolicy())) {
+                    this.restartPolicy = dm.getK8s().getYolo().getRestartPolicy();
+                    log.info("K8s模式：从 k8s.yolo.restart_policy 读取重启策略: {}", this.restartPolicy);
+                }
+                // 读取YOLO的资源配置
+                if (dm.getK8s() != null && dm.getK8s().getYolo() != null
+                        && dm.getK8s().getYolo().getResources() != null) {
+                    this.resourcesConfig = dm.getK8s().getYolo().getResources();
+                    log.info("K8s模式：从 k8s.yolo.resources 读取资源配置");
+                }
+                // 读取YOLO的自定义卷挂载配置
+                if (dm.getK8s() != null && dm.getK8s().getYolo() != null
+                        && dm.getK8s().getYolo().getK8sConfig() != null
+                        && dm.getK8s().getYolo().getK8sConfig().getVolumeMounts() != null) {
+                    this.customVolumeMounts = dm.getK8s().getYolo().getK8sConfig().getVolumeMounts();
+                    log.info("K8s模式：从 k8s.yolo.k8s_config.volumeMounts 读取卷挂载配置");
+                }
+                // 读取YOLO的自定义卷配置
+                if (dm.getK8s() != null && dm.getK8s().getYolo() != null
+                        && dm.getK8s().getYolo().getVolumes() != null) {
+                    this.customVolumes = dm.getK8s().getYolo().getVolumes();
+                    log.info("K8s模式：从 k8s.yolo.volumes 读取卷配置");
                 }
             } else {
                 // Docker 模式：从 yolo.docker.image 读取镜像（兼容旧配置）
@@ -210,8 +257,9 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
 
             //String dockerImage = "yolov8_trainer:last";
             // 创建 Kubernetes Job
-            createOneOffJob(jobName, dockerImage, configJson, useGpu, null);
-            log.info("createOneOffJob called, jobName={}, image={}, useGpu={}, device={}", jobName, dockerImage, useGpu, device);
+            createOneOffJob(jobName, dockerImage, configJson, useGpu, null, resourcesConfig);
+            log.info("createOneOffJob called, jobName={}, image={}, useGpu={}, device={}, resourcesConfig={}",
+                    jobName, dockerImage, useGpu, device, resourcesConfig != null ? "configured" : "default");
 
             // 保存任务到数据库（保留原有逻辑）
             String datasetPath = (String)config.get("data");
@@ -281,7 +329,7 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
             // 根据 device 配置判断是否启用 GPU
             String device = config.getStr("device", "cpu");
             boolean useGpu = device != null && !device.equalsIgnoreCase("cpu") && !device.isEmpty();
-            String result = createOneOffJob(jobName, dockerImage, config.toString(), useGpu, null).toString();
+            String result = createOneOffJob(jobName, dockerImage, config.toString(), useGpu, null, resourcesConfig).toString();
 
             // 更新评估任务状态
             if (isSuccess(result)) {
@@ -355,7 +403,7 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
             // 根据 device 配置判断是否启用 GPU
             String device = config.getStr("device", "cpu");
             boolean useGpu = device != null && !device.equalsIgnoreCase("cpu") && !device.isEmpty();
-            String result = createOneOffJob(jobName, dockerImage, config.toString(), useGpu, null).toString();
+            String result = createOneOffJob(jobName, dockerImage, config.toString(), useGpu, null, resourcesConfig).toString();
 
             // 获取推理日志文件路径（宿主机路径），用于记录到数据库
             String hostLogFilePath = null;
@@ -437,7 +485,7 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
             // 根据 device 配置判断是否启用 GPU
             String device = config.getStr("device", "cpu");
             boolean useGpu = device != null && !device.equalsIgnoreCase("cpu") && !device.isEmpty();
-            String result = createOneOffJob(jobName, dockerImage, config.toString(), useGpu, null).toString();
+            String result = createOneOffJob(jobName, dockerImage, config.toString(), useGpu, null, resourcesConfig).toString();
 
             // 更新导出任务状态
             if (isSuccess(result)) {

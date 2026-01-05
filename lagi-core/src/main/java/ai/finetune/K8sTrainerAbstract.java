@@ -49,7 +49,7 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
     // K8s 自定义配置
     protected List<ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.VolumeMount> customVolumeMounts;
     protected List<ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.Volume> customVolumes;
-    
+
     // GPU 节点选择器（用于指定 GPU 节点标签）
     protected String gpuNodeSelectorKey = "node-type";
     protected String gpuNodeSelectorValue = "gpu";
@@ -65,6 +65,7 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
         if (apiClient != null) {
             return;
         }
+        System.out.println("apiServer: "+apiServer+"token: "+token);
         apiClient = K8sClientSupport.buildOpenApiClient(apiServer, token);
         batchApi = new BatchV1Api(apiClient);
         coreApi = new CoreV1Api(apiClient);
@@ -103,10 +104,18 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
                 return;
             } catch (ApiException e) {
                 if (e.getCode() != 404) {
-                    log.warn("检查镜像拉取密钥存在性时出错: {}", e.getMessage());
+                    // 整合ApiException的完整错误信息
+                    String errorMsg = String.format(
+                            "状态码: %d, 响应体: %s, 消息: %s",
+                            e.getCode(),          // HTTP状态码（如500/403）
+                            e.getResponseBody(),  // 详细的错误响应体（K8s返回的具体原因）
+                            e.getMessage() == null ? "无" : e.getMessage()  // 兼容null的情况
+                    );
+                    log.warn("检查镜像拉取密钥存在性时出错: {}", errorMsg);
                     return;
                 }
                 // 404表示密钥不存在，需要创建
+                log.info("开始创建镜像拉取密钥: {}", imagePullSecret);
             }
 
             // 创建 docker-registry 类型的密钥
@@ -394,7 +403,7 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
             // 创建 Job
             V1Job createdJob = batchApi.createNamespacedJob(namespace, job, null, null, null);
             log.info("创建 Job 成功: {}", jobName);
-            
+
             JSONObject result = new JSONObject();
             result.put("status", "success");
             result.put("message", "K8s Job created");
@@ -460,7 +469,7 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
                     log.warn("使用 app 标签查找 Pod 也失败: {}", e2.getMessage());
                 }
             }
-            
+
             // 删除找到的 Pod
             if (podList != null && podList.getItems() != null) {
                 for (V1Pod pod : podList.getItems()) {
@@ -488,7 +497,7 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
                     }
                 }
             }
-            
+
             // 删除 Job（使用 PropagationPolicy=Background 确保立即删除，不等待 Pod 清理完成）
             try {
                 batchApi.deleteNamespacedJob(
@@ -510,7 +519,7 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
                     throw e;  // 其他错误继续抛出
                 }
             }
-            
+
             JSONObject result = new JSONObject();
             result.put("status", "success");
             result.put("message", "Job deleted");
@@ -536,7 +545,7 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
         try {
             V1Pod pod = firstPod(jobName);
             String podName = pod.getMetadata().getName();
-            
+
             // 获取日志
             String logText = coreApi.readNamespacedPodLog(
                     podName,
@@ -551,7 +560,7 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
                     lines,
                     false
             );
-            
+
             JSONObject result = new JSONObject();
             result.put("status", "success");
             result.put("message", "log fetched");
@@ -577,19 +586,19 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
         JSONObject result = new JSONObject();
         result.put("jobName", jobName);
         result.put("namespace", namespace);
-        
+
         try {
             V1Job job = batchApi.readNamespacedJob(jobName, namespace, null, null, null);
             if (job == null) {
                 result.put("status", "not_found");
                 return result;
             }
-            
+
             V1JobStatus jobStatus = job.getStatus();
             String phase = "Unknown";
             String podPhase = "Unknown";
             String podName = null;
-            
+
             if (jobStatus != null) {
                 List<V1JobCondition> conditions = jobStatus.getConditions();
                 if (conditions != null && !conditions.isEmpty()) {
@@ -601,7 +610,7 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
                     }
                 }
             }
-            
+
             // 获取 Pod 状态信息
             try {
                 V1Pod pod = firstPod(jobName);
@@ -610,7 +619,7 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
                     V1PodStatus podStatus = pod.getStatus();
                     if (podStatus != null) {
                         podPhase = podStatus.getPhase();
-                        
+
                         // 获取容器状态
                         List<V1ContainerStatus> containerStatuses = podStatus.getContainerStatuses();
                         if (containerStatuses != null && !containerStatuses.isEmpty()) {
@@ -635,7 +644,7 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
             } catch (Exception e) {
                 log.debug("获取 Pod 状态失败（可能 Pod 还未创建）: {}", e.getMessage());
             }
-            
+
             result.put("status", "success");
             result.put("jobPhase", phase);
             result.put("podPhase", podPhase);
@@ -664,7 +673,7 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
         try {
             V1Pod pod = firstPod(jobName);
             String podName = pod.getMetadata().getName();
-            
+
             // 使用 watch 方式获取日志流
             InputStream logStream = null;
 //                    coreApi.readNamespacedPodLog(
@@ -680,7 +689,7 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
 //                    null,
 //                    false
 //            );
-            
+
             try (java.util.Scanner scanner = new java.util.Scanner(logStream)) {
                 while (scanner.hasNextLine()) {
                     String line = scanner.nextLine();
@@ -883,11 +892,11 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
                     null,
                     null
             );
-            
+
             if (podList.getItems().isEmpty()) {
                 throw new IllegalStateException("未找到 Pod, job=" + jobName);
             }
-            
+
             // 优先 Running，否则返回第一个
             return podList.getItems().stream()
                     .sorted((a, b) -> {
@@ -926,9 +935,9 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
         if (jobName == null || jobName.isEmpty()) {
             return "trainer";
         }
-        
+
         String lowerJobName = jobName.toLowerCase();
-        
+
         // 根据 jobName 中的模型类型推断容器名称
         if (lowerJobName.contains("yolo")) {
             return "yolov8-trainer";
@@ -940,7 +949,7 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
             // 默认训练容器名称
             return "trainer";
         }
-        
+
         // 如果无法推断，返回默认值
         return "trainer";
     }
@@ -948,7 +957,7 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
     /**
      * 根据配置 JSON 构建容器启动命令
      * 从配置中解析训练类型和模型名称，生成相应的启动命令
-     * 
+     *
      * @param configJson 配置 JSON 字符串
      * @return 命令数组，[0] 为 command，[1..n] 为 args
      */
@@ -957,18 +966,18 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
             JSONObject config = JSONUtil.parseObj(configJson);
             String trainType = config.getStr("the_train_type", "train");
             String modelName = config.getStr("model_name", "").toLowerCase();
-            
+
             // 根据训练类型和模型名称构建命令
             String scriptPath = determineScriptPath(trainType, modelName);
-            
+
             // 使用 shell 形式执行命令，这样可以读取环境变量 $CONFIG
             // command: ["sh", "-c"]
             // args: ["python /app/train.py --config $CONFIG"]
             String command = "sh";
             String args = String.format("python %s --config $CONFIG", scriptPath);
-            
+
             log.debug("构建容器命令: trainType={}, modelName={}, scriptPath={}", trainType, modelName, scriptPath);
-            
+
             return new String[]{command, "-c", args};
         } catch (Exception e) {
             log.warn("解析配置失败，使用默认命令: {}", e.getMessage());
@@ -979,7 +988,7 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
 
     /**
      * 根据训练类型和模型名称确定脚本路径
-     * 
+     *
      * @param trainType 训练类型：train, valuate, predict, export
      * @param modelName 模型名称
      * @return 脚本路径
@@ -993,7 +1002,7 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
         } else if (modelName.contains("yolo") || modelName.contains("yolov8") || modelName.contains("yolov11")) {
             return "/app/train.py";
         }
-        
+
         // 根据训练类型选择通用脚本
         switch (trainType.toLowerCase()) {
             case "train":

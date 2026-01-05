@@ -203,10 +203,22 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
                 }
             }
 
-            log.info("已从 model_platform.discriminative_models 加载 K8s/YOLO 配置: apiServer={}, ns={}, image={}, volumeMount={}",
+            log.info("已从 model_platform.discriminative_models 加载 K8s/YOLO 配置");
+            log.info("  配置摘要: apiServer={}, namespace={}, image={}, volumeMount={}", 
                     this.apiServer, this.namespace, this.dockerImage, this.volumeMount);
+            log.info("  GPU节点选择器: {}={}", 
+                    this.gpuNodeSelectorKey != null ? this.gpuNodeSelectorKey : "未配置",
+                    this.gpuNodeSelectorValue != null ? this.gpuNodeSelectorValue : "未配置");
+            
+            // 验证关键配置
+            if (this.dockerImage == null || this.dockerImage.isEmpty()) {
+                log.warn("  ⚠ 警告: Docker镜像未配置");
+            }
+            if (this.apiServer == null || this.apiServer.isEmpty()) {
+                log.warn("  ⚠ 警告: K8s API Server未配置");
+            }
         } catch (Exception e) {
-            log.warn("加载 lagi.yml 中的 K8s/YOLO 配置失败: {}", e.getMessage());
+            log.error("加载 lagi.yml 中的 K8s/YOLO 配置失败: {}", e.getMessage(), e);
         }
     }
 
@@ -215,11 +227,16 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
      */
     @Override
     public String startTraining(String taskId, String trackId, JSONObject config) {
+        log.info("========== 启动YOLO训练任务 ==========");
+        log.info("任务ID: {}, 跟踪ID: {}", taskId, trackId);
         try {
             // 确保 K8s 客户端已初始化
+            log.info("[1/7] 初始化K8s客户端...");
             initK8sClient();
+            log.info("[1/7] ✓ K8s客户端初始化完成");
 
             // 确保配置中包含必要的字段
+            log.info("[2/7] 验证训练配置...");
             if (!config.containsKey("the_train_type")) {
                 config.put("the_train_type", "train");
             }
@@ -229,8 +246,10 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
             if (!config.containsKey("track_id")) {
                 config.put("track_id", trackId);
             }
+            log.info("[2/7] ✓ 配置验证完成");
 
-            // 生成日志文件路径（保留原有逻辑）
+            // 生成日志文件路径
+            log.info("[3/7] 生成日志文件路径...");
             if (!config.containsKey("train_log_file") || config.getStr("train_log_file") == null || config.getStr("train_log_file").isEmpty()) {
                 String containerDataPath = "/app/data";
                 if (volumeMount != null && volumeMount.contains(":")) {
@@ -241,27 +260,57 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
                 }
                 String trainLogFile = containerDataPath + "/log/train/" + taskId + ".log";
                 config.put("train_log_file", trainLogFile);
+                log.info("  生成日志路径: {}", trainLogFile);
             }
+            log.info("[3/7] ✓ 日志路径生成完成");
 
             // 生成 Job 名称（对应原来的容器名称）
+            log.info("[4/7] 生成Job名称...");
             String jobName = generateContainerName("yolo_train");
             jobName = jobName.replace("_", "-");
+            log.info("  Job名称: {}", jobName);
+            log.info("[4/7] ✓ Job名称生成完成");
 
             // 构建配置 JSON
+            log.info("[5/7] 构建配置JSON...");
             String configJson = config.toString();
+            log.info("[5/7] ✓ 配置JSON构建完成");
 
             // 根据 device 配置判断是否启用 GPU
-            // device 为 "cpu" 或空时，不启用 GPU；否则启用 GPU
+            log.info("[6/7] 检查GPU配置...");
             String device = config.getStr("device", "cpu");
             boolean useGpu = device != null && !device.equalsIgnoreCase("cpu") && !device.isEmpty();
+            log.info("  device={}, useGpu={}", device, useGpu);
+            if (useGpu) {
+                log.info("  GPU节点选择器: {}={}", gpuNodeSelectorKey, gpuNodeSelectorValue);
+            }
+            log.info("[6/7] ✓ GPU配置检查完成");
 
-            //String dockerImage = "yolov8_trainer:last";
             // 创建 Kubernetes Job
-            createOneOffJob(jobName, dockerImage, configJson, useGpu, null, resourcesConfig);
-            log.info("createOneOffJob called, jobName={}, image={}, useGpu={}, device={}, resourcesConfig={}",
-                    jobName, dockerImage, useGpu, device, resourcesConfig != null ? "configured" : "default");
+            log.info("[7/7] 创建K8s Job...");
+            log.info("  Job名称: {}", jobName);
+            log.info("  镜像: {}", dockerImage);
+            log.info("  命名空间: {}", namespace);
+            if (dockerImage == null || dockerImage.isEmpty()) {
+                log.error("  ✗ 错误: dockerImage为空，无法创建Job");
+                throw new IllegalArgumentException("dockerImage不能为空，请检查配置文件中的镜像配置");
+            }
+            
+            JSONObject jobResult = createOneOffJob(jobName, dockerImage, configJson, useGpu, null, resourcesConfig);
+            String jobStatus = jobResult.getStr("status");
+            if ("success".equals(jobStatus)) {
+                log.info("  ✓ Job创建成功");
+            } else {
+                log.error("  ✗ Job创建失败: {}", jobResult.getStr("message"));
+                if (jobResult.containsKey("httpCode")) {
+                    log.error("  HTTP状态码: {}", jobResult.getInt("httpCode"));
+                }
+                throw new RuntimeException("创建K8s Job失败: " + jobResult.getStr("message"));
+            }
+            log.info("[7/7] ✓ Job创建完成");
 
             // 保存任务到数据库（保留原有逻辑）
+            log.info("保存任务信息到数据库...");
             String datasetPath = (String)config.get("data");
             if (datasetPath != null && !datasetPath.isEmpty()){
                 String sql = "SELECT dataset_name FROM dataset_records WHERE dataset_path = ?";
@@ -275,8 +324,10 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
             // 注意：containerName 改为 jobName，containerId 也使用 jobName
             saveStartTrainingToDB(taskId, trackId, jobName, config);
             addYoloTrainingLog(taskId, "INFO", "YOLO训练任务已启动，Job名称: " + jobName);
+            log.info("✓ 任务信息已保存到数据库");
 
             // 构建返回结果
+            log.info("========== YOLO训练任务启动成功 ==========");
             JSONObject result = new JSONObject();
             result.put("status", "success");
             result.put("message", "训练任务已启动");
@@ -288,11 +339,20 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
             return result.toString();
 
         } catch (Exception e) {
-            log.error("启动训练任务失败: taskId={}", taskId, e);
+            log.error("========== YOLO训练任务启动失败 ==========");
+            log.error("任务ID: {}", taskId);
+            log.error("错误类型: {}", e.getClass().getSimpleName());
+            log.error("错误消息: {}", e.getMessage());
+            if (e.getCause() != null) {
+                log.error("根本原因: {}", e.getCause().getMessage());
+            }
+            log.error("错误堆栈: ", e);
+            
             JSONObject errorResult = new JSONObject();
             errorResult.put("status", "error");
             errorResult.put("message", "启动训练任务失败");
             errorResult.put("error", e.getMessage());
+            errorResult.put("errorType", e.getClass().getSimpleName());
             return errorResult.toString();
         }
     }

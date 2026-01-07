@@ -121,7 +121,7 @@ public class DatasetServlet extends BaseServlet {
     public void uploadDataset(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json;charset=utf-8");
         Map<String, Object> response = new HashMap<>();
-        
+
         try {
             // 检查请求是否为multipart/form-data格式
             if (!ServletFileUpload.isMultipartContent(req)) {
@@ -149,7 +149,7 @@ public class DatasetServlet extends BaseServlet {
                 if (item.isFormField()) {
                     String fieldName = item.getFieldName();
                     String fieldValue = item.getString("UTF-8");
-                    
+
                     switch (fieldName) {
                         case "dataset_name":
                             datasetName = fieldValue;
@@ -238,10 +238,10 @@ public class DatasetServlet extends BaseServlet {
             // 保存文件信息到数据库
             String currentTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
             long fileSize = fileItem.getSize();
-            
+
             // 计算样本数量（这里可以根据实际需求实现，暂时设为0或null）
             Integer sampleCount = null; // 可以根据文件内容解析，暂时设为null
-            
+
             // 使用完整的PVC挂载路径作为dataset_path
             String datasetPath = targetFilePath.toString();
             saveDatasetRecord(datasetName, datasetPath, description, userId, fileSize, sampleCount, currentTime);
@@ -281,27 +281,27 @@ public class DatasetServlet extends BaseServlet {
             log.info("从系统属性读取PVC挂载路径: {}", mountPath);
             return mountPath.trim();
         }
-        
+
         // 2. 其次从环境变量读取
         mountPath = System.getenv("DATASET_PVC_MOUNT_PATH");
         if (mountPath != null && !mountPath.trim().isEmpty()) {
             log.info("从环境变量读取PVC挂载路径: {}", mountPath);
             return mountPath.trim();
         }
-        
+
         // 3. 尝试从配置文件读取（从训练任务的volume_mount配置中提取主机路径）
         mountPath = getMountPathFromConfig();
         if (mountPath != null && !mountPath.trim().isEmpty()) {
             log.info("从配置文件读取PVC挂载路径: {}", mountPath);
             return mountPath.trim();
         }
-        
+
         // 4. 使用默认路径（与训练任务保持一致）
-        String defaultPath = "/mnt/k8s_data/wangshuanglong/datasets";
+        String defaultPath = "/data/log/datasets";
         log.warn("PVC挂载路径未配置，使用默认路径: {}。如需修改，请设置系统属性dataset.pvc.mount.path或环境变量DATASET_PVC_MOUNT_PATH", defaultPath);
         return defaultPath;
     }
-    
+
     /**
      * 从配置文件（lagi.yml）中读取volume_mount配置，提取主机路径部分
      * 查找顺序：yolo.docker.volume_mount -> deeplab.docker.volume_mount -> tracknetv3.docker.volume_mount
@@ -314,12 +314,12 @@ public class DatasetServlet extends BaseServlet {
                 ContextLoader.configuration.getModelPlatformConfig().getDiscriminativeModelsConfig() == null) {
                 return null;
             }
-            
-            DiscriminativeModelsConfig discriminativeConfig = 
+
+            DiscriminativeModelsConfig discriminativeConfig =
                 ContextLoader.configuration.getModelPlatformConfig().getDiscriminativeModelsConfig();
-            
+
             // 尝试从 yolo 配置读取
-            if (discriminativeConfig.getYolo() != null && 
+            if (discriminativeConfig.getYolo() != null &&
                 discriminativeConfig.getYolo().getDocker() != null) {
                 String volumeMount = discriminativeConfig.getYolo().getDocker().getVolumeMount();
                 if (volumeMount != null && volumeMount.contains(":")) {
@@ -331,9 +331,9 @@ public class DatasetServlet extends BaseServlet {
                     }
                 }
             }
-            
+
             // 尝试从 deeplab 配置读取
-            if (discriminativeConfig.getDeeplab() != null && 
+            if (discriminativeConfig.getDeeplab() != null &&
                 discriminativeConfig.getDeeplab().getDocker() != null) {
                 String volumeMount = discriminativeConfig.getDeeplab().getDocker().getVolumeMount();
                 if (volumeMount != null && volumeMount.contains(":")) {
@@ -344,9 +344,9 @@ public class DatasetServlet extends BaseServlet {
                     }
                 }
             }
-            
+
             // 尝试从 tracknetv3 配置读取
-            if (discriminativeConfig.getTracknetv3() != null && 
+            if (discriminativeConfig.getTracknetv3() != null &&
                 discriminativeConfig.getTracknetv3().getDocker() != null) {
                 String volumeMount = discriminativeConfig.getTracknetv3().getDocker().getVolumeMount();
                 if (volumeMount != null && volumeMount.contains(":")) {
@@ -366,18 +366,18 @@ public class DatasetServlet extends BaseServlet {
     /**
      * 保存数据集记录到数据库
      */
-    private void saveDatasetRecord(String datasetName, String datasetPath, String description, 
-                                  String userId, long fileSize, Integer sampleCount, 
+    private void saveDatasetRecord(String datasetName, String datasetPath, String description,
+                                  String userId, long fileSize, Integer sampleCount,
                                   String createdAt) {
         try {
             String currentTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-            
+
             StringBuilder sql = new StringBuilder();
             sql.append("INSERT INTO dataset_records ");
             sql.append("(dataset_name, dataset_path, created_at, updated_at, file_size, ");
             sql.append("sample_count, description, user_id, status) ");
             sql.append("VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')");
-            
+
             List<Object> params = new ArrayList<>();
             params.add(datasetName);
             params.add(datasetPath);
@@ -387,9 +387,9 @@ public class DatasetServlet extends BaseServlet {
             params.add(sampleCount);
             params.add(description);
             params.add(userId);
-            
+
             int result = getMysqlAdapter().executeUpdate(sql.toString(), params.toArray());
-            
+
             if (result > 0) {
                 log.info("数据集记录保存成功: " + datasetName);
             } else {

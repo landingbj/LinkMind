@@ -1049,7 +1049,7 @@ public class DeeplabK8sAdapter extends K8sTrainerAbstract {
     private void addDeeplabTrainingLog(String taskId, String logLevel, String logMessage, String trainingLogFilePath) {
         String currentTime = getCurrentTime();
         // 使用实际的训练日志文件路径（如果提供），否则使用默认路径
-        String defaultLogPath = logPathPrefix != null ? logPathPrefix : "/data/wangshuanglong/log/train/";
+        String defaultLogPath = logPathPrefix != null ? logPathPrefix : "/data/log/train/";
         if (!defaultLogPath.endsWith("/")) {
             defaultLogPath += "/";
         }
@@ -1110,7 +1110,7 @@ public class DeeplabK8sAdapter extends K8sTrainerAbstract {
     private void addDeeplabPredictLog(String taskId, String logLevel, String logMessage, String predictLogFilePath) {
         String currentTime = getCurrentTime();
         // 使用实际的推理日志文件路径（如果提供），否则使用默认路径
-        String defaultLogPath = "/data/wangshuanglong/log/predict/";
+        String defaultLogPath = "/data/log/predict/";
         if (!defaultLogPath.endsWith("/")) {
             defaultLogPath += "/";
         }
@@ -1170,7 +1170,7 @@ public class DeeplabK8sAdapter extends K8sTrainerAbstract {
     private void uploadPredictLogFile(String taskId, String sourceLogFilePath) {
         try {
             // 目标路径
-            String targetLogPath = "/data/wangshuanglong/log/predict/";
+            String targetLogPath = "/data/log/predict/";
             if (!targetLogPath.endsWith("/")) {
                 targetLogPath += "/";
             }

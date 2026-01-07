@@ -13,7 +13,6 @@ import ai.router.pojo.RouteCompletionResult;
 import ai.utils.SensitiveWordUtil;
 import cn.hutool.core.bean.BeanUtil;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.hadoop.util.Lists;
 
 import java.util.List;
 

@@ -27,9 +27,9 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
     // Kubernetes 访问配置
     protected String apiServer;
     protected String token;
-    protected String namespace = "default";
-    protected boolean trustCerts = true;
-    protected boolean disableHostnameVerification = true;
+    protected String namespace;
+    protected boolean trustCerts;
+    protected boolean disableHostnameVerification;
     protected String imagePullSecret;
 
     // 私有镜像仓库配置
@@ -42,17 +42,17 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
 
     // 训练镜像与挂载
     protected String dockerImage;
-    protected String volumeMount; // hostPath:containerPath
+    protected String volumeMount;
     protected String shmSize;
-    protected boolean gpuEnabled = true;
+    protected boolean gpuEnabled;
 
     // K8s 自定义配置
     protected List<ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.VolumeMount> customVolumeMounts;
     protected List<ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.Volume> customVolumes;
 
     // GPU 节点选择器（用于指定 GPU 节点标签）
-    protected String gpuNodeSelectorKey = "node-type";
-    protected String gpuNodeSelectorValue = "gpu";
+    protected String gpuNodeSelectorKey = "kubernetes.io/hostname";
+    protected String gpuNodeSelectorValue = "k8smaster";
 
     protected ApiClient apiClient;
     protected BatchV1Api batchApi;
@@ -63,13 +63,24 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
      */
     public void initK8sClient() {
         if (apiClient != null) {
+            log.info("K8s客户端已存在，跳过初始化");
             return;
         }
-        System.out.println("apiServer: "+apiServer+"token: "+token);
-        apiClient = K8sClientSupport.buildOpenApiClient(apiServer, token);
-        batchApi = new BatchV1Api(apiClient);
-        coreApi = new CoreV1Api(apiClient);
-        log.info("Kubernetes 客户端初始化成功, namespace={}", namespace);
+        log.info("开始初始化K8s客户端...");
+        log.info("  API Server: {}", apiServer);
+        log.info("  Namespace: {}", namespace);
+        try {
+            apiClient = K8sClientSupport.buildOpenApiClient(apiServer, token);
+            batchApi = new BatchV1Api(apiClient);
+            coreApi = new CoreV1Api(apiClient);
+            log.info("✓ K8s客户端初始化成功, namespace={}", namespace);
+        } catch (Exception e) {
+            log.error("✗ K8s客户端初始化失败");
+            log.error("  API Server: {}", apiServer);
+            log.error("  Namespace: {}", namespace);
+            log.error("  错误: {}", e.getMessage());
+            throw new RuntimeException("K8s客户端初始化失败: " + e.getMessage(), e);
+        }
     }
 
     // 子类实现
@@ -83,8 +94,8 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
      */
     protected void ensureImagePullSecret() {
         if (registryUrl == null || registryUrl.isEmpty() ||
-            registryUsername == null || registryUsername.isEmpty() ||
-            registryPassword == null || registryPassword.isEmpty()) {
+                registryUsername == null || registryUsername.isEmpty() ||
+                registryPassword == null || registryPassword.isEmpty()) {
             log.info("私有镜像仓库配置不完整，跳过创建镜像拉取密钥");
             return;
         }
@@ -103,19 +114,19 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
                 log.info("镜像拉取密钥 '{}' 已存在", imagePullSecret);
                 return;
             } catch (ApiException e) {
-                if (e.getCode() != 404) {
-                    // 整合ApiException的完整错误信息
-                    String errorMsg = String.format(
-                            "状态码: %d, 响应体: %s, 消息: %s",
-                            e.getCode(),          // HTTP状态码（如500/403）
-                            e.getResponseBody(),  // 详细的错误响应体（K8s返回的具体原因）
-                            e.getMessage() == null ? "无" : e.getMessage()  // 兼容null的情况
-                    );
-                    log.warn("检查镜像拉取密钥存在性时出错: {}", errorMsg);
-                    return;
-                }
-                // 404表示密钥不存在，需要创建
-                log.info("开始创建镜像拉取密钥: {}", imagePullSecret);
+                    if (e.getCode() != 404) {
+                        // 整合ApiException的完整错误信息
+                        String errorMsg = String.format(
+                                "状态码: %d, 响应体: %s, 消息: %s",
+                                e.getCode(),          // HTTP状态码（如500/403）
+                                e.getResponseBody(),  // 详细的错误响应体（K8s返回的具体原因）
+                                e.getMessage() == null ? "无" : e.getMessage()  // 兼容null的情况
+                        );
+                        log.warn("检查镜像拉取密钥存在性时出错: {}", errorMsg);
+                        return;
+                    }
+                    // 404表示密钥不存在，需要创建
+                    log.info("开始创建镜像拉取密钥: {}", imagePullSecret);
             }
 
             // 创建 docker-registry 类型的密钥
@@ -131,19 +142,19 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
 
             // 创建 .dockerconfigjson 数据
             String auth = java.util.Base64.getEncoder().encodeToString(
-                (registryUsername + ":" + registryPassword).getBytes(java.nio.charset.StandardCharsets.UTF_8)
+                    (registryUsername + ":" + registryPassword).getBytes(java.nio.charset.StandardCharsets.UTF_8)
             );
 
             // 提取registry主机名（去掉协议和路径）
             String registryHost = registryUrl.replaceFirst("https?://", "").split("/")[0];
 
             String dockerConfigJson = String.format(
-                "{\"auths\":{\"%s\":{\"username\":\"%s\",\"password\":\"%s\",\"auth\":\"%s\"}}}",
-                registryHost, registryUsername, registryPassword, auth
+                    "{\"auths\":{\"%s\":{\"username\":\"%s\",\"password\":\"%s\",\"auth\":\"%s\"}}}",
+                    registryHost, registryUsername, registryPassword, auth
             );
 
             String encodedConfig = java.util.Base64.getEncoder().encodeToString(
-                dockerConfigJson.getBytes(java.nio.charset.StandardCharsets.UTF_8)
+                    dockerConfigJson.getBytes(java.nio.charset.StandardCharsets.UTF_8)
             );
 
             Map<String, byte[]> data = new HashMap<>();
@@ -181,15 +192,22 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
                                          boolean gpu,
                                          String shm,
                                          ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.Resources customResources) {
+        log.info("开始创建K8s Job: {}", jobName);
+        log.info("  镜像: {}", image);
+        log.info("  启用GPU: {}", gpu);
+
         ensureClient();
         // 确保私有镜像仓库的拉取密钥存在
         ensureImagePullSecret();
         try {
+            log.info("解析卷挂载配置...");
             String[] mounts = parseMount(volumeMount);
             String hostPath = mounts[0];
             String containerPath = mounts[1];
+            log.info("  宿主机路径: {}, 容器路径: {}", hostPath, containerPath);
 
             // 构建容器
+            log.info("构建容器配置...");
             V1Container container = new V1Container();
             // 根据 jobName 动态推断容器名称
             // yolo_train-xxx -> yolov8-trainer
@@ -198,6 +216,12 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
             String containerName = inferContainerName(jobName);
             container.setName(containerName);
             container.setImage(image);
+            log.info("  容器名称: {}, 镜像: {}", containerName, image);
+
+            if (image == null || image.isEmpty()) {
+                log.error("  ✗ 错误: 容器镜像为空");
+                throw new IllegalArgumentException("容器镜像不能为空");
+            }
 
             // 环境变量
             V1EnvVar envVar = new V1EnvVar();
@@ -249,69 +273,75 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
             container.setVolumeMounts(volumeMounts);
 
             // ========== 设置资源限制（CPU 和内存） ==========
-            V1ResourceRequirements resources = new V1ResourceRequirements();
-            Map<String, Quantity> requests = new HashMap<>();
-            Map<String, Quantity> limits = new HashMap<>();
-
-            // 如果提供了自定义资源配置，则使用配置值
-            if (customResources != null) {
-                if (customResources.getRequests() != null) {
-                    if (customResources.getRequests().getCpu() != null) {
-                        requests.put("cpu", new Quantity(customResources.getRequests().getCpu()));
-                    }
-                    if (customResources.getRequests().getMemory() != null) {
-                        requests.put("memory", new Quantity(customResources.getRequests().getMemory()));
-                    }
-                    if (customResources.getRequests().getNvidiaGpu() != null) {
-                        requests.put("nvidia.com/gpu", new Quantity(customResources.getRequests().getNvidiaGpu()));
-                    }
-                }
-
-                if (customResources.getLimits() != null) {
-                    if (customResources.getLimits().getCpu() != null) {
-                        limits.put("cpu", new Quantity(customResources.getLimits().getCpu()));
-                    }
-                    if (customResources.getLimits().getMemory() != null) {
-                        limits.put("memory", new Quantity(customResources.getLimits().getMemory()));
-                    }
-                    if (customResources.getLimits().getNvidiaGpu() != null) {
-                        limits.put("nvidia.com/gpu", new Quantity(customResources.getLimits().getNvidiaGpu()));
-                    }
-                }
-
-                log.info("已从配置设置资源限制: CPU requests={}, limits={}, Memory requests={}, limits={}, GPU requests={}, limits={}",
-                        requests.get("cpu"), limits.get("cpu"),
-                        requests.get("memory"), limits.get("memory"),
-                        requests.get("nvidia.com/gpu"), limits.get("nvidia.com/gpu"));
-            } else {
-                // 使用默认资源配置
-                // 注意：训练需要更多内存，1Gi 可能导致 OOMKilled
-                // 建议：CPU 2-4核，内存 4-8Gi（根据实际需求调整）
-                requests.put("cpu", new Quantity("2"));
-                requests.put("memory", new Quantity("4Gi"));
-                limits.put("cpu", new Quantity("4"));
-                limits.put("memory", new Quantity("8Gi"));
-
-                // GPU 资源（如果启用）
-                if (gpu) {
-                    requests.put("nvidia.com/gpu", new Quantity("1"));
-                    limits.put("nvidia.com/gpu", new Quantity("1"));
-                    log.info("已启用 GPU 资源: 1 GPU");
-                }
-
-                log.info("已设置默认资源限制: CPU requests=2, limits=4, Memory requests=4Gi, limits=8Gi");
-            }
-
-            resources.setRequests(requests);
-            resources.setLimits(limits);
-            container.setResources(resources);
+////                    log.info("设置资源限制...");
+////                    V1ResourceRequirements resources = new V1ResourceRequirements();
+////                    Map<String, Quantity> requests = new HashMap<>();
+////                    Map<String, Quantity> limits = new HashMap<>();
+////
+////                    // 如果提供了自定义资源配置，则使用配置值
+////                    if (customResources != null) {
+////                        log.info("  使用自定义资源配置");
+////                        if (customResources.getRequests() != null) {
+////                            if (customResources.getRequests().getCpu() != null) {
+////                                requests.put("cpu", new Quantity(customResources.getRequests().getCpu()));
+////                            }
+////                            if (customResources.getRequests().getMemory() != null) {
+////                                requests.put("memory", new Quantity(customResources.getRequests().getMemory()));
+////                            }
+////                            if (customResources.getRequests().getNvidiaGpu() != null) {
+////                                requests.put("nvidia.com/gpu", new Quantity(customResources.getRequests().getNvidiaGpu()));
+////                            }
+////                        }
+////
+////                        if (customResources.getLimits() != null) {
+////                            if (customResources.getLimits().getCpu() != null) {
+////                                limits.put("cpu", new Quantity(customResources.getLimits().getCpu()));
+////                            }
+////                            if (customResources.getLimits().getMemory() != null) {
+////                                limits.put("memory", new Quantity(customResources.getLimits().getMemory()));
+////                            }
+////                            if (customResources.getLimits().getNvidiaGpu() != null) {
+////                                limits.put("nvidia.com/gpu", new Quantity(customResources.getLimits().getNvidiaGpu()));
+////                            }
+////                        }
+////
+////                        log.info("  资源限制: CPU requests={}, limits={}, Memory requests={}, limits={}, GPU requests={}, limits={}",
+////                                requests.get("cpu"), limits.get("cpu"),
+////                                requests.get("memory"), limits.get("memory"),
+////                                requests.get("nvidia.com/gpu"), limits.get("nvidia.com/gpu"));
+////                    } else {
+////                        // 使用默认资源配置
+////                        log.info("  使用默认资源配置");
+////                        // 注意：训练需要更多内存，1Gi 可能导致 OOMKilled
+////                        // 建议：CPU 2-4核，内存 4-8Gi（根据实际需求调整）
+////                        requests.put("cpu", new Quantity("2"));
+////                        requests.put("memory", new Quantity("4Gi"));
+////                        limits.put("cpu", new Quantity("4"));
+////                        limits.put("memory", new Quantity("8Gi"));
+////
+////                        // GPU 资源（如果启用）
+////                        if (gpu) {
+////                            requests.put("nvidia.com/gpu", new Quantity("1"));
+////                            limits.put("nvidia.com/gpu", new Quantity("1"));
+////                            log.info("  启用GPU资源: 1 GPU");
+////                        }
+////
+////                        log.info("  默认资源: CPU requests=2, limits=4, Memory requests=4Gi, limits=8Gi");
+////                    }
+//
+//                    resources.setRequests(requests);
+//                    resources.setLimits(limits);
+//                    container.setResources(resources);
+//                    log.info("✓ 资源限制设置完成");
 
             // 构建 Pod 规格
+            log.info("构建Pod规格...");
             V1PodSpec podSpec = new V1PodSpec();
             podSpec.setRestartPolicy(restartPolicy);
             podSpec.setContainers(Collections.singletonList(container));
+            log.info("  重启策略: {}", restartPolicy);
 
-            // ========== 添加Master节点污点容忍（解决调度失败，与 Deployment 保持一致） ==========
+            // ========== 添加Master节点污点容忍（必须，否则无法调度到master节点） ==========
             List<V1Toleration> tolerations = new ArrayList<>();
             V1Toleration masterToleration = new V1Toleration();
             masterToleration.setKey("node-role.kubernetes.io/master");
@@ -319,14 +349,24 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
             masterToleration.setEffect("NoSchedule");
             tolerations.add(masterToleration);
             podSpec.setTolerations(tolerations);
-            log.info("已添加 Master 节点容忍度配置");
+            log.info("✓ 已添加 Master 节点污点容忍，允许Pod在master节点运行");
 
-            // ========== 添加 GPU 节点选择器（当启用 GPU 时） ==========
-            if (gpu && gpuNodeSelectorKey != null && gpuNodeSelectorValue != null) {
-                Map<String, String> nodeSelector = new HashMap<>();
-                nodeSelector.put(gpuNodeSelectorKey, gpuNodeSelectorValue);
-                podSpec.setNodeSelector(nodeSelector);
-                log.info("设置 GPU 节点选择器: {}={}", gpuNodeSelectorKey, gpuNodeSelectorValue);
+            // ========== 添加 GPU 节点选择器（强制调度到k8smaster） ==========
+            // 注意：如果k8smaster没有GPU，即使设置了节点选择器，Pod也无法调度（因为请求了GPU资源）
+            // 解决方案：如果目标节点没有GPU，需要移除GPU资源请求，或者调度到有GPU的节点
+            if (gpu) {
+                if (gpuNodeSelectorKey != null && gpuNodeSelectorValue != null
+                        && !gpuNodeSelectorKey.trim().isEmpty()
+                        && !gpuNodeSelectorValue.trim().isEmpty()) {
+                    Map<String, String> nodeSelector = new HashMap<>();
+                    nodeSelector.put(gpuNodeSelectorKey, gpuNodeSelectorValue);
+                    podSpec.setNodeSelector(nodeSelector);
+                    log.info("✓ 设置 GPU 节点选择器: {}={}", gpuNodeSelectorKey, gpuNodeSelectorValue);
+                    log.warn("⚠ 注意：如果目标节点 {} 没有GPU资源，Pod将无法调度！", gpuNodeSelectorValue);
+                    log.warn("⚠ 请确保目标节点有GPU，或者移除GPU资源请求");
+                } else {
+                    log.warn("⚠ GPU已启用，但节点选择器配置为空，将无法调度到指定节点");
+                }
             }
 
             // 数据卷
@@ -388,7 +428,7 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
 
             // 构建 Job 规格
             V1JobSpec jobSpec = new V1JobSpec();
-            jobSpec.setBackoffLimit(3);
+            jobSpec.setBackoffLimit(0);
             jobSpec.setTemplate(podTemplate);
 
             // 构建 Job
@@ -401,8 +441,13 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
             job.setSpec(jobSpec);
 
             // 创建 Job
+            log.info("提交Job到K8s API Server...");
+            log.info("  命名空间: {}", namespace);
             V1Job createdJob = batchApi.createNamespacedJob(namespace, job, null, null, null);
-            log.info("创建 Job 成功: {}", jobName);
+            log.info("✓ Job创建成功: {}", jobName);
+            if (createdJob.getMetadata() != null && createdJob.getMetadata().getUid() != null) {
+                log.info("  Job UID: {}", createdJob.getMetadata().getUid());
+            }
 
             JSONObject result = new JSONObject();
             result.put("status", "success");
@@ -411,11 +456,40 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
             result.put("namespace", namespace);
             return result;
         } catch (ApiException e) {
-            log.error("创建 Job 失败: {}", jobName, e.getResponseBody(),e.getCode());
+            log.error("✗ 创建Job失败: {}", jobName);
+            log.error("  HTTP状态码: {}", e.getCode());
+            log.error("  错误消息: {}", e.getMessage());
+            log.error("  响应体: {}", e.getResponseBody());
+
+            // 根据错误码提供排查建议
+            if (e.getCode() == 403) {
+                log.error("  → 权限错误: 检查RBAC配置，确保有创建jobs的权限");
+            } else if (e.getCode() == 404) {
+                log.error("  → 资源不存在: 检查命名空间 '{}' 是否存在", namespace);
+            } else if (e.getCode() == 422) {
+                log.error("  → 验证错误: Job配置不符合K8s规范，检查Job名称、资源配置等");
+            } else if (e.getCode() == 500) {
+                log.error("  → 服务器错误: 检查K8s集群状态");
+            }
+
             JSONObject result = new JSONObject();
             result.put("status", "error");
             result.put("message", "创建 Job 失败: " + e.getMessage());
             result.put("jobName", jobName);
+            result.put("httpCode", e.getCode());
+            result.put("responseBody", e.getResponseBody());
+            return result;
+        } catch (Exception e) {
+            log.error("✗ 创建Job时发生未知错误: {}", jobName);
+            log.error("  错误类型: {}", e.getClass().getSimpleName());
+            log.error("  错误消息: {}", e.getMessage());
+            log.error("  错误堆栈: ", e);
+
+            JSONObject result = new JSONObject();
+            result.put("status", "error");
+            result.put("message", "创建 Job 失败: " + e.getMessage());
+            result.put("jobName", jobName);
+            result.put("errorType", e.getClass().getSimpleName());
             return result;
         }
     }
@@ -1449,12 +1523,12 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
             // 使用Kubernetes Java Client调用Metrics API
             // 注意：需要集群中部署了metrics-server
             String basePath = null ;
-                    //client.getBasePath();
+            //client.getBasePath();
             String url = basePath + "/apis/metrics.k8s.io/v1beta1/namespaces/" + namespace + "/pods/" + podName;
 
             // 使用ApiClient的HTTP客户端构建请求
             okhttp3.OkHttpClient httpClient = null;
-                    //client.getHttpClient();
+            //client.getHttpClient();
             okhttp3.Request request = new okhttp3.Request.Builder()
                     .url(url)
                     .get()
@@ -1501,12 +1575,12 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
         try {
             // 使用Kubernetes Java Client调用Metrics API
             String basePath = null;
-                    //client.getBasePath();
+            //client.getBasePath();
             String url = basePath + "/apis/metrics.k8s.io/v1beta1/namespaces/" + namespace + "/pods/" + podName;
 
             // 使用ApiClient的HTTP客户端构建请求
             okhttp3.OkHttpClient httpClient = null;
-                    //client.getHttpClient();
+            //client.getHttpClient();
             okhttp3.Request request = new okhttp3.Request.Builder()
                     .url(url)
                     .get()

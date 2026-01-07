@@ -69,7 +69,7 @@ public class TrackNetV3K8sAdapter extends K8sTrainerAbstract {
 
                 // 1) K8s 集群配置：model_platform.discriminative_models.k8s.cluster_config
                 if (discriminativeConfig.getK8s() != null && discriminativeConfig.getK8s().getClusterConfig() != null) {
-                    ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.ClusterConfig cluster = 
+                    ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.ClusterConfig cluster =
                         discriminativeConfig.getK8s().getClusterConfig();
                     if (cn.hutool.core.util.StrUtil.isNotBlank(cluster.getApiServer())) {
                         this.apiServer = cluster.getApiServer();
@@ -302,7 +302,7 @@ public class TrackNetV3K8sAdapter extends K8sTrainerAbstract {
             if (isSuccess(result)) {
                 updateTrackNetV3TaskStatus(taskId, "completed", "预测任务完成");
                 addTrackNetV3PredictLog(taskId, "INFO", "预测任务完成", hostLogFilePath);
-                
+
                 // 确保日志文件已上传到指定路径
                 uploadPredictLogFile(taskId, hostLogFilePath);
             } else {
@@ -474,7 +474,7 @@ public class TrackNetV3K8sAdapter extends K8sTrainerAbstract {
                 String podPhase = jobStatus.getStr("podPhase");
                 String jobPhase = jobStatus.getStr("jobPhase");
                 Integer exitCode = jobStatus.getInt("containerExitCode");
-                
+
                 if (containerState != null) {
                     // 根据 containerState 映射到 containerStatus
                     if ("Running".equals(containerState)) {
@@ -503,15 +503,15 @@ public class TrackNetV3K8sAdapter extends K8sTrainerAbstract {
                         containerStatus = "exited";
                     }
                 }
-                
+
                 // 如果还是没有状态，使用默认值
                 if (containerStatus == null || containerStatus.isEmpty()) {
                     containerStatus = "unknown";
                 }
-                
+
                 // 设置 containerStatus 字段
                 jobStatus.put("containerStatus", containerStatus);
-                
+
                 // 生成 output 字段，格式：状态;退出码（与 Docker 实现保持一致）
                 String output = containerStatus;
                 if (exitCode != null) {
@@ -520,10 +520,10 @@ public class TrackNetV3K8sAdapter extends K8sTrainerAbstract {
                     output = containerStatus + ";0";
                 }
                 jobStatus.put("output", output);
-                
+
                 // 更新 result
                 result = jobStatus.toString();
-                
+
                 // 解析状态和退出码
                 String[] parts = output.split(";");
                 String statusPart = parts.length > 0 ? parts[0].trim() : "";
@@ -808,7 +808,7 @@ public class TrackNetV3K8sAdapter extends K8sTrainerAbstract {
     private void addTrackNetV3TrainingLog(String taskId, String logLevel, String logMessage, String trainingLogFilePath) {
         String currentTime = getCurrentTime();
         // 使用实际的训练日志文件路径（如果提供），否则使用默认路径
-        String defaultLogPath = logPathPrefix != null ? logPathPrefix : "/data/wangshuanglong/log/train/";
+        String defaultLogPath = logPathPrefix != null ? logPathPrefix : "/data/log/train/";
         if (!defaultLogPath.endsWith("/")) {
             defaultLogPath += "/";
         }
@@ -869,7 +869,7 @@ public class TrackNetV3K8sAdapter extends K8sTrainerAbstract {
     private void addTrackNetV3PredictLog(String taskId, String logLevel, String logMessage, String predictLogFilePath) {
         String currentTime = getCurrentTime();
         // 使用实际的推理日志文件路径（如果提供），否则使用默认路径
-        String defaultLogPath = "/data/wangshuanglong/log/predict/";
+        String defaultLogPath = "/data/log/predict/";
         if (!defaultLogPath.endsWith("/")) {
             defaultLogPath += "/";
         }
@@ -929,7 +929,7 @@ public class TrackNetV3K8sAdapter extends K8sTrainerAbstract {
     private void uploadPredictLogFile(String taskId, String sourceLogFilePath) {
         try {
             // 目标路径
-            String targetLogPath = "/data/wangshuanglong/log/predict/";
+            String targetLogPath = "/data/log/predict/";
             if (!targetLogPath.endsWith("/")) {
                 targetLogPath += "/";
             }

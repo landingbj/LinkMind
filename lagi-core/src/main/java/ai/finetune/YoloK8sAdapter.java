@@ -204,12 +204,12 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
             }
 
             log.info("已从 model_platform.discriminative_models 加载 K8s/YOLO 配置");
-            log.info("  配置摘要: apiServer={}, namespace={}, image={}, volumeMount={}", 
+            log.info("  配置摘要: apiServer={}, namespace={}, image={}, volumeMount={}",
                     this.apiServer, this.namespace, this.dockerImage, this.volumeMount);
-            log.info("  GPU节点选择器: {}={}", 
+            log.info("  GPU节点选择器: {}={}",
                     this.gpuNodeSelectorKey != null ? this.gpuNodeSelectorKey : "未配置",
                     this.gpuNodeSelectorValue != null ? this.gpuNodeSelectorValue : "未配置");
-            
+
             // 验证关键配置
             if (this.dockerImage == null || this.dockerImage.isEmpty()) {
                 log.warn("  ⚠ 警告: Docker镜像未配置");
@@ -295,7 +295,7 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
                 log.error("  ✗ 错误: dockerImage为空，无法创建Job");
                 throw new IllegalArgumentException("dockerImage不能为空，请检查配置文件中的镜像配置");
             }
-            
+
             JSONObject jobResult = createOneOffJob(jobName, dockerImage, configJson, useGpu, null, resourcesConfig);
             String jobStatus = jobResult.getStr("status");
             if ("success".equals(jobStatus)) {
@@ -347,7 +347,7 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
                 log.error("根本原因: {}", e.getCause().getMessage());
             }
             log.error("错误堆栈: ", e);
-            
+
             JSONObject errorResult = new JSONObject();
             errorResult.put("status", "error");
             errorResult.put("message", "启动训练任务失败");
@@ -1327,7 +1327,7 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
     private void addYoloTrainingLog(String taskId, String logLevel, String logMessage, String trainingLogFilePath) {
         String currentTime = getCurrentTime();
         // 使用实际的训练日志文件路径（如果提供），否则使用默认路径
-        String defaultLogPath = logPathPrefix != null ? logPathPrefix : "/mnt/k8s_data/wangshuanglong/";
+        String defaultLogPath = logPathPrefix != null ? logPathPrefix : "/data/log/";
         if (!defaultLogPath.endsWith("/")) {
             defaultLogPath += "/";
         }
@@ -1405,7 +1405,7 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
     private void addYoloPredictLog(String taskId, String logLevel, String logMessage, String predictLogFilePath) {
         String currentTime = getCurrentTime();
         // 使用实际的推理日志文件路径（如果提供），否则使用默认路径
-        String defaultLogPath = "/data/wangshuanglong/log/predict/";
+        String defaultLogPath = "/data/log/predict/";
         if (!defaultLogPath.endsWith("/")) {
             defaultLogPath += "/";
         }
@@ -1471,7 +1471,7 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
     private void uploadPredictLogFile(String taskId, String sourceLogFilePath) {
         try {
             // 目标路径
-            String targetLogPath = "/data/wangshuanglong/log/predict/";
+            String targetLogPath = "/data/log/predict/";
             if (!targetLogPath.endsWith("/")) {
                 targetLogPath += "/";
             }

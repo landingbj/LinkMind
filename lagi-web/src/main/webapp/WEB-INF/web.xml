@@ -540,6 +540,14 @@
         <url-pattern>/api/localhostFile/*</url-pattern>
     </servlet-mapping>
 
-
+    <servlet>
+        <servlet-name>ModelDependencyServlet</servlet-name>
+        <servlet-class>ai.servlet.api.ModelDependencyServlet</servlet-class>
+        <load-on-startup>1</load-on-startup>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>ModelDependencyServlet</servlet-name>
+        <url-pattern>/api/model/dependency/*</url-pattern>
+    </servlet-mapping>
 
 </web-app>

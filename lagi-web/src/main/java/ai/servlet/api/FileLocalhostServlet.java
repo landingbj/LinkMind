@@ -13,12 +13,13 @@ import java.io.*;
 import java.nio.file.*;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.zip.*;
 
 @Slf4j
 @MultipartConfig(
-    fileSizeThreshold = 1024 * 1024, // 1MB
-    maxFileSize = 1024 * 1024 * 10, // 10MB
-    maxRequestSize = 1024 * 1024 * 50 // 50MB
+    fileSizeThreshold = 1024 * 1024 * 1000, // 1GB
+    maxFileSize = 1024L * 1024 * 1024 * 10, // 10GB
+    maxRequestSize = 1024L * 1024 * 1024 * 10 // 10GB
 )
 public class FileLocalhostServlet extends BaseServlet {
 
@@ -106,27 +107,68 @@ public class FileLocalhostServlet extends BaseServlet {
         }
 
         String basePath = getSafeFilePath(filePath);
-        Path file = Paths.get(basePath, fileName).normalize();
+        Path targetPath = Paths.get(basePath, fileName).normalize();
 
         // 安全检查：确保文件在允许的目录内
-        if (!isPathSafe(basePath, file.toString())) {
+        if (!isPathSafe(basePath, targetPath.toString())) {
             sendError(resp, 403, "访问被拒绝：路径不安全");
             return;
         }
 
-        if (!Files.exists(file) || !Files.isRegularFile(file)) {
-            sendError(resp, 404, "文件不存在");
+        if (!Files.exists(targetPath)) {
+            sendError(resp, 404, "文件或文件夹不存在");
             return;
         }
 
-        try {
+        Path downloadFile;
+        String downloadFileName;
+
+        if (Files.isDirectory(targetPath)) {
+            // 如果是文件夹，压缩成ZIP文件
+            try {
+                Path tempZipFile = Files.createTempFile("download_", ".zip");
+                zipDirectory(targetPath, tempZipFile);
+                downloadFile = tempZipFile;
+                downloadFileName = fileName + ".zip";
+
+                // 设置响应头
+                resp.setContentType("application/zip");
+                resp.setHeader("Content-Disposition", "attachment; filename=\"" + downloadFileName + "\"");
+                resp.setContentLengthLong(Files.size(downloadFile));
+
+                // 传输文件
+                try (InputStream inputStream = Files.newInputStream(downloadFile);
+                     OutputStream outputStream = resp.getOutputStream()) {
+
+                    byte[] buffer = new byte[8192];
+                    int bytesRead;
+                    while ((bytesRead = inputStream.read(buffer)) != -1) {
+                        outputStream.write(buffer, 0, bytesRead);
+                    }
+                    outputStream.flush();
+                }
+
+                // 删除临时文件
+                Files.deleteIfExists(downloadFile);
+                log.info("文件夹下载成功: {} (压缩为 {})", targetPath.toString(), downloadFileName);
+
+            } catch (Exception e) {
+                log.error("文件夹压缩下载失败: {}", targetPath.toString(), e);
+                sendError(resp, 500, "文件夹下载失败: " + e.getMessage());
+                return;
+            }
+        } else {
+            // 如果是文件，直接下载
+            downloadFile = targetPath;
+            downloadFileName = fileName;
+
             // 设置响应头
             resp.setContentType("application/octet-stream");
-            resp.setHeader("Content-Disposition", "attachment; filename=\"" + fileName + "\"");
-            resp.setContentLengthLong(Files.size(file));
+            resp.setHeader("Content-Disposition", "attachment; filename=\"" + downloadFileName + "\"");
+            resp.setContentLengthLong(Files.size(downloadFile));
 
             // 传输文件
-            try (InputStream inputStream = Files.newInputStream(file);
+            try (InputStream inputStream = Files.newInputStream(downloadFile);
                  OutputStream outputStream = resp.getOutputStream()) {
 
                 byte[] buffer = new byte[8192];
@@ -137,11 +179,7 @@ public class FileLocalhostServlet extends BaseServlet {
                 outputStream.flush();
             }
 
-            log.info("文件下载成功: {}", file.toString());
-
-        } catch (Exception e) {
-            log.error("文件下载失败: {}", file.toString(), e);
-            sendError(resp, 500, "文件下载失败: " + e.getMessage());
+            log.info("文件下载成功: {}", downloadFile.toString());
         }
     }
 
@@ -189,38 +227,87 @@ public class FileLocalhostServlet extends BaseServlet {
             return;
         }
 
-        Path targetFile = targetDir.resolve(fileName).normalize();
+        if (isZipFile(fileName)) {
+            // 如果是ZIP文件，先保存到临时文件，然后解压
+            Path tempZipFile = Files.createTempFile("upload_", ".zip");
 
-        // 安全检查：确保文件在允许的目录内
-        if (!isPathSafe(basePath, targetFile.toString())) {
-            sendError(resp, 403, "访问被拒绝：路径不安全");
-            return;
-        }
+            try (InputStream inputStream = filePart.getInputStream();
+                 OutputStream outputStream = Files.newOutputStream(tempZipFile, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
 
-        try (InputStream inputStream = filePart.getInputStream();
-             OutputStream outputStream = Files.newOutputStream(targetFile, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
-
-            byte[] buffer = new byte[8192];
-            int bytesRead;
-            while ((bytesRead = inputStream.read(buffer)) != -1) {
-                outputStream.write(buffer, 0, bytesRead);
+                byte[] buffer = new byte[8192];
+                int bytesRead;
+                while ((bytesRead = inputStream.read(buffer)) != -1) {
+                    outputStream.write(buffer, 0, bytesRead);
+                }
+                outputStream.flush();
+            } catch (Exception e) {
+                log.error("保存ZIP文件失败: {}", tempZipFile.toString(), e);
+                sendError(resp, 500, "文件上传失败: " + e.getMessage());
+                return;
             }
-            outputStream.flush();
-        } catch (Exception e) {
-            log.error("文件上传失败: {}", targetFile.toString(), e);
-            sendError(resp, 500, "文件上传失败: " + e.getMessage());
-            return;
+
+            try {
+                // 解压ZIP文件到目标目录
+                unzipFile(tempZipFile, targetDir);
+
+                // 返回上传结果
+                Map<String, Object> result = new HashMap<>();
+                result.put("fileName", fileName);
+                result.put("fileSize", Files.size(tempZipFile));
+                result.put("filePath", targetDir.toString());
+                result.put("isDirectory", true);
+                result.put("uploadTime", System.currentTimeMillis());
+
+                log.info("文件夹上传成功: {} (解压到 {})", fileName, targetDir.toString());
+                sendSuccess(resp, result);
+
+            } catch (Exception e) {
+                log.error("ZIP文件解压失败: {}", tempZipFile.toString(), e);
+                sendError(resp, 500, "文件夹上传失败: " + e.getMessage());
+            } finally {
+                // 删除临时ZIP文件
+                try {
+                    Files.deleteIfExists(tempZipFile);
+                } catch (Exception e) {
+                    log.warn("删除临时ZIP文件失败: {}", tempZipFile.toString(), e);
+                }
+            }
+        } else {
+            // 如果是普通文件，直接保存
+            Path targetFile = targetDir.resolve(fileName).normalize();
+
+            // 安全检查：确保文件在允许的目录内
+            if (!isPathSafe(basePath, targetFile.toString())) {
+                sendError(resp, 403, "访问被拒绝：路径不安全");
+                return;
+            }
+
+            try (InputStream inputStream = filePart.getInputStream();
+                 OutputStream outputStream = Files.newOutputStream(targetFile, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
+
+                byte[] buffer = new byte[8192];
+                int bytesRead;
+                while ((bytesRead = inputStream.read(buffer)) != -1) {
+                    outputStream.write(buffer, 0, bytesRead);
+                }
+                outputStream.flush();
+            } catch (Exception e) {
+                log.error("文件上传失败: {}", targetFile.toString(), e);
+                sendError(resp, 500, "文件上传失败: " + e.getMessage());
+                return;
+            }
+
+            // 返回上传结果
+            Map<String, Object> result = new HashMap<>();
+            result.put("fileName", fileName);
+            result.put("fileSize", Files.size(targetFile));
+            result.put("filePath", targetFile.toString());
+            result.put("isDirectory", false);
+            result.put("uploadTime", System.currentTimeMillis());
+
+            log.info("文件上传成功: {}", targetFile.toString());
+            sendSuccess(resp, result);
         }
-
-        // 返回上传结果
-        Map<String, Object> result = new HashMap<>();
-        result.put("fileName", fileName);
-        result.put("fileSize", Files.size(targetFile));
-        result.put("filePath", targetFile.toString());
-        result.put("uploadTime", System.currentTimeMillis());
-
-        log.info("文件上传成功: {}", targetFile.toString());
-        sendSuccess(resp, result);
     }
 
     /**
@@ -358,8 +445,11 @@ public class FileLocalhostServlet extends BaseServlet {
         }
 
         try {
+            // 记录文件类型（删除前）
+            boolean isDirectory = Files.isDirectory(targetFile);
+
             // 递归删除目录及其内容
-            if (Files.isDirectory(targetFile)) {
+            if (isDirectory) {
                 deleteDirectoryRecursively(targetFile);
             } else {
                 Files.delete(targetFile);
@@ -367,7 +457,7 @@ public class FileLocalhostServlet extends BaseServlet {
 
             Map<String, Object> result = new HashMap<>();
             result.put("deletedPath", targetFile.toString());
-            result.put("isDirectory", Files.isDirectory(targetFile));
+            result.put("isDirectory", isDirectory);
             result.put("deleteTime", System.currentTimeMillis());
 
             log.info("删除成功: {}", targetFile.toString());
@@ -464,5 +554,79 @@ public class FileLocalhostServlet extends BaseServlet {
         result.put("msg", "操作成功");
         result.put("data", data);
         responsePrint(resp, toJson(result));
+    }
+
+    /**
+     * 压缩文件夹为ZIP文件
+     */
+    private void zipDirectory(Path sourceDir, Path zipFile) throws IOException {
+        try (FileOutputStream fos = new FileOutputStream(zipFile.toFile());
+             ZipOutputStream zos = new ZipOutputStream(fos)) {
+
+            Files.walk(sourceDir).forEach(path -> {
+                try {
+                    String zipEntryName = sourceDir.relativize(path).toString();
+                    if (zipEntryName.isEmpty()) {
+                        return; // 跳过根目录
+                    }
+
+                    if (Files.isDirectory(path)) {
+                        zipEntryName += "/";
+                    }
+
+                    ZipEntry zipEntry = new ZipEntry(zipEntryName);
+                    zos.putNextEntry(zipEntry);
+
+                    if (Files.isRegularFile(path)) {
+                        Files.copy(path, zos);
+                    }
+
+                    zos.closeEntry();
+                } catch (IOException e) {
+                    log.warn("压缩文件时出错: {}", path.toString(), e);
+                }
+            });
+        }
+    }
+
+    /**
+     * 解压ZIP文件到指定目录
+     */
+    private void unzipFile(Path zipFile, Path targetDir) throws IOException {
+        try (FileInputStream fis = new FileInputStream(zipFile.toFile());
+             ZipInputStream zis = new ZipInputStream(fis)) {
+
+            ZipEntry zipEntry;
+            while ((zipEntry = zis.getNextEntry()) != null) {
+                Path targetPath = targetDir.resolve(zipEntry.getName()).normalize();
+
+                // 安全检查：确保解压的文件在目标目录内
+                if (!targetPath.startsWith(targetDir)) {
+                    log.warn("跳过不安全的ZIP条目: {}", zipEntry.getName());
+                    continue;
+                }
+
+                if (zipEntry.isDirectory()) {
+                    Files.createDirectories(targetPath);
+                } else {
+                    Files.createDirectories(targetPath.getParent());
+                    try (FileOutputStream fos = new FileOutputStream(targetPath.toFile())) {
+                        byte[] buffer = new byte[8192];
+                        int bytesRead;
+                        while ((bytesRead = zis.read(buffer)) != -1) {
+                            fos.write(buffer, 0, bytesRead);
+                        }
+                    }
+                }
+                zis.closeEntry();
+            }
+        }
+    }
+
+    /**
+     * 判断文件名是否为ZIP文件
+     */
+    private boolean isZipFile(String fileName) {
+        return fileName != null && (fileName.toLowerCase().endsWith(".zip"));
     }
 }

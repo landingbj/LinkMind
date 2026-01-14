@@ -13,9 +13,9 @@ import ai.openai.pojo.ChatCompletionResult;
 import ai.utils.ApiInvokeUtil;
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.util.StrUtil;
+import com.google.common.collect.Lists;
 import com.google.gson.Gson;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.hadoop.util.Lists;
 
 import java.util.HashMap;
 import java.util.List;

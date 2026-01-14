@@ -2,8 +2,8 @@ package ai.vector.impl;
 
 import ai.common.pojo.IndexSearchData;
 import ai.vector.VectorStoreService;
-import com.alibaba.fastjson.JSONObject;
 import com.google.common.collect.Lists;
+import com.google.gson.JsonObject;
 import io.milvus.v2.client.ConnectConfig;
 import io.milvus.v2.client.MilvusClientV2;
 import io.milvus.v2.common.DataType;
@@ -15,6 +15,8 @@ import io.milvus.v2.service.vector.request.DeleteReq;
 import io.milvus.v2.service.vector.request.QueryReq;
 import io.milvus.v2.service.vector.request.SearchReq;
 import io.milvus.v2.service.vector.request.UpsertReq;
+import io.milvus.v2.service.vector.request.data.BaseVector;
+import io.milvus.v2.service.vector.request.data.FloatVec;
 import io.milvus.v2.service.vector.response.DeleteResp;
 import io.milvus.v2.service.vector.response.QueryResp;
 import io.milvus.v2.service.vector.response.SearchResp;
@@ -44,7 +46,7 @@ public class MilvusVectorStore extends BaseVectorStore {
                     .uri(config.getUrl())
                     .token(config.getToken())
                     .build();
-             this.clientV2 = new MilvusClientV2(connectConfig);
+            this.clientV2 = new MilvusClientV2(connectConfig);
         }catch (Exception e){
 
         }
@@ -72,13 +74,13 @@ public class MilvusVectorStore extends BaseVectorStore {
 
         createCollection(category);
 
-        List<JSONObject> data1 = new ArrayList<>();
+        List<JsonObject> data1 = new ArrayList<>();
         for (int i = 0; i < documents.size(); i++){
-            Map<String, Object> map1 = new HashMap<>();
-            map1.put("id", ids.get(i));
-            map1.put("vector", embeddings.get(i));
-            map1.put("metadata", metadatas.get(i));
-            data1.add(new JSONObject(map1));
+            JsonObject jsonObject = new JsonObject();
+            jsonObject.addProperty("id", ids.get(i));
+            jsonObject.add("vector", new JsonObject());
+            jsonObject.add("metadata", new JsonObject());
+            data1.add(jsonObject);
         }
 
         UpsertReq upsertReq = UpsertReq.builder()
@@ -99,11 +101,12 @@ public class MilvusVectorStore extends BaseVectorStore {
         createCollection(category);
         if (queryCondition.getText() != null){
             List<List<Float>> embeddings = embeddingFunction.createEmbedding(Lists.newArrayList(queryCondition.getText()));
+            List<BaseVector> collect = embeddings.stream().map(FloatVec::new).collect(Collectors.toList());
             Map<String,Object> map = new HashMap<>();
             map.put("radius",config.getSimilarityCutoff());
             SearchReq searchReq = SearchReq.builder()
                     .collectionName(category)
-                    .data(embeddings)
+                    .data(collect)
                     .searchParams(map)
                     .topK(getConfig().getSimilarityTopK())
                     .outputFields(Lists.newArrayList("id","metadata","vector"))
@@ -135,16 +138,16 @@ public class MilvusVectorStore extends BaseVectorStore {
     }
 
     private List<IndexRecord> searchRespToIndexRecord(List<IndexRecord> result,SearchResp searchResp) {
-         for (int i = 0; i < searchResp.getSearchResults().size(); i++) {
-                for (int j = 0; j < searchResp.getSearchResults().get(i).size(); j++){
-                    IndexRecord indexRecord = new IndexRecord();
-                    Map<String,Object> metadata = (Map<String, Object>) searchResp.getSearchResults().get(i).get(j).getEntity().get("metadata");
-                    indexRecord.setId((String) searchResp.getSearchResults().get(i).get(j).getId());
-                    indexRecord.setDocument((String) metadata.get(DOCUMENT));
-                    indexRecord.setMetadata(metadata);
-                    indexRecord.setDistance(1-searchResp.getSearchResults().get(i).get(j).getDistance());
-                    result.add(indexRecord);
-                }
+        for (int i = 0; i < searchResp.getSearchResults().size(); i++) {
+            for (int j = 0; j < searchResp.getSearchResults().get(i).size(); j++){
+                IndexRecord indexRecord = new IndexRecord();
+                Map<String,Object> metadata = (Map<String, Object>) searchResp.getSearchResults().get(i).get(j).getEntity().get("metadata");
+                indexRecord.setId((String) searchResp.getSearchResults().get(i).get(j).getId());
+                indexRecord.setDocument((String) metadata.get(DOCUMENT));
+                indexRecord.setMetadata(metadata);
+                indexRecord.setDistance(1-searchResp.getSearchResults().get(i).get(j).getScore());
+                result.add(indexRecord);
+            }
         }
         return result;
     }
@@ -174,11 +177,11 @@ public class MilvusVectorStore extends BaseVectorStore {
     @Override
     public void delete(List<String> ids, String category) {
         try {
-                DeleteReq deleteReq = DeleteReq.builder()
-                        .collectionName(category)
-                        .ids(ids.stream().map(s->(Object) s).collect(Collectors.toList()))
-                        .build();
-                DeleteResp deleteResp = clientV2.delete(deleteReq);
+            DeleteReq deleteReq = DeleteReq.builder()
+                    .collectionName(category)
+                    .ids(ids.stream().map(s->(Object) s).collect(Collectors.toList()))
+                    .build();
+            DeleteResp deleteResp = clientV2.delete(deleteReq);
         }catch (Exception e){
         }
 

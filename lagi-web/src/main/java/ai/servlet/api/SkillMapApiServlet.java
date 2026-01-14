@@ -15,8 +15,8 @@ import ai.utils.qa.ChatCompletionUtil;
 import ai.worker.skillMap.SkillMap;
 import ai.worker.skillMap.db.AgentInfoDao;
 import cn.hutool.core.util.StrUtil;
+import com.google.common.collect.Lists;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.hadoop.util.Lists;
 
 import java.lang.reflect.Constructor;
 import java.util.List;
@@ -105,35 +105,35 @@ public class SkillMapApiServlet extends RestfulServlet {
 
     private void loadDescribe(AgentConfig agentConfig) {
         CompletableFuture.runAsync(() -> {
-                try {
-                    Class<?> aClass = Class.forName(agentConfig.getDriver());
-                    Constructor<?> constructor = aClass.getConstructor(AgentConfig.class);
-                    Agent<ChatCompletionRequest, ChatCompletionResult> agent = (Agent<ChatCompletionRequest, ChatCompletionResult>) constructor.newInstance(agentConfig);
-                    ChatCompletionRequest chatCompletionRequest = new ChatCompletionRequest();
-                    chatCompletionRequest.setTemperature(0.1);
-                    chatCompletionRequest.setMax_tokens(1024);
-                    chatCompletionRequest.setStream(false);
-                    ChatMessage chatMessage = new ChatMessage();
-                    chatMessage.setRole("user");
-                    chatMessage.setContent("请简明列出你的核心能力，涵盖知识领域、任务处理类型等，要求 50 字内清晰呈现。");
-                    chatCompletionRequest.setMessages(Lists.newArrayList(chatMessage));
-                    AgentInfoDao.AgentInfo agentInfo = AgentInfoDao.getByAgentId(agentConfig.getId());
-                    if(agentInfo != null) {
-                        return;
-                    }
-                    synchronized (agentConfig.getId()) {
-                        agentInfo = AgentInfoDao.getByAgentId(agentConfig.getId());
-                        if(agentInfo == null) {
-                            ChatCompletionResult communicate = agent.communicate(chatCompletionRequest);
-                            String describe = ChatCompletionUtil.getFirstAnswer(communicate);
-                            log.info("agent {}-{} save describe: {}", agentConfig.getId(), agentConfig.getName(),  describe);
-                            AgentInfoDao.saveOrUpdate(
-                                    AgentInfoDao.AgentInfo.builder().agentId(agentConfig.getId()).agentDescribe(describe).build()
-                            );
-                        }
-                    }
-                } catch (Exception ignored) {
+            try {
+                Class<?> aClass = Class.forName(agentConfig.getDriver());
+                Constructor<?> constructor = aClass.getConstructor(AgentConfig.class);
+                Agent<ChatCompletionRequest, ChatCompletionResult> agent = (Agent<ChatCompletionRequest, ChatCompletionResult>) constructor.newInstance(agentConfig);
+                ChatCompletionRequest chatCompletionRequest = new ChatCompletionRequest();
+                chatCompletionRequest.setTemperature(0.1);
+                chatCompletionRequest.setMax_tokens(1024);
+                chatCompletionRequest.setStream(false);
+                ChatMessage chatMessage = new ChatMessage();
+                chatMessage.setRole("user");
+                chatMessage.setContent("请简明列出你的核心能力，涵盖知识领域、任务处理类型等，要求 50 字内清晰呈现。");
+                chatCompletionRequest.setMessages(Lists.newArrayList(chatMessage));
+                AgentInfoDao.AgentInfo agentInfo = AgentInfoDao.getByAgentId(agentConfig.getId());
+                if(agentInfo != null) {
+                    return;
                 }
+                synchronized (agentConfig.getId()) {
+                    agentInfo = AgentInfoDao.getByAgentId(agentConfig.getId());
+                    if(agentInfo == null) {
+                        ChatCompletionResult communicate = agent.communicate(chatCompletionRequest);
+                        String describe = ChatCompletionUtil.getFirstAnswer(communicate);
+                        log.info("agent {}-{} save describe: {}", agentConfig.getId(), agentConfig.getName(),  describe);
+                        AgentInfoDao.saveOrUpdate(
+                                AgentInfoDao.AgentInfo.builder().agentId(agentConfig.getId()).agentDescribe(describe).build()
+                        );
+                    }
+                }
+            } catch (Exception ignored) {
+            }
         });
     }
 

@@ -13,9 +13,7 @@ import ai.paas.beidian.pojo.request.PasswordLoginRequest;
 import ai.paas.beidian.pojo.response.*;
 import ai.paas.beidian.service.PlatformApiService;
 import cn.hutool.core.util.StrUtil;
-import cn.hutool.json.JSONUtil;
-import com.google.gson.Gson;
-import org.apache.hadoop.util.Lists;
+import com.google.common.collect.Lists;
 import org.apache.http.HttpResponse;
 import org.apache.http.HttpStatus;
 import org.apache.http.client.methods.HttpGet;
@@ -189,7 +187,7 @@ public class BeiDianDeployImpl implements ModelDeployment {
         String script = StrUtil.format(runscript, supportModel.getName());
         String runScript = taskRoleInfo.getRunScript();
         // 根据脚本是否变化判断是否更新
-            if(script.equals(runScript)) {
+        if(script.equals(runScript)) {
             deployRequest.setInferenceId(inferenceDetailData.getInferenceId());
             modelDevelopInfoDao.update(deployRequest);
             return true;

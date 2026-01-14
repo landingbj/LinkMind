@@ -241,11 +241,16 @@
             <artifactId>jackson-dataformat-yaml</artifactId>
             <version>${jackson-dataformat-yaml.version}</version>
             <exclusions>
-                <!--                <exclusion>-->
-                <!--                    <groupId>org.yaml</groupId>-->
-                <!--                    <artifactId>snakeyaml</artifactId>-->
-                <!--                </exclusion>-->
+                <exclusion>
+                    <groupId>org.yaml</groupId>
+                    <artifactId>snakeyaml</artifactId>
+                </exclusion>
             </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.yaml</groupId>
+            <artifactId>snakeyaml</artifactId>
+            <version>2.0</version>
         </dependency>
         <dependency>
             <groupId>io.minio</groupId>

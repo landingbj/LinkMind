@@ -8,7 +8,6 @@ import ai.openai.pojo.ChatCompletionResult;
 import ai.router.pojo.RouteAgentResult;
 import ai.router.pojo.RouteCompletionResult;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.hadoop.util.Lists;
 
 import java.util.ArrayList;
 import java.util.List;

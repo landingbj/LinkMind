@@ -1,9 +1,9 @@
 package ai.paas.beidian.utils;
 
 import cn.hutool.core.util.StrUtil;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import okhttp3.*;
-import org.apache.hadoop.util.Lists;
 
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.SSLContext;

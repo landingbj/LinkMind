@@ -9,7 +9,7 @@ import ai.image.adapter.IImage2TextAdapter;
 import ai.openai.pojo.*;
 import ai.utils.Base64Util;
 import ai.vl.service.VlCompletionsService;
-import org.apache.hadoop.util.Lists;
+import com.google.common.collect.Lists;
 
 import java.io.File;
 import java.util.ArrayList;

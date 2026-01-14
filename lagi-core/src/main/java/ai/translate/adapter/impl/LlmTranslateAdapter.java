@@ -8,8 +8,8 @@ import ai.openai.pojo.ChatMessage;
 import ai.translate.adapter.TranslateAdapter;
 import ai.translate.pojo.TranslateResponse;
 import ai.translate.pojo.TranslateResult;
+import com.google.common.collect.Lists;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.hadoop.util.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -28,9 +28,9 @@ public class LlmTranslateAdapter extends ModelService implements TranslateAdapte
         ChatCompletionResult completions = completionsService.completions(request);
         return TranslateResponse.builder()
                 .transResult(Lists.newArrayList(TranslateResult.builder()
-                                                                .dst(completions.getChoices().get(0).getMessage().getContent())
-                                                                .src(query)
-                                                                .build()))
+                        .dst(completions.getChoices().get(0).getMessage().getContent())
+                        .src(query)
+                        .build()))
                 .build();
     }
 

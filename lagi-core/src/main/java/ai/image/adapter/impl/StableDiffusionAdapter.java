@@ -8,9 +8,9 @@ import ai.common.pojo.ImageGenerationResult;
 import ai.image.adapter.IImageGenerationAdapter;
 import ai.image.util.ImageUrlToBase64Util;
 import ai.utils.OkHttpUtil;
+import com.google.common.collect.Lists;
 import com.google.gson.Gson;
 import lombok.Data;
-import org.apache.hadoop.util.Lists;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

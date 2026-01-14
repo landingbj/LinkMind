@@ -2,7 +2,7 @@ package ai.worker.pipeline;
 
 import ai.agent.Agent;
 import ai.mr.pipeline.Producer;
-import org.apache.hadoop.util.Lists;
+import com.google.common.collect.Lists;
 
 import java.io.Serializable;
 import java.util.Collection;

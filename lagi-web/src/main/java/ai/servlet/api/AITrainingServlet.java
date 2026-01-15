@@ -5,16 +5,11 @@ import ai.config.ContextLoader;
 import ai.config.pojo.DiscriminativeModelsConfig;
 import ai.dto.TrainingLogs;
 import ai.dto.TrainingTasks;
-import ai.finetune.YoloTrainerAdapter;
-import ai.finetune.DeeplabAdapter;
-import ai.finetune.TrackNetV3Adapter;
-import ai.finetune.TrainerFactory;
-import ai.finetune.TrainerInterface;
-import ai.finetune.YoloK8sAdapter;
-import ai.finetune.DeeplabK8sAdapter;
-import ai.finetune.TrackNetV3K8sAdapter;
-import ai.finetune.SSHConnectionManager;
+import ai.finetune.*;
+
 import ai.finetune.repository.TrainingTaskRepository;
+import ai.finetune.universal.BasicTrainerFactory;
+import ai.finetune.universal.BasicTrainerInterface;
 import ai.servlet.BaseServlet;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
@@ -882,7 +877,39 @@ public class AITrainingServlet extends BaseServlet {
             }
 
             // 从数据库查询任务详情
-            TrainingTaskRepository repository = yoloTrainer.getRepository();
+            // 安全获取 TrainingTaskRepository，处理 yoloTrainer 为 null 的情况
+            TrainingTaskRepository repository = null;
+            if (yoloTrainer != null) {
+                repository = yoloTrainer.getRepository();
+            } else if (deeplabAdapter != null) {
+                repository = deeplabAdapter.getRepository();
+            } else if (!trainerMap.isEmpty()) {
+                // 尝试从 trainerMap 中获取任意一个可用的训练器的 repository
+                for (TrainerInterface trainer : trainerMap.values()) {
+                    if (trainer instanceof ai.finetune.YoloK8sAdapter) {
+                        repository = ((ai.finetune.YoloK8sAdapter) trainer).getRepository();
+                        break;
+                    } else if (trainer instanceof ai.finetune.DeeplabK8sAdapter) {
+                        repository = ((ai.finetune.DeeplabK8sAdapter) trainer).getRepository();
+                        break;
+                    } else if (trainer instanceof ai.finetune.TrackNetV3K8sAdapter) {
+                        repository = ((ai.finetune.TrackNetV3K8sAdapter) trainer).getRepository();
+                        break;
+                    } else if (trainer instanceof ai.finetune.TrackNetV3Adapter) {
+                        repository = ((ai.finetune.TrackNetV3Adapter) trainer).getRepository();
+                        break;
+                    }
+                }
+            }
+            
+            if (repository == null) {
+                resp.setStatus(503);
+                response.put("code", "503");
+                response.put("message", "训练服务未初始化，无法查询任务详情");
+                responsePrint(resp, toJson(response));
+                return;
+            }
+            
             Map<String, Object> taskDetail = repository.getTaskDetailByTaskId(taskId);
 
             if (taskDetail == null) {
@@ -904,9 +931,14 @@ public class AITrainingServlet extends BaseServlet {
                 if (templateInfo != null) {
                     //这里的templateId是template_info表中的template_id
                     String templateId = (String) templateInfo.get("template_id");
-                    // 查询模板字段
-                    List<Map<String, Object>> templateFields = repository.getTemplateFieldsByTemplateId(templateId);
-                    templateInfo.put("fields", templateFields);
+                    // 只有当 templateId 不为 null 时才查询模板字段
+                    if (templateId != null && !templateId.isEmpty()) {
+                        List<Map<String, Object>> templateFields = repository.getTemplateFieldsByTemplateId(templateId);
+                        templateInfo.put("fields", templateFields);
+                    } else {
+                        log.warn("模板信息中 template_id 为空，taskId={}, tempId={}", taskId, tempId);
+                        templateInfo.put("fields", new ArrayList<>());
+                    }
                 }
                 result.put("template", templateInfo);
             }
@@ -1057,6 +1089,13 @@ public class AITrainingServlet extends BaseServlet {
             if (trackId == null || trackId.isEmpty()) {
                 trackId = YoloTrainerAdapter.generateTrackId();
             }
+
+            // 通过工厂创建训练器
+            //BasicTrainerInterface trainerInterface = BasicTrainerFactory.createTrainer(modelName, "k8s");
+            // 构建训练配置
+            //JSONObject trainConfig = buildTrainConfig(config, taskId, trackId, modelName);
+            //  调用训练接口
+            //String result = trainerInterface.startTraining(taskId, trackId, trainConfig);
 
             final String finalTaskId = taskId;
             final String finalTrackId = trackId;

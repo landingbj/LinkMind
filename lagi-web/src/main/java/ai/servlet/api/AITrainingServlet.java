@@ -3,26 +3,17 @@ package ai.servlet.api;
 import ai.common.utils.ObservableList;
 import ai.config.ContextLoader;
 import ai.config.pojo.DiscriminativeModelsConfig;
-import ai.dto.TrainingLogs;
-import ai.dto.TrainingTasks;
 import ai.finetune.*;
 
 import ai.finetune.repository.TrainingTaskRepository;
-import ai.finetune.universal.BasicTrainerFactory;
-import ai.finetune.universal.BasicTrainerInterface;
 import ai.servlet.BaseServlet;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import cn.hutool.setting.yaml.YamlUtil;
 import com.google.gson.Gson;
-import com.jcraft.jsch.ChannelExec;
-import com.jcraft.jsch.Session;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
 
-import java.io.BufferedReader;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
@@ -35,7 +26,6 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
@@ -43,7 +33,6 @@ import java.util.stream.Collectors;
  * 支持任意 AI 模型的训练、评估、预测和导出
  * 包括但不限于：YOLOv8, YOLOv11, CenterNet, CRNN, HRNet, PIDNet, ResNet, OSNet等
  * 提供训练任务的完整生命周期管理和流式输出
- *
  * 扩展性：
  * - 通过 trainerMap 注册新模型的 Trainer
  * - 支持动态模型类别和框架推断

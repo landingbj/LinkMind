@@ -394,6 +394,16 @@ public class TrainTaskServlet extends BaseServlet {
                 log.info("任务已终止，触发轮询停止: taskId={}, status={}", taskId, localStatus.getDesc());
                 addTrainingTaskLog(taskId,"INFO", "训练任务已完成");
                 stopPolling(taskId);
+                
+                // 训练完成后自动入库新模型（仅当状态为completed时）
+                if (localStatus == TaskStatus.COMPLETED && "completed".equals(localStatus.getValue())) {
+                    try {
+                        ai.finetune.utils.TrainingPostProcessor postProcessor = new ai.finetune.utils.TrainingPostProcessor();
+                        postProcessor.processTrainingCompletion(taskId);
+                    } catch (Exception e) {
+                        log.warn("训练后自动入库处理失败: taskId={}", taskId, e);
+                    }
+                }
             }
 
         } catch (Exception e) {

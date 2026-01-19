@@ -629,6 +629,18 @@ public class AITrainingServlet extends BaseServlet {
             case "monitor":
                 handleMonitor(req, resp);
                 break;
+            case "uploadModel":
+                handleUploadModel(req, resp);
+                break;
+            case "uploadDataset":
+                handleUploadDataset(req, resp);
+                break;
+            case "listModels":
+                handleListModelsForTraining(req, resp);
+                break;
+            case "listDatasets":
+                handleListDatasetsForTraining(req, resp);
+                break;
             default:
                 resp.setStatus(404);
                 Map<String, String> error = new HashMap<>();
@@ -1226,29 +1238,86 @@ public class AITrainingServlet extends BaseServlet {
             trainConfig.put("template_id", templateId);
         }
 
+        // 支持通过model_id和dataset_id获取路径
+        ai.finetune.utils.ModelDatasetManager manager = new ai.finetune.utils.ModelDatasetManager();
+        ai.config.ModelStorageConfig storageConfig = ai.config.ModelStorageConfig.getInstance();
+        
+        String modelPath = null;
+        String datasetPath = null;
+        Long modelId = null;
+        Long datasetId = null;
+        
+        // 如果提供了model_id，从数据库查询模型路径
+        if (config.containsKey("model_id")) {
+            try {
+                modelId = config.getLong("model_id");
+                Map<String, Object> modelInfo = manager.getModelById(modelId);
+                if (modelInfo != null) {
+                    modelPath = (String) modelInfo.get("path");
+                    trainConfig.put("model_id", modelId);
+                }
+            } catch (Exception e) {
+                log.warn("获取模型信息失败: modelId={}", config.get("model_id"), e);
+            }
+        }
+        
+        // 如果提供了dataset_id，从数据库查询数据集路径
+        if (config.containsKey("dataset_id")) {
+            try {
+                datasetId = config.getLong("dataset_id");
+                Map<String, Object> datasetInfo = manager.getDatasetById(datasetId);
+                if (datasetInfo != null) {
+                    datasetPath = (String) datasetInfo.get("path");
+                    trainConfig.put("dataset_id", datasetId);
+                }
+            } catch (Exception e) {
+                log.warn("获取数据集信息失败: datasetId={}", config.get("dataset_id"), e);
+            }
+        }
+
         // 使用配置文件的默认值
         if (defaultConfig != null && !defaultConfig.isEmpty()) {
-            trainConfig.put("model_path", config.getStr("model_path", (String) defaultConfig.get("model_path")));
-            trainConfig.put("data", config.getStr("data", (String) defaultConfig.get("data")));
+            trainConfig.put("model_path", modelPath != null ? modelPath : config.getStr("model_path", (String) defaultConfig.get("model_path")));
+            trainConfig.put("data", datasetPath != null ? datasetPath : config.getStr("data", (String) defaultConfig.get("data")));
             trainConfig.put("epochs", config.getInt("epochs", (Integer) defaultConfig.get("epochs")));
             trainConfig.put("batch", config.getInt("batch", (Integer) defaultConfig.get("batch")));
             trainConfig.put("imgsz", config.getInt("imgsz", (Integer) defaultConfig.get("imgsz")));
             trainConfig.put("device", config.getStr("device", (String) defaultConfig.get("device")));
-            trainConfig.put("project", config.getStr("project", (String) defaultConfig.get("project")));
+            
+            // 动态生成project路径，使用model_id作为子目录
+            String projectBase = config.getStr("project", (String) defaultConfig.get("project"));
+            if (modelId != null) {
+                projectBase = projectBase + "/" + modelId;
+            }
+            trainConfig.put("project", projectBase);
             trainConfig.put("runs_dir", config.getStr("runs_dir", (String) defaultConfig.get("runs_dir")));
         } else {
-            trainConfig.put("model_path", config.getStr("model_path", "/app/data/models/yolo11n.pt"));
-            trainConfig.put("data", config.getStr("data", "/app/data/datasets/YoloV8/data.yaml"));
+            trainConfig.put("model_path", modelPath != null ? modelPath : config.getStr("model_path", "/app/data/models/yolo11n.pt"));
+            trainConfig.put("data", datasetPath != null ? datasetPath : config.getStr("data", "/app/data/datasets/YoloV8/data.yaml"));
             trainConfig.put("epochs", config.getInt("epochs", 10));
             trainConfig.put("batch", config.getInt("batch", 2));
             trainConfig.put("imgsz", config.getInt("imgsz", 640));
             trainConfig.put("device", config.getStr("device", "0"));
-            trainConfig.put("project", config.getStr("project", "/app/data/project"));
+            
+            // 动态生成project路径
+            String projectBase = config.getStr("project", storageConfig.getProjectPath());
+            if (modelId != null) {
+                projectBase = projectBase + "/" + modelId;
+            }
+            trainConfig.put("project", projectBase);
             trainConfig.put("runs_dir", config.getStr("runs_dir", "/app/data"));
         }
 
         trainConfig.put("exist_ok", config.getBool("exist_ok", true));
         trainConfig.put("name", config.getStr("name", "yolo_experiment_" + System.currentTimeMillis()));
+
+        // 保存model_id和dataset_id到训练任务配置中，以便训练完成后使用
+        if (modelId != null) {
+            trainConfig.put("original_model_id", modelId);
+        }
+        if (datasetId != null) {
+            trainConfig.put("original_dataset_id", datasetId);
+        }
 
         return trainer.startTraining(taskId, trackId, trainConfig);
     }
@@ -2783,6 +2852,401 @@ public class AITrainingServlet extends BaseServlet {
         error.put("error", message);
         error.put("percent", 0);
         return error;
+    }
+
+    // ============================================
+    // 模型与数据集管理功能
+    // ============================================
+
+    /**
+     * 上传模型文件
+     * POST /api/ai/training/uploadModel
+     */
+    private void handleUploadModel(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            // 检查请求是否为multipart/form-data格式
+            if (!org.apache.commons.fileupload.servlet.ServletFileUpload.isMultipartContent(req)) {
+                resp.setStatus(400);
+                response.put("status", "failed");
+                response.put("message", "请求必须是multipart/form-data格式");
+                response.put("code", 400);
+                responsePrint(resp, toJson(response));
+                return;
+            }
+
+            // 解析multipart请求
+            org.apache.commons.fileupload.disk.DiskFileItemFactory factory = new org.apache.commons.fileupload.disk.DiskFileItemFactory();
+            org.apache.commons.fileupload.servlet.ServletFileUpload upload = new org.apache.commons.fileupload.servlet.ServletFileUpload(factory);
+            @SuppressWarnings("unchecked")
+            java.util.List<org.apache.commons.fileupload.FileItem> items = upload.parseRequest(req);
+
+            String modelName = null;
+            String description = null;
+            String modelType = null;
+            String framework = null;
+            String userId = null;
+            Long introductionId = null;
+            org.apache.commons.fileupload.FileItem fileItem = null;
+
+            // 解析表单字段
+            for (org.apache.commons.fileupload.FileItem item : items) {
+                if (item.isFormField()) {
+                    String fieldName = item.getFieldName();
+                    String fieldValue = item.getString("UTF-8");
+
+                    switch (fieldName) {
+                        case "model_name":
+                            modelName = fieldValue;
+                            break;
+                        case "description":
+                            description = fieldValue;
+                            break;
+                        case "model_type":
+                            modelType = fieldValue;
+                            break;
+                        case "framework":
+                            framework = fieldValue;
+                            break;
+                        case "user_id":
+                            userId = fieldValue;
+                            break;
+                        case "introduction_id":
+                            try {
+                                introductionId = Long.parseLong(fieldValue);
+                            } catch (NumberFormatException e) {
+                                log.warn("无效的introduction_id: {}", fieldValue);
+                            }
+                            break;
+                    }
+                } else {
+                    fileItem = item;
+                }
+            }
+
+            // 验证必填字段
+            if (modelName == null || modelName.trim().isEmpty()) {
+                resp.setStatus(400);
+                response.put("status", "failed");
+                response.put("message", "模型名称不能为空");
+                response.put("code", 400);
+                responsePrint(resp, toJson(response));
+                return;
+            }
+
+            if (fileItem == null || fileItem.getSize() == 0) {
+                resp.setStatus(400);
+                response.put("status", "failed");
+                response.put("message", "请选择要上传的文件");
+                response.put("code", 400);
+                responsePrint(resp, toJson(response));
+                return;
+            }
+
+            // 获取存储配置
+            ai.config.ModelStorageConfig storageConfig = ai.config.ModelStorageConfig.getInstance();
+            String modelsPath = storageConfig.getModelsPath();
+
+            // 确保目录存在
+            java.nio.file.Path targetDir = java.nio.file.Paths.get(modelsPath);
+            if (!java.nio.file.Files.exists(targetDir)) {
+                java.nio.file.Files.createDirectories(targetDir);
+            }
+
+            // 生成唯一文件名
+            String fileName = fileItem.getName();
+            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
+            String uniqueFileName = timestamp + "_" + fileName;
+            java.nio.file.Path targetPath = targetDir.resolve(uniqueFileName);
+
+            // 保存文件
+            try (java.io.InputStream fileInputStream = fileItem.getInputStream()) {
+                java.nio.file.Files.copy(fileInputStream, targetPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+
+            String finalPath = targetPath.toString();
+            long fileSize = fileItem.getSize();
+            String fileType = getFileExtension(fileName);
+
+            // 保存到数据库
+            ai.finetune.utils.ModelDatasetManager manager = new ai.finetune.utils.ModelDatasetManager();
+            String version = ai.finetune.utils.ModelVersionManager.getInitialVersion();
+            Long modelId = manager.saveModel(modelName, finalPath, version, null, introductionId,
+                                           modelType, framework, fileSize, fileType, description, userId);
+
+            if (modelId == null) {
+                // 如果入库失败，删除已上传的文件
+                try {
+                    java.nio.file.Files.deleteIfExists(targetPath);
+                } catch (Exception e) {
+                    log.warn("删除上传文件失败: {}", targetPath, e);
+                }
+                resp.setStatus(500);
+                response.put("status", "failed");
+                response.put("message", "模型入库失败");
+                response.put("code", 500);
+                responsePrint(resp, toJson(response));
+                return;
+            }
+
+            // 返回成功响应
+            resp.setStatus(200);
+            response.put("status", "success");
+            response.put("message", "模型上传成功");
+            response.put("code", 200);
+            Map<String, Object> data = new HashMap<>();
+            data.put("model_id", modelId);
+            data.put("model_name", modelName);
+            data.put("model_path", finalPath);
+            data.put("version", version);
+            data.put("file_size", fileSize);
+            data.put("created_at", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+            response.put("data", data);
+            responsePrint(resp, toJson(response));
+
+        } catch (Exception e) {
+            log.error("上传模型失败", e);
+            resp.setStatus(500);
+            response.put("status", "failed");
+            response.put("message", "上传失败: " + e.getMessage());
+            response.put("code", 500);
+            responsePrint(resp, toJson(response));
+        }
+    }
+
+    /**
+     * 上传数据集文件
+     * POST /api/ai/training/uploadDataset
+     */
+    private void handleUploadDataset(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            // 检查请求是否为multipart/form-data格式
+            if (!org.apache.commons.fileupload.servlet.ServletFileUpload.isMultipartContent(req)) {
+                resp.setStatus(400);
+                response.put("status", "failed");
+                response.put("message", "请求必须是multipart/form-data格式");
+                response.put("code", 400);
+                responsePrint(resp, toJson(response));
+                return;
+            }
+
+            // 解析multipart请求
+            org.apache.commons.fileupload.disk.DiskFileItemFactory factory = new org.apache.commons.fileupload.disk.DiskFileItemFactory();
+            org.apache.commons.fileupload.servlet.ServletFileUpload upload = new org.apache.commons.fileupload.servlet.ServletFileUpload(factory);
+            @SuppressWarnings("unchecked")
+            java.util.List<org.apache.commons.fileupload.FileItem> items = upload.parseRequest(req);
+
+            String datasetName = null;
+            String description = null;
+            String userId = null;
+            org.apache.commons.fileupload.FileItem fileItem = null;
+
+            // 解析表单字段
+            for (org.apache.commons.fileupload.FileItem item : items) {
+                if (item.isFormField()) {
+                    String fieldName = item.getFieldName();
+                    String fieldValue = item.getString("UTF-8");
+
+                    switch (fieldName) {
+                        case "dataset_name":
+                            datasetName = fieldValue;
+                            break;
+                        case "description":
+                            description = fieldValue;
+                            break;
+                        case "user_id":
+                            userId = fieldValue;
+                            break;
+                    }
+                } else {
+                    fileItem = item;
+                }
+            }
+
+            // 验证必填字段
+            if (datasetName == null || datasetName.trim().isEmpty()) {
+                resp.setStatus(400);
+                response.put("status", "failed");
+                response.put("message", "数据集名称不能为空");
+                response.put("code", 400);
+                responsePrint(resp, toJson(response));
+                return;
+            }
+
+            if (fileItem == null || fileItem.getSize() == 0) {
+                resp.setStatus(400);
+                response.put("status", "failed");
+                response.put("message", "请选择要上传的文件");
+                response.put("code", 400);
+                responsePrint(resp, toJson(response));
+                return;
+            }
+
+            // 获取存储配置
+            ai.config.ModelStorageConfig storageConfig = ai.config.ModelStorageConfig.getInstance();
+            String datasetsPath = storageConfig.getDatasetsPath();
+
+            // 确保目录存在
+            java.nio.file.Path targetDir = java.nio.file.Paths.get(datasetsPath);
+            if (!java.nio.file.Files.exists(targetDir)) {
+                java.nio.file.Files.createDirectories(targetDir);
+            }
+
+            // 生成唯一文件名
+            String fileName = fileItem.getName();
+            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
+            String uniqueFileName = timestamp + "_" + fileName;
+            java.nio.file.Path targetPath = targetDir.resolve(uniqueFileName);
+
+            // 保存文件
+            try (java.io.InputStream fileInputStream = fileItem.getInputStream()) {
+                java.nio.file.Files.copy(fileInputStream, targetPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+
+            String finalPath = targetPath.toString();
+            long fileSize = fileItem.getSize();
+            String fileType = getFileExtension(fileName);
+
+            // 保存到数据库
+            ai.finetune.utils.ModelDatasetManager manager = new ai.finetune.utils.ModelDatasetManager();
+            Long datasetId = manager.saveDataset(datasetName, finalPath, description, userId, fileSize, fileType);
+
+            if (datasetId == null) {
+                // 如果入库失败，删除已上传的文件
+                try {
+                    java.nio.file.Files.deleteIfExists(targetPath);
+                } catch (Exception e) {
+                    log.warn("删除上传文件失败: {}", targetPath, e);
+                }
+                resp.setStatus(500);
+                response.put("status", "failed");
+                response.put("message", "数据集入库失败");
+                response.put("code", 500);
+                responsePrint(resp, toJson(response));
+                return;
+            }
+
+            // 返回成功响应
+            resp.setStatus(200);
+            response.put("status", "success");
+            response.put("message", "数据集上传成功");
+            response.put("code", 200);
+            Map<String, Object> data = new HashMap<>();
+            data.put("dataset_id", datasetId);
+            data.put("dataset_name", datasetName);
+            data.put("dataset_path", finalPath);
+            data.put("file_size", fileSize);
+            data.put("created_at", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+            response.put("data", data);
+            responsePrint(resp, toJson(response));
+
+        } catch (Exception e) {
+            log.error("上传数据集失败", e);
+            resp.setStatus(500);
+            response.put("status", "failed");
+            response.put("message", "上传失败: " + e.getMessage());
+            response.put("code", 500);
+            responsePrint(resp, toJson(response));
+        }
+    }
+
+    /**
+     * 查询模型列表（用于训练页面下拉框）
+     * GET /api/ai/training/listModels?user_id=xxx
+     */
+    private void handleListModelsForTraining(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            String userId = req.getParameter("user_id");
+
+            ai.finetune.utils.ModelDatasetManager manager = new ai.finetune.utils.ModelDatasetManager();
+            java.util.List<Map<String, Object>> models = manager.listModels(userId);
+
+            if (models == null) {
+                resp.setStatus(500);
+                response.put("status", "failed");
+                response.put("message", "查询模型列表失败");
+                response.put("code", 500);
+                responsePrint(resp, toJson(response));
+                return;
+            }
+
+            resp.setStatus(200);
+            response.put("status", "success");
+            response.put("code", 200);
+            response.put("data", models);
+            response.put("total", models.size());
+            responsePrint(resp, toJson(response));
+
+        } catch (Exception e) {
+            log.error("查询模型列表失败", e);
+            resp.setStatus(500);
+            response.put("status", "failed");
+            response.put("message", "查询失败: " + e.getMessage());
+            response.put("code", 500);
+            responsePrint(resp, toJson(response));
+        }
+    }
+
+    /**
+     * 查询数据集列表（用于训练页面下拉框）
+     * GET /api/ai/training/listDatasets?user_id=xxx
+     */
+    private void handleListDatasetsForTraining(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            String userId = req.getParameter("user_id");
+
+            ai.finetune.utils.ModelDatasetManager manager = new ai.finetune.utils.ModelDatasetManager();
+            java.util.List<Map<String, Object>> datasets = manager.listDatasets(userId);
+
+            if (datasets == null) {
+                resp.setStatus(500);
+                response.put("status", "failed");
+                response.put("message", "查询数据集列表失败");
+                response.put("code", 500);
+                responsePrint(resp, toJson(response));
+                return;
+            }
+
+            resp.setStatus(200);
+            response.put("status", "success");
+            response.put("code", 200);
+            response.put("data", datasets);
+            response.put("total", datasets.size());
+            responsePrint(resp, toJson(response));
+
+        } catch (Exception e) {
+            log.error("查询数据集列表失败", e);
+            resp.setStatus(500);
+            response.put("status", "failed");
+            response.put("message", "查询失败: " + e.getMessage());
+            response.put("code", 500);
+            responsePrint(resp, toJson(response));
+        }
+    }
+
+    /**
+     * 获取文件扩展名
+     */
+    private String getFileExtension(String filePath) {
+        if (filePath == null || filePath.isEmpty()) {
+            return "";
+        }
+        int lastDot = filePath.lastIndexOf('.');
+        if (lastDot > 0 && lastDot < filePath.length() - 1) {
+            return filePath.substring(lastDot + 1).toLowerCase();
+        }
+        return "";
     }
 
 }

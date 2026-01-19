@@ -1,0 +1,26 @@
+# ============================================
+# 训练相关配置
+# 管理版本递增规则、默认路径等
+# ============================================
+
+training:
+  # 版本递增规则：major(主版本), minor(次版本), patch(补丁版本)
+  # major: V1.0.0 -> V2.0.0
+  # minor: V1.0.0 -> V1.1.0
+  # patch: V1.0.0 -> V1.0.1
+  version_increment: minor
+  
+  # 默认训练输出目录（支持环境变量）
+  default_output_dir: ${STORAGE_BASE_PATH:/app/data}/trained_models
+  
+  # 训练完成后是否自动入库
+  auto_save_after_training: true
+  
+  # 训练完成后是否自动创建新版本
+  auto_create_version: true
+  
+  # 模型文件命名规则
+  # {model_name}: 模型名称
+  # {version}: 版本号
+  # {timestamp}: 时间戳
+  model_file_pattern: "{model_name}_{version}_{timestamp}.pt"

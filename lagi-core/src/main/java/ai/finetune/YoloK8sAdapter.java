@@ -1244,6 +1244,14 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
             );
             log.info("任务已完成: taskId={}, trainDir={}", taskId, trainDir);
             addYoloTrainingLog(taskId, "INFO", "训练任务已完成，输出目录: " + trainDir);
+            
+            // 训练完成后自动入库新模型
+            try {
+                ai.finetune.utils.TrainingPostProcessor postProcessor = new ai.finetune.utils.TrainingPostProcessor();
+                postProcessor.processTrainingCompletion(taskId);
+            } catch (Exception e) {
+                log.warn("训练后自动入库处理失败: taskId={}", taskId, e);
+            }
         } catch (Exception e) {
             log.error("更新任务完成信息失败: taskId={}, error={}", taskId, e.getMessage(), e);
         }

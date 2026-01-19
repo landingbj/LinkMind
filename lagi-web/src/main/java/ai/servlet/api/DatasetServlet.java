@@ -1,13 +1,25 @@
 package ai.servlet.api;
 
-import ai.config.ContextLoader;
-import ai.config.pojo.DiscriminativeModelsConfig;
+
+import ai.config.DatasetUploadConfig;
 import ai.database.impl.MysqlAdapter;
 import ai.servlet.BaseServlet;
+import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONUtil;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.fileupload.FileItem;
 import org.apache.commons.fileupload.disk.DiskFileItemFactory;
 import org.apache.commons.fileupload.servlet.ServletFileUpload;
+import org.apache.hc.client5.http.classic.methods.HttpGet;
+import org.apache.hc.client5.http.config.RequestConfig;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpResponse;
+import org.apache.hc.client5.http.impl.classic.HttpClients;
+import org.apache.hc.core5.util.Timeout;
+import org.yaml.snakeyaml.Yaml;
+
 
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
@@ -16,12 +28,35 @@ import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
 import java.util.*;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 @Slf4j
 public class DatasetServlet extends BaseServlet {
+
+    // 配置对象
+    private static DatasetUploadConfig uploadConfig;
+    private static final ObjectMapper objectMapper = new ObjectMapper();
+    // 初始化配置
+    static {
+        try {
+            // 读取YML配置文件（请确保配置文件路径正确）
+            Yaml yaml = new Yaml();
+            InputStream configStream = DatasetServlet.class.getClassLoader()
+                    .getResourceAsStream("upload-config.yml");
+            if (configStream == null) {
+                throw new FileNotFoundException("数据集上传配置文件upload-config.yml不存在");
+            }
+            uploadConfig = yaml.loadAs(configStream, DatasetUploadConfig.class);
+        } catch (Exception e) {
+            log.error("加载数据集上传配置失败", e);
+            throw new RuntimeException("配置加载失败", e);
+        }
+    }
 
     private static volatile MysqlAdapter mysqlAdapter = null;
     private static MysqlAdapter getMysqlAdapter() {
@@ -68,47 +103,214 @@ public class DatasetServlet extends BaseServlet {
      * @param req
      * @param resp
      * @throws IOException
+     * 支持参数：
+     * - page: 页码，默认1
+     * - page_size: 每页条数，默认10，最大100
+     * - name: 数据集名称，模糊查询
+     * - category: 分类筛选
+     * - access_level: 访问级别筛选（1=私有，2=公开，3=团队）
+     * - uploader: 上传人筛选
      */
     private void getDatasetList(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json;charset=utf-8");
-        Map<String, Object> response = new HashMap<>();
+        Map<String, Object> result = new HashMap<>();
+        
         try {
-            String userId = req.getParameter("user_id");
-
-            // 查询数据集列表
-            List<Map<String, Object>> datasetList = getDatasetsFromDB(userId);
-
-            response.put("status", "SUCCESS");
-            response.put("data", datasetList);
-            response.put("code", 200);
-
-            resp.setStatus(200);
-            responsePrint(resp, toJson(response));
-
+            // 解析分页参数
+            int page = 1;
+            String pageParam = req.getParameter("page");
+            if (pageParam != null && !pageParam.trim().isEmpty()) {
+                try {
+                    page = Integer.parseInt(pageParam.trim());
+                    if (page <= 0) {
+                        page = 1;
+                    }
+                } catch (NumberFormatException e) {
+                    log.warn("page参数解析失败，使用默认值1", e);
+                    page = 1;
+                }
+            }
+            
+            int pageSize = 10;
+            String pageSizeParam = req.getParameter("page_size");
+            if (pageSizeParam != null && !pageSizeParam.trim().isEmpty()) {
+                try {
+                    pageSize = Integer.parseInt(pageSizeParam.trim());
+                    if (pageSize <= 0 || pageSize > 100) {
+                        pageSize = 10;
+                    }
+                } catch (NumberFormatException e) {
+                    log.warn("page_size参数解析失败，使用默认值10", e);
+                    pageSize = 10;
+                }
+            }
+            
+            // 解析筛选参数
+            String name = req.getParameter("name");
+            if (name != null) {
+                name = name.trim();
+                if (name.isEmpty()) {
+                    name = null;
+                }
+            }
+            
+            String category = req.getParameter("category");
+            if (category != null) {
+                category = category.trim();
+                if (category.isEmpty()) {
+                    category = null;
+                }
+            }
+            
+            Integer accessLevel = null;
+            String accessLevelParam = req.getParameter("access_level");
+            if (accessLevelParam != null && !accessLevelParam.trim().isEmpty()) {
+                try {
+                    accessLevel = Integer.parseInt(accessLevelParam.trim());
+                    if (accessLevel < 1 || accessLevel > 3) {
+                        accessLevel = null;
+                    }
+                } catch (NumberFormatException e) {
+                    log.warn("access_level参数解析失败", e);
+                    accessLevel = null;
+                }
+            }
+            
+            String uploader = req.getParameter("uploader");
+            if (uploader != null) {
+                uploader = uploader.trim();
+                if (uploader.isEmpty()) {
+                    uploader = null;
+                }
+            }
+            
+            // 构建查询SQL
+            StringBuilder sqlBuilder = new StringBuilder("SELECT * FROM dataset_upload WHERE 1=1");
+            List<Object> params = new ArrayList<>();
+            
+            if (name != null) {
+                sqlBuilder.append(" AND name LIKE ?");
+                params.add("%" + name + "%");
+            }
+            
+            if (category != null) {
+                sqlBuilder.append(" AND category = ?");
+                params.add(category);
+            }
+            
+            if (accessLevel != null) {
+                sqlBuilder.append(" AND access_level = ?");
+                params.add(accessLevel);
+            }
+            
+            if (uploader != null) {
+                sqlBuilder.append(" AND uploader = ?");
+                params.add(uploader);
+            }
+            
+            // 排序：按创建时间倒序（假设有created_at字段，如果没有则按sample_id）
+            sqlBuilder.append(" ORDER BY sample_id DESC");
+            
+            // 查询总数
+            String countSql = "SELECT COUNT(*) as total FROM dataset_upload WHERE 1=1";
+            List<Object> countParams = new ArrayList<>();
+            
+            if (name != null) {
+                countSql += " AND name LIKE ?";
+                countParams.add("%" + name + "%");
+            }
+            if (category != null) {
+                countSql += " AND category = ?";
+                countParams.add(category);
+            }
+            if (accessLevel != null) {
+                countSql += " AND access_level = ?";
+                countParams.add(accessLevel);
+            }
+            if (uploader != null) {
+                countSql += " AND uploader = ?";
+                countParams.add(uploader);
+            }
+            
+            List<Map<String, Object>> countResult = getMysqlAdapter().select(countSql, countParams.toArray());
+            long total = 0;
+            if (countResult != null && !countResult.isEmpty()) {
+                Object totalObj = countResult.get(0).get("total");
+                if (totalObj != null) {
+                    total = totalObj instanceof Number ? ((Number) totalObj).longValue() : Long.parseLong(totalObj.toString());
+                }
+            }
+            
+            // 分页查询
+            int offset = (page - 1) * pageSize;
+            sqlBuilder.append(" LIMIT ? OFFSET ?");
+            params.add(pageSize);
+            params.add(offset);
+            
+            List<Map<String, Object>> datasetList = getMysqlAdapter().select(sqlBuilder.toString(), params.toArray());
+            
+            // 处理返回数据，格式化字段
+            List<Map<String, Object>> dataList = new ArrayList<>();
+            if (datasetList != null) {
+                for (Map<String, Object> row : datasetList) {
+                    Map<String, Object> item = new HashMap<>();
+                    item.put("sample_id", row.get("sample_id"));
+                    item.put("name", row.get("name"));
+                    item.put("description", row.get("description"));
+                    item.put("label", row.get("label"));
+                    item.put("category", row.get("category"));
+                    item.put("access_level", row.get("access_level"));
+                    item.put("uploader", row.get("uploader"));
+                    item.put("data_source", row.get("data_source"));
+                    item.put("data_processing_status", row.get("data_processing_status"));
+                    item.put("missing_value_mark", row.get("missing_value_mark"));
+                    item.put("weight", row.get("weight"));
+                    item.put("remark", row.get("remark"));
+                    item.put("storage_path", row.get("storage_path"));
+                    item.put("storage_type", row.get("storage_type"));
+                    item.put("original_url", row.get("original_url"));
+                    item.put("file_size", row.get("file_size"));
+                    
+                    // 处理training_params JSON字段
+                    Object trainingParams = row.get("training_params");
+                    if (trainingParams != null) {
+                        try {
+                            if (trainingParams instanceof String) {
+                                item.put("training_params", objectMapper.readTree((String) trainingParams));
+                            } else {
+                                item.put("training_params", trainingParams);
+                            }
+                        } catch (Exception e) {
+                            log.warn("解析training_params失败", e);
+                            item.put("training_params", null);
+                        }
+                    } else {
+                        item.put("training_params", null);
+                    }
+                    
+                    dataList.add(item);
+                }
+            }
+            
+            // 构建返回结果
+            Map<String, Object> data = new HashMap<>();
+            data.put("list", dataList);
+            data.put("total", total);
+            data.put("page", page);
+            data.put("page_size", pageSize);
+            data.put("total_pages", (int) Math.ceil((double) total / pageSize));
+            
+            result.put("code", 200);
+            result.put("msg", "查询成功");
+            result.put("data", data);
+            
+            responsePrint(resp, objectMapper.writeValueAsString(result));
+            
         } catch (Exception e) {
-            resp.setStatus(500);
-            response.put("error", "服务器内部错误：" + e.getMessage());
-            response.put("code", 500);
-            responsePrint(resp, toJson(response));
-        }
-    }
-
-    private List<Map<String, Object>> getDatasetsFromDB(String userId) {
-
-        StringBuilder sql = new StringBuilder();
-        sql.append("SELECT * FROM dataset_records ");
-
-        List<Object> params = new ArrayList<>();
-
-        if (userId != null && !userId.isEmpty()) {
-            sql.append("WHERE user_id = ? ");
-            params.add(userId);
-        }
-        try {
-            List<Map<String, Object>> datasetsRecordsList = getMysqlAdapter().select(sql.toString(), params.toArray());
-            return datasetsRecordsList;
-        } catch (Exception e) {
-            throw new RuntimeException("查询数据集列表失败：" + e.getMessage(), e);
+            log.error("获取数据集列表失败", e);
+            result.put("code", 500);
+            result.put("msg", "查询失败：" + e.getMessage());
+            responsePrint(resp, objectMapper.writeValueAsString(result));
         }
     }
 
@@ -117,287 +319,519 @@ public class DatasetServlet extends BaseServlet {
      * @param req
      * @param resp
      * @throws IOException
+     * 核心：处理三种方式的数据集上传，支持multipart/form-data格式，自动解压ZIP并校验data.yaml
      */
     public void uploadDataset(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json;charset=utf-8");
-        Map<String, Object> response = new HashMap<>();
-
+        
+        Map<String, Object> paramMap = new HashMap<>();
+        File uploadedFile = null;
+        String contentType = req.getContentType();
+        
         try {
-            // 检查请求是否为multipart/form-data格式
-            if (!ServletFileUpload.isMultipartContent(req)) {
-                resp.setStatus(400);
-                response.put("status", "failed");
-                response.put("message", "请求必须是multipart/form-data格式");
-                response.put("code", 400);
-                responsePrint(resp, toJson(response));
+            // 1. 解析请求参数（支持multipart/form-data和application/json）
+            if (contentType != null && contentType.contains("multipart/form-data")) {
+                // 处理multipart/form-data格式（文件上传专用）
+                if (!ServletFileUpload.isMultipartContent(req)) {
+                    responseError(resp, 400, "请求必须是multipart/form-data格式");
+                    return;
+                }
+                
+                DiskFileItemFactory factory = new DiskFileItemFactory();
+                ServletFileUpload upload = new ServletFileUpload(factory);
+                List<FileItem> items = upload.parseRequest(req);
+                
+                for (FileItem item : items) {
+                    if (item.isFormField()) {
+                        // 普通表单字段
+                        String fieldName = item.getFieldName();
+                        String fieldValue = item.getString("UTF-8");
+                        
+                        // 特殊处理JSON类型参数和数值类型
+                        if ("training_params".equals(fieldName) && fieldValue != null && !fieldValue.isEmpty()) {
+                            try {
+                                paramMap.put(fieldName, objectMapper.readTree(fieldValue));
+                            } catch (Exception e) {
+                                log.warn("解析training_params失败，将作为字符串处理", e);
+                                paramMap.put(fieldName, fieldValue);
+                            }
+                        } else if ("access_level".equals(fieldName) && fieldValue != null && !fieldValue.isEmpty()) {
+                            try {
+                                paramMap.put(fieldName, Integer.parseInt(fieldValue));
+                            } catch (NumberFormatException e) {
+                                responseError(resp, 400, "access_level必须是整数");
+                                return;
+                            }
+                        } else if ("weight".equals(fieldName) && fieldValue != null && !fieldValue.isEmpty()) {
+                            try {
+                                paramMap.put(fieldName, Double.parseDouble(fieldValue));
+                            } catch (NumberFormatException e) {
+                                responseError(resp, 400, "weight必须是数字");
+                                return;
+                            }
+                        } else {
+                            paramMap.put(fieldName, fieldValue);
+                        }
+                    } else {
+                        // 文件字段
+                        if ("file".equals(item.getFieldName())) {
+                            // 创建临时文件保存上传的文件
+                            String tempFileName = "dataset_upload_" + System.currentTimeMillis() + "_" + item.getName();
+                            File tempFile = new File(uploadConfig.getDataset().getStorage().getContainer_temp_path(), tempFileName);
+                            // 确保临时目录存在
+                            tempFile.getParentFile().mkdirs();
+                            item.write(tempFile);
+                            uploadedFile = tempFile;
+                        }
+                    }
+                }
+            } else {
+                // 处理JSON格式请求（绝对路径/URL上传）
+                String jsonBody = requestToJson(req);
+                if (jsonBody != null && !jsonBody.trim().isEmpty()) {
+                    JSONObject jsonObj = JSONUtil.parseObj(jsonBody);
+                    for (String key : jsonObj.keySet()) {
+                        paramMap.put(key, jsonObj.get(key));
+                    }
+                }
+            }
+
+            // 2. 核心必填参数校验
+            String name = paramMap.get("name") == null ? null : paramMap.get("name").toString();
+            Integer accessLevel = paramMap.get("access_level") == null ? null : 
+                    (paramMap.get("access_level") instanceof Integer ? (Integer) paramMap.get("access_level") : 
+                     Integer.parseInt(paramMap.get("access_level").toString()));
+            // 上传人：建议从登录态/Token获取，此处先默认值
+            String uploader = req.getHeader("X-Uploader") == null ? "admin" : req.getHeader("X-Uploader");
+
+            if (name == null || name.trim().isEmpty()) {
+                responseError(resp, 400, "数据集名称（name）不能为空");
+                return;
+            }
+            if (accessLevel == null || accessLevel < 1 || accessLevel > 3) {
+                responseError(resp, 400, "访问级别（access_level）必须为1(私有)/2(公开)/3(团队)");
                 return;
             }
 
-            // 解析multipart请求
-            DiskFileItemFactory factory = new DiskFileItemFactory();
-            ServletFileUpload upload = new ServletFileUpload(factory);
-            @SuppressWarnings("unchecked")
-            List<FileItem> items = upload.parseRequest(req);
+            // 3. 生成唯一样本ID
+            String sampleId = generateSampleId();
 
-            String datasetName = null;
-            String description = null;
-            String userId = null;
-            FileItem fileItem = null;
+            // 4. 区分三种上传方式处理
+            String storagePath = null;
+            Integer storageType = null;
+            String originalUrl = null;
+            Long fileSize = 0L;
 
-            // 解析表单字段
-            for (FileItem item : items) {
-                if (item.isFormField()) {
-                    String fieldName = item.getFieldName();
-                    String fieldValue = item.getString("UTF-8");
-
-                    switch (fieldName) {
-                        case "dataset_name":
-                            datasetName = fieldValue;
-                            break;
-                        case "description":
-                            description = fieldValue;
-                            break;
-                        case "user_id":
-                            userId = fieldValue;
-                            break;
+            // 方式1：服务器绝对路径上传
+            if (paramMap.containsKey("absolute_path") && paramMap.get("absolute_path") != null) {
+                String absolutePath = paramMap.get("absolute_path").toString();
+                File absoluteFile = new File(absolutePath);
+                // 验证文件存在且可读
+                if (!absoluteFile.exists() || !absoluteFile.canRead()) {
+                    responseError(resp, 400, "绝对路径文件不存在或无读取权限：" + absolutePath);
+                    return;
+                }
+                
+                // 如果是ZIP文件，需要解压
+                if (absolutePath.toLowerCase().endsWith(".zip")) {
+                    File extractDir = handleZipFile(absoluteFile, sampleId);
+                    if (extractDir == null) {
+                        responseError(resp, 400, "ZIP文件解压失败");
+                        return;
                     }
+                    storagePath = extractDir.getAbsolutePath();
                 } else {
-                    fileItem = item;
+                    storagePath = absolutePath;
                 }
-            }
+                storageType = uploadConfig.getDataset().getStorageType().getAbsolute_path();
+                fileSize = absoluteFile.length();
 
-            // 验证必填字段
-            if (datasetName == null || datasetName.trim().isEmpty()) {
-                resp.setStatus(400);
-                response.put("status", "failed");
-                response.put("message", "数据集名称不能为空");
-                response.put("code", 400);
-                responsePrint(resp, toJson(response));
-                return;
-            }
-
-            if (fileItem == null || fileItem.getSize() == 0) {
-                resp.setStatus(400);
-                response.put("status", "failed");
-                response.put("message", "请选择要上传的文件");
-                response.put("code", 400);
-                responsePrint(resp, toJson(response));
-                return;
-            }
-
-            // 获取K8s PVC挂载路径（优先从系统属性读取，其次从环境变量读取，再次从配置文件读取，最后使用默认路径）
-            String pvcMountPath = getPvcMountPath();
-            if (pvcMountPath == null || pvcMountPath.trim().isEmpty()) {
-                resp.setStatus(500);
-                response.put("status", "failed");
-                response.put("message", "PVC挂载路径获取失败，请检查配置");
-                response.put("code", 500);
-                responsePrint(resp, toJson(response));
-                return;
-            }
-
-            String fileName = fileItem.getName();
-            // 确保文件名唯一，添加时间戳
-            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
-            String uniqueFileName = timestamp + "_" + fileName;
-            Path targetDir = Paths.get(pvcMountPath);
-            Path targetFilePath = targetDir.resolve(uniqueFileName);
-
-            // 保存文件到PVC挂载目录
-            InputStream fileInputStream = null;
-            try {
-                // 确保目录存在
-                Files.createDirectories(targetDir);
-                log.info("数据集文件保存目录已创建或已存在: {}", targetDir);
-
-                // 读取文件输入流并保存到本地
-                fileInputStream = fileItem.getInputStream();
-                Files.copy(fileInputStream, targetFilePath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                log.info("数据集文件已保存到PVC挂载路径: {}", targetFilePath);
-            } catch (IOException e) {
-                log.error("保存文件到PVC挂载目录时发生异常，挂载路径: {}, 错误信息: {}", pvcMountPath, e.getMessage(), e);
-                e.printStackTrace();
-                resp.setStatus(500);
-                response.put("status", "failed");
-                response.put("message", "文件保存失败，请检查PVC挂载路径是否正确: " + e.getMessage());
-                response.put("code", 500);
-                responsePrint(resp, toJson(response));
-                return;
-            } finally {
-                // 确保输入流关闭（确保资源释放）
-                if (fileInputStream != null) {
-                    try {
-                        fileInputStream.close();
-                    } catch (IOException e) {
-                        log.warn("关闭文件输入流时发生异常: {}", e.getMessage(), e);
-                        e.printStackTrace();
+            // 方式2：URL下载上传
+            } else if (paramMap.containsKey("dataset_url") && paramMap.get("dataset_url") != null) {
+                originalUrl = paramMap.get("dataset_url").toString();
+                // 下载文件到容器临时目录
+                String tempFileName = sampleId + "_" + System.currentTimeMillis() + getFileSuffix(originalUrl);
+                File tempFile = new File(uploadConfig.getDataset().getStorage().getContainer_temp_path(), tempFileName);
+                tempFile.getParentFile().mkdirs();
+                
+                // 执行URL下载
+                try {
+                    downloadFileFromUrl(originalUrl, tempFile);
+                } catch (Exception e) {
+                    responseError(resp, 500, "URL下载失败：" + e.getMessage());
+                    return;
+                }
+                
+                // 如果是ZIP文件，需要解压
+                if (tempFile.getName().toLowerCase().endsWith(".zip")) {
+                    File extractDir = handleZipFile(tempFile, sampleId);
+                    if (extractDir == null) {
+                        responseError(resp, 400, "ZIP文件解压失败");
+                        return;
                     }
+                    storagePath = extractDir.getAbsolutePath();
+                    // 删除临时ZIP文件
+                    tempFile.delete();
+                } else {
+                    // 移动到正式存储目录
+                    String targetFileName = sampleId + "_" + System.currentTimeMillis() + getFileSuffix(originalUrl);
+                    File targetFile = new File(uploadConfig.getDataset().getStorage().getContainer_base_path(), targetFileName);
+                    targetFile.getParentFile().mkdirs();
+                    Files.move(tempFile.toPath(), targetFile.toPath());
+                    storagePath = targetFile.getAbsolutePath();
                 }
+                storageType = uploadConfig.getDataset().getStorageType().getUrl_download();
+                fileSize = new File(storagePath).isDirectory() ? 
+                    calculateDirectorySize(new File(storagePath)) : new File(storagePath).length();
+
+            // 方式3：本地文件上传（multipart/form-data）
+            } else if (uploadedFile != null && uploadedFile.exists()) {
+                // 验证文件格式（必须是ZIP）
+                String fileName = uploadedFile.getName();
+                if (!fileName.toLowerCase().endsWith(".zip")) {
+                    responseError(resp, 400, "仅支持ZIP格式的数据集压缩包");
+                    uploadedFile.delete();
+                    return;
+                }
+                
+                // 验证文件大小
+                long fileSizeBytes = uploadedFile.length();
+                if (fileSizeBytes == 0) {
+                    responseError(resp, 400, "上传的ZIP文件为空");
+                    uploadedFile.delete();
+                    return;
+                }
+                log.info("上传的ZIP文件：{}，大小：{} 字节", uploadedFile.getAbsolutePath(), fileSizeBytes);
+                
+                // 解压ZIP文件
+                File extractDir = handleZipFile(uploadedFile, sampleId);
+                if (extractDir == null) {
+                    responseError(resp, 400, "ZIP文件解压失败，请检查ZIP文件是否损坏或格式不正确");
+                    uploadedFile.delete();
+                    return;
+                }
+                
+                // 验证解压后的目录是否有内容
+                File[] extractedFiles = extractDir.listFiles();
+                if (extractedFiles == null || extractedFiles.length == 0) {
+                    log.warn("解压后的目录为空：{}", extractDir.getAbsolutePath());
+                    responseError(resp, 400, "ZIP文件解压后目录为空，请检查ZIP文件内容");
+                    deleteDirectory(extractDir);
+                    uploadedFile.delete();
+                    return;
+                }
+                
+                log.info("解压成功，目录中有 {} 个文件/目录", extractedFiles.length);
+                
+                storagePath = extractDir.getAbsolutePath();
+                storageType = uploadConfig.getDataset().getStorageType().getFile_upload();
+                fileSize = calculateDirectorySize(extractDir);
+                
+                // 删除临时上传文件
+                uploadedFile.delete();
+
+            // 无有效上传方式
+            } else {
+                responseError(resp, 400, "必须选择一种上传方式：absolute_path/dataset_url/file");
+                return;
             }
 
-            // 保存文件信息到数据库
-            String currentTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-            long fileSize = fileItem.getSize();
-
-            // 计算样本数量（这里可以根据实际需求实现，暂时设为0或null）
-            Integer sampleCount = null; // 可以根据文件内容解析，暂时设为null
-
-            // 使用完整的PVC挂载路径作为dataset_path
-            String datasetPath = targetFilePath.toString();
-            saveDatasetRecord(datasetName, datasetPath, description, userId, fileSize, sampleCount, currentTime);
-
-            // 返回成功响应
-            resp.setStatus(200);
-            response.put("status", "success");
-            response.put("message", "数据集上传成功");
-            response.put("code", 200);
-            Map<String, Object> data = new HashMap<>();
-            data.put("dataset_name", datasetName);
-            data.put("dataset_path", datasetPath);
-            data.put("file_size", fileSize);
-            data.put("created_at", currentTime);
-            response.put("data", data);
-            responsePrint(resp, toJson(response));
-
+            // 5. 插入数据库
+            boolean insertSuccess = insertDatasetToDb(paramMap, sampleId, storagePath, storageType, originalUrl, fileSize, uploader);
+            if (insertSuccess) {
+                Map<String, Object> success = new HashMap<>();
+                success.put("code", 200);
+                success.put("msg", "数据集上传成功");
+                Map<String, Object> data = new HashMap<>();
+                data.put("sample_id", sampleId);
+                data.put("storage_path", storagePath);
+                data.put("file_size", fileSize);
+                data.put("storage_type", storageType);
+                success.put("data", data);
+                responsePrint(resp, objectMapper.writeValueAsString(success));
+            } else {
+                responseError(resp, 500, "数据集入库失败");
+            }
         } catch (Exception e) {
-            log.error("上传数据集时发生异常: {}", e.getMessage(), e);
-            e.printStackTrace();
-            resp.setStatus(500);
-            response.put("status", "failed");
-            response.put("message", "上传失败: " + e.getMessage());
-            response.put("code", 500);
-            responsePrint(resp, toJson(response));
+            log.error("数据集上传处理异常", e);
+            responseError(resp, 500, "数据集上传失败：" + e.getMessage());
         }
     }
 
     /**
-     * 获取K8s PVC挂载路径
-     * 优先级：1. 系统属性 2. 环境变量 3. 配置文件（从训练任务的volume_mount中提取） 4. 默认路径
+     * 处理ZIP文件：解压ZIP文件到指定目录
+     * @param zipFile ZIP文件
+     * @param sampleId 样本ID
+     * @return 解压后的目录，如果解压失败则返回null
      */
-    private String getPvcMountPath() {
-        // 1. 优先从系统属性读取
-        String mountPath = System.getProperty("dataset.pvc.mount.path");
-        if (mountPath != null && !mountPath.trim().isEmpty()) {
-            log.info("从系统属性读取PVC挂载路径: {}", mountPath);
-            return mountPath.trim();
-        }
-
-        // 2. 其次从环境变量读取
-        mountPath = System.getenv("DATASET_PVC_MOUNT_PATH");
-        if (mountPath != null && !mountPath.trim().isEmpty()) {
-            log.info("从环境变量读取PVC挂载路径: {}", mountPath);
-            return mountPath.trim();
-        }
-
-        // 3. 尝试从配置文件读取（从训练任务的volume_mount配置中提取主机路径）
-        mountPath = getMountPathFromConfig();
-        if (mountPath != null && !mountPath.trim().isEmpty()) {
-            log.info("从配置文件读取PVC挂载路径: {}", mountPath);
-            return mountPath.trim();
-        }
-
-        // 4. 使用默认路径（与训练任务保持一致）
-        String defaultPath = "/data/log/datasets";
-        log.warn("PVC挂载路径未配置，使用默认路径: {}。如需修改，请设置系统属性dataset.pvc.mount.path或环境变量DATASET_PVC_MOUNT_PATH", defaultPath);
-        return defaultPath;
-    }
-
-    /**
-     * 从配置文件（lagi.yml）中读取volume_mount配置，提取主机路径部分
-     * 查找顺序：yolo.docker.volume_mount -> deeplab.docker.volume_mount -> tracknetv3.docker.volume_mount
-     */
-    private String getMountPathFromConfig() {
+    private File handleZipFile(File zipFile, String sampleId) {
         try {
-            ContextLoader.loadContext();
-            if (ContextLoader.configuration == null ||
-                ContextLoader.configuration.getModelPlatformConfig() == null ||
-                ContextLoader.configuration.getModelPlatformConfig().getDiscriminativeModelsConfig() == null) {
+            // 验证ZIP文件是否存在且可读
+            if (zipFile == null || !zipFile.exists() || !zipFile.canRead()) {
+                log.error("ZIP文件不存在或不可读：{}", zipFile != null ? zipFile.getAbsolutePath() : "null");
                 return null;
             }
-
-            DiscriminativeModelsConfig discriminativeConfig =
-                ContextLoader.configuration.getModelPlatformConfig().getDiscriminativeModelsConfig();
-
-            // 尝试从 yolo 配置读取
-            if (discriminativeConfig.getYolo() != null &&
-                discriminativeConfig.getYolo().getDocker() != null) {
-                String volumeMount = discriminativeConfig.getYolo().getDocker().getVolumeMount();
-                if (volumeMount != null && volumeMount.contains(":")) {
-                    String[] parts = volumeMount.split(":");
-                    if (parts.length >= 2) {
-                        String hostPath = parts[0].trim();
-                        // 在主机路径下添加 datasets 子目录
-                        return hostPath + "/datasets";
-                    }
+            
+            log.info("开始解压ZIP文件：{}，大小：{} 字节", zipFile.getAbsolutePath(), zipFile.length());
+            
+            // 创建解压目标目录
+            File extractDir = new File(uploadConfig.getDataset().getStorage().getContainer_base_path(), sampleId);
+            if (!extractDir.exists()) {
+                boolean created = extractDir.mkdirs();
+                if (!created) {
+                    log.error("创建解压目录失败：{}", extractDir.getAbsolutePath());
+                    return null;
                 }
             }
-
-            // 尝试从 deeplab 配置读取
-            if (discriminativeConfig.getDeeplab() != null &&
-                discriminativeConfig.getDeeplab().getDocker() != null) {
-                String volumeMount = discriminativeConfig.getDeeplab().getDocker().getVolumeMount();
-                if (volumeMount != null && volumeMount.contains(":")) {
-                    String[] parts = volumeMount.split(":");
-                    if (parts.length >= 2) {
-                        String hostPath = parts[0].trim();
-                        return hostPath + "/datasets";
-                    }
-                }
+            
+            log.info("解压目标目录：{}", extractDir.getAbsolutePath());
+            
+            // 解压ZIP文件
+            int extractedCount = unzipFile(zipFile, extractDir);
+            
+            if (extractedCount == 0) {
+                log.warn("ZIP文件解压后没有提取到任何文件");
+            } else {
+                log.info("ZIP文件解压成功，共解压 {} 个文件/目录，解压目录：{}", extractedCount, extractDir.getAbsolutePath());
             }
-
-            // 尝试从 tracknetv3 配置读取
-            if (discriminativeConfig.getTracknetv3() != null &&
-                discriminativeConfig.getTracknetv3().getDocker() != null) {
-                String volumeMount = discriminativeConfig.getTracknetv3().getDocker().getVolumeMount();
-                if (volumeMount != null && volumeMount.contains(":")) {
-                    String[] parts = volumeMount.split(":");
-                    if (parts.length >= 2) {
-                        String hostPath = parts[0].trim();
-                        return hostPath + "/datasets";
-                    }
-                }
-            }
+            
+            return extractDir;
         } catch (Exception e) {
-            log.debug("从配置文件读取volume_mount失败: {}", e.getMessage());
+            log.error("处理ZIP文件失败", e);
+            return null;
         }
-        return null;
+    }
+    
+    /**
+     * 解压ZIP文件到指定目录
+     * @return 解压的文件/目录数量
+     */
+    private int unzipFile(File zipFile, File targetDir) throws IOException {
+        int count = 0;
+        try (FileInputStream fis = new FileInputStream(zipFile);
+             ZipInputStream zis = new ZipInputStream(fis)) {
+            
+            ZipEntry zipEntry;
+            byte[] buffer = new byte[8192];
+            
+            while ((zipEntry = zis.getNextEntry()) != null) {
+                String entryName = zipEntry.getName();
+                log.debug("处理ZIP条目：{}", entryName);
+                
+                Path targetPath = targetDir.toPath().resolve(entryName).normalize();
+                
+                // 安全检查：确保解压的文件在目标目录内
+                Path targetDirPath = targetDir.toPath().normalize();
+                if (!targetPath.startsWith(targetDirPath)) {
+                    log.warn("跳过不安全的ZIP条目: {}", entryName);
+                    zis.closeEntry();
+                    continue;
+                }
+                
+                if (zipEntry.isDirectory()) {
+                    Files.createDirectories(targetPath);
+                    log.debug("创建目录：{}", targetPath);
+                    count++;
+                } else {
+                    // 确保父目录存在
+                    Files.createDirectories(targetPath.getParent());
+                    
+                    try (FileOutputStream fos = new FileOutputStream(targetPath.toFile())) {
+                        long totalBytes = 0;
+                        int bytesRead;
+                        while ((bytesRead = zis.read(buffer)) != -1) {
+                            fos.write(buffer, 0, bytesRead);
+                            totalBytes += bytesRead;
+                        }
+                        log.debug("解压文件：{}，大小：{} 字节", targetPath, totalBytes);
+                        count++;
+                    } catch (IOException e) {
+                        log.error("解压文件失败：{}", targetPath, e);
+                        throw e;
+                    }
+                }
+                zis.closeEntry();
+            }
+        } catch (IOException e) {
+            log.error("解压ZIP文件时发生IO异常：{}", zipFile.getAbsolutePath(), e);
+            throw e;
+        }
+        
+        return count;
+    }
+    
+    /**
+     * 计算目录大小
+     */
+    private long calculateDirectorySize(File directory) {
+        long size = 0;
+        if (directory.isFile()) {
+            return directory.length();
+        }
+        File[] files = directory.listFiles();
+        if (files != null) {
+            for (File file : files) {
+                size += calculateDirectorySize(file);
+            }
+        }
+        return size;
+    }
+    
+    /**
+     * 递归删除目录
+     */
+    private void deleteDirectory(File directory) {
+        if (directory.exists()) {
+            File[] files = directory.listFiles();
+            if (files != null) {
+                for (File file : files) {
+                    if (file.isDirectory()) {
+                        deleteDirectory(file);
+                    } else {
+                        file.delete();
+                    }
+                }
+            }
+            directory.delete();
+        }
     }
 
     /**
-     * 保存数据集记录到数据库
+     * 生成唯一样本ID
      */
-    private void saveDatasetRecord(String datasetName, String datasetPath, String description,
-                                  String userId, long fileSize, Integer sampleCount,
-                                  String createdAt) {
-        try {
-            String currentTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+    private String generateSampleId() {
+        return "DS_" + System.currentTimeMillis() + "_" + UUID.randomUUID().toString().substring(0, 8);
+    }
 
-            StringBuilder sql = new StringBuilder();
-            sql.append("INSERT INTO dataset_records ");
-            sql.append("(dataset_name, dataset_path, created_at, updated_at, file_size, ");
-            sql.append("sample_count, description, user_id, status) ");
-            sql.append("VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')");
+    /**
+     * 从URL下载文件
+     */
+    private void downloadFileFromUrl(String url, File targetFile) throws Exception {
+        RequestConfig requestConfig = RequestConfig.custom()
+                .setConnectTimeout(Timeout.ofMilliseconds(uploadConfig.getDataset().getUrl_download().getTimeout()))
+                .setResponseTimeout(Timeout.ofMilliseconds(uploadConfig.getDataset().getUrl_download().getTimeout()))
+                .build();
 
-            List<Object> params = new ArrayList<>();
-            params.add(datasetName);
-            params.add(datasetPath);
-            params.add(createdAt != null ? createdAt : currentTime);
-            params.add(currentTime);
-            params.add(fileSize);
-            params.add(sampleCount);
-            params.add(description);
-            params.add(userId);
-
-            int result = getMysqlAdapter().executeUpdate(sql.toString(), params.toArray());
-
-            if (result > 0) {
-                log.info("数据集记录保存成功: " + datasetName);
-            } else {
-                log.info("数据集记录保存失败: " + datasetName);
+        try (CloseableHttpClient httpClient = HttpClients.custom()
+                .setDefaultRequestConfig(requestConfig)
+                .build()) {
+            HttpGet httpGet = new HttpGet(url);
+            int retryCount = 0;
+            while (retryCount < uploadConfig.getDataset().getUrl_download().getRetry_count()) {
+                try (CloseableHttpResponse response = httpClient.execute(httpGet)) {
+                    if (response.getCode() == 200) {
+                        // 写入文件
+                        try (OutputStream out = new FileOutputStream(targetFile)) {
+                            response.getEntity().writeTo(out);
+                        }
+                        return;
+                    } else {
+                        retryCount++;
+                        log.warn("URL下载失败，状态码：{}，重试次数：{}", response.getCode(), retryCount);
+                        Thread.sleep(1000); // 重试间隔1秒
+                    }
+                } catch (Exception e) {
+                    retryCount++;
+                    log.warn("URL下载异常，重试次数：{}", retryCount, e);
+                    Thread.sleep(1000);
+                }
             }
-        } catch (Exception e) {
-            e.printStackTrace();
-            throw new RuntimeException("保存数据集记录失败: " + e.getMessage(), e);
+            throw new RuntimeException("URL下载失败，已重试" + uploadConfig.getDataset().getUrl_download().getRetry_count() + "次");
+        } finally {
+            // 下载失败清理临时文件
+            if (uploadConfig.getDataset().getUrl_download().isClean_failed_temp_file() && !targetFile.exists()) {
+                if (targetFile.exists()) {
+                    targetFile.delete();
+                }
+            }
         }
     }
+
+    /**
+     * 获取文件后缀
+     */
+    private String getFileSuffix(String fileName) {
+        if (fileName == null || !fileName.contains(".")) {
+            return ".dat";
+        }
+        return fileName.substring(fileName.lastIndexOf("."));
+    }
+
+    /**
+     * 插入数据集信息到数据库
+     */
+    private boolean insertDatasetToDb(Map<String, Object> paramMap, String sampleId, String storagePath,
+                                      Integer storageType, String originalUrl, Long fileSize, String uploader) throws SQLException {
+        String sql = "INSERT INTO dataset_upload (" +
+                "sample_id, name, description, label, category, access_level, uploader, " +
+                "data_source, data_processing_status, missing_value_mark, weight, remark, " +
+                "training_params, storage_path, storage_type, original_url, file_size" +
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        
+        // 处理权重（默认1.0）
+        Object weight = paramMap.get("weight");
+        if (weight == null) {
+            weight = new java.math.BigDecimal("1.0000");
+        } else {
+            weight = new java.math.BigDecimal(weight.toString());
+        }
+        
+        // 处理JSON类型的训练参数
+        Object trainingParams = paramMap.get("training_params");
+        String trainingParamsStr = null;
+        if (trainingParams != null) {
+            try {
+                trainingParamsStr = objectMapper.writeValueAsString(trainingParams);
+            } catch (JsonProcessingException e) {
+                log.warn("训练参数JSON序列化失败，设置为null", e);
+                trainingParamsStr = null;
+            }
+        }
+        
+        int affectedRows = getMysqlAdapter().executeUpdate(sql,
+                sampleId,
+                getStringValue(paramMap.get("name")),
+                getStringValue(paramMap.get("description")),
+                getStringValue(paramMap.get("label")),
+                getStringValue(paramMap.get("category")),
+                paramMap.get("access_level"),
+                uploader,
+                getStringValue(paramMap.get("data_source")),
+                getStringValue(paramMap.get("data_processing_status")),
+                getStringValue(paramMap.get("missing_value_mark")),
+                weight,
+                getStringValue(paramMap.get("remark")),
+                trainingParamsStr,
+                storagePath,
+                storageType,
+                originalUrl,
+                fileSize
+                );
+        
+        return affectedRows > 0;
+    }
+    
+    /**
+     * 安全获取字符串值，处理null情况
+     */
+    private String getStringValue(Object value) {
+        if (value == null) {
+            return null;
+        }
+        return value.toString();
+    }
+
+
+    /**
+     * 响应错误信息
+     */
+    private void responseError(HttpServletResponse resp, int code, String message) throws IOException {
+        resp.setStatus(code);
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> error = new HashMap<>();
+        error.put("code", code);
+        error.put("msg", message);
+        responsePrint(resp, objectMapper.writeValueAsString(error));
+    }
+
 }

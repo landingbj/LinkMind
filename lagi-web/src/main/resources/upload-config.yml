@@ -1,0 +1,36 @@
+# 数据集上传配置
+dataset:
+  # 存储路径配置
+  storage:
+    # 存储目录
+    container_base_path: "/app/data/datasets"
+    # 宿主机挂载目录
+    host_mount_path: "/app/data/host_datasets"
+    # 容器内临时文件目录（用于URL下载临时文件、大文件分片临时存储）
+    container_temp_path: "/app/data/temp_upload"
+    # 宿主机临时目录挂载
+    host_temp_mount_path: "/app/data/host_temp_upload"
+
+  # 大文件上传配置
+  file_upload:
+    # 分片大小（字节），适配大文件不限大小上传
+    chunk_size: 104857600
+    # 分片上传临时文件前缀
+    chunk_file_prefix: "dataset_chunk_"
+    # 允许的最大文件大小（-1表示不限）
+    max_file_size: -1
+
+  # URL自动下载配置
+  url_download:
+    # 下载超时时间（毫秒）
+    timeout: 300000
+    # 下载重试次数
+    retry_count: 3
+    # 下载失败后的临时文件清理开关
+    clean_failed_temp_file: true
+
+  # 存储类型映射（1=绝对路径，2=URL，3=文件上传）
+  storage_type:
+    absolute_path: 1
+    url_download: 2
+    file_upload: 3

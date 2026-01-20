@@ -2,14 +2,14 @@
 dataset:
   # 存储路径配置
   storage:
-    # 存储目录
-    container_base_path: "/app/data/datasets"
-    # 宿主机挂载目录
-    host_mount_path: "/app/data/host_datasets"
+    # 宿主机挂载路径
+    host_mount_path: "/data/wangshuanglong"
+    # 容器内路径
+    container_base_path: "/data/wangshuanglong/datasets"
     # 容器内临时文件目录（用于URL下载临时文件、大文件分片临时存储）
-    container_temp_path: "/app/data/temp_upload"
+    container_temp_path: "/data/wangshuanglong/temp_upload"
     # 宿主机临时目录挂载
-    host_temp_mount_path: "/app/data/host_temp_upload"
+    host_temp_mount_path: "/data/wangshuanglong/temp_upload"
 
   # 大文件上传配置
   file_upload:

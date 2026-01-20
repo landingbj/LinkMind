@@ -15,8 +15,12 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 /**
  * YOLO 模型训练实现类
@@ -55,6 +59,19 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
 
     // 用于异步执行的线程池
     private static final ExecutorService executorService = Executors.newCachedThreadPool();
+
+    // 用于轮询Job状态的定时任务执行器
+    private static final ScheduledExecutorService jobStatusPollingExecutor = 
+            Executors.newScheduledThreadPool(10);
+    
+    // 存储任务ID到轮询任务的映射 (taskId -> ScheduledFuture)
+    private static final Map<String, ScheduledFuture<?>> POLLING_TASKS = new ConcurrentHashMap<>();
+    
+    // 轮询间隔（秒）
+    private static final int POLL_INTERVAL_SECONDS = 15;
+    
+    // 首次轮询延迟（秒），给Job一些时间创建Pod
+    private static final int INITIAL_DELAY_SECONDS = 3;
 
     // 数据库连接池适配器（已废弃，使用全局共享的 MysqlAdapterManager）
     @Deprecated
@@ -325,6 +342,10 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
             saveStartTrainingToDB(taskId, trackId, jobName, config);
             addYoloTrainingLog(taskId, "INFO", "YOLO训练任务已启动，Job名称: " + jobName);
             log.info("✓ 任务信息已保存到数据库");
+
+            // 启动Job状态轮询，确保状态变化能同步到数据库
+            startJobStatusPolling(taskId, jobName);
+            log.info("✓ Job状态轮询已启动: taskId={}, jobName={}", taskId, jobName);
 
             // 构建返回结果
             log.info("========== YOLO训练任务启动成功 ==========");
@@ -1211,8 +1232,18 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
                     taskId
             );
             log.info("任务状态已更新: taskId={}, status={}", taskId, status);
+            
+            // 如果任务已完成或失败，停止轮询
+            if ("completed".equals(status) || "failed".equals(status) || "stopped".equals(status)) {
+                stopJobStatusPolling(taskId);
+                log.info("任务状态已更新为终态，停止轮询: taskId={}, status={}", taskId, status);
+            }
         } catch (Exception e) {
             log.error("更新任务状态失败: taskId={}, status={}, error={}", taskId, status, e.getMessage(), e);
+            // 即使更新失败，如果是终态，也要尝试停止轮询
+            if ("completed".equals(status) || "failed".equals(status) || "stopped".equals(status)) {
+                stopJobStatusPolling(taskId);
+            }
         }
     }
 
@@ -1234,8 +1265,13 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
                     taskId
             );
             log.info("任务已停止: taskId={}, endTime={}", taskId, endTime);
+            
+            // 停止状态是终态，停止轮询
+            stopJobStatusPolling(taskId);
         } catch (Exception e) {
             log.error("更新任务停止状态失败: taskId={}, error={}", taskId, e.getMessage(), e);
+            // 即使更新失败，也要尝试停止轮询
+            stopJobStatusPolling(taskId);
         }
     }
 
@@ -1286,6 +1322,9 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
             log.info("任务已完成: taskId={}, trainDir={}", taskId, trainDir);
             addYoloTrainingLog(taskId, "INFO", "训练任务已完成，输出目录: " + trainDir);
             
+            // 任务已完成，停止轮询
+            stopJobStatusPolling(taskId);
+            
             // 训练完成后自动入库新模型
             try {
                 ai.finetune.utils.TrainingPostProcessor postProcessor = new ai.finetune.utils.TrainingPostProcessor();
@@ -1295,6 +1334,8 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
             }
         } catch (Exception e) {
             log.error("更新任务完成信息失败: taskId={}, error={}", taskId, e.getMessage(), e);
+            // 即使更新失败，也要尝试停止轮询
+            stopJobStatusPolling(taskId);
         }
     }
 
@@ -1575,6 +1616,359 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
      */
     private String getCurrentTime() {
         return LocalDateTime.now().format(DATE_TIME_FORMATTER);
+    }
+
+    // ==================== Job状态轮询方法 ====================
+
+    /**
+     * 启动Job状态轮询
+     * 每15秒检查一次Job状态，确保状态变化能同步到数据库
+     * 
+     * @param taskId 任务ID
+     * @param jobName Job名称（即container_name）
+     */
+    private void startJobStatusPolling(String taskId, String jobName) {
+        // 防止重复启动轮询
+        if (POLLING_TASKS.containsKey(taskId)) {
+            log.warn("任务已在轮询中，跳过重复启动: taskId={}, jobName={}", taskId, jobName);
+            return;
+        }
+
+        log.info("🚀 启动Job状态轮询: taskId={}, jobName={}, 轮询间隔={}秒, 首次延迟={}秒", 
+                taskId, jobName, POLL_INTERVAL_SECONDS, INITIAL_DELAY_SECONDS);
+
+        // 启动定时任务：延迟3秒后开始第一次轮询，之后每15秒轮询一次
+        // 轮询会调用 getJobStatus() 方法，该方法通过 K8s API (batchApi.readNamespacedJob) 获取Job状态
+        ScheduledFuture<?> future = jobStatusPollingExecutor.scheduleWithFixedDelay(
+                () -> {
+                    try {
+                        pollJobStatus(taskId, jobName);
+                    } catch (Exception e) {
+                        log.error("轮询任务执行异常: taskId={}, jobName={}, error={}", 
+                                taskId, jobName, e.getMessage(), e);
+                    }
+                },
+                INITIAL_DELAY_SECONDS,
+                POLL_INTERVAL_SECONDS,
+                TimeUnit.SECONDS
+        );
+
+        // 保存轮询任务引用，用于后续停止
+        POLLING_TASKS.put(taskId, future);
+        log.info("✅ 轮询任务已启动并注册: taskId={}, 总轮询任务数={}", taskId, POLLING_TASKS.size());
+    }
+
+    /**
+     * 停止Job状态轮询
+     * 
+     * @param taskId 任务ID
+     */
+    private void stopJobStatusPolling(String taskId) {
+        ScheduledFuture<?> future = POLLING_TASKS.remove(taskId);
+        if (future != null && !future.isCancelled() && !future.isDone()) {
+            future.cancel(false);  // false表示不中断正在执行的任务
+            log.info("Job状态轮询已停止: taskId={}", taskId);
+        }
+    }
+
+    /**
+     * 轮询Job状态并更新数据库
+     * 核心逻辑：检查K8s Job状态，如果已完成或失败，必须同步到数据库
+     * 
+     * @param taskId 任务ID
+     * @param jobName Job名称
+     */
+    private void pollJobStatus(String taskId, String jobName) {
+        try {
+            log.info("🔄 开始轮询Job状态: taskId={}, jobName={} (通过K8s API获取)", taskId, jobName);
+
+            // 获取Job状态（调用K8s API）
+            JSONObject jobStatus = getJobStatus(jobName);
+            String status = jobStatus.getStr("status");
+            
+            log.debug("K8s API返回状态: taskId={}, status={}", taskId, status);
+
+            // 如果获取状态失败或Job不存在，记录日志但不更新
+            if (!"success".equals(status)) {
+                if ("容器未找到".equals(status) || "not_found".equals(status)) {
+                    log.warn("Job不存在，可能已被删除，停止轮询: taskId={}, jobName={}", taskId, jobName);
+                    stopJobStatusPolling(taskId);
+                    // Job不存在时，更新数据库状态为failed（如果当前状态不是终态）
+                    updateTaskStatusIfNotFinal(taskId, "failed", "Job已被删除");
+                } else {
+                    log.warn("获取Job状态失败: taskId={}, jobName={}, status={}", taskId, jobName, status);
+                }
+                return;
+            }
+
+            // 解析Job状态
+            String jobPhase = jobStatus.getStr("jobPhase", "");
+            String podPhase = jobStatus.getStr("podPhase", "");
+            String containerState = jobStatus.getStr("containerState", "");
+            Integer exitCode = jobStatus.getInt("containerExitCode");
+            String containerReason = jobStatus.getStr("containerReason", "");
+
+            log.info("📊 Job状态详情 (来自K8s API): taskId={}, jobPhase={}, podPhase={}, containerState={}, exitCode={}",
+                    taskId, jobPhase, podPhase, containerState, exitCode);
+
+            // 判断Job状态并更新数据库
+            boolean shouldStopPolling = false;
+            String newStatus = null;
+            String errorMessage = null;
+            boolean updateEndTime = false;
+
+            // 状态映射：K8s Job Phase -> 数据库 Status
+            if ("Complete".equalsIgnoreCase(jobPhase) || "Succeeded".equalsIgnoreCase(jobPhase) 
+                    || "Succeeded".equalsIgnoreCase(podPhase)) {
+                // Job完成
+                newStatus = "completed";
+                updateEndTime = true;
+                shouldStopPolling = true;
+                log.info("检测到Job已完成: taskId={}, jobName={}", taskId, jobName);
+                
+            } else if ("Failed".equalsIgnoreCase(jobPhase) || "Failed".equalsIgnoreCase(podPhase)) {
+                // Job失败
+                newStatus = "failed";
+                updateEndTime = true;
+                shouldStopPolling = true;
+                
+                // 构建错误信息
+                StringBuilder errorMsg = new StringBuilder("Job执行失败");
+                if (containerReason != null && !containerReason.isEmpty()) {
+                    errorMsg.append(": ").append(containerReason);
+                }
+                if (exitCode != null) {
+                    errorMsg.append(" (退出码: ").append(exitCode).append(")");
+                }
+                errorMessage = errorMsg.toString();
+                
+                log.warn("检测到Job失败: taskId={}, jobName={}, error={}", taskId, jobName, errorMessage);
+                
+            } else if ("Terminated".equals(containerState)) {
+                // 容器已终止
+                if (exitCode != null && exitCode == 0) {
+                    // 退出码为0，视为成功完成
+                    newStatus = "completed";
+                    updateEndTime = true;
+                    shouldStopPolling = true;
+                    log.info("检测到容器正常终止: taskId={}, jobName={}, exitCode=0", taskId, jobName);
+                } else {
+                    // 退出码非0，视为失败
+                    newStatus = "failed";
+                    updateEndTime = true;
+                    shouldStopPolling = true;
+                    
+                    StringBuilder errorMsg = new StringBuilder("容器异常终止");
+                    if (exitCode != null) {
+                        errorMsg.append(" (退出码: ").append(exitCode).append(")");
+                    }
+                    if (containerReason != null && !containerReason.isEmpty()) {
+                        errorMsg.append(", 原因: ").append(containerReason);
+                    }
+                    errorMessage = errorMsg.toString();
+                    
+                    log.warn("检测到容器异常终止: taskId={}, jobName={}, error={}", taskId, jobName, errorMessage);
+                }
+                
+            } else if ("Running".equals(containerState) || "Running".equalsIgnoreCase(podPhase)) {
+                // 容器正在运行
+                newStatus = "running";
+                log.debug("Job正在运行: taskId={}, jobName={}", taskId, jobName);
+                
+            } else if ("Waiting".equals(containerState) || "Pending".equalsIgnoreCase(podPhase)) {
+                // 容器等待中
+                newStatus = "starting";
+                log.debug("Job等待中: taskId={}, jobName={}", taskId, jobName);
+                
+            } else {
+                // 其他状态，保持当前状态或设置为unknown
+                log.debug("Job状态未知: taskId={}, jobPhase={}, podPhase={}, containerState={}", 
+                        taskId, jobPhase, podPhase, containerState);
+                // 不更新状态，继续轮询
+                return;
+            }
+
+            // 如果状态有变化，更新数据库（重点：完成和失败必须更新）
+            if (newStatus != null) {
+                log.info("📝 准备更新数据库状态: taskId={}, newStatus={}, updateEndTime={}", 
+                        taskId, newStatus, updateEndTime);
+                updateTaskStatusFromPolling(taskId, newStatus, errorMessage, updateEndTime);
+                
+                // 如果是终态（completed/failed），停止轮询
+                if (shouldStopPolling) {
+                    stopJobStatusPolling(taskId);
+                    log.info("🛑 任务已进入终态，停止轮询: taskId={}, status={}", taskId, newStatus);
+                }
+            } else {
+                log.debug("任务状态未变化，继续轮询: taskId={}, jobPhase={}, podPhase={}", 
+                        taskId, jobPhase, podPhase);
+            }
+
+        } catch (Exception e) {
+            log.error("❌ 轮询Job状态异常: taskId={}, jobName={}, error={}", taskId, jobName, e.getMessage(), e);
+            // 异常不影响其他任务的轮询，继续执行
+        }
+    }
+
+    /**
+     * 更新任务状态（从轮询结果）
+     * 确保完成和失败状态一定能更新到数据库（带重试机制）
+     * 
+     * @param taskId 任务ID
+     * @param newStatus 新状态
+     * @param errorMessage 错误信息（可选）
+     * @param updateEndTime 是否更新结束时间
+     */
+    private void updateTaskStatusFromPolling(String taskId, String newStatus, String errorMessage, boolean updateEndTime) {
+        try {
+            // 先查询当前数据库状态，避免重复更新
+            String currentStatus = getCurrentTaskStatus(taskId);
+            if (newStatus.equals(currentStatus)) {
+                log.debug("任务状态未变化，跳过更新: taskId={}, status={}", taskId, newStatus);
+                return;
+            }
+
+            String currentTime = getCurrentTime();
+            String sql;
+            int updateResult;
+
+            if (updateEndTime) {
+                // 更新状态、结束时间和错误信息
+                sql = "UPDATE ai_training_tasks " +
+                      "SET status = ?, end_time = ?, error_message = ?, updated_at = ? " +
+                      "WHERE task_id = ?";
+                updateResult = getMysqlAdapter().executeUpdate(
+                        sql,
+                        newStatus,
+                        currentTime,
+                        errorMessage != null ? errorMessage : "",
+                        currentTime,
+                        taskId
+                );
+            } else {
+                // 只更新状态和错误信息
+                sql = "UPDATE ai_training_tasks " +
+                      "SET status = ?, error_message = ?, updated_at = ? " +
+                      "WHERE task_id = ?";
+                updateResult = getMysqlAdapter().executeUpdate(
+                        sql,
+                        newStatus,
+                        errorMessage != null ? errorMessage : "",
+                        currentTime,
+                        taskId
+                );
+            }
+
+            if (updateResult > 0) {
+                log.info("任务状态已更新: taskId={}, oldStatus={}, newStatus={}, updateEndTime={}", 
+                        taskId, currentStatus, newStatus, updateEndTime);
+            } else {
+                log.warn("任务状态更新失败（可能记录不存在）: taskId={}, newStatus={}", taskId, newStatus);
+            }
+
+            // 如果是完成或失败状态，确保更新成功（关键要求）
+            if (("completed".equals(newStatus) || "failed".equals(newStatus)) && updateResult == 0) {
+                log.error("⚠️ 关键状态更新失败，尝试重试: taskId={}, status={}", taskId, newStatus);
+                // 重试一次
+                retryUpdateTaskStatus(taskId, newStatus, errorMessage, updateEndTime, currentTime);
+            }
+
+        } catch (Exception e) {
+            log.error("更新任务状态失败: taskId={}, status={}, error={}", taskId, newStatus, e.getMessage(), e);
+            
+            // 如果是完成或失败状态，即使异常也要重试
+            if ("completed".equals(newStatus) || "failed".equals(newStatus)) {
+                log.error("⚠️ 关键状态更新异常，尝试重试: taskId={}, status={}", taskId, newStatus);
+                try {
+                    String currentTime = getCurrentTime();
+                    retryUpdateTaskStatus(taskId, newStatus, errorMessage, updateEndTime, currentTime);
+                } catch (Exception retryException) {
+                    log.error("重试更新任务状态仍然失败: taskId={}, status={}, error={}", 
+                            taskId, newStatus, retryException.getMessage(), retryException);
+                }
+            }
+        }
+    }
+
+    /**
+     * 重试更新任务状态（用于关键状态：completed/failed）
+     * 
+     * @param taskId 任务ID
+     * @param newStatus 新状态
+     * @param errorMessage 错误信息
+     * @param updateEndTime 是否更新结束时间
+     * @param currentTime 当前时间
+     */
+    private void retryUpdateTaskStatus(String taskId, String newStatus, String errorMessage, 
+                                      boolean updateEndTime, String currentTime) {
+        try {
+            String sql;
+            if (updateEndTime) {
+                sql = "UPDATE ai_training_tasks " +
+                      "SET status = ?, end_time = ?, error_message = ?, updated_at = ? " +
+                      "WHERE task_id = ?";
+                getMysqlAdapter().executeUpdate(sql, newStatus, currentTime, 
+                        errorMessage != null ? errorMessage : "", currentTime, taskId);
+            } else {
+                sql = "UPDATE ai_training_tasks " +
+                      "SET status = ?, error_message = ?, updated_at = ? " +
+                      "WHERE task_id = ?";
+                getMysqlAdapter().executeUpdate(sql, newStatus, 
+                        errorMessage != null ? errorMessage : "", currentTime, taskId);
+            }
+            log.info("重试更新任务状态成功: taskId={}, status={}", taskId, newStatus);
+        } catch (Exception e) {
+            log.error("重试更新任务状态失败: taskId={}, status={}, error={}", taskId, newStatus, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 获取任务当前状态
+     * 
+     * @param taskId 任务ID
+     * @return 当前状态，如果不存在返回null
+     */
+    private String getCurrentTaskStatus(String taskId) {
+        try {
+            String sql = "SELECT status FROM ai_training_tasks WHERE task_id = ? LIMIT 1";
+            List<Map<String, Object>> result = getMysqlAdapter().select(sql, taskId);
+            if (result != null && !result.isEmpty() && result.get(0).get("status") != null) {
+                return (String) result.get(0).get("status");
+            }
+        } catch (Exception e) {
+            log.error("查询任务当前状态失败: taskId={}, error={}", taskId, e.getMessage(), e);
+        }
+        return null;
+    }
+
+    /**
+     * 更新任务状态（如果当前状态不是终态）
+     * 用于Job不存在时的状态更新
+     * 
+     * @param taskId 任务ID
+     * @param newStatus 新状态
+     * @param errorMessage 错误信息
+     */
+    private void updateTaskStatusIfNotFinal(String taskId, String newStatus, String errorMessage) {
+        try {
+            String currentStatus = getCurrentTaskStatus(taskId);
+            if (currentStatus == null) {
+                log.warn("任务不存在，无法更新状态: taskId={}", taskId);
+                return;
+            }
+            
+            // 如果当前状态已经是终态，不更新
+            if ("completed".equals(currentStatus) || "failed".equals(currentStatus) 
+                    || "stopped".equals(currentStatus)) {
+                log.debug("任务已是终态，不更新: taskId={}, currentStatus={}", taskId, currentStatus);
+                return;
+            }
+            
+            // 更新状态
+            updateTaskStatusFromPolling(taskId, newStatus, errorMessage, true);
+        } catch (Exception e) {
+            log.error("更新任务状态失败: taskId={}, status={}, error={}", taskId, newStatus, e.getMessage(), e);
+        }
     }
 
     /**

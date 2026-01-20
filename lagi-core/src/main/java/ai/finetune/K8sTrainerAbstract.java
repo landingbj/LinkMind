@@ -2013,4 +2013,262 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
             return String.format("%.2f GB", bytes / (1024.0 * 1024.0 * 1024.0));
         }
     }
+
+    /**
+     * 获取训练任务的完整监控信息
+     * 整合Job状态、Pod状态、容器状态、资源使用、训练进度等信息
+     * 
+     * @param containerIdOrJobName 容器ID或Job名称（在K8s模式下，containerId就是jobName）
+     *                             注意：K8s Job名称必须符合DNS子域名规范，不能包含下划线
+     * @return 完整的监控信息JSON
+     */
+    public JSONObject getTrainingTaskMonitor(String containerIdOrJobName) {
+        ensureClient();
+        JSONObject result = new JSONObject();
+        
+        if (containerIdOrJobName == null || containerIdOrJobName.isEmpty()) {
+            result.put("status", "error");
+            result.put("message", "Job名称不能为空");
+            return result;
+        }
+        
+        // 在K8s模式下，containerId就是jobName
+        String jobName = containerIdOrJobName.contains("_") 
+                ? containerIdOrJobName.replaceAll("_", "-") 
+                : containerIdOrJobName;
+        
+        result.put("jobName", jobName);
+        result.put("namespace", namespace);
+        result.put("timestamp", System.currentTimeMillis());
+
+        try {
+            // 1. 获取Job状态
+            JSONObject jobStatus = getJobStatus(jobName);
+            if (!"success".equals(jobStatus.getStr("status"))) {
+                result.put("status", "error");
+                result.put("message", jobStatus.getStr("message", "获取Job状态失败"));
+                return result;
+            }
+
+            // 合并Job状态信息
+            result.put("jobPhase", jobStatus.getStr("jobPhase"));
+            result.put("podPhase", jobStatus.getStr("podPhase"));
+            result.put("podName", jobStatus.getStr("podName"));
+            result.put("containerState", jobStatus.getStr("containerState"));
+            result.put("containerStatus", jobStatus.getStr("containerStatus"));
+            result.put("containerExitCode", jobStatus.getInt("containerExitCode"));
+            result.put("containerStartedAt", jobStatus.getStr("containerStartedAt"));
+            result.put("containerFinishedAt", jobStatus.getStr("containerFinishedAt"));
+            result.put("containerReason", jobStatus.getStr("containerReason"));
+            result.put("succeeded", jobStatus.getInt("succeeded"));
+            result.put("failed", jobStatus.getInt("failed"));
+            result.put("active", jobStatus.getInt("active"));
+
+            // 2. 获取资源使用情况
+            try {
+                String resourceUsageJson = getJobResourceUsage(jobName, namespace);
+                JSONObject resourceUsage = JSONUtil.parseObj(resourceUsageJson);
+                if ("success".equals(resourceUsage.getStr("status"))) {
+                    result.put("resources", new JSONObject()
+                            .put("cpu", resourceUsage.getJSONObject("cpu"))
+                            .put("memory", resourceUsage.getJSONObject("memory"))
+                            .put("gpu", resourceUsage.getJSONObject("gpu"))
+                            .put("gpuMemory", resourceUsage.getJSONObject("gpuMemory")));
+                }
+            } catch (Exception e) {
+                log.warn("获取资源使用情况失败: {}", e.getMessage());
+                result.put("resources", new JSONObject()
+                        .put("cpu", createDefaultCpu())
+                        .put("memory", createDefaultMemory())
+                        .put("gpu", createDefaultGpu())
+                        .put("gpuMemory", createDefaultGpuMemory()));
+            }
+
+            // 3. 获取日志并解析训练进度和指标
+            try {
+                JSONObject logsResult = tailJobLogs(jobName, 500); // 获取最近500行日志
+                if ("success".equals(logsResult.getStr("status"))) {
+                    String logs = logsResult.getStr("output", "");
+                    if (logs != null && !logs.isEmpty()) {
+                        // 解析训练进度
+                        JSONObject progress = parseTrainingProgress(logs);
+                        result.put("progress", progress);
+
+                        // 解析训练指标
+                        JSONObject metrics = parseTrainingMetrics(logs);
+                        result.put("metrics", metrics);
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("获取或解析日志失败: {}", e.getMessage());
+                result.put("progress", new JSONObject().put("currentEpoch", 0).put("totalEpochs", 0).put("progressPercent", 0.0));
+                result.put("metrics", new JSONObject());
+            }
+
+            result.put("status", "success");
+            result.put("message", "监控信息获取成功");
+
+        } catch (Exception e) {
+            log.error("获取训练任务监控信息失败: jobName={}", jobName, e);
+            result.put("status", "error");
+            result.put("message", "获取监控信息失败: " + e.getMessage());
+        }
+
+        return result;
+    }
+
+    /**
+     * 从日志中解析训练进度
+     * 支持多种格式的进度信息提取
+     * 
+     * @param logs 训练日志
+     * @return 进度信息JSON
+     */
+    private JSONObject parseTrainingProgress(String logs) {
+        JSONObject progress = new JSONObject();
+        progress.put("currentEpoch", 0);
+        progress.put("totalEpochs", 0);
+        progress.put("progressPercent", 0.0);
+        progress.put("currentStep", 0);
+        progress.put("totalSteps", 0);
+
+        if (logs == null || logs.isEmpty()) {
+            return progress;
+        }
+
+        try {
+            // 匹配模式1: Epoch 5/100
+            java.util.regex.Pattern epochPattern1 = java.util.regex.Pattern.compile("Epoch\\s+(\\d+)/(\\d+)", 
+                    java.util.regex.Pattern.CASE_INSENSITIVE);
+            java.util.regex.Matcher matcher1 = epochPattern1.matcher(logs);
+            if (matcher1.find()) {
+                int currentEpoch = Integer.parseInt(matcher1.group(1));
+                int totalEpochs = Integer.parseInt(matcher1.group(2));
+                progress.put("currentEpoch", currentEpoch);
+                progress.put("totalEpochs", totalEpochs);
+                if (totalEpochs > 0) {
+                    double percent = (currentEpoch * 100.0) / totalEpochs;
+                    progress.put("progressPercent", Math.min(percent, 100.0));
+                }
+            }
+
+            // 匹配模式2: Epoch [5/100]
+            java.util.regex.Pattern epochPattern2 = java.util.regex.Pattern.compile("Epoch\\s*\\[(\\d+)/(\\d+)\\]", 
+                    java.util.regex.Pattern.CASE_INSENSITIVE);
+            java.util.regex.Matcher matcher2 = epochPattern2.matcher(logs);
+            if (matcher2.find()) {
+                int currentEpoch = Integer.parseInt(matcher2.group(1));
+                int totalEpochs = Integer.parseInt(matcher2.group(2));
+                progress.put("currentEpoch", currentEpoch);
+                progress.put("totalEpochs", totalEpochs);
+                if (totalEpochs > 0) {
+                    double percent = (currentEpoch * 100.0) / totalEpochs;
+                    progress.put("progressPercent", Math.min(percent, 100.0));
+                }
+            }
+
+            // 匹配步骤信息: step 100/1000
+            java.util.regex.Pattern stepPattern = java.util.regex.Pattern.compile("step\\s+(\\d+)/(\\d+)", 
+                    java.util.regex.Pattern.CASE_INSENSITIVE);
+            java.util.regex.Matcher stepMatcher = stepPattern.matcher(logs);
+            if (stepMatcher.find()) {
+                int currentStep = Integer.parseInt(stepMatcher.group(1));
+                int totalSteps = Integer.parseInt(stepMatcher.group(2));
+                progress.put("currentStep", currentStep);
+                progress.put("totalSteps", totalSteps);
+            }
+
+        } catch (Exception e) {
+            log.debug("解析训练进度失败: {}", e.getMessage());
+        }
+
+        return progress;
+    }
+
+    /**
+     * 从日志中解析训练指标
+     * 提取loss、accuracy、mAP等指标
+     * 
+     * @param logs 训练日志
+     * @return 指标信息JSON
+     */
+    private JSONObject parseTrainingMetrics(String logs) {
+        JSONObject metrics = new JSONObject();
+
+        if (logs == null || logs.isEmpty()) {
+            return metrics;
+        }
+
+        try {
+            // 提取train loss
+            java.util.regex.Pattern trainLossPattern = java.util.regex.Pattern.compile(
+                    "(?:train|training).*?loss[\\s:]+([\\d.]+)", java.util.regex.Pattern.CASE_INSENSITIVE);
+            java.util.regex.Matcher trainLossMatcher = trainLossPattern.matcher(logs);
+            if (trainLossMatcher.find()) {
+                try {
+                    double trainLoss = Double.parseDouble(trainLossMatcher.group(1));
+                    metrics.put("trainLoss", trainLoss);
+                } catch (NumberFormatException e) {
+                    // 忽略
+                }
+            }
+
+            // 提取val loss
+            java.util.regex.Pattern valLossPattern = java.util.regex.Pattern.compile(
+                    "(?:val|validation).*?loss[\\s:]+([\\d.]+)", java.util.regex.Pattern.CASE_INSENSITIVE);
+            java.util.regex.Matcher valLossMatcher = valLossPattern.matcher(logs);
+            if (valLossMatcher.find()) {
+                try {
+                    double valLoss = Double.parseDouble(valLossMatcher.group(1));
+                    metrics.put("valLoss", valLoss);
+                } catch (NumberFormatException e) {
+                    // 忽略
+                }
+            }
+
+            // 提取loss (通用格式)
+            java.util.regex.Pattern lossPattern = java.util.regex.Pattern.compile(
+                    "loss[\\s:]+([\\d.]+)", java.util.regex.Pattern.CASE_INSENSITIVE);
+            java.util.regex.Matcher lossMatcher = lossPattern.matcher(logs);
+            if (lossMatcher.find() && !metrics.containsKey("trainLoss")) {
+                try {
+                    double loss = Double.parseDouble(lossMatcher.group(1));
+                    metrics.put("loss", loss);
+                } catch (NumberFormatException e) {
+                    // 忽略
+                }
+            }
+
+            // 提取mAP
+            java.util.regex.Pattern mapPattern = java.util.regex.Pattern.compile(
+                    "mAP[@]?0\\.5[\\s:]+([\\d.]+)", java.util.regex.Pattern.CASE_INSENSITIVE);
+            java.util.regex.Matcher mapMatcher = mapPattern.matcher(logs);
+            if (mapMatcher.find()) {
+                try {
+                    double map = Double.parseDouble(mapMatcher.group(1));
+                    metrics.put("mAP50", map);
+                } catch (NumberFormatException e) {
+                    // 忽略
+                }
+            }
+
+            // 提取accuracy
+            java.util.regex.Pattern accPattern = java.util.regex.Pattern.compile(
+                    "accuracy[\\s:]+([\\d.]+)", java.util.regex.Pattern.CASE_INSENSITIVE);
+            java.util.regex.Matcher accMatcher = accPattern.matcher(logs);
+            if (accMatcher.find()) {
+                try {
+                    double acc = Double.parseDouble(accMatcher.group(1));
+                    metrics.put("accuracy", acc);
+                } catch (NumberFormatException e) {
+                    // 忽略
+                }
+            }
+
+        } catch (Exception e) {
+            log.debug("解析训练指标失败: {}", e.getMessage());
+        }
+
+        return metrics;
+    }
 }

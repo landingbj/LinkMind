@@ -575,7 +575,10 @@ public class DatasetServlet extends BaseServlet {
             log.info("开始解压ZIP文件：{}，大小：{} 字节", zipFile.getAbsolutePath(), zipFile.length());
             
             // 创建解压目标目录
-            File extractDir = new File(uploadConfig.getDataset().getStorage().getContainer_base_path(), sampleId);
+            // 使用宿主机路径存储
+            String hostPath = uploadConfig.getDataset().getStorage().getHost_mount_path();
+            File extractDir = new File(hostPath, "datasets/" + sampleId);
+            //File extractDir = new File(uploadConfig.getDataset().getStorage().getContainer_base_path(), sampleId);
             if (!extractDir.exists()) {
                 boolean created = extractDir.mkdirs();
                 if (!created) {

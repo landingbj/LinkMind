@@ -1887,27 +1887,7 @@ public class AITrainingServlet extends BaseServlet {
             }
 
             // 根据trainer类型调用对应的evaluate方法
-            String result;
-            if (trainer instanceof YoloK8sAdapter) {
-                result = ((YoloK8sAdapter) trainer).evaluate(config);
-            } else if (trainer instanceof YoloTrainerAdapter) {
-                result = ((YoloTrainerAdapter) trainer).evaluate(config);
-            } else if (trainer instanceof DeeplabK8sAdapter) {
-                result = ((DeeplabK8sAdapter) trainer).evaluate(config);
-            } else if (trainer instanceof DeeplabAdapter) {
-                result = ((DeeplabAdapter) trainer).evaluate(config);
-            } else if (trainer instanceof TrackNetV3K8sAdapter) {
-                result = ((TrackNetV3K8sAdapter) trainer).evaluate(config);
-            } else if (trainer instanceof TrackNetV3Adapter) {
-                result = ((TrackNetV3Adapter) trainer).evaluate(config);
-            } else {
-                resp.setStatus(501);
-                Map<String, String> error = new HashMap<>();
-                error.put("error", "模型 " + modelName + " 的评估功能尚未实现");
-                responsePrint(resp, toJson(error));
-                return;
-            }
-
+            String result = trainer.evaluate(config);
             responsePrint(resp, result);
 
         } catch (Exception e) {
@@ -1976,24 +1956,7 @@ public class AITrainingServlet extends BaseServlet {
 
             asyncTaskExecutor.submit(() -> {
                 try {
-                    // 根据trainer类型调用对应的predict方法
-                    if (finalTrainer instanceof YoloK8sAdapter) {
-                        ((YoloK8sAdapter) finalTrainer).predict(config);
-                    } else if (finalTrainer instanceof YoloTrainerAdapter) {
-                        ((YoloTrainerAdapter) finalTrainer).predict(config);
-                    } else if (finalTrainer instanceof DeeplabK8sAdapter) {
-                        ((DeeplabK8sAdapter) finalTrainer).predict(config);
-                    } else if (finalTrainer instanceof DeeplabAdapter) {
-                        ((DeeplabAdapter) finalTrainer).predict(config);
-                    } else if (finalTrainer instanceof TrackNetV3K8sAdapter) {
-                        ((TrackNetV3K8sAdapter) finalTrainer).predict(config);
-                    } else if (finalTrainer instanceof TrackNetV3Adapter) {
-                        ((TrackNetV3Adapter) finalTrainer).predict(config);
-                    } else {
-                        log.error("模型 {} 的预测功能尚未实现", finalModelName);
-                        return;
-                    }
-
+                    finalTrainer.predict(config);
                     log.info("异步预测完成：taskId={}, model={}", finalTaskId, finalModelName);
                 } catch (Exception e) {
                     log.error("异步预测失败：taskId={}", finalTaskId, e);
@@ -2039,7 +2002,7 @@ public class AITrainingServlet extends BaseServlet {
                 result = ((TrackNetV3Adapter) trainer).exportModel(config);
             } else if (trainer instanceof YoloTrainerAdapter || trainer == null) {
                 // 默认使用 yoloTrainer（向后兼容）
-                result = yoloTrainer.exportModel(config);
+                result = yoloTrainer.convert(config);
             } else {
                 resp.setStatus(501);
                 Map<String, String> error = new HashMap<>();
@@ -3239,6 +3202,28 @@ public class AITrainingServlet extends BaseServlet {
             response.put("code", 200);
             response.put("data", datasets);
             response.put("total", datasets.size());
+            responsePrint(resp, toJson(response));
+
+        } catch (Exception e) {
+            log.error("查询数据集列表失败", e);
+            resp.setStatus(500);
+            response.put("status", "failed");
+            response.put("message", "查询失败: " + e.getMessage());
+            response.put("code", 500);
+            responsePrint(resp, toJson(response));
+        }
+    }
+
+
+    private void convertModel(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            String userId = req.getParameter("user_id");
+            resp.setStatus(200);
+            response.put("status", "success");
+            response.put("code", 200);
             responsePrint(resp, toJson(response));
 
         } catch (Exception e) {

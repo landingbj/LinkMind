@@ -1519,6 +1519,84 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
     }
 
     /**
+     * 添加YOLO转换日志到数据库（仅系统操作日志）
+     * @param taskId 任务ID
+     * @param logLevel 日志级别
+     * @param logMessage 日志消息
+     */
+    private void addYoloConvertLog(String taskId, String logLevel, String logMessage) {
+        addYoloConvertLog(taskId, logLevel, logMessage, null);
+    }
+
+    /**
+     * 添加YOLO转换日志到数据库（仅系统操作日志）
+     * @param taskId 任务ID
+     * @param logLevel 日志级别
+     * @param logMessage 日志消息
+     * @param convertLogFilePath 转换日志文件路径（宿主机路径，可选，用于记录实际转换日志文件位置）
+     */
+    private void addYoloConvertLog(String taskId, String logLevel, String logMessage, String convertLogFilePath) {
+        String currentTime = getCurrentTime();
+        // 使用实际的转换日志文件路径（如果提供），否则使用默认路径
+        String defaultLogPath = "/data/log/convert/";
+        if (!defaultLogPath.endsWith("/")) {
+            defaultLogPath += "/";
+        }
+        String logFilePath = convertLogFilePath != null ? convertLogFilePath : (defaultLogPath + taskId + ".log");
+
+        // 构造日志条目
+        String logEntry = currentTime + " " + logLevel + " " + logMessage + "\n";
+
+        // 只写入到数据库（系统操作日志）
+        // 检查该任务是否已存在日志记录
+        String checkSql = "SELECT COUNT(*) AS cnt FROM ai_training_logs WHERE task_id = ?";
+
+        try {
+            long logCount = 0;
+            // 使用数据库连接池执行查询操作
+            List<Map<String, Object>> result = getMysqlAdapter().select(checkSql, taskId);
+            if (result != null && !result.isEmpty() && result.get(0).get("cnt") != null) {
+                logCount = ((Number) result.get(0).get("cnt")).longValue();
+            }
+
+            if (logCount > 0) {
+                // 若存在日志，追加内容，同时更新转换日志文件路径（如果提供了新的路径）
+                String updateSql;
+                if (convertLogFilePath != null) {
+                    updateSql = "UPDATE ai_training_logs " +
+                            "SET log_message = CONCAT(IFNULL(log_message, ''), ?), " +
+                            "log_level = ?, " +
+                            "log_file_path = ?, " +
+                            "created_at = ? " +
+                            "WHERE task_id = ?";
+                    getMysqlAdapter().executeUpdate(updateSql, logEntry, logLevel, logFilePath, currentTime, taskId);
+                } else {
+                    updateSql = "UPDATE ai_training_logs " +
+                            "SET log_message = CONCAT(IFNULL(log_message, ''), ?), " +
+                            "log_level = ?, " +
+                            "created_at = ? " +
+                            "WHERE task_id = ?";
+                    getMysqlAdapter().executeUpdate(updateSql, logEntry, logLevel, currentTime, taskId);
+                }
+            } else {
+                // 若不存在日志，直接插入新记录
+                String insertSql = "INSERT INTO ai_training_logs " +
+                        "(task_id, log_level, log_message, created_at, log_file_path) " +
+                        "VALUES (?, ?, ?, ?, ?)";
+                // 使用数据库连接池执行插入操作
+                getMysqlAdapter().executeUpdate(insertSql,
+                        taskId,
+                        logLevel,
+                        logEntry,
+                        currentTime,
+                        logFilePath);
+            }
+        } catch (Exception e) {
+            log.error("添加转换日志到数据库失败: taskId={}, error={}", taskId, e.getMessage(), e);
+        }
+    }
+
+    /**
      * 上传推理日志文件到指定路径
      * @param taskId 任务ID
      * @param sourceLogFilePath 源日志文件路径（宿主机路径，如果为null则从volumeMount推导）
@@ -1771,5 +1849,132 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
         }
         return new ai.finetune.repository.TrainingTaskRepository(mysqlAdapter);
     }
+
+    @Override
+    public String convert(JSONObject parameters) {
+        String taskId = UUID.randomUUID().toString();
+        try {
+            // 按约定将 convert 视为 YOLO 导出（export）
+            parameters.set("the_train_type", "export");
+            parameters.set("task_id", taskId);
+
+            // 兼容：若调用方未传关键字段，则给出与需求命令一致的默认值
+            parameters.putIfAbsent("model_path", "/app/data/models/yolo11n.pt");
+            parameters.putIfAbsent("export_format", "engine");
+            parameters.putIfAbsent("opset", 18);
+            parameters.putIfAbsent("device", "0");
+
+            // 如果没有指定转换日志文件路径，自动生成到指定目录
+            if (!parameters.containsKey("train_log_file") || parameters.getStr("train_log_file") == null || parameters.getStr("train_log_file").isEmpty()) {
+                // 从volumeMount中解析容器内路径，或使用默认值
+                String containerDataPath = "/app/data";
+                if (volumeMount != null && volumeMount.contains(":")) {
+                    String[] parts = volumeMount.split(":");
+                    if (parts.length >= 2) {
+                        containerDataPath = parts[1];
+                    }
+                }
+                String convertLogFile = containerDataPath + "/log/convert/" + taskId + ".log";
+                parameters.set("train_log_file", convertLogFile);
+            }
+
+            // 确保转换日志目录存在（容器内路径）
+            String convertLogFile = parameters.getStr("train_log_file");
+            if (convertLogFile != null && volumeMount != null && volumeMount.contains(":")) {
+                String[] mountParts = volumeMount.split(":");
+                if (mountParts.length >= 2) {
+                    String containerPath = mountParts[1];
+                    String hostPath = mountParts[0];
+                    if (convertLogFile.startsWith(containerPath)) {
+                        String logDir = convertLogFile.substring(0, convertLogFile.lastIndexOf("/"));
+                        // 通过 SSH 在宿主机上创建目录（宿主机路径）
+                        String hostLogDir = logDir.replace(containerPath, hostPath);
+                        String mkdirCommand = "mkdir -p " + hostLogDir;
+                        executeRemoteCommand(mkdirCommand);
+                    }
+                }
+            }
+
+            // 入库 + 记录日志
+            saveExportTaskToDB(taskId, parameters);
+            addYoloConvertLog(taskId, "INFO", "开始模型转换");
+
+            // 构建 Docker 命令（与其他方法保持一致，从配置中获取 volumeMount 和 dockerImage）
+            StringBuilder dockerCmd = new StringBuilder();
+            dockerCmd.append("docker run --gpus all");
+
+            // 数据卷挂载（从配置中获取）
+            dockerCmd.append(" -v ").append(volumeMount);
+
+            // 配置环境变量
+            String configJson = parameters.toString();
+            configJson = configJson.replace("'", "'\\''");
+            dockerCmd.append(" -e CONFIG='").append(configJson).append("'");
+
+            // 镜像名称（从配置中获取）
+            dockerCmd.append(" ").append(dockerImage);
+
+            String fullCommand = dockerCmd.toString();
+            log.info("开始执行模型转换: taskId={}", taskId);
+            log.info("执行命令: {}", fullCommand);
+            addYoloConvertLog(taskId, "INFO", "开始执行Docker命令");
+
+            String result = executeRemoteCommand(fullCommand);
+
+            // 获取转换日志文件路径（宿主机路径），用于记录到数据库
+            String hostLogFilePath = null;
+            if (convertLogFile != null && volumeMount != null && volumeMount.contains(":")) {
+                String[] mountParts = volumeMount.split(":");
+                if (mountParts.length >= 2) {
+                    String containerPath = mountParts[1];
+                    String hostPath = mountParts[0];
+                    if (convertLogFile.startsWith(containerPath)) {
+                        hostLogFilePath = convertLogFile.replace(containerPath, hostPath);
+                    }
+                }
+            }
+
+            // 更新任务状态
+            if (isSuccess(result)) {
+                updateYoloTaskStatus(taskId, "completed", "模型转换完成");
+                addYoloConvertLog(taskId, "INFO", "模型转换完成", hostLogFilePath);
+                JSONObject resultJson = JSONUtil.parseObj(result);
+                resultJson.set("taskId", taskId);
+                return resultJson.toString();
+            } else {
+                // 提取错误信息（避免记录过长的result）
+                String errorMsg = "模型转换失败";
+                try {
+                    JSONObject resultJson = JSONUtil.parseObj(result);
+                    if (resultJson.containsKey("error")) {
+                        errorMsg = "模型转换失败: " + resultJson.getStr("error");
+                    } else if (resultJson.containsKey("message")) {
+                        errorMsg = "模型转换失败: " + resultJson.getStr("message");
+                    }
+                } catch (Exception ignored) {
+                    // 如果result不是JSON，截取前200个字符
+                    if (result != null && result.length() > 200) {
+                        errorMsg = "模型转换失败: " + result.substring(0, 200) + "...";
+                    } else if (result != null) {
+                        errorMsg = "模型转换失败: " + result;
+                    }
+                }
+                updateYoloTaskStatus(taskId, "failed", errorMsg);
+                addYoloConvertLog(taskId, "ERROR", errorMsg);
+                return result;
+            }
+        } catch (Exception e) {
+            log.error("模型转换异常: taskId={}", taskId, e);
+            updateYoloTaskStatus(taskId, "failed", "模型转换异常: " + e.getMessage());
+            addYoloConvertLog(taskId, "ERROR", "模型转换异常: " + e.getMessage());
+            JSONObject errorResult = new JSONObject();
+            errorResult.set("status", "error");
+            errorResult.set("message", "模型转换失败");
+            errorResult.set("error", e.getMessage());
+            errorResult.set("taskId", taskId);
+            return errorResult.toString();
+        }
+    }
+
 }
 

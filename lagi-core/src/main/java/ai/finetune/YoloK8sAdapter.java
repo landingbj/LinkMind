@@ -977,19 +977,57 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
                 "(task_id, track_id, model_name, model_category, model_framework, task_type, " +
                 "container_name, container_id, docker_image, gpu_ids, use_gpu, " +
                 "dataset_path, dataset_name, model_path, epochs, batch_size, image_size, optimizer, " +
-                "status, progress, current_epoch, start_time, created_at, is_deleted, user_id, config_json) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                "status, progress, current_epoch, start_time, created_at, is_deleted, user_id, " +
+                "model_id, dataset_id, output_path, config_json) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
         // 从配置中读取 user_id
         String userId = task.config.getStr("user_id", null);
         String datasetName = task.config.getStr("dataset_name", "");
+        
+        // 从配置中读取 model_id 和 dataset_id
+        Long modelId = null;
+        Long datasetId = null;
+        if (task.config.containsKey("original_model_id")) {
+            Object modelIdObj = task.config.get("original_model_id");
+            if (modelIdObj instanceof Number) {
+                modelId = ((Number) modelIdObj).longValue();
+            } else if (modelIdObj != null) {
+                try {
+                    modelId = Long.parseLong(modelIdObj.toString());
+                } catch (NumberFormatException e) {
+                    log.warn("无效的original_model_id: {}", modelIdObj);
+                }
+            }
+        }
+        if (task.config.containsKey("original_dataset_id")) {
+            Object datasetIdObj = task.config.get("original_dataset_id");
+            if (datasetIdObj instanceof Number) {
+                datasetId = ((Number) datasetIdObj).longValue();
+            } else if (datasetIdObj != null) {
+                try {
+                    datasetId = Long.parseLong(datasetIdObj.toString());
+                } catch (NumberFormatException e) {
+                    log.warn("无效的original_dataset_id: {}", datasetIdObj);
+                }
+            }
+        }
+        
+        // 从配置中读取 output_path（project路径）
+        String outputPath = task.config.getStr("project", null);
+        // 如果output_path为空但model_id存在，根据model_id生成output_path
+        if (outputPath == null && modelId != null) {
+            ai.config.ModelStorageConfig storageConfig = ai.config.ModelStorageConfig.getInstance();
+            outputPath = storageConfig.getProjectPath() + "/" + modelId;
+        }
 
         getMysqlAdapter().executeUpdate(sql,
                 task.taskId, task.trackId, task.modelName, task.modelCategory, task.modelFramework,
                 "train", task.containerName, "", task.dockerImage,
                 task.device, !task.device.equals("cpu") ? 1 : 0,
                 task.datasetPath, datasetName, task.modelPath, task.epochs, task.batchSize, task.imageSize, task.optimizer,
-                "starting", "0%", 0, currentTime, currentTime, 0, userId, task.config.toString());
+                "starting", "0%", 0, currentTime, currentTime, 0, userId,
+                modelId, datasetId, outputPath, task.config.toString());
     }
 
     /**
@@ -1228,8 +1266,10 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
      * 更新训练任务完成信息
      */
     private void updateYoloTaskComplete(String taskId, String trainDir) {
+        // 如果output_path为空，使用trainDir作为output_path
         String sql = "UPDATE ai_training_tasks " +
-                "SET status = ?, end_time = ?, train_dir = ?, updated_at = ?, progress = '100%' " +
+                "SET status = ?, end_time = ?, train_dir = ?, " +
+                "output_path = COALESCE(output_path, ?), updated_at = ?, progress = '100%' " +
                 "WHERE task_id = ?";
         try {
             String currentTime = getCurrentTime();
@@ -1239,6 +1279,7 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
                     "completed",
                     currentTime,
                     trainDir,
+                    trainDir,  // 如果output_path为空，使用trainDir
                     currentTime,
                     taskId
             );

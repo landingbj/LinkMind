@@ -2002,7 +2002,7 @@ public class AITrainingServlet extends BaseServlet {
                 result = ((TrackNetV3Adapter) trainer).exportModel(config);
             } else if (trainer instanceof YoloTrainerAdapter || trainer == null) {
                 // 默认使用 yoloTrainer（向后兼容）
-                result = yoloTrainer.convert(config);
+                result = yoloTrainer.exportModel(config);
             } else {
                 resp.setStatus(501);
                 Map<String, String> error = new HashMap<>();

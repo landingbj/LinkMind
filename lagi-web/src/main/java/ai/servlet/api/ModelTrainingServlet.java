@@ -112,6 +112,9 @@ public class ModelTrainingServlet extends BaseServlet {
             case "download":
                 handleDownloadFile(req, resp);
                 break;
+            case "downloadTaskOutput":
+                handleDownloadOutPut(req, resp);
+                break;
             case "commit":
                 handleCommitImage(req, resp);
                 break;
@@ -1170,6 +1173,176 @@ public class ModelTrainingServlet extends BaseServlet {
             Map<String, String> error = new HashMap<>();
             error.put("error", e.getMessage());
             responsePrint(resp, toJson(error));
+        }
+    }
+
+
+    private void handleDownloadOutPut(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        try {
+            // 从GET请求中获取id参数
+            String id = req.getParameter("taskId");
+            if (id == null || id.trim().isEmpty()) {
+                resp.setStatus(400);
+                resp.setContentType("application/json;charset=utf-8");
+                Map<String, String> error = new HashMap<>();
+                error.put("error", "缺少必需参数: taskId");
+                responsePrint(resp, toJson(error));
+                return;
+            }
+
+            // 获取 TrainingTaskRepository
+            TrainingTaskRepository repository = getTrainingTaskRepository();
+            if (repository == null) {
+                resp.setStatus(503);
+                resp.setContentType("application/json;charset=utf-8");
+                Map<String, String> error = new HashMap<>();
+                error.put("error", "训练服务未初始化，无法获取任务信息");
+                responsePrint(resp, toJson(error));
+                return;
+            }
+
+            // 根据id查询任务详情
+            Map<String, Object> taskDetail = repository.getTaskDetailByTaskId(id);
+            if (taskDetail == null) {
+                resp.setStatus(404);
+                resp.setContentType("application/json;charset=utf-8");
+                Map<String, String> error = new HashMap<>();
+                error.put("error", "未找到任务: " + id);
+                responsePrint(resp, toJson(error));
+                return;
+            }
+
+            // 获取output_path字段（注释中的outputfile应该是指这个字段）
+            String outputPath = (String) taskDetail.get("output_path");
+            if (outputPath == null || outputPath.trim().isEmpty()) {
+                resp.setStatus(404);
+                resp.setContentType("application/json;charset=utf-8");
+                Map<String, String> error = new HashMap<>();
+                error.put("error", "任务输出文件路径为空: " + id);
+                responsePrint(resp, toJson(error));
+                return;
+            }
+
+            // 将路径转换为File对象
+            java.io.File file = new java.io.File(outputPath);
+            if (!file.exists()) {
+                resp.setStatus(404);
+                resp.setContentType("application/json;charset=utf-8");
+                Map<String, String> error = new HashMap<>();
+                error.put("error", "输出文件不存在: " + outputPath);
+                responsePrint(resp, toJson(error));
+                return;
+            }
+
+            // 检查文件是否可读
+            if (!file.canRead()) {
+                resp.setStatus(500);
+                resp.setContentType("application/json;charset=utf-8");
+                Map<String, String> error = new HashMap<>();
+                error.put("error", "文件无读取权限: " + outputPath);
+                responsePrint(resp, toJson(error));
+                return;
+            }
+
+            // 判断是文件还是目录
+            if (file.isDirectory()) {
+                // 如果是目录，压缩成ZIP文件下载
+                try {
+                    Path tempZipFile = Files.createTempFile("download_", ".zip");
+                    zipDirectory(file.toPath(), tempZipFile);
+                    
+                    String fileName = file.getName() + ".zip";
+                    String encodedFileName = java.net.URLEncoder.encode(fileName, "UTF-8");
+                    
+                    // 设置响应头
+                    resp.setContentType("application/zip");
+                    resp.setHeader("Content-Disposition", "attachment; filename=\"" + encodedFileName + "\"");
+                    resp.setContentLengthLong(Files.size(tempZipFile));
+                    
+                    // 传输文件
+                    try (InputStream inputStream = Files.newInputStream(tempZipFile);
+                         java.io.OutputStream outputStream = resp.getOutputStream()) {
+                        
+                        byte[] buffer = new byte[8192];
+                        int bytesRead;
+                        while ((bytesRead = inputStream.read(buffer)) != -1) {
+                            outputStream.write(buffer, 0, bytesRead);
+                        }
+                        outputStream.flush();
+                    }
+                    
+                    // 删除临时文件
+                    Files.deleteIfExists(tempZipFile);
+                    log.info("目录下载成功: {} (压缩为 {})", outputPath, fileName);
+                    
+                } catch (Exception e) {
+                    log.error("目录压缩下载失败: {}", outputPath, e);
+                    resp.setStatus(500);
+                    resp.setContentType("application/json;charset=utf-8");
+                    Map<String, String> error = new HashMap<>();
+                    error.put("error", "目录压缩下载失败: " + e.getMessage());
+                    responsePrint(resp, toJson(error));
+                }
+            } else {
+                // 如果是文件，直接下载
+                String fileName = file.getName();
+                String encodedFileName = java.net.URLEncoder.encode(fileName, "UTF-8");
+                
+                // 设置响应头
+                resp.setContentType("application/octet-stream");
+                resp.setHeader("Content-Disposition", "attachment; filename=\"" + encodedFileName + "\"");
+                resp.setContentLengthLong(file.length());
+                
+                // 传输文件
+                try (java.io.FileInputStream fileInputStream = new java.io.FileInputStream(file);
+                     java.io.OutputStream outputStream = resp.getOutputStream()) {
+                    
+                    byte[] buffer = new byte[8192];
+                    int bytesRead;
+                    while ((bytesRead = fileInputStream.read(buffer)) != -1) {
+                        outputStream.write(buffer, 0, bytesRead);
+                    }
+                    outputStream.flush();
+                }
+                
+                log.info("文件下载成功: {}", outputPath);
+            }
+
+        } catch (Exception e) {
+            log.error("下载任务输出文件失败", e);
+            resp.setStatus(500);
+            resp.setContentType("application/json;charset=utf-8");
+            Map<String, String> error = new HashMap<>();
+            error.put("error", "下载失败: " + e.getMessage());
+            responsePrint(resp, toJson(error));
+        }
+    }
+
+    /**
+     * 压缩目录为ZIP文件
+     */
+    private void zipDirectory(Path sourceDir, Path zipFile) throws IOException {
+        try (java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(Files.newOutputStream(zipFile))) {
+            Files.walkFileTree(sourceDir, new java.nio.file.SimpleFileVisitor<Path>() {
+                @Override
+                public java.nio.file.FileVisitResult visitFile(Path file, java.nio.file.attribute.BasicFileAttributes attrs) throws IOException {
+                    Path targetFile = sourceDir.relativize(file);
+                    zos.putNextEntry(new java.util.zip.ZipEntry(targetFile.toString().replace("\\", "/")));
+                    Files.copy(file, zos);
+                    zos.closeEntry();
+                    return java.nio.file.FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public java.nio.file.FileVisitResult preVisitDirectory(Path dir, java.nio.file.attribute.BasicFileAttributes attrs) throws IOException {
+                    if (!sourceDir.equals(dir)) {
+                        Path targetDir = sourceDir.relativize(dir);
+                        zos.putNextEntry(new java.util.zip.ZipEntry(targetDir.toString().replace("\\", "/") + "/"));
+                        zos.closeEntry();
+                    }
+                    return java.nio.file.FileVisitResult.CONTINUE;
+                }
+            });
         }
     }
 

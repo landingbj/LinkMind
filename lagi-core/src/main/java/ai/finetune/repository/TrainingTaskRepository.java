@@ -2,6 +2,8 @@ package ai.finetune.repository;
 
 import ai.database.impl.MysqlAdapter;
 import ai.finetune.dto.TrainingTaskDTO;
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import lombok.extern.slf4j.Slf4j;
 
 import java.time.LocalDateTime;
@@ -21,6 +23,7 @@ public class TrainingTaskRepository {
     private final MysqlAdapter mysqlAdapter;
     private static final DateTimeFormatter DATE_TIME_FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final Gson gson = new Gson();
 
     public TrainingTaskRepository(MysqlAdapter mysqlAdapter) {
         this.mysqlAdapter = mysqlAdapter;
@@ -401,9 +404,17 @@ public class TrainingTaskRepository {
             // 计算偏移量
             int offset = (page - 1) * pageSize;
 
-            // 查询任务列表（根据任务类型过滤）
-            String listSql = "SELECT * FROM ai_training_tasks WHERE is_deleted = 0 AND task_type = ? " +
-                    "ORDER BY created_at DESC LIMIT ? OFFSET ?";
+            // 如果是 export 类型，查询特定字段
+            String listSql;
+            if ("export".equals(taskType)) {
+                listSql = "SELECT task_id, model_name, model_framework, created_at, updated_at, remark, status " +
+                        "FROM ai_training_tasks WHERE is_deleted = 0 AND task_type = ? " +
+                        "ORDER BY created_at DESC LIMIT ? OFFSET ?";
+            } else {
+                // 查询任务列表（根据任务类型过滤）
+                listSql = "SELECT * FROM ai_training_tasks WHERE is_deleted = 0 AND task_type = ? " +
+                        "ORDER BY created_at DESC LIMIT ? OFFSET ?";
+            }
 
             List<Map<String, Object>> tasks = mysqlAdapter.select(listSql, taskType, pageSize, offset);
 
@@ -413,32 +424,118 @@ public class TrainingTaskRepository {
 
             for (Map<String, Object> task : tasks) {
                 Map<String, Object> taskMap = new HashMap<>();
-                String taskId = (String) task.get("task_id");
-                taskMap.put("taskId", taskId);
+                
+                // 如果是 export 类型，使用特殊处理
+                if ("export".equals(taskType)) {
+                    // 导出任务特定字段处理
+                    String taskId = (String) task.get("task_id");
+                    taskMap.put("taskId", taskId);
+                    taskMap.put("modelName", task.get("model_name"));
+                    taskMap.put("modelFramework", task.get("model_framework"));
+                    taskMap.put("status", task.get("status"));
 
-                // 从 dataset_path 提取数据集名称
-                //String datasetPath = (String) task.get("dataset_path");
-                taskMap.put("datasetName", task.get("dataset_name"));
-                taskMap.put("modelName", task.get("model_name"));
+                    // 处理时间字段，转换为字符串
+                    Object createdAt = task.get("created_at");
+                    if (createdAt != null) {
+                        taskMap.put("createTime", createdAt.toString());
+                    }
+                    
+                    Object updatedAt = task.get("updated_at");
+                    if (updatedAt != null) {
+                        taskMap.put("updateTime", updatedAt.toString());
+                    }
+                    
+                    // 解析 remark JSON 字段
+                    String remark = (String) task.get("remark");
+                    if (remark != null && !remark.trim().isEmpty()) {
+                        try {
+                            JsonObject remarkJson = gson.fromJson(remark, JsonObject.class);
+                            if (remarkJson != null) {
+                                // 提取 model_file_size（支持数字和字符串类型）
+                                if (remarkJson.has("model_file_size") && !remarkJson.get("model_file_size").isJsonNull()) {
+                                    if (remarkJson.get("model_file_size").isJsonPrimitive()) {
+                                        if (remarkJson.get("model_file_size").getAsJsonPrimitive().isNumber()) {
+                                            taskMap.put("modelFileSize", remarkJson.get("model_file_size").getAsNumber().toString());
+                                        } else {
+                                            taskMap.put("modelFileSize", remarkJson.get("model_file_size").getAsString());
+                                        }
+                                    } else {
+                                        taskMap.put("modelFileSize", remarkJson.get("model_file_size").toString());
+                                    }
+                                } else {
+                                    taskMap.put("modelFileSize", null);
+                                }
+                                
+                                // 提取 export_file_size（支持数字和字符串类型）
+                                if (remarkJson.has("export_file_size") && !remarkJson.get("export_file_size").isJsonNull()) {
+                                    if (remarkJson.get("export_file_size").isJsonPrimitive()) {
+                                        if (remarkJson.get("export_file_size").getAsJsonPrimitive().isNumber()) {
+                                            taskMap.put("exportFileSize", remarkJson.get("export_file_size").getAsNumber().toString());
+                                        } else {
+                                            taskMap.put("exportFileSize", remarkJson.get("export_file_size").getAsString());
+                                        }
+                                    } else {
+                                        taskMap.put("exportFileSize", remarkJson.get("export_file_size").toString());
+                                    }
+                                } else {
+                                    taskMap.put("exportFileSize", null);
+                                }
 
-                taskMap.put("epochs", task.get("epochs"));
+                                if (remarkJson.has("export_format") && !remarkJson.get("export_format").isJsonNull()) {
+                                    if (remarkJson.get("export_format").isJsonPrimitive()) {
+                                        taskMap.put("exportFormat", remarkJson.get("export_format").getAsString());
+                                    } else {
+                                        taskMap.put("exportFormat", remarkJson.get("export_format").toString());
+                                    }
+                                } else {
+                                    taskMap.put("exportFormat", null);
+                                }
 
-                String status = (String) task.get("status");
-                if (status != null && status.contains(";")) {
-                    status = status.split(";")[0];
-                }
-                taskMap.put("status", status);
-                taskMap.put("progress", task.get("progress"));
-                taskMap.put("currentEpoch", task.get("current_epoch"));
-                taskMap.put("startTime", task.get("start_time").toString());
-                taskMap.put("createdAt", task.get("created_at").toString());
+                            } else {
+                                taskMap.put("modelFileSize", null);
+                                taskMap.put("exportFileSize", null);
+                            }
+                        } catch (Exception e) {
+                            log.warn("解析 remark JSON 失败: taskId={}, remark={}, error={}", 
+                                    taskId, remark, e.getMessage());
+                            taskMap.put("modelFileSize", null);
+                            taskMap.put("exportFileSize", null);
+                        }
+                    } else {
+                        taskMap.put("modelFileSize", null);
+                        taskMap.put("exportFileSize", null);
+                    }
+                    
+                    taskList.add(taskMap);
+                } else {
+                    // 其他任务类型的原有处理逻辑
+                    String taskId = (String) task.get("task_id");
+                    taskMap.put("taskId", taskId);
 
-                taskList.add(taskMap);
+                    // 从 dataset_path 提取数据集名称
+                    //String datasetPath = (String) task.get("dataset_path");
+                    taskMap.put("datasetName", task.get("dataset_name"));
+                    taskMap.put("modelName", task.get("model_name"));
 
-                // 收集需要更新状态的任务ID
-                if ("pending".equals(status) || "starting".equals(status) ||
-                        "running".equals(status) || "paused".equals(status) ) {
-                    taskIdsToUpdate.add(taskId);
+                    taskMap.put("epochs", task.get("epochs"));
+
+                    String status = (String) task.get("status");
+                    if (status != null && status.contains(";")) {
+                        status = status.split(";")[0];
+                    }
+                    taskMap.put("status", status);
+                    taskMap.put("progress", task.get("progress"));
+                    taskMap.put("currentEpoch", task.get("current_epoch"));
+                    taskMap.put("startTime", task.get("start_time").toString());
+                    taskMap.put("createdAt", task.get("created_at").toString());
+
+                    taskList.add(taskMap);
+
+                    // 收集需要更新状态的任务ID
+                    if ("pending".equals(status) || "starting".equals(status) ||
+                            "running".equals(status) || "paused".equals(status) ) {
+                        taskIdsToUpdate.add(taskId);
+                    }
                 }
             }
 
@@ -452,8 +549,8 @@ public class TrainingTaskRepository {
             result.put("status", "SUCCESS");
 
 
-            // 异步更新任务状态
-            if (!taskIdsToUpdate.isEmpty()) {
+            // 异步更新任务状态（非 export 类型）
+            if (!"export".equals(taskType) && !taskIdsToUpdate.isEmpty()) {
                 new Thread(() -> {
                     try {
                         updateTaskStatuses(taskList, taskIdsToUpdate);

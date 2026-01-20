@@ -3,6 +3,7 @@ package ai.finetune;
 import ai.common.utils.ObservableList;
 import ai.database.impl.MysqlAdapter;
 import ai.finetune.config.ModelConfigManager;
+import ai.finetune.utils.PathConvertUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import lombok.extern.slf4j.Slf4j;
@@ -468,61 +469,7 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
      */
     @Override
     public String exportModel(JSONObject config) {
-        String taskId = UUID.randomUUID().toString();
-        try {
-            // 确保配置中包含必要的字段
-            if (!config.containsKey("the_train_type")) {
-                config.put("the_train_type", "export");
-            }
-            config.put("task_id", taskId);
-
-            // 保存导出任务到数据库
-            saveExportTaskToDB(taskId, config);
-            addYoloTrainingLog(taskId, "INFO", "开始导出模型");
-
-            // 构建 Docker 命令
-            StringBuilder dockerCmd = new StringBuilder();
-            dockerCmd.append("docker run --rm");
-
-            // 数据卷挂载
-            dockerCmd.append(" -v ").append(volumeMount);
-
-            // 配置环境变量
-            String configJson = config.toString();
-            configJson = configJson.replace("'", "'\\''");
-            dockerCmd.append(" -e CONFIG='").append(configJson).append("'");
-
-            // 镜像名称
-            dockerCmd.append(" ").append(dockerImage);
-
-            String fullCommand = dockerCmd.toString();
-            log.info("开始导出模型: taskId={}", taskId);
-            log.info("执行命令: {}", fullCommand);
-
-            String result = executeRemoteCommand(fullCommand);
-
-            // 更新导出任务状态
-            if (isSuccess(result)) {
-                updateYoloTaskStatus(taskId, "completed", "模型导出完成");
-                addYoloTrainingLog(taskId, "INFO", "模型导出完成");
-            } else {
-                updateYoloTaskStatus(taskId, "failed", "模型导出失败");
-                addYoloTrainingLog(taskId, "ERROR", "模型导出失败: " + result);
-            }
-
-            return result;
-
-        } catch (Exception e) {
-            log.error("导出模型失败", e);
-            updateYoloTaskStatus(taskId, "failed", "模型导出异常: " + e.getMessage());
-            addYoloTrainingLog(taskId, "ERROR", "模型导出异常: " + e.getMessage());
-
-            JSONObject errorResult = new JSONObject();
-            errorResult.put("status", "error");
-            errorResult.put("message", "导出模型失败");
-            errorResult.put("error", e.getMessage());
-            return errorResult.toString();
-        }
+        return convert(config);
     }
 
     /**
@@ -1199,6 +1146,50 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
         }
     }
 
+    private void saveExportTaskToDB(String taskId, JSONObject config, String remark) {
+        String sql = "INSERT INTO ai_training_tasks " +
+                "(task_id, track_id, model_name, model_category, model_framework, task_type, " +
+                "container_name, model_path, gpu_ids, use_gpu, " +
+                "status, progress, current_epoch, start_time, created_at, is_deleted, config_json, remark) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        try {
+            // 从配置中读取模型名称，如果没有则默认为 yolov8
+            String modelName = config.getStr("model_name", "yolov8");
+            String modelCategory = getModelCategory(modelName, config);
+            String modelFramework = getModelFramework(modelName, config);
+            String modelPath = config.getStr("model_path", "");
+            String device = config.getStr("device", "cpu");
+            String currentTime = getCurrentTime();
+
+            // 使用数据库连接池执行插入操作
+            getMysqlAdapter().executeUpdate(
+                    sql,
+                    taskId,
+                    "",                 // track_id
+                    modelName,          // model_name - 从配置中读取
+                    modelCategory,      // model_category - 动态获取
+                    modelFramework,     // model_framework - 动态获取
+                    "export",           // task_type
+                    "",                 // container_name
+                    modelPath,
+                    device,             // gpu_ids
+                    !device.equals("cpu") ? 1 : 0, // use_gpu
+                    "running",
+                    "0%",
+                    0,
+                    currentTime,
+                    currentTime,
+                    0,
+                    config.toString(),
+                    remark
+            );
+            log.info("导出任务已保存到数据库: taskId={}, modelName={}, category={}, framework={}",
+                    taskId, modelName, modelCategory, modelFramework);
+        } catch (Exception e) {
+            log.error("保存导出任务到数据库失败: taskId={}, error={}", taskId, e.getMessage(), e);
+        }
+    }
+
     /**
      * 更新YOLO任务状态
      */
@@ -1214,6 +1205,31 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
                     status,
                     message,
                     currentTime,
+                    taskId
+            );
+            log.info("任务状态已更新: taskId={}, status={}", taskId, status);
+        } catch (Exception e) {
+            log.error("更新任务状态失败: taskId={}, status={}, error={}", taskId, status, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 更新YOLO任务状态
+     */
+    private void updateYoloTaskStatus(String taskId, String status, String message, String outputPath, String remark) {
+        String sql = "UPDATE ai_training_tasks " +
+                "SET status = ?, error_message = ?, updated_at = ?, output_path = ?, remark = ? " +
+                "WHERE task_id = ?";
+        try {
+            String currentTime = getCurrentTime();
+            // 使用数据库连接池执行更新操作
+            getMysqlAdapter().executeUpdate(
+                    sql,
+                    status,
+                    message,
+                    currentTime,
+                    outputPath,
+                    remark,
                     taskId
             );
             log.info("任务状态已更新: taskId={}, status={}", taskId, status);
@@ -1859,10 +1875,15 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
             parameters.set("task_id", taskId);
 
             // 兼容：若调用方未传关键字段，则给出与需求命令一致的默认值
-            parameters.putIfAbsent("model_path", "/app/data/models/yolo11n.pt");
+            String hostModelPath = PathConvertUtil.convertToHostPath(parameters.getStr("model_path"), volumeMount);
+            parameters.putIfAbsent("model_path", hostModelPath);
             parameters.putIfAbsent("export_format", "engine");
-            parameters.putIfAbsent("opset", 18);
-            parameters.putIfAbsent("device", "0");
+//            parameters.putIfAbsent("opset", 18);
+//            parameters.putIfAbsent("device", "0");
+            JSONObject extraInfo = new JSONObject();
+            Long hostFileSize = PathConvertUtil.getFileSize(hostModelPath);
+            extraInfo.set("model_file_size", hostFileSize);
+            extraInfo.set("export_format", parameters.getStr("export_format"));
 
             // 如果没有指定转换日志文件路径，自动生成到指定目录
             if (!parameters.containsKey("train_log_file") || parameters.getStr("train_log_file") == null || parameters.getStr("train_log_file").isEmpty()) {
@@ -1896,7 +1917,7 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
             }
 
             // 入库 + 记录日志
-            saveExportTaskToDB(taskId, parameters);
+            saveExportTaskToDB(taskId, parameters, extraInfo.toString());
             addYoloConvertLog(taskId, "INFO", "开始模型转换");
 
             // 构建 Docker 命令（与其他方法保持一致，从配置中获取 volumeMount 和 dockerImage）
@@ -1920,7 +1941,6 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
             addYoloConvertLog(taskId, "INFO", "开始执行Docker命令");
 
             String result = executeRemoteCommand(fullCommand);
-
             // 获取转换日志文件路径（宿主机路径），用于记录到数据库
             String hostLogFilePath = null;
             if (convertLogFile != null && volumeMount != null && volumeMount.contains(":")) {
@@ -1936,7 +1956,11 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
 
             // 更新任务状态
             if (isSuccess(result)) {
-                updateYoloTaskStatus(taskId, "completed", "模型转换完成");
+                String exportPath = PathConvertUtil.extractExportPath(result);
+                String exportHostPath = PathConvertUtil.convertToHostPath(exportPath, volumeMount);
+                Long exportFileSize = PathConvertUtil.getFileSize(exportHostPath);
+                extraInfo.set("export_file_size", exportFileSize);
+                updateYoloTaskStatus(taskId, "completed", "模型转换完成", exportHostPath, extraInfo.toString());
                 addYoloConvertLog(taskId, "INFO", "模型转换完成", hostLogFilePath);
                 JSONObject resultJson = JSONUtil.parseObj(result);
                 resultJson.set("taskId", taskId);

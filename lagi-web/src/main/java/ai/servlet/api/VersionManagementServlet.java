@@ -11,11 +11,9 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 模型版本管理与子目录管理
@@ -111,7 +109,8 @@ public class VersionManagementServlet extends BaseServlet {
         Map<String, Object> result = new HashMap<>();
         try {
             List<DictOptionDto> options = new ArrayList<>();
-            String sql = "SELECT id, model_name FROM model_introduction";
+            // 更新：从 models 表查询模型列表（model_introduction 表已合并到 models 表）
+            String sql = "SELECT id, name AS model_name FROM models WHERE is_deleted = 0 ORDER BY created_at DESC";
             List<Map<String, Object>> modellist = getMysqlAdapter().select(sql);
 
             for (Map<String, Object> map : modellist) {
@@ -360,11 +359,12 @@ public class VersionManagementServlet extends BaseServlet {
         try {
             // 关联查询版本信息、模型信息、分类信息、框架信息
             // 使用 COALESCE 处理可能为 NULL 的字段
+            // 更新：关联 models 表而不是 model_introduction 表
             String sql = "SELECT " +
                     "mv.version_id, " +
                     "mv.version_name, " +
                     "mv.version_number, " +
-                    "COALESCE(mi.model_name, '') AS model_name, " +
+                    "COALESCE(m.name, '') AS model_name, " +
                     "COALESCE(mc.category_name, '') AS category_name, " +
                     "COALESCE(mfd.framework_name, '') AS framework_name, " +
                     "COALESCE(mv.status, 'enabled') AS status, " +
@@ -372,8 +372,8 @@ public class VersionManagementServlet extends BaseServlet {
                     "mv.create_at, " +
                     "COALESCE(mv.creator, '') AS creator " +
                     "FROM model_version mv " +
-                    "LEFT JOIN model_introduction mi ON mv.model_introduction_id = mi.id " +
-                    "LEFT JOIN model_category mc ON mi.category_id = mc.id " +
+                    "LEFT JOIN models m ON mv.model_id = m.id AND m.is_deleted = 0 " +
+                    "LEFT JOIN model_category mc ON m.category_id = mc.id " +
                     "LEFT JOIN model_framework_dict mfd ON mv.framework_id = mfd.id " +
                     "WHERE mv.is_deleted = 0 " +
                     "ORDER BY mv.create_at DESC " +
@@ -494,9 +494,15 @@ public class VersionManagementServlet extends BaseServlet {
                     sqlBuilder.append(", version_number = ?");
                     params.add(jsonNode.get("version_number").getAsString().trim());
                 }
-                if (jsonNode.has("model_introduction_id") && !jsonNode.get("model_introduction_id").isJsonNull()) {
-                    sqlBuilder.append(", model_introduction_id = ?");
-                    params.add(jsonNode.get("model_introduction_id").getAsInt());
+                // 更新：支持 model_id 和 model_introduction_id（向后兼容）
+                if (jsonNode.has("model_id") && !jsonNode.get("model_id").isJsonNull()) {
+                    sqlBuilder.append(", model_id = ?");
+                    params.add(jsonNode.get("model_id").getAsLong());
+                } else if (jsonNode.has("model_introduction_id") && !jsonNode.get("model_introduction_id").isJsonNull()) {
+                    // 向后兼容：如果传入 model_introduction_id，转换为 model_id
+                    // 注意：这里假设 model_introduction 表的数据已迁移到 models 表
+                    sqlBuilder.append(", model_id = ?");
+                    params.add(jsonNode.get("model_introduction_id").getAsLong());
                 }
                 if (jsonNode.has("framework_id") && !jsonNode.get("framework_id").isJsonNull()) {
                     sqlBuilder.append(", framework_id = ?");
@@ -555,11 +561,19 @@ public class VersionManagementServlet extends BaseServlet {
                     responsePrint(resp, toJson(result));
                     return;
                 }
-                if (!jsonNode.has("model_introduction_id") || jsonNode.get("model_introduction_id").isJsonNull() ||
-                        jsonNode.get("model_introduction_id").getAsString().trim().isEmpty()) {
+                // 更新：支持 model_id 和 model_introduction_id（向后兼容）
+                Long modelId = null;
+                if (jsonNode.has("model_id") && !jsonNode.get("model_id").isJsonNull()) {
+                    modelId = jsonNode.get("model_id").getAsLong();
+                } else if (jsonNode.has("model_introduction_id") && !jsonNode.get("model_introduction_id").isJsonNull()) {
+                    // 向后兼容：如果传入 model_introduction_id，转换为 model_id
+                    modelId = jsonNode.get("model_introduction_id").getAsLong();
+                }
+                
+                if (modelId == null) {
                     resp.setStatus(400);
                     result.put("code", 400);
-                    result.put("msg", "所属模型不能为空");
+                    result.put("msg", "所属模型不能为空（请使用 model_id 参数）");
                     responsePrint(resp, toJson(result));
                     return;
                 }
@@ -583,7 +597,16 @@ public class VersionManagementServlet extends BaseServlet {
                 versionManagementDto.setVersionId(versionId);
                 versionManagementDto.setVersionName(jsonNode.get("version_name").getAsString());
                 versionManagementDto.setVersionNumber(jsonNode.get("version_number").getAsString());
-                versionManagementDto.setModelIntroductionId(jsonNode.get("model_introduction_id").getAsInt());
+                
+                // 更新：优先使用 model_id，向后兼容 model_introduction_id
+                if (jsonNode.has("model_id") && !jsonNode.get("model_id").isJsonNull()) {
+                    versionManagementDto.setModelId(jsonNode.get("model_id").getAsLong());
+                } else if (jsonNode.has("model_introduction_id") && !jsonNode.get("model_introduction_id").isJsonNull()) {
+                    // 向后兼容
+                    versionManagementDto.setModelId(jsonNode.get("model_introduction_id").getAsLong());
+                    versionManagementDto.setModelIntroductionId(jsonNode.get("model_introduction_id").getAsInt());
+                }
+                
                 versionManagementDto.setFrameworkId(jsonNode.get("framework_id").getAsInt());
                versionManagementDto.setAccuracyRate(jsonNode.has("accuracy_rate") && !jsonNode.get("accuracy_rate").isJsonNull() ?jsonNode.get("accuracy_rate").getAsFloat():0.0f);
                 versionManagementDto.setVersionDescription(jsonNode.get("version_description").getAsString());
@@ -635,19 +658,27 @@ public class VersionManagementServlet extends BaseServlet {
     private int saveVersionManagementToDB(VersionManagementDto versionManagementDto) {
         currentTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         try {
-            String sql = "insert into model_version(version_id, version_name, version_number, model_introduction_id, framework_id, accuracy_rate, version_description, tags, create_at, is_deleted) values(?,?,?,?,?,?,?,?,?,?)";
+            // 更新：使用 model_id 而不是 model_introduction_id
+            String sql = "insert into model_version(version_id, version_name, version_number, model_id, framework_id, accuracy_rate, version_description, tags, create_at, is_deleted) values(?,?,?,?,?,?,?,?,?,?)";
+            
+            // 优先使用 modelId，如果没有则使用 modelIntroductionId（向后兼容）
+            Long modelId = versionManagementDto.getModelId();
+            if (modelId == null && versionManagementDto.getModelIntroductionId() != null) {
+                modelId = versionManagementDto.getModelIntroductionId().longValue();
+            }
+            
             int rowsAffected =getMysqlAdapter().executeUpdate(sql,
                     versionManagementDto.getVersionId(),
                     versionManagementDto.getVersionName(),
                     versionManagementDto.getVersionNumber(),
-                    versionManagementDto.getModelIntroductionId(),
+                    modelId,
                     versionManagementDto.getFrameworkId(),
                     versionManagementDto.getAccuracyRate(),
                     versionManagementDto.getVersionDescription(),
                     versionManagementDto.getTags(),
                     currentTime,
                     0
-                    );
+            );
             return rowsAffected;
         } catch (Exception e) {
             e.printStackTrace();

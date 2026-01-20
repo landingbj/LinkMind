@@ -2,8 +2,6 @@ package ai.dto;
 
 import lombok.Data;
 
-import java.math.BigDecimal;
-
 @Data
 public class VersionManagementDto {
 
@@ -20,7 +18,18 @@ public class VersionManagementDto {
 
     private String modelName;
 
+    /**
+     * 关联的模型ID（FK to models.id）
+     * @deprecated 已从 modelIntroductionId 改为 modelId，model_introduction 表已合并到 models 表
+     */
+    @Deprecated
     private Integer modelIntroductionId;
+    
+    /**
+     * 关联的模型ID（FK to models.id）
+     * 替代原来的 modelIntroductionId
+     */
+    private Long modelId;
 
     private Integer frameworkId;
 

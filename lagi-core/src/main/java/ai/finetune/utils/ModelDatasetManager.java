@@ -10,6 +10,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -61,20 +62,51 @@ public class ModelDatasetManager {
     }
     
     /**
-     * 保存模型到数据库
+     * 保存模型到数据库（基础版本，用于文件上传）
+     * 
+     * @deprecated introductionId 参数已废弃（model_introduction 表已合并到 models 表），传入 null 即可
      */
+    @Deprecated
     public Long saveModel(String name, String path, String version, Long datasetId, 
                          Long introductionId, String modelType, String framework,
                          Long fileSize, String fileType, String description, String userId) {
+        // 为了向后兼容，保留此方法签名，但 introductionId 参数已废弃（不再使用）
+        // model_introduction 表已合并到 models 表，所有简介字段已直接包含在 models 表中
+        return saveModelWithDetails(name, path, version, datasetId, modelType, framework,
+                                   fileSize, fileType, description, userId, null, null, null,
+                                   null, null, null, null, null, null, null, null, null, null,
+                                   null, null, null, null, null, null, null);
+    }
+    
+    /**
+     * 保存模型到数据库（完整版本，包含所有简介字段）
+     */
+    public Long saveModelWithDetails(String name, String path, String version, Long datasetId,
+                                     String modelType, String framework, Long fileSize, String fileType,
+                                     String description, String userId,
+                                     String title, String detailContent, Long categoryId,
+                                     Long modelTypeId, Long frameworkId, String algorithm,
+                                     String inputShape, String outputShape, Integer totalParams,
+                                     Integer trainableParams, Integer nonTrainableParams,
+                                     Float accuracy, Float precision, Float recall, Float f1Score,
+                                     String tags, Long viewCount, String author, String docLink, String iconLink) {
         try {
-            String sql = "INSERT INTO models (name, path, version, dataset_id, introduction_id, " +
+            String sql = "INSERT INTO models (name, path, version, dataset_id, " +
                         "model_type, framework, file_size, file_type, description, user_id, " +
+                        "title, detail_content, category_id, model_type_id, framework_id, " +
+                        "algorithm, input_shape, output_shape, total_params, trainable_params, " +
+                        "non_trainable_params, accuracy, `precision`, `recall`, f1_score, " +
+                        "tags, view_count, author, doc_link, icon_link, " +
                         "status, created_at, updated_at, is_deleted) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW(), 0)";
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW(), 0)";
             
-            int result = mysqlAdapter.executeUpdate(sql, name, path, version, datasetId, introductionId,
-                                                    modelType, framework, fileSize, fileType, 
-                                                    description, userId);
+            int result = mysqlAdapter.executeUpdate(sql, 
+                    name, path, version, datasetId,
+                    modelType, framework, fileSize, fileType, description, userId,
+                    title, detailContent, categoryId, modelTypeId, frameworkId,
+                    algorithm, inputShape, outputShape, totalParams, trainableParams,
+                    nonTrainableParams, accuracy, precision, recall, f1Score,
+                    tags, viewCount != null ? viewCount : 0, author, docLink, iconLink);
             
             if (result > 0) {
                 // 获取插入的ID
@@ -130,12 +162,12 @@ public class ModelDatasetManager {
     }
     
     /**
-     * 查询所有模型列表
+     * 查询所有模型列表（基础版本，用于训练页面下拉框）
      */
     public List<Map<String, Object>> listModels(String userId) {
         try {
             String sql = "SELECT id, name, path, version, model_type, framework, " +
-                        "file_size, status, description, created_at " +
+                        "file_size, status, description, user_id, created_at " +
                         "FROM models WHERE is_deleted = 0";
             
             if (userId != null && !userId.isEmpty()) {
@@ -148,6 +180,106 @@ public class ModelDatasetManager {
         } catch (Exception e) {
             log.error("查询模型列表失败", e);
             return null;
+        }
+    }
+    
+    /**
+     * 查询模型列表（完整版本，包含所有简介字段）
+     */
+    public List<Map<String, Object>> listModelsWithDetails(String userId, String keyword, 
+                                                           String status, Long categoryId,
+                                                           int page, int pageSize) {
+        try {
+            StringBuilder sql = new StringBuilder(
+                "SELECT m.id, m.name, m.path, m.version, m.title, m.description, m.detail_content, " +
+                "m.model_type, m.framework, m.file_size, m.status, m.created_at, " +
+                "m.category_id, m.model_type_id, m.framework_id, m.algorithm, " +
+                "m.input_shape, m.output_shape, m.total_params, m.trainable_params, " +
+                "m.non_trainable_params, m.accuracy, m.`precision`, m.`recall`, m.f1_score, " +
+                "m.tags, m.view_count, m.author, m.doc_link, m.icon_link, m.user_id " +
+                "FROM models m WHERE m.is_deleted = 0"
+            );
+            
+            List<Object> params = new ArrayList<>();
+            
+            if (userId != null && !userId.isEmpty()) {
+                sql.append(" AND m.user_id = ?");
+                params.add(userId);
+            }
+            
+            if (keyword != null && !keyword.isEmpty()) {
+                sql.append(" AND (m.name LIKE ? OR m.description LIKE ? OR m.title LIKE ?)");
+                String likeValue = "%" + keyword + "%";
+                params.add(likeValue);
+                params.add(likeValue);
+                params.add(likeValue);
+            }
+            
+            if (status != null && !status.isEmpty()) {
+                sql.append(" AND m.status = ?");
+                params.add(status);
+            }
+            
+            if (categoryId != null) {
+                sql.append(" AND m.category_id = ?");
+                params.add(categoryId);
+            }
+            
+            sql.append(" ORDER BY m.created_at DESC");
+            
+            if (page > 0 && pageSize > 0) {
+                int offset = (page - 1) * pageSize;
+                sql.append(" LIMIT ?, ?");
+                params.add(offset);
+                params.add(pageSize);
+            }
+            
+            return mysqlAdapter.select(sql.toString(), params.toArray());
+        } catch (Exception e) {
+            log.error("查询模型列表（完整版）失败", e);
+            return null;
+        }
+    }
+    
+    /**
+     * 查询模型总数（用于分页）
+     */
+    public long countModels(String userId, String keyword, String status, Long categoryId) {
+        try {
+            StringBuilder sql = new StringBuilder("SELECT COUNT(*) AS cnt FROM models m WHERE m.is_deleted = 0");
+            List<Object> params = new ArrayList<>();
+            
+            if (userId != null && !userId.isEmpty()) {
+                sql.append(" AND m.user_id = ?");
+                params.add(userId);
+            }
+            
+            if (keyword != null && !keyword.isEmpty()) {
+                sql.append(" AND (m.name LIKE ? OR m.description LIKE ? OR m.title LIKE ?)");
+                String likeValue = "%" + keyword + "%";
+                params.add(likeValue);
+                params.add(likeValue);
+                params.add(likeValue);
+            }
+            
+            if (status != null && !status.isEmpty()) {
+                sql.append(" AND m.status = ?");
+                params.add(status);
+            }
+            
+            if (categoryId != null) {
+                sql.append(" AND m.category_id = ?");
+                params.add(categoryId);
+            }
+            
+            List<Map<String, Object>> results = mysqlAdapter.select(sql.toString(), params.toArray());
+            if (results != null && !results.isEmpty() && results.get(0).get("cnt") instanceof Number) {
+                return ((Number) results.get(0).get("cnt")).longValue();
+            }
+            return 0;
+        } catch (Exception e) {
+            log.error("查询模型总数失败", e);
+            return 0;
         }
     }
     
@@ -194,13 +326,44 @@ public class ModelDatasetManager {
             String name = (String) originalModel.get("name");
             Long datasetId = originalModel.get("dataset_id") != null ? 
                             ((Number) originalModel.get("dataset_id")).longValue() : null;
-            Long introductionId = originalModel.get("introduction_id") != null ?
-                                 ((Number) originalModel.get("introduction_id")).longValue() : null;
             String modelType = (String) originalModel.get("model_type");
             String framework = (String) originalModel.get("framework");
             String description = "训练后自动生成，原模型ID: " + originalModelId + 
                                ", 训练任务ID: " + taskId;
             String userId = (String) originalModel.get("user_id");
+            
+            // 复制简介相关字段
+            String title = (String) originalModel.get("title");
+            String detailContent = (String) originalModel.get("detail_content");
+            Long categoryId = originalModel.get("category_id") != null ?
+                             ((Number) originalModel.get("category_id")).longValue() : null;
+            Long modelTypeId = originalModel.get("model_type_id") != null ?
+                              ((Number) originalModel.get("model_type_id")).longValue() : null;
+            Long frameworkId = originalModel.get("framework_id") != null ?
+                              ((Number) originalModel.get("framework_id")).longValue() : null;
+            String algorithm = (String) originalModel.get("algorithm");
+            String inputShape = (String) originalModel.get("input_shape");
+            String outputShape = (String) originalModel.get("output_shape");
+            Integer totalParams = originalModel.get("total_params") != null ?
+                                ((Number) originalModel.get("total_params")).intValue() : null;
+            Integer trainableParams = originalModel.get("trainable_params") != null ?
+                                     ((Number) originalModel.get("trainable_params")).intValue() : null;
+            Integer nonTrainableParams = originalModel.get("non_trainable_params") != null ?
+                                        ((Number) originalModel.get("non_trainable_params")).intValue() : null;
+            Float accuracy = originalModel.get("accuracy") != null ?
+                           ((Number) originalModel.get("accuracy")).floatValue() : null;
+            Float precision = originalModel.get("precision") != null ?
+                            ((Number) originalModel.get("precision")).floatValue() : null;
+            Float recall = originalModel.get("recall") != null ?
+                         ((Number) originalModel.get("recall")).floatValue() : null;
+            Float f1Score = originalModel.get("f1_score") != null ?
+                          ((Number) originalModel.get("f1_score")).floatValue() : null;
+            String tags = (String) originalModel.get("tags");
+            Long viewCount = originalModel.get("view_count") != null ?
+                           ((Number) originalModel.get("view_count")).longValue() : 0L;
+            String author = (String) originalModel.get("author");
+            String docLink = (String) originalModel.get("doc_link");
+            String iconLink = (String) originalModel.get("icon_link");
             
             // 获取文件大小
             Long fileSize = null;
@@ -216,9 +379,16 @@ public class ModelDatasetManager {
             // 获取文件类型
             String fileType = getFileExtension(newModelPath);
             
-            // 保存新模型
-            Long newModelId = saveModel(name, newModelPath, newVersion, datasetId, introductionId,
-                                      modelType, framework, fileSize, fileType, description, userId);
+            // 保存新模型（包含所有简介字段）
+            Long newModelId = saveModelWithDetails(name, newModelPath, newVersion, datasetId,
+                                                  modelType, framework, fileSize, fileType,
+                                                  description, userId,
+                                                  title, detailContent, categoryId,
+                                                  modelTypeId, frameworkId, algorithm,
+                                                  inputShape, outputShape, totalParams,
+                                                  trainableParams, nonTrainableParams,
+                                                  accuracy, precision, recall, f1Score,
+                                                  tags, viewCount, author, docLink, iconLink);
             
             if (newModelId != null) {
                 log.info("训练后模型已自动入库: modelId={}, version={}, path={}", 

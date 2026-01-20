@@ -641,6 +641,30 @@ public class AITrainingServlet extends BaseServlet {
             case "listDatasets":
                 handleListDatasetsForTraining(req, resp);
                 break;
+            case "createModel":
+                handleCreateModel(req, resp);
+                break;
+            case "updateModel":
+                handleUpdateModel(req, resp);
+                break;
+            case "deleteModel":
+                handleDeleteModel(req, resp);
+                break;
+            case "getModelDetail":
+                handleGetModelDetail(req, resp);
+                break;
+            case "listModelsWithDetails":
+                handleListModelsWithDetails(req, resp);
+                break;
+            case "queryModelCategory":
+                handleQueryModelCategory(req, resp);
+                break;
+            case "queryModelType":
+                handleQueryModelType(req, resp);
+                break;
+            case "queryFramework":
+                handleQueryFramework(req, resp);
+                break;
             default:
                 resp.setStatus(404);
                 Map<String, String> error = new HashMap<>();
@@ -2888,7 +2912,6 @@ public class AITrainingServlet extends BaseServlet {
             String modelType = null;
             String framework = null;
             String userId = null;
-            Long introductionId = null;
             org.apache.commons.fileupload.FileItem fileItem = null;
 
             // 解析表单字段
@@ -2912,13 +2935,6 @@ public class AITrainingServlet extends BaseServlet {
                             break;
                         case "user_id":
                             userId = fieldValue;
-                            break;
-                        case "introduction_id":
-                            try {
-                                introductionId = Long.parseLong(fieldValue);
-                            } catch (NumberFormatException e) {
-                                log.warn("无效的introduction_id: {}", fieldValue);
-                            }
                             break;
                     }
                 } else {
@@ -2973,7 +2989,7 @@ public class AITrainingServlet extends BaseServlet {
             // 保存到数据库
             ai.finetune.utils.ModelDatasetManager manager = new ai.finetune.utils.ModelDatasetManager();
             String version = ai.finetune.utils.ModelVersionManager.getInitialVersion();
-            Long modelId = manager.saveModel(modelName, finalPath, version, null, introductionId,
+            Long modelId = manager.saveModel(modelName, finalPath, version, null, null,
                                            modelType, framework, fileSize, fileType, description, userId);
 
             if (modelId == null) {
@@ -3247,6 +3263,649 @@ public class AITrainingServlet extends BaseServlet {
             return filePath.substring(lastDot + 1).toLowerCase();
         }
         return "";
+    }
+
+    // ========== 模型管理接口（合并自 ModelIntroductionServlet） ==========
+    
+    /**
+     * 创建模型（包含简介信息）
+     * POST /api/ai/training/createModel
+     */
+    private void handleCreateModel(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> result = new HashMap<>();
+        
+        try {
+            String jsonBody = requestToJson(req);
+            JSONObject jsonNode = JSONUtil.parseObj(jsonBody);
+            
+            // 验证必填参数
+            if (!jsonNode.containsKey("modelName") || jsonNode.getStr("modelName") == null || 
+                jsonNode.getStr("modelName").trim().isEmpty()) {
+                resp.setStatus(400);
+                result.put("code", 400);
+                result.put("msg", "模型名称不能为空");
+                responsePrint(resp, toJson(result));
+                return;
+            }
+            
+            if (!jsonNode.containsKey("version") || jsonNode.getStr("version") == null || 
+                jsonNode.getStr("version").trim().isEmpty()) {
+                resp.setStatus(400);
+                result.put("code", 400);
+                result.put("msg", "版本号不能为空");
+                responsePrint(resp, toJson(result));
+                return;
+            }
+            
+            // 构建模型数据
+            String modelName = jsonNode.getStr("modelName");
+            String version = jsonNode.getStr("version");
+            String path = jsonNode.getStr("path"); // 可选，如果没有则使用占位符
+            if (path == null || path.isEmpty()) {
+                path = "/placeholder/model_" + System.currentTimeMillis() + ".pt";
+            }
+            
+            // 调用 ModelDatasetManager 保存
+            ai.finetune.utils.ModelDatasetManager manager = new ai.finetune.utils.ModelDatasetManager();
+            
+            Long modelId = manager.saveModelWithDetails(
+                modelName, path, version,
+                jsonNode.get("dataset_id") != null ? jsonNode.getLong("dataset_id") : null,
+                jsonNode.getStr("model_type"), jsonNode.getStr("framework"),
+                jsonNode.get("file_size") != null ? jsonNode.getLong("file_size") : null,
+                jsonNode.getStr("file_type"),
+                jsonNode.getStr("description"),
+                jsonNode.getStr("user_id"),
+                jsonNode.getStr("title"),
+                jsonNode.getStr("detailContent"),
+                jsonNode.get("category_id") != null ? jsonNode.getLong("category_id") : null,
+                jsonNode.get("model_type_id") != null ? jsonNode.getLong("model_type_id") : null,
+                jsonNode.get("framework_id") != null ? jsonNode.getLong("framework_id") : null,
+                jsonNode.getStr("algorithm"),
+                jsonNode.getStr("inputShape"),
+                jsonNode.getStr("outputShape"),
+                jsonNode.get("total_params") != null ? jsonNode.getInt("total_params") : null,
+                jsonNode.get("trainable_params") != null ? jsonNode.getInt("trainable_params") : null,
+                jsonNode.get("non_trainable_params") != null ? jsonNode.getInt("non_trainable_params") : null,
+                jsonNode.get("accuracy") != null ? jsonNode.getFloat("accuracy") : null,
+                jsonNode.get("precision") != null ? jsonNode.getFloat("precision") : null,
+                jsonNode.get("recall") != null ? jsonNode.getFloat("recall") : null,
+                jsonNode.get("f1_score") != null ? jsonNode.getFloat("f1_score") : null,
+                jsonNode.getStr("tags"),
+                jsonNode.get("view_count") != null ? jsonNode.getLong("view_count") : 0L,
+                jsonNode.getStr("author"),
+                jsonNode.getStr("doc_link"),
+                jsonNode.getStr("icon_link")
+            );
+            
+            if (modelId != null) {
+                result.put("code", 200);
+                result.put("msg", "模型创建成功");
+                Map<String, Object> data = new HashMap<>();
+                data.put("model_id", modelId);
+                result.put("data", data);
+                resp.setStatus(200);
+            } else {
+                result.put("code", 400);
+                result.put("msg", "模型创建失败");
+                resp.setStatus(400);
+            }
+            responsePrint(resp, toJson(result));
+            
+        } catch (Exception e) {
+            log.error("创建模型失败", e);
+            resp.setStatus(500);
+            result.put("code", 500);
+            result.put("msg", "服务器内部错误: " + e.getMessage());
+            responsePrint(resp, toJson(result));
+        }
+    }
+    
+    /**
+     * 更新模型（包含简介信息）
+     * POST /api/ai/training/updateModel
+     */
+    private void handleUpdateModel(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> result = new HashMap<>();
+        
+        try {
+            String jsonBody = requestToJson(req);
+            JSONObject jsonNode = JSONUtil.parseObj(jsonBody);
+            
+            // 验证必填参数 id
+            if (!jsonNode.containsKey("id") || jsonNode.get("id") == null) {
+                resp.setStatus(400);
+                result.put("code", 400);
+                result.put("msg", "模型ID不能为空");
+                responsePrint(resp, toJson(result));
+                return;
+            }
+            
+            Long modelId = jsonNode.getLong("id");
+            
+            // 检查模型是否存在
+            ai.finetune.utils.ModelDatasetManager manager = new ai.finetune.utils.ModelDatasetManager();
+            Map<String, Object> existingModel = manager.getModelById(modelId);
+            if (existingModel == null) {
+                resp.setStatus(404);
+                result.put("code", 404);
+                result.put("msg", "模型不存在");
+                responsePrint(resp, toJson(result));
+                return;
+            }
+            
+            // 构建更新SQL，只更新提供的字段
+            StringBuilder sql = new StringBuilder("UPDATE models SET ");
+            List<Object> params = new ArrayList<>();
+            List<String> setParts = new ArrayList<>();
+            
+            // 基础字段
+            if (jsonNode.containsKey("modelName") && jsonNode.getStr("modelName") != null) {
+                setParts.add("name = ?");
+                params.add(jsonNode.getStr("modelName"));
+            }
+            if (jsonNode.containsKey("version") && jsonNode.getStr("version") != null) {
+                setParts.add("version = ?");
+                params.add(jsonNode.getStr("version"));
+            }
+            if (jsonNode.containsKey("path") && jsonNode.getStr("path") != null) {
+                setParts.add("path = ?");
+                params.add(jsonNode.getStr("path"));
+            }
+            if (jsonNode.containsKey("description") && jsonNode.getStr("description") != null) {
+                setParts.add("description = ?");
+                params.add(jsonNode.getStr("description"));
+            }
+            
+            // 简介字段
+            if (jsonNode.containsKey("title") && jsonNode.getStr("title") != null) {
+                setParts.add("title = ?");
+                params.add(jsonNode.getStr("title"));
+            }
+            if (jsonNode.containsKey("detailContent") && jsonNode.getStr("detailContent") != null) {
+                setParts.add("detail_content = ?");
+                params.add(jsonNode.getStr("detailContent"));
+            }
+            if (jsonNode.containsKey("categoryId") && jsonNode.get("categoryId") != null) {
+                setParts.add("category_id = ?");
+                params.add(jsonNode.getLong("categoryId"));
+            }
+            if (jsonNode.containsKey("modelTypeId") && jsonNode.get("modelTypeId") != null) {
+                setParts.add("model_type_id = ?");
+                params.add(jsonNode.getLong("modelTypeId"));
+            }
+            if (jsonNode.containsKey("frameworkId") && jsonNode.get("frameworkId") != null) {
+                setParts.add("framework_id = ?");
+                params.add(jsonNode.getLong("frameworkId"));
+            }
+            if (jsonNode.containsKey("algorithm") && jsonNode.getStr("algorithm") != null) {
+                setParts.add("algorithm = ?");
+                params.add(jsonNode.getStr("algorithm"));
+            }
+            if (jsonNode.containsKey("inputShape") && jsonNode.getStr("inputShape") != null) {
+                setParts.add("input_shape = ?");
+                params.add(jsonNode.getStr("inputShape"));
+            }
+            if (jsonNode.containsKey("outputShape") && jsonNode.getStr("outputShape") != null) {
+                setParts.add("output_shape = ?");
+                params.add(jsonNode.getStr("outputShape"));
+            }
+            if (jsonNode.containsKey("totalParams") && jsonNode.get("totalParams") != null) {
+                setParts.add("total_params = ?");
+                params.add(jsonNode.getInt("totalParams"));
+            }
+            if (jsonNode.containsKey("trainableParams") && jsonNode.get("trainableParams") != null) {
+                setParts.add("trainable_params = ?");
+                params.add(jsonNode.getInt("trainableParams"));
+            }
+            if (jsonNode.containsKey("nonTrainableParams") && jsonNode.get("nonTrainableParams") != null) {
+                setParts.add("non_trainable_params = ?");
+                params.add(jsonNode.getInt("nonTrainableParams"));
+            }
+            if (jsonNode.containsKey("accuracy") && jsonNode.get("accuracy") != null) {
+                setParts.add("accuracy = ?");
+                params.add(jsonNode.getFloat("accuracy"));
+            }
+            if (jsonNode.containsKey("precision") && jsonNode.get("precision") != null) {
+                setParts.add("precision = ?");
+                params.add(jsonNode.getFloat("precision"));
+            }
+            if (jsonNode.containsKey("recall") && jsonNode.get("recall") != null) {
+                setParts.add("recall = ?");
+                params.add(jsonNode.getFloat("recall"));
+            }
+            if (jsonNode.containsKey("f1Score") && jsonNode.get("f1Score") != null) {
+                setParts.add("f1_score = ?");
+                params.add(jsonNode.getFloat("f1Score"));
+            }
+            if (jsonNode.containsKey("tags") && jsonNode.getStr("tags") != null) {
+                setParts.add("tags = ?");
+                params.add(jsonNode.getStr("tags"));
+            }
+            if (jsonNode.containsKey("status") && jsonNode.getStr("status") != null) {
+                setParts.add("status = ?");
+                params.add(jsonNode.getStr("status"));
+            }
+            if (jsonNode.containsKey("author") && jsonNode.getStr("author") != null) {
+                setParts.add("author = ?");
+                params.add(jsonNode.getStr("author"));
+            }
+            if (jsonNode.containsKey("docLink") && jsonNode.getStr("docLink") != null) {
+                setParts.add("doc_link = ?");
+                params.add(jsonNode.getStr("docLink"));
+            }
+            if (jsonNode.containsKey("iconLink") && jsonNode.getStr("iconLink") != null) {
+                setParts.add("icon_link = ?");
+                params.add(jsonNode.getStr("iconLink"));
+            }
+            
+            if (setParts.isEmpty()) {
+                resp.setStatus(400);
+                result.put("code", 400);
+                result.put("msg", "至少需要提供一个要更新的字段");
+                responsePrint(resp, toJson(result));
+                return;
+            }
+            
+            setParts.add("updated_at = NOW()");
+            sql.append(String.join(", ", setParts));
+            sql.append(" WHERE id = ? AND is_deleted = 0");
+            params.add(modelId);
+            
+            // 执行更新
+            ai.database.impl.MysqlAdapter mysqlAdapter = new ai.database.impl.MysqlAdapter("mysql");
+            int rowsAffected = mysqlAdapter.executeUpdate(sql.toString(), params.toArray());
+            
+            if (rowsAffected > 0) {
+                result.put("code", 200);
+                result.put("msg", "模型更新成功");
+                resp.setStatus(200);
+            } else {
+                result.put("code", 400);
+                result.put("msg", "模型更新失败，记录可能不存在或已被删除");
+                resp.setStatus(400);
+            }
+            responsePrint(resp, toJson(result));
+            
+        } catch (Exception e) {
+            log.error("更新模型失败", e);
+            resp.setStatus(500);
+            result.put("code", 500);
+            result.put("msg", "服务器内部错误: " + e.getMessage());
+            responsePrint(resp, toJson(result));
+        }
+    }
+    
+    /**
+     * 删除模型（软删除）
+     * POST /api/ai/training/deleteModel?id=xxx
+     */
+    private void handleDeleteModel(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> result = new HashMap<>();
+        
+        try {
+            String paramId = req.getParameter("id");
+            if (paramId == null || paramId.trim().isEmpty()) {
+                resp.setStatus(400);
+                result.put("code", 400);
+                result.put("msg", "模型ID不能为空");
+                responsePrint(resp, toJson(result));
+                return;
+            }
+            
+            Long modelId = Long.parseLong(paramId);
+            
+            // 检查模型是否存在
+            ai.finetune.utils.ModelDatasetManager manager = new ai.finetune.utils.ModelDatasetManager();
+            Map<String, Object> existingModel = manager.getModelById(modelId);
+            if (existingModel == null) {
+                resp.setStatus(404);
+                result.put("code", 404);
+                result.put("msg", "模型不存在");
+                responsePrint(resp, toJson(result));
+                return;
+            }
+            
+            // 执行软删除
+            ai.database.impl.MysqlAdapter mysqlAdapter = new ai.database.impl.MysqlAdapter("mysql");
+            String sql = "UPDATE models SET is_deleted = 1, updated_at = NOW() WHERE id = ? AND is_deleted = 0";
+            int rowsAffected = mysqlAdapter.executeUpdate(sql, modelId);
+            
+            if (rowsAffected > 0) {
+                result.put("code", 200);
+                result.put("msg", "模型删除成功");
+                resp.setStatus(200);
+            } else {
+                result.put("code", 400);
+                result.put("msg", "删除失败，记录可能不存在或已被删除");
+                resp.setStatus(400);
+            }
+            responsePrint(resp, toJson(result));
+            
+        } catch (Exception e) {
+            log.error("删除模型失败", e);
+            resp.setStatus(500);
+            result.put("code", 500);
+            result.put("msg", "服务器内部错误: " + e.getMessage());
+            responsePrint(resp, toJson(result));
+        }
+    }
+    
+    /**
+     * 获取模型详情（包含所有简介字段）
+     * GET /api/ai/training/getModelDetail?id=xxx
+     */
+    private void handleGetModelDetail(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> result = new HashMap<>();
+        
+        try {
+            String paramId = req.getParameter("id");
+            if (paramId == null || paramId.trim().isEmpty()) {
+                resp.setStatus(400);
+                result.put("code", 400);
+                result.put("msg", "模型ID不能为空");
+                responsePrint(resp, toJson(result));
+                return;
+            }
+            
+            Long modelId = Long.parseLong(paramId);
+            
+            // 查询模型详情
+            ai.finetune.utils.ModelDatasetManager manager = new ai.finetune.utils.ModelDatasetManager();
+            Map<String, Object> modelDetail = manager.getModelById(modelId);
+            
+            if (modelDetail == null) {
+                resp.setStatus(404);
+                result.put("code", 404);
+                result.put("msg", "模型不存在");
+                responsePrint(resp, toJson(result));
+                return;
+            }
+            
+            // 查询关联的分类、类型、框架名称
+            ai.database.impl.MysqlAdapter mysqlAdapter = new ai.database.impl.MysqlAdapter("mysql");
+            
+            if (modelDetail.get("category_id") != null) {
+                Long categoryId = ((Number) modelDetail.get("category_id")).longValue();
+                String categorySql = "SELECT category_name FROM model_category WHERE id = ?";
+                List<Map<String, Object>> categoryResult = mysqlAdapter.select(categorySql, categoryId);
+                if (categoryResult != null && !categoryResult.isEmpty()) {
+                    modelDetail.put("category_name", categoryResult.get(0).get("category_name"));
+                }
+            }
+            
+            if (modelDetail.get("framework_id") != null) {
+                Long frameworkId = ((Number) modelDetail.get("framework_id")).longValue();
+                String frameworkSql = "SELECT framework_name FROM model_framework_dict WHERE id = ?";
+                List<Map<String, Object>> frameworkResult = mysqlAdapter.select(frameworkSql, frameworkId);
+                if (frameworkResult != null && !frameworkResult.isEmpty()) {
+                    modelDetail.put("framework_name", frameworkResult.get(0).get("framework_name"));
+                }
+            }
+            
+            if (modelDetail.get("model_type_id") != null) {
+                Long modelTypeId = ((Number) modelDetail.get("model_type_id")).longValue();
+                String modelTypeSql = "SELECT type_name FROM model_type_dict WHERE id = ?";
+                List<Map<String, Object>> modelTypeResult = mysqlAdapter.select(modelTypeSql, modelTypeId);
+                if (modelTypeResult != null && !modelTypeResult.isEmpty()) {
+                    modelDetail.put("type_name", modelTypeResult.get(0).get("type_name"));
+                }
+            }
+            
+            result.put("code", 200);
+            result.put("msg", "查询成功");
+            result.put("data", modelDetail);
+            resp.setStatus(200);
+            responsePrint(resp, toJson(result));
+            
+        } catch (Exception e) {
+            log.error("查询模型详情失败", e);
+            resp.setStatus(500);
+            result.put("code", 500);
+            result.put("msg", "服务器内部错误: " + e.getMessage());
+            responsePrint(resp, toJson(result));
+        }
+    }
+    
+    /**
+     * 查询模型列表（包含简介字段，支持分页、搜索）
+     * GET /api/ai/training/listModelsWithDetails?page=1&page_size=10&keyword=xxx&status=xxx&category_id=xxx
+     */
+    private void handleListModelsWithDetails(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> result = new HashMap<>();
+        
+        try {
+            // 解析请求参数
+            int page = 1;
+            String pageParam = req.getParameter("page");
+            if (pageParam != null && !pageParam.trim().isEmpty()) {
+                try {
+                    page = Integer.parseInt(pageParam.trim());
+                    if (page <= 0) page = 1;
+                } catch (NumberFormatException e) {
+                    page = 1;
+                }
+            }
+            
+            int pageSize = 10;
+            String pageSizeParam = req.getParameter("page_size");
+            if (pageSizeParam != null && !pageSizeParam.trim().isEmpty()) {
+                try {
+                    pageSize = Integer.parseInt(pageSizeParam.trim());
+                    if (pageSize <= 0) pageSize = 10;
+                } catch (NumberFormatException e) {
+                    pageSize = 10;
+                }
+            }
+            
+            String keyword = req.getParameter("keyword");
+            if (keyword != null) keyword = keyword.trim();
+            if (keyword != null && keyword.isEmpty()) keyword = null;
+            
+            String status = req.getParameter("status");
+            if (status != null) status = status.trim();
+            if (status != null && status.isEmpty()) status = null;
+            
+            Long categoryId = null;
+            String categoryParam = req.getParameter("category_id");
+            if (categoryParam != null && !categoryParam.trim().isEmpty()) {
+                try {
+                    categoryId = Long.parseLong(categoryParam.trim());
+                } catch (NumberFormatException e) {
+                    // 忽略无效参数
+                }
+            }
+            
+            // 查询数据
+            ai.finetune.utils.ModelDatasetManager manager = new ai.finetune.utils.ModelDatasetManager();
+            ai.database.impl.MysqlAdapter mysqlAdapter = new ai.database.impl.MysqlAdapter("mysql");
+            
+            // 查询总数
+            long total = manager.countModels(null, keyword, status, categoryId);
+            
+            // 查询状态统计
+            StringBuilder statusCountWhere = new StringBuilder(" WHERE m.is_deleted = 0 ");
+            List<Object> statusParams = new ArrayList<>();
+            if (keyword != null && !keyword.isEmpty()) {
+                statusCountWhere.append(" AND (m.name LIKE ? OR m.description LIKE ? OR m.title LIKE ?)");
+                String likeValue = "%" + keyword + "%";
+                statusParams.add(likeValue);
+                statusParams.add(likeValue);
+                statusParams.add(likeValue);
+            }
+            if (status != null && !status.isEmpty()) {
+                statusCountWhere.append(" AND m.status = ?");
+                statusParams.add(status);
+            }
+            if (categoryId != null) {
+                statusCountWhere.append(" AND m.category_id = ?");
+                statusParams.add(categoryId);
+            }
+            
+            String statusCountSql = "SELECT m.status AS status, COUNT(*) AS cnt FROM models m" + 
+                                   statusCountWhere + " GROUP BY m.status";
+            List<Map<String, Object>> statusCountResult = mysqlAdapter.select(statusCountSql, statusParams.toArray());
+            Map<String, Object> statusCount = new HashMap<>();
+            for (Map<String, Object> row : statusCountResult) {
+                Object statusKey = row.get("status");
+                Object cntValue = row.get("cnt");
+                if (statusKey != null && cntValue instanceof Number) {
+                    statusCount.put(statusKey.toString(), ((Number) cntValue).longValue());
+                }
+            }
+            
+            // 查询列表
+            List<Map<String, Object>> rows = manager.listModelsWithDetails(null, keyword, status, categoryId, page, pageSize);
+            List<Map<String, Object>> list = new ArrayList<>();
+            
+            // 查询分类名称
+            for (Map<String, Object> row : rows) {
+                Map<String, Object> item = new HashMap<>();
+                item.put("id", row.get("id"));
+                item.put("modelName", row.get("name"));
+                item.put("version", row.get("version"));
+                
+                // 查询分类名称
+                if (row.get("category_id") != null) {
+                    Long catId = ((Number) row.get("category_id")).longValue();
+                    String categorySql = "SELECT category_name FROM model_category WHERE id = ?";
+                    List<Map<String, Object>> catResult = mysqlAdapter.select(categorySql, catId);
+                    if (catResult != null && !catResult.isEmpty()) {
+                        item.put("category", catResult.get(0).get("category_name"));
+                    }
+                }
+                
+                item.put("title", row.get("title"));
+                item.put("author", row.get("author"));
+                item.put("status", row.get("status"));
+                item.put("viewCount", row.get("view_count"));
+                item.put("createTime", row.get("created_at"));
+                list.add(item);
+            }
+            
+            // 构建返回结果
+            Map<String, Object> data = new HashMap<>();
+            data.put("total", total);
+            data.put("statusCount", statusCount);
+            data.put("list", list);
+            
+            result.put("code", 200);
+            result.put("msg", "查询成功");
+            result.put("data", data);
+            resp.setStatus(200);
+            responsePrint(resp, toJson(result));
+            
+        } catch (Exception e) {
+            log.error("查询模型列表失败", e);
+            resp.setStatus(500);
+            result.put("code", 500);
+            result.put("msg", "服务器内部错误: " + e.getMessage());
+            responsePrint(resp, toJson(result));
+        }
+    }
+    
+    /**
+     * 查询模型分类下拉框
+     * GET /api/ai/training/queryModelCategory
+     */
+    private void handleQueryModelCategory(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> result = new HashMap<>();
+        try {
+            List<Map<String, Object>> options = new ArrayList<>();
+            ai.database.impl.MysqlAdapter mysqlAdapter = new ai.database.impl.MysqlAdapter("mysql");
+            String sql = "SELECT id, category_name AS name FROM model_category";
+            List<Map<String, Object>> categoryList = mysqlAdapter.select(sql);
+            
+            for (Map<String, Object> map : categoryList) {
+                Map<String, Object> option = new HashMap<>();
+                option.put("id", map.get("id"));
+                option.put("name", map.get("name"));
+                options.add(option);
+            }
+            
+            result.put("code", 200);
+            result.put("msg", "查询模型分类成功");
+            result.put("data", options);
+            responsePrint(resp, toJson(result));
+        } catch (Exception e) {
+            log.error("查询模型分类异常", e);
+            resp.setStatus(500);
+            result.put("code", 500);
+            result.put("msg", "服务器内部错误");
+            responsePrint(resp, toJson(result));
+        }
+    }
+    
+    /**
+     * 查询模型类型下拉框
+     * GET /api/ai/training/queryModelType
+     */
+    private void handleQueryModelType(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> result = new HashMap<>();
+        try {
+            List<Map<String, Object>> options = new ArrayList<>();
+            ai.database.impl.MysqlAdapter mysqlAdapter = new ai.database.impl.MysqlAdapter("mysql");
+            String sql = "SELECT id, type_name AS name FROM model_type_dict";
+            List<Map<String, Object>> typeList = mysqlAdapter.select(sql);
+            
+            for (Map<String, Object> map : typeList) {
+                Map<String, Object> option = new HashMap<>();
+                option.put("id", map.get("id"));
+                option.put("name", map.get("name"));
+                options.add(option);
+            }
+            
+            result.put("code", 200);
+            result.put("msg", "查询模型类型成功");
+            result.put("data", options);
+            responsePrint(resp, toJson(result));
+        } catch (Exception e) {
+            log.error("查询模型类型异常", e);
+            resp.setStatus(500);
+            result.put("code", 500);
+            result.put("msg", "服务器内部错误");
+            responsePrint(resp, toJson(result));
+        }
+    }
+    
+    /**
+     * 查询框架下拉框
+     * GET /api/ai/training/queryFramework
+     */
+    private void handleQueryFramework(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> result = new HashMap<>();
+        try {
+            List<Map<String, Object>> options = new ArrayList<>();
+            ai.database.impl.MysqlAdapter mysqlAdapter = new ai.database.impl.MysqlAdapter("mysql");
+            String sql = "SELECT id, framework_name AS name FROM model_framework_dict";
+            List<Map<String, Object>> frameworkList = mysqlAdapter.select(sql);
+            
+            for (Map<String, Object> map : frameworkList) {
+                Map<String, Object> option = new HashMap<>();
+                option.put("id", map.get("id"));
+                option.put("name", map.get("name"));
+                options.add(option);
+            }
+            
+            result.put("code", 200);
+            result.put("msg", "查询框架成功");
+            result.put("data", options);
+            responsePrint(resp, toJson(result));
+        } catch (Exception e) {
+            log.error("查询框架异常", e);
+            resp.setStatus(500);
+            result.put("code", 500);
+            result.put("msg", "服务器内部错误");
+            responsePrint(resp, toJson(result));
+        }
     }
 
 }

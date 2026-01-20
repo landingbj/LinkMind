@@ -146,7 +146,7 @@ public class TrainingWorkflowIntegrationTest {
             testModelPath,
             ModelVersionManager.getInitialVersion(),
             null,  // dataset_id
-            null,  // introduction_id
+            null,  // introduction_id (已废弃，model_introduction 表已合并到 models 表)
             modelType,
             framework,
             fileSize,

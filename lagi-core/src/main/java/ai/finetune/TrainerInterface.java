@@ -14,5 +14,9 @@ public interface TrainerInterface {
     String getContainerLogs(String containerId, int lines);
     String evaluate(JSONObject config);
     String predict(JSONObject config);
+
+    default String convert(JSONObject parameters) {
+        return null;
+    }
     //String exportModel(JSONObject config);
 }

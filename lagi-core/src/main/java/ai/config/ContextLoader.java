@@ -10,10 +10,14 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class ContextLoader {
 
     private static final Logger log = LoggerFactory.getLogger(ContextLoader.class);
+
+    private static final Map<Class<?>, Object> beanFactory = new ConcurrentHashMap<>();
 
     public static GlobalConfigurations configuration = null;
 
@@ -65,6 +69,35 @@ public class ContextLoader {
         }
     }
 
+
+    public static<T> T loadConfig(String yamlName, Class<T> clazz) {
+        InputStream resourceAsStream = ContextLoader.class.getResourceAsStream("/" + yamlName);
+        return loadConfig(resourceAsStream, clazz);
+    }
+
+    public static<T> T loadConfig(InputStream inputStream, Class<T> clazz) {
+        ObjectMapper mapper = new YAMLMapper();
+        mapper.setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
+        T configuration = null;
+        try {
+            configuration = mapper.readValue(inputStream, clazz);
+        } catch (IOException e) {
+            log.error(e.getMessage(), e);
+        }
+        return configuration;
+    }
+
+    public static <T> T getBean(Class<T> clazz) {
+        Object beanInstance = beanFactory.get(clazz);
+        if (clazz.isInstance(beanInstance)) {
+            return clazz.cast(beanInstance);
+        }
+        return null;
+    }
+
+    public static void registerBean(Class<?> clazz, Object bean) {
+        beanFactory.putIfAbsent(clazz, bean);
+    }
 
 
 

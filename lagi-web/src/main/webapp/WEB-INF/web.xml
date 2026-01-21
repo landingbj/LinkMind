@@ -43,6 +43,10 @@
         <url-pattern>/*</url-pattern>
     </filter-mapping>
 
+    <listener>
+        <listener-class>ai.listener.ConfigLoaderListener</listener-class>
+    </listener>
+
     <servlet>
         <servlet-name>multimodal</servlet-name>
         <servlet-class>ai.servlet.MultimodalServlet</servlet-class>

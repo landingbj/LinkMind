@@ -34,3 +34,7 @@ dataset:
     absolute_path: 1
     url_download: 2
     file_upload: 3
+
+common:
+  # 默认存储类型
+  host_upload_path: "/data/wangshuanglong"

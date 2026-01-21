@@ -1,7 +1,8 @@
   package ai.servlet.api;
 
 
-import ai.config.DatasetUploadConfig;
+import ai.config.ContextLoader;
+import ai.config.UploadConfig;
 import ai.database.impl.MysqlAdapter;
 import ai.servlet.BaseServlet;
 import cn.hutool.json.JSONObject;
@@ -18,7 +19,6 @@ import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpResponse;
 import org.apache.hc.client5.http.impl.classic.HttpClients;
 import org.apache.hc.core5.util.Timeout;
-import org.yaml.snakeyaml.Yaml;
 
 
 import javax.servlet.ServletException;
@@ -27,9 +27,6 @@ import javax.servlet.http.HttpServletResponse;
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.*;
 import java.util.zip.ZipEntry;
@@ -39,24 +36,9 @@ import java.util.zip.ZipInputStream;
 public class DatasetServlet extends BaseServlet {
 
     // 配置对象
-    private static DatasetUploadConfig uploadConfig;
+    private static final UploadConfig uploadConfig = ContextLoader.getBean(UploadConfig.class);
     private static final ObjectMapper objectMapper = new ObjectMapper();
-    // 初始化配置
-    static {
-        try {
-            // 读取YML配置文件（请确保配置文件路径正确）
-            Yaml yaml = new Yaml();
-            InputStream configStream = DatasetServlet.class.getClassLoader()
-                    .getResourceAsStream("upload-config.yml");
-            if (configStream == null) {
-                throw new FileNotFoundException("数据集上传配置文件upload-config.yml不存在");
-            }
-            uploadConfig = yaml.loadAs(configStream, DatasetUploadConfig.class);
-        } catch (Exception e) {
-            log.error("加载数据集上传配置失败", e);
-            throw new RuntimeException("配置加载失败", e);
-        }
-    }
+
 
     private static volatile MysqlAdapter mysqlAdapter = null;
     private static MysqlAdapter getMysqlAdapter() {
@@ -447,7 +429,7 @@ public class DatasetServlet extends BaseServlet {
                 } else {
                     storagePath = absolutePath;
                 }
-                storageType = uploadConfig.getDataset().getStorageType().getAbsolute_path();
+                storageType = uploadConfig.getDataset().getStorage_type().getAbsolute_path();
                 fileSize = absoluteFile.length();
 
             // 方式2：URL下载上传
@@ -484,7 +466,7 @@ public class DatasetServlet extends BaseServlet {
                     Files.move(tempFile.toPath(), targetFile.toPath());
                     storagePath = targetFile.getAbsolutePath();
                 }
-                storageType = uploadConfig.getDataset().getStorageType().getUrl_download();
+                storageType = uploadConfig.getDataset().getStorage_type().getUrl_download();
                 fileSize = new File(storagePath).isDirectory() ? 
                     calculateDirectorySize(new File(storagePath)) : new File(storagePath).length();
 
@@ -528,7 +510,7 @@ public class DatasetServlet extends BaseServlet {
                 log.info("解压成功，目录中有 {} 个文件/目录", extractedFiles.length);
                 
                 storagePath = extractDir.getAbsolutePath();
-                storageType = uploadConfig.getDataset().getStorageType().getFile_upload();
+                storageType = uploadConfig.getDataset().getStorage_type().getFile_upload();
                 fileSize = calculateDirectorySize(extractDir);
                 
                 // 删除临时上传文件

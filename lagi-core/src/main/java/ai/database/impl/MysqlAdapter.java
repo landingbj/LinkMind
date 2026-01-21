@@ -15,6 +15,12 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class MysqlAdapter {
+    /**
+     * 全局连接池缓存：避免每次 new MysqlAdapter 都创建一个新的 HikariPool，导致连接数爆炸（Too many connections）。
+     * key = storageName（如 "mysql"）
+     */
+    private static final Map<String, HikariDataSource> DATA_SOURCE_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+
     private HikariDataSource dataSource;
     private  String name;
     private  String driver;
@@ -50,38 +56,53 @@ public class MysqlAdapter {
         private void init(String storageName){
             this.name = storageName;
             try {
-                List<Backend> list = ContextLoader.configuration.getFunctions().getText2sql();
-                Backend maxBackend = list.stream()
-                        .filter(Backend::getEnable)
-                        .max(Comparator.comparingInt(Backend::getPriority)) .orElseThrow(() -> new NoSuchElementException("No enabled backends found"));
-                SQLJdbc database = ContextLoader.configuration.getStores().getDatabase().stream()
-                        .filter(sqlJdbc -> sqlJdbc.getName().equals(this.name))
-                        .findFirst()
-                        .orElseThrow(() -> new NoSuchElementException("Database not found"));
-                driver = database.getDriver();
-                url = database.getJdbcUrl();
-                username = database.getUsername();
-                password = database.getPassword();
-                model = maxBackend.getModel();
-                maximumPoolSize = database.getMaximumPoolSize();
-                idleTimeout = database.getIdleTimeout();
-                maxLifetime = database.getMaxLifetime();
+                // 复用全局连接池（同一个 storageName 只创建一次）
+                this.dataSource = DATA_SOURCE_CACHE.computeIfAbsent(this.name, key -> {
+                    try {
+                        List<Backend> list = ContextLoader.configuration.getFunctions().getText2sql();
+                        Backend maxBackend = list.stream()
+                                .filter(Backend::getEnable)
+                                .max(Comparator.comparingInt(Backend::getPriority))
+                                .orElseThrow(() -> new NoSuchElementException("No enabled backends found"));
+                        SQLJdbc database = ContextLoader.configuration.getStores().getDatabase().stream()
+                                .filter(sqlJdbc -> sqlJdbc.getName().equals(key))
+                                .findFirst()
+                                .orElseThrow(() -> new NoSuchElementException("Database not found: " + key));
 
-                // 初始化HikariCP连接池
-                HikariConfig config = new HikariConfig();
-                config.setJdbcUrl(url);
-                config.setUsername(username);
-                config.setPassword(password);
-                config.setDriverClassName(driver);
-                // 连接池配置
-                config.setMaximumPoolSize(maximumPoolSize);
-                config.setMinimumIdle(5);
-                config.setConnectionTimeout(30000);
-                config.setIdleTimeout(idleTimeout);
-                config.setMaxLifetime(maxLifetime);
-                dataSource = new HikariDataSource(config);
+                        driver = database.getDriver();
+                        url = database.getJdbcUrl();
+                        username = database.getUsername();
+                        password = database.getPassword();
+                        model = maxBackend.getModel();
+                        maximumPoolSize = database.getMaximumPoolSize();
+                        idleTimeout = database.getIdleTimeout();
+                        maxLifetime = database.getMaxLifetime();
+
+                        HikariConfig config = new HikariConfig();
+                        config.setJdbcUrl(url);
+                        config.setUsername(username);
+                        config.setPassword(password);
+                        config.setDriverClassName(driver);
+                        // 连接池配置
+                        config.setMaximumPoolSize(maximumPoolSize != null ? maximumPoolSize : 10);
+                        config.setMinimumIdle(1);
+                        config.setConnectionTimeout(30000);
+                        if (idleTimeout != null) {
+                            config.setIdleTimeout(idleTimeout);
+                        }
+                        if (maxLifetime != null) {
+                            config.setMaxLifetime(maxLifetime);
+                        }
+                        return new HikariDataSource(config);
+                    } catch (Exception e) {
+                        // computeIfAbsent 里抛异常会导致缓存不写入，便于下次重试
+                        throw new RuntimeException("初始化数据库连接池失败: " + key, e);
+                    }
+                });
             } catch (Exception e) {
+                // 保持兼容：不直接抛出到上层，但要确保 dataSource 为 null 时不 NPE
                 e.printStackTrace();
+                this.dataSource = null;
             }
         }
 
@@ -100,6 +121,9 @@ public class MysqlAdapter {
 //        return con;}
     public Connection getCon() {
         try {
+            if (dataSource == null) {
+                return null;
+            }
             return dataSource.getConnection();
         } catch (SQLException e) {
             System.out.println("数据库连接失败:"+e);
@@ -119,9 +143,8 @@ public class MysqlAdapter {
 //        }
 //    }
     public void close() {
-        if (dataSource != null && !dataSource.isClosed()) {
-            dataSource.close();
-        }
+        // 兼容旧调用：不主动关闭全局连接池，避免影响其他线程/请求
+        // 如需关闭请在应用退出时统一处理（或实现显式 shutdown 方法）
     }
 
     public void close(PreparedStatement pre) {
@@ -212,6 +235,9 @@ public class MysqlAdapter {
         List<Map<String, Object>> list = new ArrayList<Map<String, Object>>();
         try {
             con = getCon();
+            if (con == null) {
+                return list;
+            }
             pre = con.prepareStatement(sql);
 
             for (int i = 0; i < objs.length; i++) {

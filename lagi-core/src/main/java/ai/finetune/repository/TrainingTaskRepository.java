@@ -3,7 +3,9 @@ package ai.finetune.repository;
 import ai.database.impl.MysqlAdapter;
 import ai.finetune.dto.TrainingTaskDTO;
 import com.google.gson.Gson;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
 import lombok.extern.slf4j.Slf4j;
 
 import java.time.LocalDateTime;
@@ -428,84 +430,7 @@ public class TrainingTaskRepository {
                 // 如果是 export 类型，使用特殊处理
                 if ("export".equals(taskType)) {
                     // 导出任务特定字段处理
-                    String taskId = (String) task.get("task_id");
-                    taskMap.put("taskId", taskId);
-                    taskMap.put("modelName", task.get("model_name"));
-                    taskMap.put("modelFramework", task.get("model_framework"));
-                    taskMap.put("status", task.get("status"));
-
-                    // 处理时间字段，转换为字符串
-                    Object createdAt = task.get("created_at");
-                    if (createdAt != null) {
-                        taskMap.put("createTime", createdAt.toString());
-                    }
-                    
-                    Object updatedAt = task.get("updated_at");
-                    if (updatedAt != null) {
-                        taskMap.put("updateTime", updatedAt.toString());
-                    }
-                    
-                    // 解析 remark JSON 字段
-                    String remark = (String) task.get("remark");
-                    if (remark != null && !remark.trim().isEmpty()) {
-                        try {
-                            JsonObject remarkJson = gson.fromJson(remark, JsonObject.class);
-                            if (remarkJson != null) {
-                                // 提取 model_file_size（支持数字和字符串类型）
-                                if (remarkJson.has("model_file_size") && !remarkJson.get("model_file_size").isJsonNull()) {
-                                    if (remarkJson.get("model_file_size").isJsonPrimitive()) {
-                                        if (remarkJson.get("model_file_size").getAsJsonPrimitive().isNumber()) {
-                                            taskMap.put("modelFileSize", remarkJson.get("model_file_size").getAsNumber().toString());
-                                        } else {
-                                            taskMap.put("modelFileSize", remarkJson.get("model_file_size").getAsString());
-                                        }
-                                    } else {
-                                        taskMap.put("modelFileSize", remarkJson.get("model_file_size").toString());
-                                    }
-                                } else {
-                                    taskMap.put("modelFileSize", null);
-                                }
-                                
-                                // 提取 export_file_size（支持数字和字符串类型）
-                                if (remarkJson.has("export_file_size") && !remarkJson.get("export_file_size").isJsonNull()) {
-                                    if (remarkJson.get("export_file_size").isJsonPrimitive()) {
-                                        if (remarkJson.get("export_file_size").getAsJsonPrimitive().isNumber()) {
-                                            taskMap.put("exportFileSize", remarkJson.get("export_file_size").getAsNumber().toString());
-                                        } else {
-                                            taskMap.put("exportFileSize", remarkJson.get("export_file_size").getAsString());
-                                        }
-                                    } else {
-                                        taskMap.put("exportFileSize", remarkJson.get("export_file_size").toString());
-                                    }
-                                } else {
-                                    taskMap.put("exportFileSize", null);
-                                }
-
-                                if (remarkJson.has("export_format") && !remarkJson.get("export_format").isJsonNull()) {
-                                    if (remarkJson.get("export_format").isJsonPrimitive()) {
-                                        taskMap.put("exportFormat", remarkJson.get("export_format").getAsString());
-                                    } else {
-                                        taskMap.put("exportFormat", remarkJson.get("export_format").toString());
-                                    }
-                                } else {
-                                    taskMap.put("exportFormat", null);
-                                }
-
-                            } else {
-                                taskMap.put("modelFileSize", null);
-                                taskMap.put("exportFileSize", null);
-                            }
-                        } catch (Exception e) {
-                            log.warn("解析 remark JSON 失败: taskId={}, remark={}, error={}", 
-                                    taskId, remark, e.getMessage());
-                            taskMap.put("modelFileSize", null);
-                            taskMap.put("exportFileSize", null);
-                        }
-                    } else {
-                        taskMap.put("modelFileSize", null);
-                        taskMap.put("exportFileSize", null);
-                    }
-                    
+                    taskMap = convertTask2Export(task);
                     taskList.add(taskMap);
                 } else {
                     // 其他任务类型的原有处理逻辑
@@ -566,6 +491,85 @@ public class TrainingTaskRepository {
         }
 
         return result;
+    }
+
+
+    private Map<String, Object> convertTask2Export(Map<String, Object> task) {
+        Map<String, Object> taskMap = new HashMap<>();
+
+        // 1. 基础字段映射（安全类型转换）
+        taskMap.put("taskId", getStringValue(task, "task_id"));
+        taskMap.put("modelName", task.get("model_name"));
+        taskMap.put("modelFramework", task.get("model_framework"));
+        taskMap.put("status", task.get("status"));
+
+        // 2. 时间字段处理（转换为字符串）
+        taskMap.put("createTime", task.get("created_at") != null ? task.get("created_at").toString() : null);
+        taskMap.put("updateTime", task.get("updated_at") != null ? task.get("updated_at").toString() : null);
+
+        // 3. 初始化remark相关字段为null（统一空值基准）
+        taskMap.put("modelFileSize", null);
+        taskMap.put("exportFileSize", null);
+        taskMap.put("exportFormat", null);
+
+        // 4. 解析remark JSON字段（提取通用方法减少重复）
+        String taskId = getStringValue(task, "task_id");
+        String remark = getStringValue(task, "remark");
+        if (remark != null && !remark.trim().isEmpty()) {
+            try {
+                JsonObject remarkJson = gson.fromJson(remark, JsonObject.class);
+                if (remarkJson != null) {
+                    // 调用通用解析方法处理各字段
+                    taskMap.put("modelFileSize", getJsonFieldAsString(remarkJson, "model_file_size"));
+                    taskMap.put("exportFileSize", getJsonFieldAsString(remarkJson, "export_file_size"));
+                    taskMap.put("exportFormat", getJsonFieldAsString(remarkJson, "export_format"));
+                }
+            } catch (Exception e) {
+                log.warn("解析 remark JSON 失败: taskId={}, remark={}, error={}",
+                        taskId, remark, e.getMessage());
+                // 异常时保持初始的null值即可，无需重复赋值
+            }
+        }
+
+        return taskMap;
+    }
+
+    /**
+     * 安全获取Map中的字符串值（避免ClassCastException）
+     * @param map 源Map
+     * @param key 键名
+     * @return 字符串值，类型不匹配/为空时返回null
+     */
+    private String getStringValue(Map<String, Object> map, String key) {
+        Object value = map.get(key);
+        return value != null ? value.toString() : null;
+    }
+
+    /**
+     * 从JsonObject中安全提取字段值并转为字符串（支持所有JSON类型）
+     * @param jsonObject JSON对象
+     * @param fieldName 字段名
+     * @return 字符串值，字段不存在/为null时返回null
+     */
+    private String getJsonFieldAsString(JsonObject jsonObject, String fieldName) {
+        // 检查字段是否存在且非null
+        if (!jsonObject.has(fieldName) || jsonObject.get(fieldName).isJsonNull()) {
+            return null;
+        }
+
+        JsonElement element = jsonObject.get(fieldName);
+        // 处理基本类型（数字/字符串）
+        if (element.isJsonPrimitive()) {
+            JsonPrimitive primitive = element.getAsJsonPrimitive();
+            // 数字类型转为字符串，保持兼容性
+            if (primitive.isNumber()) {
+                return primitive.getAsNumber().toString();
+            } else {
+                return primitive.getAsString();
+            }
+        }
+        // 非基本类型（如对象/数组）直接转字符串
+        return element.toString();
     }
 
     /**

@@ -475,17 +475,18 @@ public class ModelDependencyServlet extends BaseServlet {
 
     /**
      * 查询统计概览数据
+     * 更新：使用 models 表替代 model_introduction 表
      */
     private Map<String, Object> queryStatistics() {
         String sql = "SELECT " +
-                "COUNT(DISTINCT mi.id) as model_count, " +
+                "COUNT(DISTINCT m.id) as model_count, " +
                 "COUNT(DISTINCT df.id) as file_count, " +
                 "COUNT(DISTINCT dp.id) as package_count, " +
                 "COUNT(DISTINCT CASE WHEN dp.has_update = '是' THEN dp.id END) as pending_update_count " +
-                "FROM model_introduction mi " +
-                "LEFT JOIN dependency_file df ON mi.id = df.model_id " +
+                "FROM models m " +
+                "LEFT JOIN dependency_file df ON m.id = df.model_id " +
                 "LEFT JOIN dependency_package dp ON df.id = dp.file_id " +
-                "WHERE mi.is_deleted = 0";
+                "WHERE m.is_deleted = 0";
 
         List<Map<String, Object>> rows = getMysqlAdapter().select(sql);
         Map<String, Object> result = new HashMap<>();
@@ -570,9 +571,10 @@ public class ModelDependencyServlet extends BaseServlet {
         int offset = (page - 1) * pageSize;
 
         // 查询总数
+        // 更新：使用 models 表替代 model_introduction 表
         String countSql = "SELECT COUNT(*) as total FROM dependency_file df " +
-                "JOIN model_introduction mi ON df.model_id = mi.id " +
-                "WHERE df.model_id = ? AND mi.is_deleted = 0";
+                "JOIN models m ON df.model_id = m.id " +
+                "WHERE df.model_id = ? AND m.is_deleted = 0";
         List<Map<String, Object>> countResult = getMysqlAdapter().select(countSql, modelId);
         long total = 0;
         if (!countResult.isEmpty()) {
@@ -581,10 +583,10 @@ public class ModelDependencyServlet extends BaseServlet {
 
         // 查询分页数据
         String sql = "SELECT df.id, df.file_name, df.file_type, df.file_path, df.upload_time, " +
-                "mi.model_name, mi.version " +
+                "m.name AS model_name, m.version " +
                 "FROM dependency_file df " +
-                "JOIN model_introduction mi ON df.model_id = mi.id " +
-                "WHERE df.model_id = ? AND mi.is_deleted = 0 " +
+                "JOIN models m ON df.model_id = m.id " +
+                "WHERE df.model_id = ? AND m.is_deleted = 0 " +
                 "ORDER BY df.upload_time DESC " +
                 "LIMIT ? OFFSET ?";
 
@@ -608,13 +610,14 @@ public class ModelDependencyServlet extends BaseServlet {
 
     /**
      * 查询依赖文件列表（详细）
+     * 更新：使用 models 表替代 model_introduction 表
      */
     private List<Map<String, Object>> queryDependencyFiles(long modelId) {
         String sql = "SELECT df.id, df.file_name, df.file_type, df.file_path, df.upload_time, " +
-                "mi.model_name, mi.version " +
+                "m.name AS model_name, m.version " +
                 "FROM dependency_file df " +
-                "JOIN model_introduction mi ON df.model_id = mi.id " +
-                "WHERE df.model_id = ? AND mi.is_deleted = 0 " +
+                "JOIN models m ON df.model_id = m.id " +
+                "WHERE df.model_id = ? AND m.is_deleted = 0 " +
                 "ORDER BY df.upload_time DESC";
 
         return getMysqlAdapter().select(sql, modelId);
@@ -628,10 +631,11 @@ public class ModelDependencyServlet extends BaseServlet {
         int offset = (page - 1) * pageSize;
 
         // 查询总数
+        // 更新：使用 models 表替代 model_introduction 表
         String countSql = "SELECT COUNT(*) as total FROM dependency_package dp " +
                 "JOIN dependency_file df ON dp.file_id = df.id " +
-                "JOIN model_introduction mi ON df.model_id = mi.id " +
-                "WHERE dp.file_id = ? AND mi.is_deleted = 0";
+                "JOIN models m ON df.model_id = m.id " +
+                "WHERE dp.file_id = ? AND m.is_deleted = 0";
         List<Map<String, Object>> countResult = getMysqlAdapter().select(countSql, fileId);
         long total = 0;
         if (!countResult.isEmpty()) {
@@ -641,11 +645,11 @@ public class ModelDependencyServlet extends BaseServlet {
         // 查询分页数据
         String sql = "SELECT dp.id, dp.package_name, dp.version, dp.source_file, dp.description, " +
                 "dp.size, dp.has_update, dp.update_time, " +
-                "df.file_name, mi.model_name " +
+                "df.file_name, m.name AS model_name " +
                 "FROM dependency_package dp " +
                 "JOIN dependency_file df ON dp.file_id = df.id " +
-                "JOIN model_introduction mi ON df.model_id = mi.id " +
-                "WHERE dp.file_id = ? AND mi.is_deleted = 0 " +
+                "JOIN models m ON df.model_id = m.id " +
+                "WHERE dp.file_id = ? AND m.is_deleted = 0 " +
                 "ORDER BY dp.package_name ASC " +
                 "LIMIT ? OFFSET ?";
 
@@ -669,15 +673,16 @@ public class ModelDependencyServlet extends BaseServlet {
 
     /**
      * 查询依赖包列表
+     * 更新：使用 models 表替代 model_introduction 表
      */
     private List<Map<String, Object>> queryDependencyPackages(long fileId) {
         String sql = "SELECT dp.id, dp.package_name, dp.version, dp.source_file, dp.description, " +
                 "dp.size, dp.has_update, dp.update_time, " +
-                "df.file_name, mi.model_name " +
+                "df.file_name, m.name AS model_name " +
                 "FROM dependency_package dp " +
                 "JOIN dependency_file df ON dp.file_id = df.id " +
-                "JOIN model_introduction mi ON df.model_id = mi.id " +
-                "WHERE dp.file_id = ? AND mi.is_deleted = 0 " +
+                "JOIN models m ON df.model_id = m.id " +
+                "WHERE dp.file_id = ? AND m.is_deleted = 0 " +
                 "ORDER BY dp.package_name ASC";
 
         return getMysqlAdapter().select(sql, fileId);
@@ -691,19 +696,20 @@ public class ModelDependencyServlet extends BaseServlet {
         int offset = (page - 1) * pageSize;
 
         // 构建查询条件
-        String whereClause = "WHERE dp.package_name LIKE CONCAT('%', ?, '%') AND mi.is_deleted = 0 ";
+        // 更新：使用 models 表替代 model_introduction 表
+        String whereClause = "WHERE dp.package_name LIKE CONCAT('%', ?, '%') AND m.is_deleted = 0 ";
         List<Object> params = new ArrayList<>();
         params.add(keyword);
 
         if (modelId != null) {
-            whereClause += "AND mi.id = ? ";
+            whereClause += "AND m.id = ? ";
             params.add(modelId);
         }
 
         // 查询总数
         String countSql = "SELECT COUNT(*) as total FROM dependency_package dp " +
                 "JOIN dependency_file df ON dp.file_id = df.id " +
-                "JOIN model_introduction mi ON df.model_id = mi.id " +
+                "JOIN models m ON df.model_id = m.id " +
                 whereClause;
 
         List<Map<String, Object>> countResult = getMysqlAdapter().select(countSql, params.toArray());
@@ -715,10 +721,10 @@ public class ModelDependencyServlet extends BaseServlet {
         // 查询分页数据
         String sql = "SELECT dp.id, dp.package_name, dp.version, dp.source_file, dp.description, " +
                 "dp.size, dp.has_update, dp.update_time, " +
-                "df.file_name, mi.model_name, mi.version as model_version " +
+                "df.file_name, m.name AS model_name, m.version as model_version " +
                 "FROM dependency_package dp " +
                 "JOIN dependency_file df ON dp.file_id = df.id " +
-                "JOIN model_introduction mi ON df.model_id = mi.id " +
+                "JOIN models m ON df.model_id = m.id " +
                 whereClause +
                 "ORDER BY dp.package_name ASC " +
                 "LIMIT ? OFFSET ?";
@@ -748,21 +754,22 @@ public class ModelDependencyServlet extends BaseServlet {
 
     /**
      * 搜索依赖包
+     * 更新：使用 models 表替代 model_introduction 表
      */
     private List<Map<String, Object>> searchPackages(String keyword, Long modelId) {
         String sql = "SELECT dp.id, dp.package_name, dp.version, dp.source_file, dp.description, " +
                 "dp.size, dp.has_update, dp.update_time, " +
-                "df.file_name, mi.model_name, mi.version as model_version " +
+                "df.file_name, m.name AS model_name, m.version as model_version " +
                 "FROM dependency_package dp " +
                 "JOIN dependency_file df ON dp.file_id = df.id " +
-                "JOIN model_introduction mi ON df.model_id = mi.id " +
-                "WHERE dp.package_name LIKE CONCAT('%', ?, '%') AND mi.is_deleted = 0 ";
+                "JOIN models m ON df.model_id = m.id " +
+                "WHERE dp.package_name LIKE CONCAT('%', ?, '%') AND m.is_deleted = 0 ";
 
         List<Object> params = new ArrayList<>();
         params.add(keyword);
 
         if (modelId != null) {
-            sql += "AND mi.id = ? ";
+            sql += "AND m.id = ? ";
             params.add(modelId);
         }
 

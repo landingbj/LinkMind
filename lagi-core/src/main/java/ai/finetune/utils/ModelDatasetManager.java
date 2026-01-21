@@ -147,10 +147,15 @@ public class ModelDatasetManager {
     
     /**
      * 根据数据集ID获取数据集信息
+     * 注意：实际使用的是 dataset_upload 表，不是 datasets 表
      */
     public Map<String, Object> getDatasetById(Long datasetId) {
         try {
-            String sql = "SELECT * FROM datasets WHERE id = ? AND is_deleted = 0";
+            // 使用 dataset_upload 表，字段映射：storage_path -> path
+            String sql = "SELECT id, sample_id, name, storage_path AS path, description, uploader AS user_id, " +
+                        "file_size, storage_type, original_url, create_time AS upload_time, " +
+                        "update_time, is_deleted " +
+                        "FROM dataset_upload WHERE id = ? AND (is_deleted = 0 OR is_deleted IS NULL)";
             List<Map<String, Object>> results = mysqlAdapter.select(sql, datasetId);
             if (results != null && !results.isEmpty()) {
                 return results.get(0);
@@ -285,18 +290,22 @@ public class ModelDatasetManager {
     
     /**
      * 查询所有数据集列表
+     * 注意：实际使用的是 dataset_upload 表，不是 datasets 表
      */
     public List<Map<String, Object>> listDatasets(String userId) {
         try {
-            String sql = "SELECT id, name, path, file_size, file_type, status, " +
-                        "description, created_at " +
-                        "FROM datasets WHERE is_deleted = 0";
+            // 使用 dataset_upload 表，字段映射：storage_path -> path, uploader -> user_id
+            String sql = "SELECT id, sample_id, name, storage_path AS path, description, uploader AS user_id, " +
+                        "file_size, storage_type, original_url, create_time AS upload_time, " +
+                        "update_time AS created_at " +
+                        "FROM dataset_upload WHERE (is_deleted = 0 OR is_deleted IS NULL)";
             
             if (userId != null && !userId.isEmpty()) {
-                sql += " AND user_id = ?";
+                sql += " AND uploader = ?";
+                sql += " ORDER BY create_time DESC";
                 return mysqlAdapter.select(sql, userId);
             } else {
-                sql += " ORDER BY created_at DESC";
+                sql += " ORDER BY create_time DESC";
                 return mysqlAdapter.select(sql);
             }
         } catch (Exception e) {

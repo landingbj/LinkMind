@@ -94,15 +94,22 @@ public class TrainingPostProcessor {
                 }
             }
             
+            log.info("训练完成处理: taskId={}, model_id={}, trainDir={}, modelPath={}", 
+                    taskId, originalModelId, trainDir, modelPath);
+            
             // 如果提供了原始模型ID，则复制模型信息并递增版本
             if (originalModelId != null) {
+                log.info("开始保存训练后的模型: originalModelId={}, newModelPath={}", originalModelId, modelPath);
                 Long newModelId = modelDatasetManager.saveTrainedModel(originalModelId, modelPath, taskId);
                 if (newModelId != null) {
                     // 更新训练任务的model_id为新模型ID
                     String updateSql = "UPDATE ai_training_tasks SET model_id = ? WHERE task_id = ?";
                     mysqlAdapter.executeUpdate(updateSql, newModelId, taskId);
-                    log.info("训练后模型已自动入库: taskId={}, originalModelId={}, newModelId={}", 
-                            taskId, originalModelId, newModelId);
+                    log.info("训练后模型已自动入库: taskId={}, originalModelId={}, newModelId={}, newModelPath={}", 
+                            taskId, originalModelId, newModelId, modelPath);
+                } else {
+                    log.error("保存训练后的模型失败: taskId={}, originalModelId={}, modelPath={}", 
+                            taskId, originalModelId, modelPath);
                 }
             } else {
                 // 如果未提供模型ID，将模型保存到默认目录

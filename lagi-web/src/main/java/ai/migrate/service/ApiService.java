@@ -58,12 +58,11 @@ public class ApiService {
     public WhisperResponse generateImage(String model, String content, String filePath) throws IOException {
         ImageGenerationRequest request = new ImageGenerationRequest();
         request.setModel(model);
-        String english = translateService.toEnglish(content);
-        if (english != null) {
-            request.setPrompt(english);
-        } else {
-            request.setPrompt(content);
-        }
+        request.setPrompt(content);
+//        String english = translateService.toEnglish(content);
+//        if (english != null) {
+//            request.setPrompt(english);
+//        }
         ImageGenerationResult imageGenerationResult = allImageService.generations(request);
         AtomicReference<WhisperResponse> whisperResponse1 = new AtomicReference<>();
         Optional.ofNullable(imageGenerationResult).ifPresent(r -> {

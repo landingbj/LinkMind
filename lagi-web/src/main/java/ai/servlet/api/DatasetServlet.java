@@ -1,4 +1,4 @@
-package ai.servlet.api;
+  package ai.servlet.api;
 
 
 import ai.config.DatasetUploadConfig;
@@ -81,6 +81,10 @@ public class DatasetServlet extends BaseServlet {
             getDatasetList(req,resp);
         }else if (method.equals("upload")){
             uploadDataset(req, resp);
+        }else if (method.equals("update")){
+            updateDataset(req, resp);
+        }else if (method.equals("delete")){
+            deleteDataset(req, resp);
         }else {
             {
                 resp.setStatus(404);
@@ -184,8 +188,8 @@ public class DatasetServlet extends BaseServlet {
                 }
             }
             
-            // 构建查询SQL
-            StringBuilder sqlBuilder = new StringBuilder("SELECT * FROM dataset_upload WHERE 1=1");
+            // 构建查询SQL（只查询未删除的数据集）
+            StringBuilder sqlBuilder = new StringBuilder("SELECT * FROM dataset_upload WHERE is_deleted = 0");
             List<Object> params = new ArrayList<>();
             
             if (name != null) {
@@ -211,8 +215,8 @@ public class DatasetServlet extends BaseServlet {
             // 排序：按创建时间倒序（假设有created_at字段，如果没有则按sample_id）
             sqlBuilder.append(" ORDER BY sample_id DESC");
             
-            // 查询总数
-            String countSql = "SELECT COUNT(*) as total FROM dataset_upload WHERE 1=1";
+            // 查询总数（只统计未删除的数据集）
+            String countSql = "SELECT COUNT(*) as total FROM dataset_upload WHERE is_deleted = 0";
             List<Object> countParams = new ArrayList<>();
             
             if (name != null) {
@@ -768,8 +772,8 @@ public class DatasetServlet extends BaseServlet {
         String sql = "INSERT INTO dataset_upload (" +
                 "sample_id, name, description, label, category, access_level, uploader, " +
                 "data_source, data_processing_status, missing_value_mark, weight, remark, " +
-                "training_params, storage_path, storage_type, original_url, file_size" +
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                "training_params, storage_path, storage_type, original_url, file_size, is_deleted" +
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         
         // 处理权重（默认1.0）
         Object weight = paramMap.get("weight");
@@ -808,7 +812,8 @@ public class DatasetServlet extends BaseServlet {
                 storagePath,
                 storageType,
                 originalUrl,
-                fileSize
+                fileSize,
+                0  // is_deleted 默认值为 0
                 );
         
         return affectedRows > 0;
@@ -824,6 +829,229 @@ public class DatasetServlet extends BaseServlet {
         return value.toString();
     }
 
+
+    /**
+     * 修改数据集
+     * @param req
+     * @param resp
+     * @throws IOException
+     * 请求格式：JSON
+     * 必填参数：sample_id
+     * 可选参数：name, description, label, category, access_level, data_source, 
+     *          data_processing_status, missing_value_mark, weight, remark, training_params
+     */
+    private void updateDataset(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> result = new HashMap<>();
+        
+        try {
+            // 解析JSON请求
+            String jsonBody = requestToJson(req);
+            if (jsonBody == null || jsonBody.trim().isEmpty()) {
+                responseError(resp, 400, "请求体不能为空");
+                return;
+            }
+            
+            JSONObject jsonObj = JSONUtil.parseObj(jsonBody);
+            
+            // 必填参数校验
+            String sampleId = jsonObj.getStr("sample_id");
+            if (sampleId == null || sampleId.trim().isEmpty()) {
+                responseError(resp, 400, "sample_id参数不能为空");
+                return;
+            }
+            
+            // 检查数据集是否存在
+            String checkSql = "SELECT sample_id FROM dataset_upload WHERE sample_id = ? AND is_deleted = 0";
+            List<Map<String, Object>> checkResult = getMysqlAdapter().select(checkSql, sampleId);
+            if (checkResult == null || checkResult.isEmpty()) {
+                responseError(resp, 404, "数据集不存在或已被删除");
+                return;
+            }
+            
+            // 构建更新SQL（只更新提供的字段）
+            List<String> updateFields = new ArrayList<>();
+            List<Object> updateParams = new ArrayList<>();
+            
+            // 可更新的字段列表
+            String[] updatableFields = {
+                "name", "description", "label", "category", "access_level",
+                "data_source", "data_processing_status", "missing_value_mark",
+                "weight", "remark", "training_params"
+            };
+            
+            for (String field : updatableFields) {
+                if (jsonObj.containsKey(field)) {
+                    Object value = jsonObj.get(field);
+                    
+                    if (value == null) {
+                        updateFields.add(field + " = ?");
+                        updateParams.add(null);
+                    } else if ("access_level".equals(field)) {
+                        try {
+                            Integer accessLevel = jsonObj.getInt(field);
+                            if (accessLevel < 1 || accessLevel > 3) {
+                                responseError(resp, 400, "access_level必须是1、2或3");
+                                return;
+                            }
+                            updateFields.add(field + " = ?");
+                            updateParams.add(accessLevel);
+                        } catch (Exception e) {
+                            responseError(resp, 400, "access_level必须是整数");
+                            return;
+                        }
+                    } else if ("weight".equals(field)) {
+                        try {
+                            java.math.BigDecimal weight = new java.math.BigDecimal(value.toString());
+                            updateFields.add(field + " = ?");
+                            updateParams.add(weight);
+                        } catch (Exception e) {
+                            responseError(resp, 400, "weight必须是数字");
+                            return;
+                        }
+                    } else if ("training_params".equals(field)) {
+                        try {
+                            String trainingParamsStr = objectMapper.writeValueAsString(value);
+                            updateFields.add(field + " = ?");
+                            updateParams.add(trainingParamsStr);
+                        } catch (Exception e) {
+                            responseError(resp, 400, "training_params格式错误");
+                            return;
+                        }
+                    } else {
+                        updateFields.add(field + " = ?");
+                        updateParams.add(value.toString());
+                    }
+                }
+            }
+            
+            // 检查是否有要更新的字段
+            if (updateFields.isEmpty()) {
+                responseError(resp, 400, "至少需要提供一个可更新的字段");
+                return;
+            }
+            
+            // 构建UPDATE SQL
+            StringBuilder sqlBuilder = new StringBuilder("UPDATE dataset_upload SET ");
+            sqlBuilder.append(String.join(", ", updateFields));
+            sqlBuilder.append(" WHERE sample_id = ? AND is_deleted = 0");
+            updateParams.add(sampleId);
+            
+            // 执行更新
+            int affectedRows = getMysqlAdapter().executeUpdate(sqlBuilder.toString(), updateParams.toArray());
+            
+            if (affectedRows > 0) {
+                result.put("code", 200);
+                result.put("msg", "数据集更新成功");
+                Map<String, Object> data = new HashMap<>();
+                data.put("sample_id", sampleId);
+                result.put("data", data);
+                responsePrint(resp, objectMapper.writeValueAsString(result));
+            } else {
+                responseError(resp, 500, "数据集更新失败");
+            }
+            
+        } catch (Exception e) {
+            log.error("修改数据集失败", e);
+            responseError(resp, 500, "修改数据集失败：" + e.getMessage());
+        }
+    }
+    
+    /**
+     * 删除数据集（软删除，支持批量删除）
+     * @param req
+     * @param resp
+     * @throws IOException
+     * 请求格式：JSON
+     * 参数：sample_id（String）或 sample_ids（List<String>），支持单个或批量删除
+     */
+    private void deleteDataset(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> result = new HashMap<>();
+        
+        try {
+            // 解析JSON请求
+            String jsonBody = requestToJson(req);
+            if (jsonBody == null || jsonBody.trim().isEmpty()) {
+                responseError(resp, 400, "请求体不能为空");
+                return;
+            }
+            
+            JSONObject jsonObj = JSONUtil.parseObj(jsonBody);
+            
+            // 获取sample_id列表（支持单个或批量）
+            List<String> sampleIds = new ArrayList<>();
+            
+            if (jsonObj.containsKey("sample_ids")) {
+                // 批量删除
+                Object sampleIdsObj = jsonObj.get("sample_ids");
+                if (sampleIdsObj instanceof List) {
+                    @SuppressWarnings("unchecked")
+                    List<Object> idsList = (List<Object>) sampleIdsObj;
+                    for (Object id : idsList) {
+                        if (id != null) {
+                            sampleIds.add(id.toString().trim());
+                        }
+                    }
+                } else if (sampleIdsObj instanceof String) {
+                    // 如果是字符串，尝试按逗号分割
+                    String[] ids = sampleIdsObj.toString().split(",");
+                    for (String id : ids) {
+                        if (id != null && !id.trim().isEmpty()) {
+                            sampleIds.add(id.trim());
+                        }
+                    }
+                }
+            } else if (jsonObj.containsKey("sample_id")) {
+                // 单个删除
+                String sampleId = jsonObj.getStr("sample_id");
+                if (sampleId != null && !sampleId.trim().isEmpty()) {
+                    sampleIds.add(sampleId.trim());
+                }
+            }
+            
+            if (sampleIds.isEmpty()) {
+                responseError(resp, 400, "sample_id或sample_ids参数不能为空");
+                return;
+            }
+            
+            // 过滤掉空值
+            sampleIds.removeIf(String::isEmpty);
+            if (sampleIds.isEmpty()) {
+                responseError(resp, 400, "sample_id列表不能为空");
+                return;
+            }
+            
+            // 构建批量更新的SQL（使用IN子句）
+            StringBuilder sqlBuilder = new StringBuilder("UPDATE dataset_upload SET is_deleted = 1 WHERE sample_id IN (");
+            for (int i = 0; i < sampleIds.size(); i++) {
+                if (i > 0) {
+                    sqlBuilder.append(", ");
+                }
+                sqlBuilder.append("?");
+            }
+            sqlBuilder.append(") AND is_deleted = 0");
+            
+            // 执行批量软删除
+            int affectedRows = getMysqlAdapter().executeUpdate(sqlBuilder.toString(), sampleIds.toArray());
+            
+            if (affectedRows > 0) {
+                result.put("code", 200);
+                result.put("msg", "数据集删除成功");
+                Map<String, Object> data = new HashMap<>();
+                data.put("deleted_count", affectedRows);
+                data.put("sample_ids", sampleIds);
+                result.put("data", data);
+                responsePrint(resp, objectMapper.writeValueAsString(result));
+            } else {
+                responseError(resp, 404, "未找到要删除的数据集或数据集已被删除");
+            }
+            
+        } catch (Exception e) {
+            log.error("删除数据集失败", e);
+            responseError(resp, 500, "删除数据集失败：" + e.getMessage());
+        }
+    }
 
     /**
      * 响应错误信息

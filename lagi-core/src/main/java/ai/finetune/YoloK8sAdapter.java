@@ -1849,6 +1849,25 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
             if (updateResult > 0) {
                 log.info("任务状态已更新: taskId={}, oldStatus={}, newStatus={}, updateEndTime={}", 
                         taskId, currentStatus, newStatus, updateEndTime);
+                
+                // 训练完成后自动入库新模型（仅当状态从非completed变为completed时）
+                if ("completed".equals(newStatus) && !"completed".equals(currentStatus)) {
+                    try {
+                        // 检查是否是训练任务（task_type = 'train'）
+                        String checkSql = "SELECT task_type FROM ai_training_tasks WHERE task_id = ? LIMIT 1";
+                        List<Map<String, Object>> taskResult = getMysqlAdapter().select(checkSql, taskId);
+                        if (taskResult != null && !taskResult.isEmpty()) {
+                            String taskType = (String) taskResult.get(0).get("task_type");
+                            if ("train".equals(taskType)) {
+                                log.info("训练任务已完成，触发自动入库: taskId={}", taskId);
+                                ai.finetune.utils.TrainingPostProcessor postProcessor = new ai.finetune.utils.TrainingPostProcessor();
+                                postProcessor.processTrainingCompletion(taskId);
+                            }
+                        }
+                    } catch (Exception e) {
+                        log.warn("训练后自动入库处理失败: taskId={}", taskId, e);
+                    }
+                }
             } else {
                 log.warn("任务状态更新失败（可能记录不存在）: taskId={}, newStatus={}", taskId, newStatus);
             }

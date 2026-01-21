@@ -1189,6 +1189,16 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
                 "WHERE task_id = ?";
         try {
             String currentTime = getCurrentTime();
+            // 先查询当前状态和任务类型
+            String checkSql = "SELECT status, task_type FROM ai_training_tasks WHERE task_id = ? LIMIT 1";
+            List<Map<String, Object>> taskResult = getMysqlAdapter().select(checkSql, taskId);
+            String oldStatus = null;
+            String taskType = null;
+            if (taskResult != null && !taskResult.isEmpty()) {
+                oldStatus = (String) taskResult.get(0).get("status");
+                taskType = (String) taskResult.get(0).get("task_type");
+            }
+            
             // 使用数据库连接池执行更新操作
             getMysqlAdapter().executeUpdate(
                     sql,
@@ -1198,6 +1208,17 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
                     taskId
             );
             log.info("任务状态已更新: taskId={}, status={}", taskId, status);
+            
+            // 训练完成后自动入库新模型（仅当状态从非completed变为completed，且是训练任务时）
+            if ("completed".equals(status) && !"completed".equals(oldStatus) && "train".equals(taskType)) {
+                try {
+                    log.info("训练任务已完成，触发自动入库: taskId={}", taskId);
+                    ai.finetune.utils.TrainingPostProcessor postProcessor = new ai.finetune.utils.TrainingPostProcessor();
+                    postProcessor.processTrainingCompletion(taskId);
+                } catch (Exception e) {
+                    log.warn("训练后自动入库处理失败: taskId={}", taskId, e);
+                }
+            }
         } catch (Exception e) {
             log.error("更新任务状态失败: taskId={}, status={}, error={}", taskId, status, e.getMessage(), e);
         }
@@ -1212,6 +1233,16 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
                 "WHERE task_id = ?";
         try {
             String currentTime = getCurrentTime();
+            // 先查询当前状态和任务类型
+            String checkSql = "SELECT status, task_type FROM ai_training_tasks WHERE task_id = ? LIMIT 1";
+            List<Map<String, Object>> taskResult = getMysqlAdapter().select(checkSql, taskId);
+            String oldStatus = null;
+            String taskType = null;
+            if (taskResult != null && !taskResult.isEmpty()) {
+                oldStatus = (String) taskResult.get(0).get("status");
+                taskType = (String) taskResult.get(0).get("task_type");
+            }
+            
             // 使用数据库连接池执行更新操作
             getMysqlAdapter().executeUpdate(
                     sql,
@@ -1223,6 +1254,17 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
                     taskId
             );
             log.info("任务状态已更新: taskId={}, status={}", taskId, status);
+            
+            // 训练完成后自动入库新模型（仅当状态从非completed变为completed，且是训练任务时）
+            if ("completed".equals(status) && !"completed".equals(oldStatus) && "train".equals(taskType)) {
+                try {
+                    log.info("训练任务已完成，触发自动入库: taskId={}", taskId);
+                    ai.finetune.utils.TrainingPostProcessor postProcessor = new ai.finetune.utils.TrainingPostProcessor();
+                    postProcessor.processTrainingCompletion(taskId);
+                } catch (Exception e) {
+                    log.warn("训练后自动入库处理失败: taskId={}", taskId, e);
+                }
+            }
         } catch (Exception e) {
             log.error("更新任务状态失败: taskId={}, status={}, error={}", taskId, status, e.getMessage(), e);
         }

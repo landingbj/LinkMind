@@ -45,8 +45,11 @@ public class TrainingPostProcessor {
             Map<String, Object> task = tasks.get(0);
             String status = (String) task.get("status");
             
-            // 只处理已完成的任务
-            if (!"completed".equals(status)) {
+            // 只处理已完成的任务（Docker 轮询可能写入 exited/finished）
+            boolean isDoneStatus = "completed".equalsIgnoreCase(status)
+                    || "exited".equalsIgnoreCase(status)
+                    || "finished".equalsIgnoreCase(status);
+            if (!isDoneStatus) {
                 log.debug("训练任务未完成，跳过处理: taskId={}, status={}", taskId, status);
                 return;
             }

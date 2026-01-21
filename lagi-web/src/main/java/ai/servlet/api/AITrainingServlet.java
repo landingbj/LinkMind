@@ -3425,6 +3425,14 @@ public class AITrainingServlet extends BaseServlet {
                 setParts.add("framework_id = ?");
                 params.add(jsonNode.getLong("frameworkId"));
             }
+            if (jsonNode.containsKey("modelType") && jsonNode.getStr("modelType") != null) {
+                setParts.add("model_type = ?");
+                params.add(jsonNode.getStr("modelType"));
+            }
+            if (jsonNode.containsKey("framework") && jsonNode.getStr("framework") != null) {
+                setParts.add("framework = ?");
+                params.add(jsonNode.getStr("framework"));
+            }
             if (jsonNode.containsKey("algorithm") && jsonNode.getStr("algorithm") != null) {
                 setParts.add("algorithm = ?");
                 params.add(jsonNode.getStr("algorithm"));
@@ -3454,11 +3462,11 @@ public class AITrainingServlet extends BaseServlet {
                 params.add(jsonNode.getFloat("accuracy"));
             }
             if (jsonNode.containsKey("precision") && jsonNode.get("precision") != null) {
-                setParts.add("precision = ?");
+                setParts.add("`precision` = ?");
                 params.add(jsonNode.getFloat("precision"));
             }
             if (jsonNode.containsKey("recall") && jsonNode.get("recall") != null) {
-                setParts.add("recall = ?");
+                setParts.add("`recall` = ?");
                 params.add(jsonNode.getFloat("recall"));
             }
             if (jsonNode.containsKey("f1Score") && jsonNode.get("f1Score") != null) {

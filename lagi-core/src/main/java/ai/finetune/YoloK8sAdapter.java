@@ -11,8 +11,11 @@ import cn.hutool.json.JSONObject;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -551,47 +554,7 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
      */
     @Override
     public String exportModel(JSONObject config) {
-        String taskId = UUID.randomUUID().toString();
-        try {
-            // 确保配置中包含必要的字段
-            if (!config.containsKey("the_train_type")) {
-                config.put("the_train_type", "export");
-            }
-            config.put("task_id", taskId);
-
-            // 保存导出任务到数据库
-            saveExportTaskToDB(taskId, config);
-            addYoloTrainingLog(taskId, "INFO", "开始导出模型");
-
-            String jobName = generateContainerName("yolo_export");
-            jobName = jobName.replace("_", "-");
-            // 根据 device 配置判断是否启用 GPU
-            String device = config.getStr("device", "cpu");
-            boolean useGpu = device != null && !device.equalsIgnoreCase("cpu") && !device.isEmpty();
-            String result = createOneOffJob(jobName, dockerImage, config.toString(), useGpu, null, resourcesConfig).toString();
-
-            // 更新导出任务状态
-            if (isSuccess(result)) {
-                updateYoloTaskStatus(taskId, "completed", "模型导出完成");
-                addYoloTrainingLog(taskId, "INFO", "模型导出完成");
-            } else {
-                updateYoloTaskStatus(taskId, "failed", "模型导出失败");
-                addYoloTrainingLog(taskId, "ERROR", "模型导出失败: " + result);
-            }
-
-            return result;
-
-        } catch (Exception e) {
-            log.error("导出模型失败", e);
-            updateYoloTaskStatus(taskId, "failed", "模型导出异常: " + e.getMessage());
-            addYoloTrainingLog(taskId, "ERROR", "模型导出异常: " + e.getMessage());
-
-            JSONObject errorResult = new JSONObject();
-            errorResult.put("status", "error");
-            errorResult.put("message", "导出模型失败");
-            errorResult.put("error", e.getMessage());
-            return errorResult.toString();
-        }
+        return convert(config);
     }
 
     /**
@@ -600,6 +563,194 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
     public String exportModel() {
         JSONObject config = createDefaultExportConfig();
         return exportModel(config);
+    }
+
+    /**
+     * 模型格式转换（K8s版本）
+     * 对应 Docker 版本的 convert 方法
+     */
+    public String convert(JSONObject parameters) {
+        String taskId = UUID.randomUUID().toString();
+        try {
+            // 按约定将 convert 视为 YOLO 导出（export）
+            parameters.put("the_train_type", "export");
+            parameters.put("task_id", taskId);
+
+            // 验证模型文件是否存在
+            String hostModelPath = parameters.getStr("model_path");
+            if (hostModelPath == null || hostModelPath.isEmpty()) {
+                throw new RuntimeException("模型路径不能为空");
+            }
+            Path path = Paths.get(hostModelPath);
+            boolean exists = path.toFile().exists();
+            if (!exists) {
+                throw new RuntimeException("模型文件不存在: " + hostModelPath);
+            }
+
+            // 取父目录的完整路径，用于构建额外的 volume 挂载
+            Path modelDir = path.getParent();
+            String modelDirPath = modelDir.toAbsolutePath().toString();
+            log.info("模型目录: {}", modelDirPath);
+
+            // 确保配置中包含必要的字段
+            parameters.putIfAbsent("model_path", hostModelPath);
+            parameters.putIfAbsent("export_format", "onnx");
+
+            // 构建额外信息
+            JSONObject extraInfo = new JSONObject();
+            Long hostFileSize = ai.finetune.utils.PathConvertUtil.getFileSize(hostModelPath);
+            extraInfo.put("model_file_size", hostFileSize);
+            extraInfo.put("export_format", parameters.getStr("export_format"));
+
+            // 如果没有指定转换日志文件路径，自动生成到指定目录
+            if (!parameters.containsKey("train_log_file") || parameters.getStr("train_log_file") == null || parameters.getStr("train_log_file").isEmpty()) {
+                // 从volumeMount中解析容器内路径，或使用默认值
+                String containerDataPath = "/app/data";
+                if (volumeMount != null && volumeMount.contains(":")) {
+                    String[] parts = volumeMount.split(":");
+                    if (parts.length >= 2) {
+                        containerDataPath = parts[1];
+                    }
+                }
+                String convertLogFile = containerDataPath + "/log/convert/" + taskId + ".log";
+                parameters.put("train_log_file", convertLogFile);
+            }
+
+            // 保存转换任务到数据库（带 remark）
+            saveExportTaskToDB(taskId, parameters, extraInfo.toString());
+            addYoloConvertLog(taskId, "INFO", "开始模型转换");
+
+            // 生成 Job 名称
+            String jobName = generateContainerName("yolo_convert");
+            jobName = jobName.replace("_", "-");
+            log.info("转换任务Job名称: {}", jobName);
+
+            // 根据 device 配置判断是否启用 GPU
+            String device = parameters.getStr("device", "cpu");
+            boolean useGpu = device != null && !device.equalsIgnoreCase("cpu") && !device.isEmpty();
+
+            // 构建配置 JSON
+            String configJson = parameters.toString();
+
+            // 创建 K8s Job，需要添加额外的 volume 挂载（模型目录）
+            // 保存原始的 customVolumes 和 customVolumeMounts
+            List<ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.Volume> originalVolumes = this.customVolumes;
+            List<ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.VolumeMount> originalVolumeMounts = this.customVolumeMounts;
+
+            try {
+                // 创建额外的 volume 和 volumeMount 用于模型目录
+                List<ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.Volume> volumesWithModel = new ArrayList<>();
+                List<ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.VolumeMount> volumeMountsWithModel = new ArrayList<>();
+
+                // 如果有原始的自定义 volumes，先添加它们
+                if (originalVolumes != null && !originalVolumes.isEmpty()) {
+                    volumesWithModel.addAll(originalVolumes);
+                }
+                if (originalVolumeMounts != null && !originalVolumeMounts.isEmpty()) {
+                    volumeMountsWithModel.addAll(originalVolumeMounts);
+                }
+
+                // 添加模型目录的 volume
+                ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.Volume modelVolume = 
+                    new ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.Volume();
+                modelVolume.setName("model-volume");
+                ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.HostPath modelHostPathConfig = 
+                    new ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.HostPath();
+                modelHostPathConfig.setPath(modelDirPath);
+                modelHostPathConfig.setType("DirectoryOrCreate");
+                modelVolume.setHostPath(modelHostPathConfig);
+                volumesWithModel.add(modelVolume);
+
+                // 添加模型目录的 volumeMount
+                ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.VolumeMount modelVolumeMount = 
+                    new ai.config.pojo.DiscriminativeModelsConfig.K8sConfig.VolumeMount();
+                modelVolumeMount.setName("model-volume");
+                modelVolumeMount.setMountPath(modelDirPath);
+                volumeMountsWithModel.add(modelVolumeMount);
+
+                // 临时设置 customVolumes 和 customVolumeMounts
+                this.customVolumes = volumesWithModel;
+                this.customVolumeMounts = volumeMountsWithModel;
+
+                log.info("创建K8s Job，包含模型目录挂载: modelDir={}", modelDirPath);
+                addYoloConvertLog(taskId, "INFO", "开始创建K8s Job");
+
+                // 创建 K8s Job
+                JSONObject jobResult = createOneOffJob(jobName, dockerImage, configJson, useGpu, null, resourcesConfig);
+                String jobStatus = jobResult.getStr("status");
+
+                if ("success".equals(jobStatus)) {
+                    log.info("✓ Job创建成功: {}", jobName);
+                    addYoloConvertLog(taskId, "INFO", "K8s Job创建成功: " + jobName);
+
+                    // 启动Job状态轮询
+                    startJobStatusPolling(taskId, jobName);
+                    log.info("✓ Job状态轮询已启动: taskId={}, jobName={}", taskId, jobName);
+
+                    // 获取转换日志文件路径（宿主机路径），用于记录到数据库
+                    String convertLogFile = parameters.getStr("train_log_file");
+                    String hostLogFilePath = null;
+                    if (convertLogFile != null && volumeMount != null && volumeMount.contains(":")) {
+                        String[] mountParts = volumeMount.split(":");
+                        if (mountParts.length >= 2) {
+                            String containerPath = mountParts[1];
+                            String hostMountPath = mountParts[0];
+                            if (convertLogFile.startsWith(containerPath)) {
+                                hostLogFilePath = convertLogFile.replace(containerPath, hostMountPath);
+                            }
+                        }
+                    }
+                    // 记录日志文件路径
+                    if (hostLogFilePath != null) {
+                        addYoloConvertLog(taskId, "INFO", "转换日志文件路径: " + hostLogFilePath, hostLogFilePath);
+                    }
+
+                    // 构建返回结果
+                    JSONObject resultJson = new JSONObject();
+                    resultJson.put("status", "success");
+                    resultJson.put("message", "模型转换任务已提交到K8s");
+                    resultJson.put("taskId", taskId);
+                    resultJson.put("jobName", jobName);
+                    resultJson.put("namespace", namespace);
+                    resultJson.put("containerName", jobName);
+                    resultJson.put("containerId", jobName);
+
+                    // 注意：Job的实际执行是异步的，转换结果需要通过轮询获取
+                    // 这里只返回Job创建成功的结果
+                    return resultJson.toString();
+
+                } else {
+                    log.error("✗ Job创建失败: {}", jobResult.getStr("message"));
+                    String errorMsg = "创建K8s Job失败: " + jobResult.getStr("message");
+                    updateYoloTaskStatus(taskId, "failed", errorMsg);
+                    addYoloConvertLog(taskId, "ERROR", errorMsg);
+
+                    JSONObject errorResult = new JSONObject();
+                    errorResult.put("status", "error");
+                    errorResult.put("message", "创建K8s Job失败");
+                    errorResult.put("error", jobResult.getStr("message"));
+                    errorResult.put("taskId", taskId);
+                    return errorResult.toString();
+                }
+
+            } finally {
+                // 恢复原始的 customVolumes 和 customVolumeMounts
+                this.customVolumes = originalVolumes;
+                this.customVolumeMounts = originalVolumeMounts;
+            }
+
+        } catch (Exception e) {
+            log.error("模型转换异常: taskId={}", taskId, e);
+            updateYoloTaskStatus(taskId, "failed", "模型转换异常: " + e.getMessage());
+            addYoloConvertLog(taskId, "ERROR", "模型转换异常: " + e.getMessage());
+
+            JSONObject errorResult = new JSONObject();
+            errorResult.put("status", "error");
+            errorResult.put("message", "模型转换失败");
+            errorResult.put("error", e.getMessage());
+            errorResult.put("taskId", taskId);
+            return errorResult.toString();
+        }
     }
 
     /**
@@ -1156,6 +1307,53 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
     }
 
     /**
+     * 保存导出任务到数据库（带 remark）
+     */
+
+    private void saveExportTaskToDB(String taskId, JSONObject config, String remark) {
+        String sql = "INSERT INTO ai_training_tasks " +
+                "(task_id, track_id, model_name, model_category, model_framework, task_type, " +
+                "container_name, model_path, gpu_ids, use_gpu, " +
+                "status, progress, current_epoch, start_time, created_at, is_deleted, config_json, remark) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        try {
+            // 从配置中读取模型名称，如果没有则默认为 yolov8
+            String modelName = config.getStr("model_name", "yolov8");
+            String modelCategory = getModelCategory(modelName, config);
+            String modelFramework = getModelFramework(modelName, config);
+            String modelPath = config.getStr("model_path", "");
+            String device = config.getStr("device", "cpu");
+            String currentTime = getCurrentTime();
+
+            // 使用数据库连接池执行插入操作
+            getMysqlAdapter().executeUpdate(
+                    sql,
+                    taskId,
+                    "",                 // track_id
+                    modelName,          // model_name - 从配置中读取
+                    modelCategory,      // model_category - 动态获取
+                    modelFramework,     // model_framework - 动态获取
+                    "export",           // task_type
+                    "",                 // container_name
+                    modelPath,
+                    device,             // gpu_ids
+                    !device.equals("cpu") ? 1 : 0, // use_gpu
+                    "running",
+                    "0%",
+                    0,
+                    currentTime,
+                    currentTime,
+                    0,
+                    config.toString(),
+                    remark != null ? remark : ""
+            );
+            log.info("导出任务已保存到数据库: taskId={}, modelName={}, category={}, framework={}",
+                    taskId, modelName, modelCategory, modelFramework);
+        } catch (Exception e) {
+            log.error("保存导出任务到数据库失败: taskId={}, error={}", taskId, e.getMessage(), e);
+        }
+    }
+    /**
      * 保存导出任务到数据库
      */
     private void saveExportTaskToDB(String taskId, JSONObject config) {
@@ -1198,6 +1396,41 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
                     taskId, modelName, modelCategory, modelFramework);
         } catch (Exception e) {
             log.error("保存导出任务到数据库失败: taskId={}, error={}", taskId, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 更新YOLO任务状态（带 exportPath 和 remark）
+     */
+    private void updateYoloTaskStatus(String taskId, String status, String message, String outputPath, String remark) {
+        String sql = "UPDATE ai_training_tasks " +
+                "SET status = ?, error_message = ?, updated_at = ?, output_path = ?, remark = ? " +
+                "WHERE task_id = ?";
+        try {
+            String currentTime = getCurrentTime();
+            // 使用数据库连接池执行更新操作
+            getMysqlAdapter().executeUpdate(
+                    sql,
+                    status,
+                    message,
+                    currentTime,
+                    outputPath != null ? outputPath : "",
+                    remark != null ? remark : "",
+                    taskId
+            );
+            log.info("任务状态已更新: taskId={}, status={}, outputPath={}", taskId, status, outputPath);
+            
+            // 如果任务已完成或失败，停止轮询
+            if ("completed".equals(status) || "failed".equals(status) || "stopped".equals(status)) {
+                stopJobStatusPolling(taskId);
+                log.info("任务状态已更新为终态，停止轮询: taskId={}, status={}", taskId, status);
+            }
+        } catch (Exception e) {
+            log.error("更新任务状态失败: taskId={}, status={}, error={}", taskId, status, e.getMessage(), e);
+            // 即使更新失败，如果是终态，也要尝试停止轮询
+            if ("completed".equals(status) || "failed".equals(status) || "stopped".equals(status)) {
+                stopJobStatusPolling(taskId);
+            }
         }
     }
 
@@ -1459,6 +1692,85 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
             }
         } catch (Exception e) {
             log.error("添加训练日志到数据库失败: taskId={}, error={}", taskId, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 添加YOLO转换日志到数据库（仅系统操作日志）
+     * @param taskId 任务ID
+     * @param logLevel 日志级别
+     * @param logMessage 日志消息
+     */
+    private void addYoloConvertLog(String taskId, String logLevel, String logMessage) {
+        addYoloConvertLog(taskId, logLevel, logMessage, null);
+    }
+
+    /**
+     * 添加YOLO转换日志到数据库（仅系统操作日志）
+     * @param taskId 任务ID
+     * @param logLevel 日志级别
+     * @param logMessage 日志消息
+     * @param convertLogFilePath 转换日志文件路径（宿主机路径，可选，用于记录实际转换日志文件位置）
+     */
+    private void addYoloConvertLog(String taskId, String logLevel, String logMessage, String convertLogFilePath) {
+        String currentTime = getCurrentTime();
+        // 使用实际的转换日志文件路径（如果提供），否则使用默认路径
+        String defaultLogPath = logPathPrefix != null ? logPathPrefix : "/data/log/";
+        if (!defaultLogPath.endsWith("/")) {
+            defaultLogPath += "/";
+        }
+        defaultLogPath += "convert/";
+        String logFilePath = convertLogFilePath != null ? convertLogFilePath : (defaultLogPath + taskId + ".log");
+
+        // 构造日志条目
+        String logEntry = currentTime + " " + logLevel + " " + logMessage + "\n";
+
+        // 只写入到数据库（系统操作日志）
+        // 检查该任务是否已存在日志记录
+        String checkSql = "SELECT COUNT(*) AS cnt FROM ai_training_logs WHERE task_id = ?";
+
+        try {
+            long logCount = 0;
+            // 使用数据库连接池执行查询操作
+            List<Map<String, Object>> result = getMysqlAdapter().select(checkSql, taskId);
+            if (result != null && !result.isEmpty() && result.get(0).get("cnt") != null) {
+                logCount = ((Number) result.get(0).get("cnt")).longValue();
+            }
+
+            if (logCount > 0) {
+                // 若存在日志，追加内容，同时更新转换日志文件路径（如果提供了新的路径）
+                String updateSql;
+                if (convertLogFilePath != null) {
+                    updateSql = "UPDATE ai_training_logs " +
+                            "SET log_message = CONCAT(IFNULL(log_message, ''), ?), " +
+                            "log_level = ?, " +
+                            "log_file_path = ?, " +
+                            "created_at = ? " +
+                            "WHERE task_id = ?";
+                    getMysqlAdapter().executeUpdate(updateSql, logEntry, logLevel, logFilePath, currentTime, taskId);
+                } else {
+                    updateSql = "UPDATE ai_training_logs " +
+                            "SET log_message = CONCAT(IFNULL(log_message, ''), ?), " +
+                            "log_level = ?, " +
+                            "created_at = ? " +
+                            "WHERE task_id = ?";
+                    getMysqlAdapter().executeUpdate(updateSql, logEntry, logLevel, currentTime, taskId);
+                }
+            } else {
+                // 若不存在日志，直接插入新记录
+                String insertSql = "INSERT INTO ai_training_logs " +
+                        "(task_id, log_level, log_message, created_at, log_file_path) " +
+                        "VALUES (?, ?, ?, ?, ?)";
+                // 使用数据库连接池执行插入操作
+                getMysqlAdapter().executeUpdate(insertSql,
+                        taskId,
+                        logLevel,
+                        logEntry,
+                        currentTime,
+                        logFilePath);
+            }
+        } catch (Exception e) {
+            log.error("添加转换日志到数据库失败: taskId={}, error={}", taskId, e.getMessage(), e);
         }
     }
 

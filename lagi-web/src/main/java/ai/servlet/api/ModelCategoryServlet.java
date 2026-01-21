@@ -4,6 +4,7 @@ import ai.database.impl.MysqlAdapter;
 import ai.servlet.BaseServlet;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.servlet.ServletException;
@@ -24,17 +25,9 @@ public class ModelCategoryServlet extends BaseServlet {
     private final Gson gson = new Gson();
     private String currentTime;
 
-    private static volatile MysqlAdapter mysqlAdapter = null;
-    private static MysqlAdapter getMysqlAdapter() {
-        if (mysqlAdapter == null) {
-            synchronized (ModelCategoryServlet.class) {
-                if (mysqlAdapter == null) {
-                    mysqlAdapter = new MysqlAdapter("mysql");
-                }
-            }
-        }
-        return mysqlAdapter;
-    }
+    @Getter
+    private static volatile MysqlAdapter mysqlAdapter = MysqlAdapter.getInstance();
+
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {

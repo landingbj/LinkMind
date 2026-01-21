@@ -85,7 +85,7 @@ public class SqlApiServlet extends BaseServlet {
                 String sql = extractContentWithinBraces(outcome);
                 System.out.println("sql:" + sql);
                 try {
-                    list = new MysqlAdapter(qaRequest.getDatabaseName(),qaRequest.getStorage()).sqlToValue(sql);
+                    list = MysqlAdapter.getInstance(qaRequest.getDatabaseName(),qaRequest.getStorage()).sqlToValue(sql);
                 }catch (Exception e){
                     list = new ArrayList<>();
                 }
@@ -106,7 +106,7 @@ public class SqlApiServlet extends BaseServlet {
 
 
       public String toSql(String demand,String tableNeam,String databaseName,String storageName) {
-        MysqlAdapter mysqlAdapter= new MysqlAdapter(databaseName,storageName);
+        MysqlAdapter mysqlAdapter= MysqlAdapter.getInstance(databaseName, storageName);
         String[] tableNames = tableNeam.split("[,，]");
         String tableParsing = tableNames[0].isEmpty() ? "tableNeam" : tableNames[0];
         List<TableColumnInfo> list = mysqlAdapter.getTableColumnInfo(tableNeam);
@@ -162,7 +162,7 @@ public class SqlApiServlet extends BaseServlet {
     }
 
      public String toText(String demand,String outMsg,String tableNeam,String databaseName,String name) {
-         MysqlAdapter mysqlAdapter= new MysqlAdapter(databaseName,name);
+         MysqlAdapter mysqlAdapter= MysqlAdapter.getInstance(databaseName,name);
          List<TableColumnInfo> list = mysqlAdapter.getTableColumnInfo(tableNeam);
         //mock request
         ChatCompletionRequest chatCompletionRequest = new ChatCompletionRequest();
@@ -216,7 +216,7 @@ public class SqlApiServlet extends BaseServlet {
 
     @Test
     public void mysql() {
-        List<Map<String, Object>> list = new MysqlAdapter("mysql").sqlToValue("SELECT * FROM table_info;");
+        List<Map<String, Object>> list = MysqlAdapter.getInstance().sqlToValue("SELECT * FROM table_info;");
         Gson gson = new Gson();
 
         for (Object o : list) {

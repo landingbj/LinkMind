@@ -24,7 +24,7 @@ public class ModelDatasetManager {
     private final MysqlAdapter mysqlAdapter;
     
     public ModelDatasetManager() {
-        this.mysqlAdapter = new MysqlAdapter("mysql");
+        this.mysqlAdapter = MysqlAdapter.getInstance();
     }
     
     /**

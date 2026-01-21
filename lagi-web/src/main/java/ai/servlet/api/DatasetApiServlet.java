@@ -269,7 +269,7 @@ public class DatasetApiServlet extends BaseServlet {
 
     private void saveDatasetRecord(String datasetName, String datasetPath, String description, String userId, long fileSize) {
         try {
-            MysqlAdapter mysqlAdapter = new MysqlAdapter("mysql");
+            MysqlAdapter mysqlAdapter = MysqlAdapter.getInstance();
             String currentTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
             
             String sql = "INSERT INTO dataset_records (dataset_name, dataset_path, created_at, file_size, description, user_id, status) VALUES (?, ?, ?, ?, ?, ?, 'active')";

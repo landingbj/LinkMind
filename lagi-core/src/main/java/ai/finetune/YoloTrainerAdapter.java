@@ -6,6 +6,7 @@ import ai.finetune.config.ModelConfigManager;
 import ai.finetune.utils.PathConvertUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
 import java.nio.file.Path;
@@ -50,7 +51,8 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
     private static final ExecutorService executorService = Executors.newCachedThreadPool();
 
     // 数据库连接池适配器（单例模式）
-    private static volatile MysqlAdapter mysqlAdapter = null;
+    @Getter
+    private static volatile MysqlAdapter mysqlAdapter = MysqlAdapter.getInstance();
 
     // 模型配置管理器（单例模式）
     private static volatile ModelConfigManager modelConfigManager = null;
@@ -807,21 +809,7 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
 
     // ==================== 数据库操作方法（CRUD） ====================
 
-    /**
-     * 获取数据库连接池适配器实例（单例模式，双重检查锁定）
-     * 使用数据库连接池提高性能和资源利用率
-     */
-    private static MysqlAdapter getMysqlAdapter() {
-        if (mysqlAdapter == null) {
-            synchronized (YoloTrainerAdapter.class) {
-                if (mysqlAdapter == null) {
-                    mysqlAdapter = new MysqlAdapter("mysql");
-                    log.info("数据库连接池已初始化");
-                }
-            }
-        }
-        return mysqlAdapter;
-    }
+
 
     /**
      * 获取模型配置管理器实例（单例模式，双重检查锁定）

@@ -63,7 +63,7 @@ public class TrainingTaskFieldsTest {
         // 初始化管理器
         try {
             modelDatasetManager = new ModelDatasetManager();
-            mysqlAdapter = new MysqlAdapter("mysql");
+            mysqlAdapter = MysqlAdapter.getInstance();
             
             // 验证数据库是否可用
             if (databaseAvailable) {

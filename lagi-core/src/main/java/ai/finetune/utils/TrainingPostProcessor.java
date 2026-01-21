@@ -22,7 +22,7 @@ public class TrainingPostProcessor {
     private final TrainingConfig trainingConfig;
     
     public TrainingPostProcessor() {
-        this.mysqlAdapter = new MysqlAdapter("mysql");
+        this.mysqlAdapter = MysqlAdapter.getInstance();
         this.modelDatasetManager = new ModelDatasetManager();
         this.trainingConfig = TrainingConfig.getInstance();
     }

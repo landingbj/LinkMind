@@ -2,24 +2,203 @@ package ai.database.impl;
 
 import ai.common.pojo.Backend;
 import ai.config.ContextLoader;
+import ai.config.GlobalConfigurations;
 import ai.database.pojo.SQLJdbc;
 import ai.database.pojo.TableColumnInfo;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 
 import java.lang.reflect.Field;
 import java.sql.*;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 public class MysqlAdapter {
+    private static final Logger log = LoggerFactory.getLogger(MysqlAdapter.class);
     /**
      * 全局连接池缓存：避免每次 new MysqlAdapter 都创建一个新的 HikariPool，导致连接数爆炸（Too many connections）。
      * key = storageName（如 "mysql"）
      */
-    private static final Map<String, HikariDataSource> DATA_SOURCE_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+//    private static final Map<String, HikariDataSource> DATA_SOURCE_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static final Map<String, MysqlAdapter> instances = new ConcurrentHashMap<>();
+
+
+    private HikariDataSource toDataSource(SQLJdbc sqlJdbc) {
+        HikariDataSource hikariDataSource = new HikariDataSource();
+        hikariDataSource.setJdbcUrl(sqlJdbc.getJdbcUrl());
+        hikariDataSource.setUsername(sqlJdbc.getUsername());
+        hikariDataSource.setPassword(sqlJdbc.getPassword());
+        hikariDataSource.setDriverClassName(sqlJdbc.getDriver());
+        hikariDataSource.setMaximumPoolSize(sqlJdbc.getMaximumPoolSize());
+        hikariDataSource.setIdleTimeout(sqlJdbc.getIdleTimeout());
+        hikariDataSource.setMaxLifetime(sqlJdbc.getMaxLifetime());
+        return hikariDataSource;
+    }
+
+    private MysqlAdapter(String storageName){
+        GlobalConfigurations configuration = ContextLoader.configuration;
+        if(configuration == null) {
+            throw new RuntimeException("mysql 创建数据库需哟配置文件");
+        }
+        if(configuration.getStores() == null) {
+            throw new RuntimeException("mysql 创建数据库需数据配置");
+        }
+        if(configuration.getStores().getDatabase() == null) {
+            throw new RuntimeException("mysql 创建数据库需数据配置1");
+        }
+        List<SQLJdbc> mysql = configuration.getStores().getDatabase().stream().filter(database -> database.getName().equalsIgnoreCase(storageName)).collect(Collectors.toList());
+        if(mysql.isEmpty()){
+            throw new RuntimeException("需要数据默认mysql配置");
+        }
+        SQLJdbc sqlJdbc = mysql.get(0);
+        this.name = sqlJdbc.getName();
+        this.driver = sqlJdbc.getDriver();
+        this.url = sqlJdbc.getJdbcUrl();
+        this.username = sqlJdbc.getUsername();
+        this.password = sqlJdbc.getPassword();
+        this.maximumPoolSize = sqlJdbc.getMaximumPoolSize();
+        this.idleTimeout = sqlJdbc.getIdleTimeout();
+        this.maxLifetime = sqlJdbc.getMaxLifetime();
+        this.dataSource = toDataSource(sqlJdbc);
+    }
+
+    /**
+     * 替换 JDBC URL 中的数据库名称
+     * MySQL JDBC URL 格式: jdbc:mysql://host:port/database?params
+     * 
+     * @param originalUrl 原始 JDBC URL
+     * @param newDatabaseName 新的数据库名称
+     * @return 替换后的 JDBC URL
+     */
+    private String replaceDatabaseInUrl(String originalUrl, String newDatabaseName) {
+        if (originalUrl == null || originalUrl.isEmpty()) {
+            throw new IllegalArgumentException("JDBC URL 不能为空");
+        }
+        if (newDatabaseName == null || newDatabaseName.isEmpty()) {
+            throw new IllegalArgumentException("数据库名称不能为空");
+        }
+        
+        // 使用正则表达式匹配并替换数据库名称部分
+        // 匹配模式: jdbc:mysql://host:port/database?params 或 jdbc:mysql://host/database?params
+        // 数据库名称在最后一个 / 之后，? 之前（如果有参数）或字符串结尾
+        Pattern pattern = Pattern.compile("(jdbc:mysql://[^/]+/)([^?]*)(.*)");
+        Matcher matcher = pattern.matcher(originalUrl);
+        
+        if (matcher.matches()) {
+            String prefix = matcher.group(1);  // jdbc:mysql://host:port/
+            String params = matcher.group(3);  // ?params 或空字符串
+            return prefix + newDatabaseName + params;
+        } else {
+            // 如果 URL 格式不符合预期，尝试简单替换（向后兼容）
+            log.warn("JDBC URL 格式不符合预期: {}, 使用简单替换方式", originalUrl);
+            // 查找最后一个 / 的位置，替换其后的数据库名称
+            int lastSlashIndex = originalUrl.lastIndexOf('/');
+            if (lastSlashIndex >= 0) {
+                int questionMarkIndex = originalUrl.indexOf('?', lastSlashIndex);
+                if (questionMarkIndex >= 0) {
+                    // 有参数的情况
+                    return originalUrl.substring(0, lastSlashIndex + 1) + newDatabaseName + originalUrl.substring(questionMarkIndex);
+                } else {
+                    // 无参数的情况
+                    return originalUrl.substring(0, lastSlashIndex + 1) + newDatabaseName;
+                }
+            } else {
+                throw new IllegalArgumentException("无法解析 JDBC URL 格式: " + originalUrl);
+            }
+        }
+    }
+
+    private MysqlAdapter(String databaseName , String storageName){
+        GlobalConfigurations configuration = ContextLoader.configuration;
+        if(configuration == null) {
+            throw new RuntimeException("mysql 创建数据库需哟配置文件");
+        }
+        if(configuration.getStores() == null) {
+            throw new RuntimeException("mysql 创建数据库需数据配置");
+        }
+        if(configuration.getStores().getDatabase() == null) {
+            throw new RuntimeException("mysql 创建数据库需数据配置1");
+        }
+        List<SQLJdbc> mysql = configuration.getStores().getDatabase().stream().filter(database -> database.getName().equalsIgnoreCase(storageName)).collect(Collectors.toList());
+        if(mysql.isEmpty()){
+            throw new RuntimeException("需要数据默认mysql配置");
+        }
+        SQLJdbc sqlJdbc = mysql.get(0);
+        this.name = sqlJdbc.getName();
+        this.driver = sqlJdbc.getDriver();
+        // 使用新的方法替换数据库名称
+        this.url = replaceDatabaseInUrl(sqlJdbc.getJdbcUrl(), databaseName);
+        this.username = sqlJdbc.getUsername();
+        this.password = sqlJdbc.getPassword();
+        this.maximumPoolSize = sqlJdbc.getMaximumPoolSize();
+        this.idleTimeout = sqlJdbc.getIdleTimeout();
+        this.maxLifetime = sqlJdbc.getMaxLifetime();
+        // 创建新的 SQLJdbc 对象，使用替换后的 URL
+        SQLJdbc modifiedSqlJdbc = new SQLJdbc();
+        modifiedSqlJdbc.setName(sqlJdbc.getName());
+        modifiedSqlJdbc.setDriver(sqlJdbc.getDriver());
+        modifiedSqlJdbc.setJdbcUrl(this.url);
+        modifiedSqlJdbc.setUsername(sqlJdbc.getUsername());
+        modifiedSqlJdbc.setPassword(sqlJdbc.getPassword());
+        modifiedSqlJdbc.setMaximumPoolSize(sqlJdbc.getMaximumPoolSize());
+        modifiedSqlJdbc.setIdleTimeout(sqlJdbc.getIdleTimeout());
+        modifiedSqlJdbc.setMaxLifetime(sqlJdbc.getMaxLifetime());
+        this.dataSource = toDataSource(modifiedSqlJdbc);
+    }
+
+    public static MysqlAdapter getInstance(String storageName){
+        storageName = storageName.toLowerCase();
+        MysqlAdapter aDefault = instances.get(storageName);
+        if(aDefault != null) {
+            return aDefault;
+        }
+        synchronized (MysqlAdapter.class) {
+            aDefault = instances.get(storageName);
+            if(aDefault != null) {
+                return aDefault;
+            }
+            try {
+                aDefault = new MysqlAdapter(storageName);
+                instances.put(storageName, aDefault);
+            } catch (Exception e) {
+                log.error("mysql 创建数据库异常", e);
+            }
+        }
+        return aDefault;
+    }
+
+    public static MysqlAdapter getInstance(String databaseName,String storageName){
+        String key = (databaseName + storageName).toLowerCase();
+        MysqlAdapter aDefault = instances.get(key);
+        if(aDefault != null) {
+            return aDefault;
+        }
+        synchronized (MysqlAdapter.class) {
+            aDefault = instances.get(key);
+            if(aDefault != null) {
+                return aDefault;
+            }
+            try {
+                aDefault = new MysqlAdapter(databaseName, storageName);
+                instances.put(key, aDefault);
+            } catch (Exception e) {
+                log.error("mysql 创建数据库异常", e);
+            }
+        }
+        return aDefault;
+    }
+
+
+    public static MysqlAdapter getInstance(){
+        return getInstance("mysql");
+    }
 
     private HikariDataSource dataSource;
     private  String name;
@@ -32,93 +211,8 @@ public class MysqlAdapter {
     private Long idleTimeout;
     private Long maxLifetime;
 
-    public MysqlAdapter(String databaseName,String storageName){
-        init(storageName);
-        if (databaseName!=null&&url!=null){
-            String regex = "jdbc:mysql://([^/]+)";
 
-            Pattern pattern = Pattern.compile(regex);
-            Matcher matcher = pattern.matcher(url);
-            String hostPort = "";
-            if (matcher.find()) {
-                hostPort = matcher.group(1);
-            } else {
-                System.out.println("No host and port found.");
-            }
-            url = "jdbc:mysql://" + hostPort + "/" + databaseName + "?useUnicode=true&characterEncoding=utf-8&useSSL=false";
-        }
-       }
 
-        public MysqlAdapter(String storageName){
-            init(storageName);
-        }
-
-        private void init(String storageName){
-            this.name = storageName;
-            try {
-                // 复用全局连接池（同一个 storageName 只创建一次）
-                this.dataSource = DATA_SOURCE_CACHE.computeIfAbsent(this.name, key -> {
-                    try {
-                        List<Backend> list = ContextLoader.configuration.getFunctions().getText2sql();
-                        Backend maxBackend = list.stream()
-                                .filter(Backend::getEnable)
-                                .max(Comparator.comparingInt(Backend::getPriority))
-                                .orElseThrow(() -> new NoSuchElementException("No enabled backends found"));
-                        SQLJdbc database = ContextLoader.configuration.getStores().getDatabase().stream()
-                                .filter(sqlJdbc -> sqlJdbc.getName().equals(key))
-                                .findFirst()
-                                .orElseThrow(() -> new NoSuchElementException("Database not found: " + key));
-
-                        driver = database.getDriver();
-                        url = database.getJdbcUrl();
-                        username = database.getUsername();
-                        password = database.getPassword();
-                        model = maxBackend.getModel();
-                        maximumPoolSize = database.getMaximumPoolSize();
-                        idleTimeout = database.getIdleTimeout();
-                        maxLifetime = database.getMaxLifetime();
-
-                        HikariConfig config = new HikariConfig();
-                        config.setJdbcUrl(url);
-                        config.setUsername(username);
-                        config.setPassword(password);
-                        config.setDriverClassName(driver);
-                        // 连接池配置
-                        config.setMaximumPoolSize(maximumPoolSize != null ? maximumPoolSize : 10);
-                        config.setMinimumIdle(1);
-                        config.setConnectionTimeout(30000);
-                        if (idleTimeout != null) {
-                            config.setIdleTimeout(idleTimeout);
-                        }
-                        if (maxLifetime != null) {
-                            config.setMaxLifetime(maxLifetime);
-                        }
-                        return new HikariDataSource(config);
-                    } catch (Exception e) {
-                        // computeIfAbsent 里抛异常会导致缓存不写入，便于下次重试
-                        throw new RuntimeException("初始化数据库连接池失败: " + key, e);
-                    }
-                });
-            } catch (Exception e) {
-                // 保持兼容：不直接抛出到上层，但要确保 dataSource 为 null 时不 NPE
-                e.printStackTrace();
-                this.dataSource = null;
-            }
-        }
-
-    /**
-     * 打开连接
-     */
-//    public Connection getCon() {
-//        Connection con = null;
-//
-//        try {
-//            Class.forName(driver);
-//            con = DriverManager.getConnection(url,username,password);
-//        } catch (Exception e) {
-//            System.out.println("数据库连接失败:"+e);
-//        }
-//        return con;}
     public Connection getCon() {
         try {
             if (dataSource == null) {

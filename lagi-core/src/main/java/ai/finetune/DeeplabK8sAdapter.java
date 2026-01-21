@@ -4,6 +4,7 @@ import ai.database.impl.MysqlAdapter;
 import ai.finetune.config.ModelConfigManager;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
 import java.time.LocalDateTime;
@@ -48,7 +49,8 @@ public class DeeplabK8sAdapter extends K8sTrainerAbstract {
     private static final ExecutorService executorService = Executors.newCachedThreadPool();
 
     // 数据库连接池适配器（单例模式）
-    private static volatile MysqlAdapter mysqlAdapter = null;
+    @Getter
+    private static volatile MysqlAdapter mysqlAdapter = MysqlAdapter.getInstance();
 
     // 模型配置管理器（单例模式）
     private static volatile ModelConfigManager modelConfigManager = null;
@@ -797,17 +799,7 @@ public class DeeplabK8sAdapter extends K8sTrainerAbstract {
     /**
      * 获取数据库连接池适配器实例（单例模式，双重检查锁定）
      */
-    private static MysqlAdapter getMysqlAdapter() {
-        if (mysqlAdapter == null) {
-            synchronized (DeeplabK8sAdapter.class) {
-                if (mysqlAdapter == null) {
-                    mysqlAdapter = new MysqlAdapter("mysql");
-                    log.info("数据库连接池已初始化");
-                }
-            }
-        }
-        return mysqlAdapter;
-    }
+
 
     /**
      * 获取模型配置管理器实例（单例模式，双重检查锁定）

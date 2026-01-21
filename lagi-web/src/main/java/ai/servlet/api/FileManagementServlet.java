@@ -5,6 +5,7 @@ import ai.finetune.SSHConnectionManager;
 import ai.servlet.BaseServlet;
 import com.jcraft.jsch.ChannelSftp;
 import com.jcraft.jsch.SftpException;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.fileupload.FileItem;
 import org.apache.commons.fileupload.disk.DiskFileItemFactory;
@@ -76,18 +77,10 @@ public class FileManagementServlet extends BaseServlet {
         return baseDir + normalizedPath;
     }
 
-    private static volatile MysqlAdapter mysqlAdapter = null;
+    @Getter
+    private static volatile MysqlAdapter mysqlAdapter = MysqlAdapter.getInstance();
 
-    private static MysqlAdapter getMysqlAdapter() {
-        if (mysqlAdapter == null) {
-            synchronized (FileManagementServlet.class) {
-                if (mysqlAdapter == null) {
-                    mysqlAdapter = new MysqlAdapter("mysql");
-                }
-            }
-        }
-        return mysqlAdapter;
-    }
+
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {

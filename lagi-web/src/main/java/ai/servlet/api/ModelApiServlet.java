@@ -303,7 +303,7 @@ public class ModelApiServlet extends BaseServlet {
 
     private void saveValidationRecord(ModelValidateRequest request, ModelValidateResponse response) {
         try {
-            MysqlAdapter mysqlAdapter = new MysqlAdapter("mysql");
+            MysqlAdapter mysqlAdapter = MysqlAdapter.getInstance();
             String currentTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
             
             String sql = "INSERT INTO model_validations (model_path, dataset_path, use_gpu, imgsz, mAP50, mAP50_95, `precision`, recall, box_loss, cls_loss, obj_loss, status, created_at, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?)";
@@ -356,7 +356,7 @@ public class ModelApiServlet extends BaseServlet {
 
     private void savePredictionRecord(ModelPredictRequest request, ModelPredictResponse response) {
         try {
-            MysqlAdapter mysqlAdapter = new MysqlAdapter("mysql");
+            MysqlAdapter mysqlAdapter = MysqlAdapter.getInstance();
             String currentTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
             
             String sql = "INSERT INTO model_predictions (model_path, image_path, use_gpu, conf_threshold, iou_threshold, save_result, result_save_path, predict_time, detection_count, status, created_at, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?)";
@@ -386,7 +386,7 @@ public class ModelApiServlet extends BaseServlet {
 
     private void saveExportRecord(ModelExportRequest request, ModelExportResponse response) {
         try {
-            MysqlAdapter mysqlAdapter = new MysqlAdapter("mysql");
+            MysqlAdapter mysqlAdapter = MysqlAdapter.getInstance();
             String currentTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
             
             String sql = "INSERT INTO model_exports (model_path, export_format, use_gpu, imgsz, simplify, export_path, model_size, status, created_at, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?)";
@@ -410,7 +410,7 @@ public class ModelApiServlet extends BaseServlet {
 
     private void saveDownloadRecord(String filePath, String fileName) {
         try {
-            MysqlAdapter mysqlAdapter = new MysqlAdapter("mysql");
+            MysqlAdapter mysqlAdapter = MysqlAdapter.getInstance();
             String currentTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
             
             String sql = "INSERT INTO model_downloads (file_path, file_name, download_count, last_download_at, created_at, user_id) VALUES (?, ?, 1, ?, ?, ?) ON DUPLICATE KEY UPDATE download_count = download_count + 1, last_download_at = ?";

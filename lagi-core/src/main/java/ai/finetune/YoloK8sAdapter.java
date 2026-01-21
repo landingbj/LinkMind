@@ -8,6 +8,7 @@ import ai.finetune.config.ModelConfigManager;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
 import java.time.LocalDateTime;
@@ -75,7 +76,8 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
 
     // 数据库连接池适配器（已废弃，使用全局共享的 MysqlAdapterManager）
     @Deprecated
-    private static volatile MysqlAdapter mysqlAdapter = null;
+    @Getter
+    private static volatile MysqlAdapter mysqlAdapter = MysqlAdapter.getInstance();
 
     // 模型配置管理器（单例模式）
     private static volatile ModelConfigManager modelConfigManager = null;
@@ -872,21 +874,6 @@ public class YoloK8sAdapter extends K8sTrainerAbstract {
 
     // ==================== 数据库操作方法（CRUD） ====================
 
-    /**
-     * 获取数据库连接池适配器实例（使用全局共享的连接池）
-     * 所有训练器共享同一个连接池，避免 "Too many connections" 错误
-     */
-    private static MysqlAdapter getMysqlAdapter() {
-        if (mysqlAdapter == null) {
-            synchronized (YoloK8sAdapter.class) {
-                if (mysqlAdapter == null) {
-                    mysqlAdapter = new MysqlAdapter("mysql");
-                    log.info("数据库连接池已初始化");
-                }
-            }
-        }
-        return mysqlAdapter;
-    }
 
     /**
      * 获取模型配置管理器实例（单例模式，双重检查锁定）

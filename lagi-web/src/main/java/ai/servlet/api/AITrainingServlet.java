@@ -3,6 +3,7 @@ package ai.servlet.api;
 import ai.common.utils.ObservableList;
 import ai.config.ContextLoader;
 import ai.config.pojo.DiscriminativeModelsConfig;
+import ai.database.impl.MysqlAdapter;
 import ai.finetune.*;
 
 import ai.finetune.repository.TrainingTaskRepository;
@@ -3508,7 +3509,7 @@ public class AITrainingServlet extends BaseServlet {
             params.add(modelId);
             
             // 执行更新
-            ai.database.impl.MysqlAdapter mysqlAdapter = new ai.database.impl.MysqlAdapter("mysql");
+            ai.database.impl.MysqlAdapter mysqlAdapter = MysqlAdapter.getInstance();
             int rowsAffected = mysqlAdapter.executeUpdate(sql.toString(), params.toArray());
             
             if (rowsAffected > 0) {
@@ -3563,7 +3564,7 @@ public class AITrainingServlet extends BaseServlet {
             }
             
             // 执行软删除
-            ai.database.impl.MysqlAdapter mysqlAdapter = new ai.database.impl.MysqlAdapter("mysql");
+            ai.database.impl.MysqlAdapter mysqlAdapter = MysqlAdapter.getInstance();
             String sql = "UPDATE models SET is_deleted = 1, updated_at = NOW() WHERE id = ? AND is_deleted = 0";
             int rowsAffected = mysqlAdapter.executeUpdate(sql, modelId);
             
@@ -3620,7 +3621,7 @@ public class AITrainingServlet extends BaseServlet {
             }
             
             // 查询关联的分类、类型、框架名称
-            ai.database.impl.MysqlAdapter mysqlAdapter = new ai.database.impl.MysqlAdapter("mysql");
+            ai.database.impl.MysqlAdapter mysqlAdapter = MysqlAdapter.getInstance();
             
             if (modelDetail.get("category_id") != null) {
                 Long categoryId = ((Number) modelDetail.get("category_id")).longValue();
@@ -3716,7 +3717,7 @@ public class AITrainingServlet extends BaseServlet {
             
             // 查询数据
             ai.finetune.utils.ModelDatasetManager manager = new ai.finetune.utils.ModelDatasetManager();
-            ai.database.impl.MysqlAdapter mysqlAdapter = new ai.database.impl.MysqlAdapter("mysql");
+            ai.database.impl.MysqlAdapter mysqlAdapter = MysqlAdapter.getInstance();
             
             // 查询总数
             long total = manager.countModels(null, keyword, status, categoryId);
@@ -3811,7 +3812,7 @@ public class AITrainingServlet extends BaseServlet {
         Map<String, Object> result = new HashMap<>();
         try {
             List<Map<String, Object>> options = new ArrayList<>();
-            ai.database.impl.MysqlAdapter mysqlAdapter = new ai.database.impl.MysqlAdapter("mysql");
+            ai.database.impl.MysqlAdapter mysqlAdapter = MysqlAdapter.getInstance();
             String sql = "SELECT id, category_name AS name FROM model_category";
             List<Map<String, Object>> categoryList = mysqlAdapter.select(sql);
             
@@ -3844,7 +3845,7 @@ public class AITrainingServlet extends BaseServlet {
         Map<String, Object> result = new HashMap<>();
         try {
             List<Map<String, Object>> options = new ArrayList<>();
-            ai.database.impl.MysqlAdapter mysqlAdapter = new ai.database.impl.MysqlAdapter("mysql");
+            ai.database.impl.MysqlAdapter mysqlAdapter = MysqlAdapter.getInstance();
             String sql = "SELECT id, type_name AS name FROM model_type_dict";
             List<Map<String, Object>> typeList = mysqlAdapter.select(sql);
             
@@ -3877,7 +3878,7 @@ public class AITrainingServlet extends BaseServlet {
         Map<String, Object> result = new HashMap<>();
         try {
             List<Map<String, Object>> options = new ArrayList<>();
-            ai.database.impl.MysqlAdapter mysqlAdapter = new ai.database.impl.MysqlAdapter("mysql");
+            ai.database.impl.MysqlAdapter mysqlAdapter = MysqlAdapter.getInstance();
             String sql = "SELECT id, framework_name AS name FROM model_framework_dict";
             List<Map<String, Object>> frameworkList = mysqlAdapter.select(sql);
             

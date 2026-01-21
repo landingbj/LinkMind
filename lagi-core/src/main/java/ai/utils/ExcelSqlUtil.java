@@ -43,9 +43,9 @@ public class ExcelSqlUtil {
                     .findFirst()  // 获取流中的第一个元素
                     .orElseThrow(() -> new NoSuchElementException("No database found"));
             try {
-                mysqlAdapter = new MysqlAdapter(sqlJdbc.getName());
+                mysqlAdapter = MysqlAdapter.getInstance();
                 if (isConnect()){
-                    if (new MysqlAdapter(sqlJdbc.getName()).selectCount("SELECT 1")>0){
+                    if (MysqlAdapter.getInstance(sqlJdbc.getName()).selectCount("SELECT 1")>0){
                         isSwitch =initTextToSqlSearch();
                         if (!isSwitch){
                             log.info("mysql初始化失败！---智能问数模式已关闭！");
@@ -365,7 +365,7 @@ public class ExcelSqlUtil {
     public static String getDetails() {
         List<Map<String, Object>> list = new ArrayList<>();
         if (isConnect()){
-            list = new MysqlAdapter("mysql").sqlToValue("SELECT * FROM table_info;");
+            list = MysqlAdapter.getInstance().sqlToValue("SELECT * FROM table_info;");
         }else {
             list = sqliteAdapter.sqlToValue("SELECT * FROM table_info;");
         }

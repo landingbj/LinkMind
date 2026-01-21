@@ -5,6 +5,7 @@ import ai.dto.DictOptionDto;
 import ai.dto.VersionManagementDto;
 import ai.servlet.BaseServlet;
 import com.google.gson.*;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.servlet.ServletException;
@@ -30,17 +31,9 @@ public class VersionManagementServlet extends BaseServlet {
     private final Gson gson = new Gson();
     private String currentTime;
 
-    private static volatile MysqlAdapter mysqlAdapter = null;
-    private static MysqlAdapter getMysqlAdapter() {
-        if (mysqlAdapter == null) {
-            synchronized (ModelIntroductionServlet.class) {
-                if (mysqlAdapter == null) {
-                    mysqlAdapter = new MysqlAdapter("mysql");
-                }
-            }
-        }
-        return mysqlAdapter;
-    }
+    @Getter
+    private static final MysqlAdapter mysqlAdapter = MysqlAdapter.getInstance();
+
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {

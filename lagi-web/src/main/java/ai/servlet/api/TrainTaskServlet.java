@@ -8,6 +8,7 @@ import ai.servlet.BaseServlet;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.servlet.ServletException;
@@ -37,17 +38,9 @@ public class TrainTaskServlet extends BaseServlet {
     // 用于存放所有任务的实时进度  key : taskId   值: 进度
     private static final Map<String, TrainingTasks> PROGRESS_STORAGE = new ConcurrentHashMap<>();
 
-    private static volatile MysqlAdapter mysqlAdapter = null;
-    private static MysqlAdapter getMysqlAdapter() {
-        if (mysqlAdapter == null) {
-            synchronized (TrainTaskServlet.class) {
-                if (mysqlAdapter == null) {
-                    mysqlAdapter = new MysqlAdapter("mysql");
-                }
-            }
-        }
-        return mysqlAdapter;
-    }
+    @Getter
+    private static volatile MysqlAdapter mysqlAdapter = MysqlAdapter.getInstance();
+
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {

@@ -1302,8 +1302,15 @@ public class AITrainingServlet extends BaseServlet {
 
         // 使用配置文件的默认值
         if (defaultConfig != null && !defaultConfig.isEmpty()) {
+            // data 优先级：前端 config.data > dataset_id 查库得到的 datasetPath > 默认配置
+            String defaultDataPath = (String) defaultConfig.get("data");
+            String configDataPath = config.getStr("data", null);
+            String finalDataPath = configDataPath != null && !configDataPath.isEmpty()
+                    ? configDataPath
+                    : (datasetPath != null && !datasetPath.isEmpty() ? datasetPath : defaultDataPath);
+
             trainConfig.put("model_path", modelPath != null ? modelPath : config.getStr("model_path", (String) defaultConfig.get("model_path")));
-            trainConfig.put("data", datasetPath != null ? datasetPath : config.getStr("data", (String) defaultConfig.get("data")));
+            trainConfig.put("data", finalDataPath);
             trainConfig.put("epochs", config.getInt("epochs", (Integer) defaultConfig.get("epochs")));
             trainConfig.put("batch", config.getInt("batch", (Integer) defaultConfig.get("batch")));
             trainConfig.put("imgsz", config.getInt("imgsz", (Integer) defaultConfig.get("imgsz")));
@@ -1317,8 +1324,14 @@ public class AITrainingServlet extends BaseServlet {
             trainConfig.put("project", projectBase);
             trainConfig.put("runs_dir", config.getStr("runs_dir", (String) defaultConfig.get("runs_dir")));
         } else {
+            // 无默认配置时，同样保持 data 优先级：config.data > datasetPath > 硬编码默认值
+            String configDataPath = config.getStr("data", null);
+            String finalDataPath = configDataPath != null && !configDataPath.isEmpty()
+                    ? configDataPath
+                    : (datasetPath != null && !datasetPath.isEmpty() ? datasetPath : "/app/data/datasets/YoloV8/data.yaml");
+
             trainConfig.put("model_path", modelPath != null ? modelPath : config.getStr("model_path", "/app/data/models/yolo11n.pt"));
-            trainConfig.put("data", datasetPath != null ? datasetPath : config.getStr("data", "/app/data/datasets/YoloV8/data.yaml"));
+            trainConfig.put("data", finalDataPath);
             trainConfig.put("epochs", config.getInt("epochs", 10));
             trainConfig.put("batch", config.getInt("batch", 2));
             trainConfig.put("imgsz", config.getInt("imgsz", 640));

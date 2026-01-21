@@ -8,6 +8,8 @@ import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import lombok.extern.slf4j.Slf4j;
 
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -1874,12 +1876,14 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
             parameters.set("the_train_type", "export");
             parameters.set("task_id", taskId);
 
-            // 兼容：若调用方未传关键字段，则给出与需求命令一致的默认值
-            String hostModelPath = PathConvertUtil.convertToHostPath(parameters.getStr("model_path"), volumeMount);
+            String hostModelPath = parameters.getStr("model_path");
+
+            // 取父目录的完整路径
+            Path modelDir = Paths.get(hostModelPath).getParent();
+            String volume = modelDir.toAbsolutePath()+ ":" + modelDir.toAbsolutePath();
             parameters.putIfAbsent("model_path", hostModelPath);
-            parameters.putIfAbsent("export_format", "engine");
-//            parameters.putIfAbsent("opset", 18);
-//            parameters.putIfAbsent("device", "0");
+            parameters.putIfAbsent("export_format", "onnx");
+
             JSONObject extraInfo = new JSONObject();
             Long hostFileSize = PathConvertUtil.getFileSize(hostModelPath);
             extraInfo.set("model_file_size", hostFileSize);
@@ -1922,10 +1926,11 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
 
             // 构建 Docker 命令（与其他方法保持一致，从配置中获取 volumeMount 和 dockerImage）
             StringBuilder dockerCmd = new StringBuilder();
-            dockerCmd.append("docker run --gpus all");
+            dockerCmd.append("docker run --gpus all --rm ");
 
             // 数据卷挂载（从配置中获取）
-            dockerCmd.append(" -v ").append(volumeMount);
+            dockerCmd.append(" -v ").append(volumeMount).append(" ");
+            dockerCmd.append(" -v ").append(volume).append(" ");
 
             // 配置环境变量
             String configJson = parameters.toString();
@@ -1957,10 +1962,9 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
             // 更新任务状态
             if (isSuccess(result)) {
                 String exportPath = PathConvertUtil.extractExportPath(result);
-                String exportHostPath = PathConvertUtil.convertToHostPath(exportPath, volumeMount);
-                Long exportFileSize = PathConvertUtil.getFileSize(exportHostPath);
+                Long exportFileSize = PathConvertUtil.getFileSize(exportPath);
                 extraInfo.set("export_file_size", exportFileSize);
-                updateYoloTaskStatus(taskId, "completed", "模型转换完成", exportHostPath, extraInfo.toString());
+                updateYoloTaskStatus(taskId, "completed", "模型转换完成", exportPath, extraInfo.toString());
                 addYoloConvertLog(taskId, "INFO", "模型转换完成", hostLogFilePath);
                 JSONObject resultJson = JSONUtil.parseObj(result);
                 resultJson.set("taskId", taskId);

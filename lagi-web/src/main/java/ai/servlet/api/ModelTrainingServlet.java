@@ -2,6 +2,7 @@ package ai.servlet.api;
 
 import ai.common.utils.ObservableList;
 import ai.config.ContextLoader;
+import ai.config.UploadConfig;
 import ai.config.pojo.DiscriminativeModelsConfig;
 import ai.finetune.YoloK8sAdapter;
 import ai.finetune.YoloTrainerAdapter;
@@ -24,6 +25,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.io.PrintWriter;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
@@ -1066,55 +1068,83 @@ public class ModelTrainingServlet extends BaseServlet {
      */
     private void handleUploadFile(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json;charset=utf-8");
+        UploadConfig bean = ContextLoader.getBean(UploadConfig.class);
+        if (bean == null) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", "无上传配置");
+            resp.setStatus(500);
+            responsePrint(resp, toJson(error));
+            return;
+        }
+        if (bean.getCommon() == null || bean.getCommon().getHostUploadPath() == null) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", "无公共存储地址配置");
+            resp.setStatus(500);
+            responsePrint(resp, toJson(error));
+            return;
+        }
 
+        Path path = Paths.get(bean.getCommon().getHostUploadPath());
+        if (!path.toFile().exists()) {
+            path.toFile().mkdirs();
+        }
+
+        Map<String, Object> response = new HashMap<>();
         try {
-            String jsonBody = requestToJson(req);
-            JSONObject params = JSONUtil.parseObj(jsonBody);
-
-            String taskId = params.getStr("taskId");
-            String containerId = params.getStr("containerId");
-
-            if (containerId == null && taskId != null) {
-                containerId = taskContainerMap.get(taskId);
-            }
-
-            if (containerId == null) {
+            if (!ServletFileUpload.isMultipartContent(req)) {
                 resp.setStatus(400);
-                Map<String, String> error = new HashMap<>();
-                error.put("error", "缺少 taskId 或 containerId 参数");
-                responsePrint(resp, toJson(error));
+                response.put("status", "failed");
+                response.put("message", "请求必须是multipart/form-data格式");
+                response.put("code", 400);
+                responsePrint(resp, toJson(response));
                 return;
             }
 
-            YoloK8sAdapter trainer = getTrainerForTask(taskId);
-            if (trainer == null) {
-                resp.setStatus(404);
-                Map<String, String> error = new HashMap<>();
-                error.put("error", "找不到对应的训练器");
-                responsePrint(resp, toJson(error));
-                return;
+            DiskFileItemFactory factory = new DiskFileItemFactory();
+            ServletFileUpload upload = new ServletFileUpload(factory);
+            @SuppressWarnings("unchecked")
+            List<FileItem> items = upload.parseRequest(req);
+
+            FileItem fileItem = null;
+            for (FileItem item : items) {
+                if (!item.isFormField()) {
+                    fileItem = item;
+                    break;
+                }
             }
 
-            String localPath = params.getStr("localPath");
-            String containerPath = params.getStr("containerPath");
-
-            if (localPath == null || containerPath == null) {
+            if (fileItem == null || fileItem.getSize() == 0) {
                 resp.setStatus(400);
-                Map<String, String> error = new HashMap<>();
-                error.put("error", "缺少 localPath 或 containerPath 参数");
-                responsePrint(resp, toJson(error));
+                response.put("status", "failed");
+                response.put("message", "请选择要上传的文件");
+                response.put("code", 400);
+                responsePrint(resp, toJson(response));
                 return;
             }
 
-            String result = trainer.uploadToContainer(containerId, localPath, containerPath);
-            responsePrint(resp, result);
+            String originalName = Paths.get(fileItem.getName()).getFileName().toString();
+            String folderName = UUID.randomUUID().toString();
+            Path targetDir = path.resolve(folderName);
+            Files.createDirectories(targetDir);
+            Path target = targetDir.resolve(originalName);
+
+            try (InputStream in = fileItem.getInputStream()) {
+                Files.copy(in, target);
+            }
+
+            response.put("status", "success");
+            response.put("message", "上传成功");
+            response.put("file_name", originalName);
+            response.put("saved_path", target.toString());
+            responsePrint(resp, toJson(response));
 
         } catch (Exception e) {
             log.error("上传文件失败", e);
             resp.setStatus(500);
-            Map<String, String> error = new HashMap<>();
-            error.put("error", e.getMessage());
-            responsePrint(resp, toJson(error));
+            response.put("status", "failed");
+            response.put("message", e.getMessage());
+            response.put("code", 500);
+            responsePrint(resp, toJson(response));
         }
     }
 

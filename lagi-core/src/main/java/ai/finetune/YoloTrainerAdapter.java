@@ -936,8 +936,8 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
 
         // 从配置中读取 user_id
         String userId = task.config.getStr("user_id", null);
-        String datasetName = task.config.getStr("dataset_name", "");
-        
+        String datasetName = task.config.getStr("dataset_name", "外部数据集");
+
         // 从配置中读取 model_id 和 dataset_id
         Long modelId = null;
         Long datasetId = null;
@@ -965,7 +965,7 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
                 }
             }
         }
-        
+
         // 从配置中读取 output_path（project路径）
         String outputPath = task.config.getStr("project", null);
         // 如果output_path为空但model_id存在，根据model_id生成output_path
@@ -1307,7 +1307,7 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
             );
             log.info("任务已完成: taskId={}, trainDir={}", taskId, trainDir);
             addYoloTrainingLog(taskId, "INFO", "训练任务已完成，输出目录: " + trainDir);
-            
+
             // 训练完成后自动入库新模型
             try {
                 ai.finetune.utils.TrainingPostProcessor postProcessor = new ai.finetune.utils.TrainingPostProcessor();

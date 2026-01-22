@@ -3308,6 +3308,12 @@ public class AITrainingServlet extends BaseServlet {
             // 调用 ModelDatasetManager 保存
             ai.finetune.utils.ModelDatasetManager manager = new ai.finetune.utils.ModelDatasetManager();
             
+            // 获取状态，如果未提供则默认为 'active'（用户手动创建的模型默认为活跃状态）
+            String status = jsonNode.getStr("status");
+            if (status == null || status.trim().isEmpty()) {
+                status = "active";
+            }
+            
             Long modelId = manager.saveModelWithDetails(
                 modelName, path, version,
                 jsonNode.get("dataset_id") != null ? jsonNode.getLong("dataset_id") : null,
@@ -3335,7 +3341,8 @@ public class AITrainingServlet extends BaseServlet {
                 jsonNode.get("view_count") != null ? jsonNode.getLong("view_count") : 0L,
                 jsonNode.getStr("author"),
                 jsonNode.getStr("doc_link"),
-                jsonNode.getStr("icon_link")
+                jsonNode.getStr("icon_link"),
+                status  // 第31个参数：模型状态
             );
             
             if (modelId != null) {

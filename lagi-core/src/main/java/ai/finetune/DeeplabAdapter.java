@@ -171,7 +171,7 @@ public class DeeplabAdapter extends DockerTrainerAbstract implements TrainerInte
             dockerCmd.append(" --gpus all");
 
             // 共享内存大小（Deeplab 需要）
-            dockerCmd.append(" --shm-size=2g");
+            dockerCmd.append(" --shm-size=8g");
 
             // 数据卷挂载
             dockerCmd.append(" -v ").append(volumeMount);

@@ -180,6 +180,7 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
             // GPU 支持
             dockerCmd.append(" --gpus all");
 
+            dockerCmd.append(" --shm-size=8g");
             // 数据卷挂载
             dockerCmd.append(" -v ").append(volumeMount);
 
@@ -1198,7 +1199,7 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
                 oldStatus = (String) taskResult.get(0).get("status");
                 taskType = (String) taskResult.get(0).get("task_type");
             }
-            
+
             // 使用数据库连接池执行更新操作
             getMysqlAdapter().executeUpdate(
                     sql,
@@ -1208,7 +1209,7 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
                     taskId
             );
             log.info("任务状态已更新: taskId={}, status={}", taskId, status);
-            
+
             // 训练完成后自动入库新模型（仅当状态从非completed变为completed，且是训练任务时）
             if ("completed".equals(status) && !"completed".equals(oldStatus) && "train".equals(taskType)) {
                 try {
@@ -1242,7 +1243,7 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
                 oldStatus = (String) taskResult.get(0).get("status");
                 taskType = (String) taskResult.get(0).get("task_type");
             }
-            
+
             // 使用数据库连接池执行更新操作
             getMysqlAdapter().executeUpdate(
                     sql,
@@ -1254,7 +1255,7 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
                     taskId
             );
             log.info("任务状态已更新: taskId={}, status={}", taskId, status);
-            
+
             // 训练完成后自动入库新模型（仅当状态从非completed变为completed，且是训练任务时）
             if ("completed".equals(status) && !"completed".equals(oldStatus) && "train".equals(taskType)) {
                 try {

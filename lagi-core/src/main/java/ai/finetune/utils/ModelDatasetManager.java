@@ -327,12 +327,19 @@ public class ModelDatasetManager {
                 return null;
             }
             
-            // 获取新版本号
+            // 获取新版本号（使用智能版本号生成，确保唯一性）
+            String originalModelName = (String) originalModel.get("name");
             String currentVersion = (String) originalModel.get("version");
-            String newVersion = ModelVersionManager.incrementVersion(currentVersion);
+            String newVersion = ModelVersionManager.generateNewVersion(originalModelName, currentVersion, taskId);
+            
+            // 生成新模型名称：{原名称}-{版本号去掉V}-{时间戳}
+            // 例如：yolo11 -> yolo11-1.1.0-202601221043
+            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmm"));
+            String versionWithoutV = newVersion.startsWith("V") ? newVersion.substring(1) : newVersion;
+            String newModelName = originalModelName + "-" + versionWithoutV + "-" + timestamp;
             
             // 复制模型信息
-            String name = (String) originalModel.get("name");
+            String name = newModelName;
             Long datasetId = originalModel.get("dataset_id") != null ? 
                             ((Number) originalModel.get("dataset_id")).longValue() : null;
             String modelType = (String) originalModel.get("model_type");
@@ -400,8 +407,8 @@ public class ModelDatasetManager {
                                                   tags, viewCount, author, docLink, iconLink);
             
             if (newModelId != null) {
-                log.info("训练后模型已自动入库: modelId={}, version={}, path={}", 
-                        newModelId, newVersion, newModelPath);
+                log.info("训练后模型已自动入库: newModelId={}, originalModelName={}, newModelName={}, version={}, path={}", 
+                        newModelId, originalModelName, newModelName, newVersion, newModelPath);
             }
             
             return newModelId;

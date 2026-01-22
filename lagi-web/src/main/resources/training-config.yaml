@@ -10,6 +10,13 @@ training:
   # patch: V1.0.0 -> V1.0.1
   version_increment: minor
   
+  # 版本号生成策略：latest(基于最新版本递增), timestamp(版本号+时间戳), sequence(版本号+序号), taskid(版本号+任务ID)
+  # latest: 查询该模型的所有版本，找到最新版本号，然后递增（推荐，保证版本连续性）
+  # timestamp: V1.1.0-20260121-143022（保证唯一性，但版本号较长）
+  # sequence: V1.1.0-1, V1.1.0-2（简洁，但需要查询数据库）
+  # taskid: V1.1.0-task_xxx（可追溯训练任务，但版本号较长）
+  version_strategy: latest
+  
   # 默认训练输出目录（支持环境变量）
   default_output_dir: ${STORAGE_BASE_PATH:/app/data}/trained_models
   

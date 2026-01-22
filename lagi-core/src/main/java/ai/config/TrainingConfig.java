@@ -24,7 +24,18 @@ public class TrainingConfig {
         PATCH   // 补丁版本：V1.0.0 -> V1.0.1
     }
     
+    /**
+     * 版本号生成策略
+     */
+    public enum VersionStrategy {
+        LATEST,     // 基于最新版本递增（推荐）：查询该模型的所有版本，找到最新版本号，然后递增
+        TIMESTAMP,  // 版本号+时间戳：V1.1.0-20260121-143022
+        SEQUENCE,   // 版本号+序号：V1.1.0-1, V1.1.0-2
+        TASKID      // 版本号+任务ID：V1.1.0-task_xxx
+    }
+    
     private VersionIncrementType versionIncrement = VersionIncrementType.MINOR;
+    private VersionStrategy versionStrategy = VersionStrategy.LATEST;
     private String defaultOutputDir;
     private boolean autoSaveAfterTraining = true;
     private boolean autoCreateVersion = true;
@@ -106,8 +117,18 @@ public class TrainingConfig {
                 this.modelFilePattern = pattern;
             }
             
-            log.info("训练配置加载成功: versionIncrement={}, defaultOutputDir={}", 
-                    this.versionIncrement, this.defaultOutputDir);
+            // 解析版本号生成策略
+            String strategy = (String) training.get("version_strategy");
+            if (StrUtil.isNotBlank(strategy)) {
+                try {
+                    this.versionStrategy = VersionStrategy.valueOf(strategy.toUpperCase());
+                } catch (IllegalArgumentException e) {
+                    log.warn("无效的版本号生成策略: {}, 使用默认值 LATEST", strategy);
+                }
+            }
+            
+            log.info("训练配置加载成功: versionIncrement={}, versionStrategy={}, defaultOutputDir={}", 
+                    this.versionIncrement, this.versionStrategy, this.defaultOutputDir);
             
         } catch (Exception e) {
             log.error("加载 training-config.yaml 配置失败，使用默认配置", e);
@@ -149,6 +170,7 @@ public class TrainingConfig {
      */
     private void setDefaultConfig() {
         this.versionIncrement = VersionIncrementType.MINOR;
+        this.versionStrategy = VersionStrategy.LATEST;
         String base = System.getenv("STORAGE_BASE_PATH");
         if (StrUtil.isBlank(base)) {
             base = "/app/data";

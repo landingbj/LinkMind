@@ -1908,9 +1908,13 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
             parameters.set("task_id", taskId);
 
             String hostModelPath = parameters.getStr("model_path");
-
+            Path path = Paths.get(hostModelPath);
+            boolean exists = path.toFile().exists();
+            if (!exists) {
+                throw new RuntimeException("模型文件不存在");
+            }
             // 取父目录的完整路径
-            Path modelDir = Paths.get(hostModelPath).getParent();
+            Path modelDir =path.getParent();
             String volume = modelDir.toAbsolutePath()+ ":" + modelDir.toAbsolutePath();
             parameters.putIfAbsent("model_path", hostModelPath);
             parameters.putIfAbsent("export_format", "onnx");

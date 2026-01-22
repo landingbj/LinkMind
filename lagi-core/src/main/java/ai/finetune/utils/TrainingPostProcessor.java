@@ -45,8 +45,11 @@ public class TrainingPostProcessor {
             Map<String, Object> task = tasks.get(0);
             String status = (String) task.get("status");
             
-            // 只处理已完成的任务
-            if (!"completed".equals(status)) {
+            // 只处理已完成的任务（Docker 轮询可能写入 exited/finished）
+            boolean isDoneStatus = "completed".equalsIgnoreCase(status)
+                    || "exited".equalsIgnoreCase(status)
+                    || "finished".equalsIgnoreCase(status);
+            if (!isDoneStatus) {
                 log.debug("训练任务未完成，跳过处理: taskId={}, status={}", taskId, status);
                 return;
             }
@@ -67,9 +70,23 @@ public class TrainingPostProcessor {
             
             // 获取训练输出路径
             String trainDir = (String) task.get("train_dir");
+            // 如果 train_dir 为空，尝试从 output_path 推导
             if (trainDir == null || trainDir.isEmpty()) {
-                log.warn("训练输出目录为空，无法自动入库: taskId={}", taskId);
-                return;
+                String outputPath = (String) task.get("output_path");
+                if (outputPath != null && !outputPath.isEmpty()) {
+                    // 尝试从 output_path 推导 train_dir
+                    // 通常 train_dir 是 output_path 下的某个子目录，例如 output_path/yolo_experiment_xxx
+                    // 先尝试直接使用 output_path，如果找不到模型文件，再尝试查找子目录
+                    trainDir = findTrainDirFromOutputPath(outputPath);
+                    if (trainDir == null) {
+                        trainDir = outputPath; // 如果找不到子目录，使用 output_path 本身
+                    }
+                    log.info("train_dir 为空，从 output_path 推导: taskId={}, outputPath={}, derivedTrainDir={}", 
+                            taskId, outputPath, trainDir);
+                } else {
+                    log.warn("训练输出目录为空，无法自动入库: taskId={}", taskId);
+                    return;
+                }
             }
             
             // 查找训练后的模型文件（通常是best.pt或weights/best.pt）
@@ -173,6 +190,43 @@ public class TrainingPostProcessor {
             
         } catch (Exception e) {
             log.error("查找训练模型文件失败: trainDir={}", trainDir, e);
+        }
+        
+        return null;
+    }
+    
+    /**
+     * 从 output_path 查找训练输出目录
+     * 通常训练输出目录是 output_path 下的某个子目录（如 yolo_experiment_xxx）
+     */
+    private String findTrainDirFromOutputPath(String outputPath) {
+        try {
+            Path outputPathObj = Paths.get(outputPath);
+            if (!Files.exists(outputPathObj) || !Files.isDirectory(outputPathObj)) {
+                return null;
+            }
+            
+            // 查找包含 weights 目录或 best.pt 文件的子目录
+            try {
+                java.util.stream.Stream<Path> dirs = Files.list(outputPathObj)
+                        .filter(Files::isDirectory);
+                
+                java.util.Optional<Path> trainDir = dirs.filter(dir -> {
+                    // 检查是否包含 weights 目录或 best.pt 文件
+                    Path weightsDir = dir.resolve("weights");
+                    Path bestPt = dir.resolve("best.pt");
+                    return Files.exists(weightsDir) || Files.exists(bestPt);
+                }).findFirst();
+                
+                if (trainDir.isPresent()) {
+                    return trainDir.get().toString();
+                }
+            } catch (Exception e) {
+                log.debug("查找训练输出子目录失败: outputPath={}", outputPath, e);
+            }
+            
+        } catch (Exception e) {
+            log.debug("从 output_path 查找训练目录失败: outputPath={}", outputPath, e);
         }
         
         return null;

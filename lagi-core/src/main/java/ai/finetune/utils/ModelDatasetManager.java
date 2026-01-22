@@ -75,11 +75,12 @@ public class ModelDatasetManager {
         return saveModelWithDetails(name, path, version, datasetId, modelType, framework,
                                    fileSize, fileType, description, userId, null, null, null,
                                    null, null, null, null, null, null, null, null, null, null,
-                                   null, null, null, null, null, null, null);
+                                   null, null, null, null, null, null, null, "active");
     }
     
     /**
      * 保存模型到数据库（完整版本，包含所有简介字段）
+     * @param status 模型状态，默认为 'active'。训练后自动入库的模型应设置为 'archived'
      */
     public Long saveModelWithDetails(String name, String path, String version, Long datasetId,
                                      String modelType, String framework, Long fileSize, String fileType,
@@ -89,7 +90,13 @@ public class ModelDatasetManager {
                                      String inputShape, String outputShape, Integer totalParams,
                                      Integer trainableParams, Integer nonTrainableParams,
                                      Float accuracy, Float precision, Float recall, Float f1Score,
-                                     String tags, Long viewCount, String author, String docLink, String iconLink) {
+                                     String tags, Long viewCount, String author, String docLink, String iconLink,
+                                     String status) {
+        // 如果状态为空，默认为 'active'
+        if (status == null || status.trim().isEmpty()) {
+            status = "active";
+        }
+        
         try {
             String sql = "INSERT INTO models (name, path, version, dataset_id, " +
                         "model_type, framework, file_size, file_type, description, user_id, " +
@@ -98,7 +105,7 @@ public class ModelDatasetManager {
                         "non_trainable_params, accuracy, `precision`, `recall`, f1_score, " +
                         "tags, view_count, author, doc_link, icon_link, " +
                         "status, created_at, updated_at, is_deleted) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW(), 0)";
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), 0)";
             
             int result = mysqlAdapter.executeUpdate(sql, 
                     name, path, version, datasetId,
@@ -106,7 +113,7 @@ public class ModelDatasetManager {
                     title, detailContent, categoryId, modelTypeId, frameworkId,
                     algorithm, inputShape, outputShape, totalParams, trainableParams,
                     nonTrainableParams, accuracy, precision, recall, f1Score,
-                    tags, viewCount != null ? viewCount : 0, author, docLink, iconLink);
+                    tags, viewCount != null ? viewCount : 0, author, docLink, iconLink, status);
             
             if (result > 0) {
                 // 获取插入的ID
@@ -396,6 +403,7 @@ public class ModelDatasetManager {
             String fileType = getFileExtension(newModelPath);
             
             // 保存新模型（包含所有简介字段）
+            // 训练后自动入库的模型状态设置为 'archived'（已归档）
             Long newModelId = saveModelWithDetails(name, newModelPath, newVersion, datasetId,
                                                   modelType, framework, fileSize, fileType,
                                                   description, userId,
@@ -404,7 +412,8 @@ public class ModelDatasetManager {
                                                   inputShape, outputShape, totalParams,
                                                   trainableParams, nonTrainableParams,
                                                   accuracy, precision, recall, f1Score,
-                                                  tags, viewCount, author, docLink, iconLink);
+                                                  tags, viewCount, author, docLink, iconLink,
+                                                  "archived");
             
             if (newModelId != null) {
                 log.info("训练后模型已自动入库: newModelId={}, originalModelName={}, newModelName={}, version={}, path={}", 

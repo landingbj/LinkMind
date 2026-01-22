@@ -210,7 +210,8 @@ public class ModelsTableCompleteTest {
             0L, // viewCount
             "测试作者",
             "https://example.com/doc",
-            "https://example.com/icon.png"
+            "https://example.com/icon.png",
+            "active" // status
         );
         
         assertNotNull(modelId, "模型ID不应为null");

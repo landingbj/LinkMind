@@ -353,11 +353,13 @@ public class ModelDatasetManager {
             String currentVersion = (String) originalModel.get("version");
             String newVersion = ModelVersionManager.generateNewVersion(originalModelName, currentVersion, taskId);
             
-            // 生成新模型名称：{原名称}-{版本号去掉V}-{时间戳}
-            // 例如：yolo11 -> yolo11-1.1.0-202601221043
+            // 生成新模型名称：提取基础名称，然后替换版本和时间戳
+            // 例如：yolo11-1.0.0-202601221038 -> yolo11-1.1.0-202601221043
+            // 例如：YOLOv11-1.2.0-202601231024 -> YOLOv11-1.3.0-202601231056
+            String baseName = extractBaseModelName(originalModelName);
             String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmm"));
             String versionWithoutV = newVersion.startsWith("V") ? newVersion.substring(1) : newVersion;
-            String newModelName = originalModelName + "-" + versionWithoutV + "-" + timestamp;
+            String newModelName = baseName + "-" + versionWithoutV + "-" + timestamp;
             
             // 复制模型信息
             String name = newModelName;
@@ -500,12 +502,16 @@ public class ModelDatasetManager {
     /**
      * 生成训练后的模型描述信息
      * 包含：原模型信息、数据集信息、训练时间等
+     * 使用HTML格式，便于页面友好显示
      */
     private String generateTrainingDescription(Map<String, Object> originalModel, 
                                                  Map<String, Object> taskInfo, 
                                                  String taskId) {
         StringBuilder desc = new StringBuilder();
-        desc.append("训练后自动生成。\n");
+        
+        // 使用HTML格式，便于页面显示
+        desc.append("<div style='line-height: 1.8;'>");
+        desc.append("<p style='margin: 0 0 8px 0; color: #666;'>训练后自动生成</p>");
         
         // 原模型信息
         if (originalModel != null) {
@@ -514,29 +520,31 @@ public class ModelDatasetManager {
             String originalModelId = originalModelIdObj != null ? originalModelIdObj.toString() : "未知";
             String originalVersion = (String) originalModel.get("version");
             
-            desc.append("基于模型：");
+            desc.append("<p style='margin: 0 0 8px 0;'>");
+            desc.append("<strong>基于模型：</strong>");
             if (originalModelName != null && !originalModelName.isEmpty()) {
                 desc.append(originalModelName);
             } else {
                 desc.append("未知模型");
             }
-            desc.append("（ID: ").append(originalModelId);
+            desc.append(" <span style='color: #999;'>(ID: ").append(originalModelId);
             if (originalVersion != null && !originalVersion.isEmpty()) {
                 desc.append(", 版本: ").append(originalVersion);
             }
-            desc.append("）训练。\n");
+            desc.append(")</span>");
+            desc.append("</p>");
         } else {
-            desc.append("基于模型：未知模型训练。\n");
+            desc.append("<p style='margin: 0 0 8px 0;'><strong>基于模型：</strong>未知模型</p>");
         }
         
         // 数据集信息
         if (taskInfo != null) {
             Object datasetIdObj = taskInfo.get("dataset_id");
             String datasetName = (String) taskInfo.get("dataset_name");
-            String datasetPath = (String) taskInfo.get("dataset_path");
             
             if (datasetIdObj != null || (datasetName != null && !datasetName.isEmpty())) {
-                desc.append("训练数据集：");
+                desc.append("<p style='margin: 0 0 8px 0;'>");
+                desc.append("<strong>训练数据集：</strong>");
                 if (datasetName != null && !datasetName.isEmpty()) {
                     desc.append(datasetName);
                 } else {
@@ -564,9 +572,9 @@ public class ModelDatasetManager {
                 }
                 
                 if (datasetIdObj != null) {
-                    desc.append("（ID: ").append(datasetIdObj).append("）");
+                    desc.append(" <span style='color: #999;'>(ID: ").append(datasetIdObj).append(")</span>");
                 }
-                desc.append("。\n");
+                desc.append("</p>");
             }
         }
         
@@ -576,13 +584,24 @@ public class ModelDatasetManager {
             String endTime = convertToString(taskInfo.get("end_time"));
             String createdAt = convertToString(taskInfo.get("created_at"));
             
-            if (startTime != null && !startTime.isEmpty()) {
-                desc.append("训练开始时间：").append(startTime).append("。\n");
-            }
-            if (endTime != null && !endTime.isEmpty()) {
-                desc.append("训练结束时间：").append(endTime).append("。\n");
-            } else if (createdAt != null && !createdAt.isEmpty()) {
-                desc.append("任务创建时间：").append(createdAt).append("。\n");
+            if (startTime != null && !startTime.isEmpty() || endTime != null && !endTime.isEmpty()) {
+                desc.append("<p style='margin: 0 0 8px 0;'>");
+                desc.append("<strong>训练时间：</strong>");
+                if (startTime != null && !startTime.isEmpty()) {
+                    desc.append(startTime);
+                }
+                if (endTime != null && !endTime.isEmpty()) {
+                    if (startTime != null && !startTime.isEmpty()) {
+                        desc.append(" ~ ");
+                    }
+                    desc.append(endTime);
+                } else if (createdAt != null && !createdAt.isEmpty()) {
+                    if (startTime != null && !startTime.isEmpty()) {
+                        desc.append(" ~ ");
+                    }
+                    desc.append(createdAt);
+                }
+                desc.append("</p>");
             }
         }
         
@@ -601,32 +620,71 @@ public class ModelDatasetManager {
                 hasParams = true;
             }
             if (batchSize != null) {
-                if (hasParams) paramsDesc.append(", ");
+                if (hasParams) paramsDesc.append(" | ");
                 paramsDesc.append("批次大小: ").append(batchSize);
                 hasParams = true;
             }
             if (imageSize != null) {
-                if (hasParams) paramsDesc.append(", ");
+                if (hasParams) paramsDesc.append(" | ");
                 paramsDesc.append("图片尺寸: ").append(imageSize);
                 hasParams = true;
             }
             if (learningRate != null) {
-                if (hasParams) paramsDesc.append(", ");
+                if (hasParams) paramsDesc.append(" | ");
                 paramsDesc.append("学习率: ").append(learningRate);
                 hasParams = true;
             }
             
             if (hasParams) {
-                desc.append("训练参数：").append(paramsDesc).append("。\n");
+                desc.append("<p style='margin: 0 0 8px 0;'>");
+                desc.append("<strong>训练参数：</strong>").append(paramsDesc);
+                desc.append("</p>");
             }
         }
         
         // 训练任务ID
         if (taskId != null && !taskId.isEmpty()) {
-            desc.append("训练任务ID：").append(taskId).append("。");
+            desc.append("<p style='margin: 0; color: #999; font-size: 12px;'>");
+            desc.append("任务ID: ").append(taskId);
+            desc.append("</p>");
         }
         
+        desc.append("</div>");
         return desc.toString();
+    }
+    
+    /**
+     * 从模型名称中提取基础名称（去掉版本号和时间戳部分）
+     * 例如：
+     * - "yolo11-1.0.0-202601221038" -> "yolo11"
+     * - "YOLOv11-1.2.0-202601231024" -> "YOLOv11"
+     * - "yolo11" -> "yolo11" (如果没有版本和时间戳，返回原名称)
+     */
+    private String extractBaseModelName(String modelName) {
+        if (modelName == null || modelName.isEmpty()) {
+            return "model";
+        }
+        
+        // 匹配模式：{baseName}-{version}-{timestamp}
+        // 版本号格式：数字.数字.数字 (如 1.0.0, 1.2.0)
+        // 时间戳格式：12位数字 (如 202601221038)
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("^(.+?)-\\d+\\.\\d+\\.\\d+-\\d{12}$");
+        java.util.regex.Matcher matcher = pattern.matcher(modelName);
+        
+        if (matcher.matches()) {
+            // 如果匹配到模式，提取基础名称
+            return matcher.group(1);
+        }
+        
+        // 如果没有匹配到模式，尝试匹配只有版本号的情况：{baseName}-{version}
+        pattern = java.util.regex.Pattern.compile("^(.+?)-\\d+\\.\\d+\\.\\d+$");
+        matcher = pattern.matcher(modelName);
+        if (matcher.matches()) {
+            return matcher.group(1);
+        }
+        
+        // 如果都不匹配，返回原名称
+        return modelName;
     }
     
     /**

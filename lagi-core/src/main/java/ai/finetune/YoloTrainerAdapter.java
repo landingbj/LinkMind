@@ -198,10 +198,10 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
 
             String datasetPath = (String)config.get("data");
             if (datasetPath != null && !datasetPath.isEmpty()){
-                String sql = "SELECT dataset_name FROM dataset_records WHERE dataset_path = ?";
+                String sql = "SELECT name FROM dataset_upload WHERE storage_path = ?";
                 List<Map<String, Object>> datasetList = getMysqlAdapter().select(sql, datasetPath);
                 if (datasetList != null && !datasetList.isEmpty()) {
-                    String datasetName = (String)datasetList.get(0).get("dataset_name");
+                    String datasetName = (String)datasetList.get(0).get("name");
                     config.put("dataset_name", datasetName);
                 }
             }

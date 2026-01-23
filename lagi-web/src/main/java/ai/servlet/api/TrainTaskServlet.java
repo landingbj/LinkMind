@@ -526,11 +526,11 @@ public class TrainTaskServlet extends BaseServlet {
     }
 
     private String getDatasetNameByDatasetPath(String datasetPath) {
-        String sql = "SELECT dataset_name FROM dataset_records WHERE dataset_path = ?";
+        String sql = "SELECT name FROM dataset_upload WHERE storage_path = ?";
         try {
             List<Map<String, Object>> result = getMysqlAdapter().select(sql, datasetPath);
             if (result != null && !result.isEmpty()) {
-                return (String) result.get(0).get("dataset_name");
+                return (String) result.get(0).get("name");
             }
             return null;
         } catch (Exception e) {

@@ -572,9 +572,9 @@ public class ModelDatasetManager {
         
         // 训练时间信息
         if (taskInfo != null) {
-            String startTime = (String) taskInfo.get("start_time");
-            String endTime = (String) taskInfo.get("end_time");
-            String createdAt = (String) taskInfo.get("created_at");
+            String startTime = convertToString(taskInfo.get("start_time"));
+            String endTime = convertToString(taskInfo.get("end_time"));
+            String createdAt = convertToString(taskInfo.get("created_at"));
             
             if (startTime != null && !startTime.isEmpty()) {
                 desc.append("训练开始时间：").append(startTime).append("。\n");
@@ -627,5 +627,34 @@ public class ModelDatasetManager {
         }
         
         return desc.toString();
+    }
+    
+    /**
+     * 将对象转换为字符串，支持 LocalDateTime、Timestamp 等类型
+     */
+    private String convertToString(Object obj) {
+        if (obj == null) {
+            return null;
+        }
+        
+        if (obj instanceof String) {
+            return (String) obj;
+        }
+        
+        if (obj instanceof java.time.LocalDateTime) {
+            return ((java.time.LocalDateTime) obj).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        }
+        
+        if (obj instanceof java.sql.Timestamp) {
+            return ((java.sql.Timestamp) obj).toLocalDateTime().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        }
+        
+        if (obj instanceof java.util.Date) {
+            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+            return sdf.format((java.util.Date) obj);
+        }
+        
+        // 其他类型直接转换为字符串
+        return obj.toString();
     }
 }

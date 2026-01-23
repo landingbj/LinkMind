@@ -502,16 +502,13 @@ public class ModelDatasetManager {
     /**
      * 生成训练后的模型描述信息
      * 包含：原模型信息、数据集信息、训练时间等
-     * 使用HTML格式，便于页面友好显示
+     * 使用纯文本格式，使用 \n 换行
      */
     private String generateTrainingDescription(Map<String, Object> originalModel, 
                                                  Map<String, Object> taskInfo, 
                                                  String taskId) {
         StringBuilder desc = new StringBuilder();
-        
-        // 使用HTML格式，便于页面显示
-        desc.append("<div style='line-height: 1.8;'>");
-        desc.append("<p style='margin: 0 0 8px 0; color: #666;'>训练后自动生成</p>");
+        desc.append("训练后自动生成\n");
         
         // 原模型信息
         if (originalModel != null) {
@@ -520,21 +517,19 @@ public class ModelDatasetManager {
             String originalModelId = originalModelIdObj != null ? originalModelIdObj.toString() : "未知";
             String originalVersion = (String) originalModel.get("version");
             
-            desc.append("<p style='margin: 0 0 8px 0;'>");
-            desc.append("<strong>基于模型：</strong>");
+            desc.append("基于模型：");
             if (originalModelName != null && !originalModelName.isEmpty()) {
                 desc.append(originalModelName);
             } else {
                 desc.append("未知模型");
             }
-            desc.append(" <span style='color: #999;'>(ID: ").append(originalModelId);
+            desc.append(" (ID: ").append(originalModelId);
             if (originalVersion != null && !originalVersion.isEmpty()) {
                 desc.append(", 版本: ").append(originalVersion);
             }
-            desc.append(")</span>");
-            desc.append("</p>");
+            desc.append(")\n");
         } else {
-            desc.append("<p style='margin: 0 0 8px 0;'><strong>基于模型：</strong>未知模型</p>");
+            desc.append("基于模型：未知模型\n");
         }
         
         // 数据集信息
@@ -543,8 +538,7 @@ public class ModelDatasetManager {
             String datasetName = (String) taskInfo.get("dataset_name");
             
             if (datasetIdObj != null || (datasetName != null && !datasetName.isEmpty())) {
-                desc.append("<p style='margin: 0 0 8px 0;'>");
-                desc.append("<strong>训练数据集：</strong>");
+                desc.append("训练数据集：");
                 if (datasetName != null && !datasetName.isEmpty()) {
                     desc.append(datasetName);
                 } else {
@@ -572,9 +566,9 @@ public class ModelDatasetManager {
                 }
                 
                 if (datasetIdObj != null) {
-                    desc.append(" <span style='color: #999;'>(ID: ").append(datasetIdObj).append(")</span>");
+                    desc.append(" (ID: ").append(datasetIdObj).append(")");
                 }
-                desc.append("</p>");
+                desc.append("\n");
             }
         }
         
@@ -585,8 +579,7 @@ public class ModelDatasetManager {
             String createdAt = convertToString(taskInfo.get("created_at"));
             
             if (startTime != null && !startTime.isEmpty() || endTime != null && !endTime.isEmpty()) {
-                desc.append("<p style='margin: 0 0 8px 0;'>");
-                desc.append("<strong>训练时间：</strong>");
+                desc.append("训练时间：");
                 if (startTime != null && !startTime.isEmpty()) {
                     desc.append(startTime);
                 }
@@ -601,7 +594,7 @@ public class ModelDatasetManager {
                     }
                     desc.append(createdAt);
                 }
-                desc.append("</p>");
+                desc.append("\n");
             }
         }
         
@@ -620,36 +613,31 @@ public class ModelDatasetManager {
                 hasParams = true;
             }
             if (batchSize != null) {
-                if (hasParams) paramsDesc.append(" | ");
+                if (hasParams) paramsDesc.append(", ");
                 paramsDesc.append("批次大小: ").append(batchSize);
                 hasParams = true;
             }
             if (imageSize != null) {
-                if (hasParams) paramsDesc.append(" | ");
+                if (hasParams) paramsDesc.append(", ");
                 paramsDesc.append("图片尺寸: ").append(imageSize);
                 hasParams = true;
             }
             if (learningRate != null) {
-                if (hasParams) paramsDesc.append(" | ");
+                if (hasParams) paramsDesc.append(", ");
                 paramsDesc.append("学习率: ").append(learningRate);
                 hasParams = true;
             }
             
             if (hasParams) {
-                desc.append("<p style='margin: 0 0 8px 0;'>");
-                desc.append("<strong>训练参数：</strong>").append(paramsDesc);
-                desc.append("</p>");
+                desc.append("训练参数：").append(paramsDesc).append("\n");
             }
         }
         
         // 训练任务ID
         if (taskId != null && !taskId.isEmpty()) {
-            desc.append("<p style='margin: 0; color: #999; font-size: 12px;'>");
-            desc.append("任务ID: ").append(taskId);
-            desc.append("</p>");
+            desc.append("任务ID：").append(taskId);
         }
         
-        desc.append("</div>");
         return desc.toString();
     }
     

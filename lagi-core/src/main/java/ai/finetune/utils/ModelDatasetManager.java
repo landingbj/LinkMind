@@ -334,6 +334,20 @@ public class ModelDatasetManager {
                 return null;
             }
             
+            // 获取训练任务信息
+            Map<String, Object> taskInfo = null;
+            if (taskId != null && !taskId.isEmpty()) {
+                try {
+                    String taskSql = "SELECT * FROM ai_training_tasks WHERE task_id = ? AND is_deleted = 0 LIMIT 1";
+                    List<Map<String, Object>> taskResults = mysqlAdapter.select(taskSql, taskId);
+                    if (taskResults != null && !taskResults.isEmpty()) {
+                        taskInfo = taskResults.get(0);
+                    }
+                } catch (Exception e) {
+                    log.warn("获取训练任务信息失败: taskId={}", taskId, e);
+                }
+            }
+            
             // 获取新版本号（使用智能版本号生成，确保唯一性）
             String originalModelName = (String) originalModel.get("name");
             String currentVersion = (String) originalModel.get("version");
@@ -351,8 +365,10 @@ public class ModelDatasetManager {
                             ((Number) originalModel.get("dataset_id")).longValue() : null;
             String modelType = (String) originalModel.get("model_type");
             String framework = (String) originalModel.get("framework");
-            String description = "训练后自动生成，原模型ID: " + originalModelId + 
-                               ", 训练任务ID: " + taskId;
+            
+            // 生成详细的模型描述
+            String description = generateTrainingDescription(originalModel, taskInfo, taskId);
+            
             String userId = (String) originalModel.get("user_id");
             
             // 复制简介相关字段
@@ -479,5 +495,137 @@ public class ModelDatasetManager {
             return filePath.substring(lastDot + 1).toLowerCase();
         }
         return "";
+    }
+    
+    /**
+     * 生成训练后的模型描述信息
+     * 包含：原模型信息、数据集信息、训练时间等
+     */
+    private String generateTrainingDescription(Map<String, Object> originalModel, 
+                                                 Map<String, Object> taskInfo, 
+                                                 String taskId) {
+        StringBuilder desc = new StringBuilder();
+        desc.append("训练后自动生成。\n");
+        
+        // 原模型信息
+        if (originalModel != null) {
+            String originalModelName = (String) originalModel.get("name");
+            Object originalModelIdObj = originalModel.get("id");
+            String originalModelId = originalModelIdObj != null ? originalModelIdObj.toString() : "未知";
+            String originalVersion = (String) originalModel.get("version");
+            
+            desc.append("基于模型：");
+            if (originalModelName != null && !originalModelName.isEmpty()) {
+                desc.append(originalModelName);
+            } else {
+                desc.append("未知模型");
+            }
+            desc.append("（ID: ").append(originalModelId);
+            if (originalVersion != null && !originalVersion.isEmpty()) {
+                desc.append(", 版本: ").append(originalVersion);
+            }
+            desc.append("）训练。\n");
+        } else {
+            desc.append("基于模型：未知模型训练。\n");
+        }
+        
+        // 数据集信息
+        if (taskInfo != null) {
+            Object datasetIdObj = taskInfo.get("dataset_id");
+            String datasetName = (String) taskInfo.get("dataset_name");
+            String datasetPath = (String) taskInfo.get("dataset_path");
+            
+            if (datasetIdObj != null || (datasetName != null && !datasetName.isEmpty())) {
+                desc.append("训练数据集：");
+                if (datasetName != null && !datasetName.isEmpty()) {
+                    desc.append(datasetName);
+                } else {
+                    // 如果任务中没有数据集名称，尝试从数据集ID查询
+                    if (datasetIdObj != null) {
+                        try {
+                            Long datasetId = ((Number) datasetIdObj).longValue();
+                            Map<String, Object> datasetInfo = getDatasetById(datasetId);
+                            if (datasetInfo != null) {
+                                String dsName = (String) datasetInfo.get("name");
+                                if (dsName != null && !dsName.isEmpty()) {
+                                    desc.append(dsName);
+                                } else {
+                                    desc.append("数据集ID: ").append(datasetId);
+                                }
+                            } else {
+                                desc.append("数据集ID: ").append(datasetId);
+                            }
+                        } catch (Exception e) {
+                            desc.append("数据集ID: ").append(datasetIdObj);
+                        }
+                    } else {
+                        desc.append("未知数据集");
+                    }
+                }
+                
+                if (datasetIdObj != null) {
+                    desc.append("（ID: ").append(datasetIdObj).append("）");
+                }
+                desc.append("。\n");
+            }
+        }
+        
+        // 训练时间信息
+        if (taskInfo != null) {
+            String startTime = (String) taskInfo.get("start_time");
+            String endTime = (String) taskInfo.get("end_time");
+            String createdAt = (String) taskInfo.get("created_at");
+            
+            if (startTime != null && !startTime.isEmpty()) {
+                desc.append("训练开始时间：").append(startTime).append("。\n");
+            }
+            if (endTime != null && !endTime.isEmpty()) {
+                desc.append("训练结束时间：").append(endTime).append("。\n");
+            } else if (createdAt != null && !createdAt.isEmpty()) {
+                desc.append("任务创建时间：").append(createdAt).append("。\n");
+            }
+        }
+        
+        // 训练参数信息
+        if (taskInfo != null) {
+            Object epochs = taskInfo.get("epochs");
+            Object batchSize = taskInfo.get("batch_size");
+            Object imageSize = taskInfo.get("image_size");
+            Object learningRate = taskInfo.get("learning_rate");
+            
+            boolean hasParams = false;
+            StringBuilder paramsDesc = new StringBuilder();
+            
+            if (epochs != null) {
+                paramsDesc.append("训练轮次: ").append(epochs);
+                hasParams = true;
+            }
+            if (batchSize != null) {
+                if (hasParams) paramsDesc.append(", ");
+                paramsDesc.append("批次大小: ").append(batchSize);
+                hasParams = true;
+            }
+            if (imageSize != null) {
+                if (hasParams) paramsDesc.append(", ");
+                paramsDesc.append("图片尺寸: ").append(imageSize);
+                hasParams = true;
+            }
+            if (learningRate != null) {
+                if (hasParams) paramsDesc.append(", ");
+                paramsDesc.append("学习率: ").append(learningRate);
+                hasParams = true;
+            }
+            
+            if (hasParams) {
+                desc.append("训练参数：").append(paramsDesc).append("。\n");
+            }
+        }
+        
+        // 训练任务ID
+        if (taskId != null && !taskId.isEmpty()) {
+            desc.append("训练任务ID：").append(taskId).append("。");
+        }
+        
+        return desc.toString();
     }
 }

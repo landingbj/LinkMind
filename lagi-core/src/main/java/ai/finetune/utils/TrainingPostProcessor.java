@@ -60,12 +60,62 @@ public class TrainingPostProcessor {
                 return;
             }
             
-            // 检查是否已处理过：查询models表中是否已有该taskId相关的模型
+            // 获取原始模型ID（用于判断是否已处理过）
+            Object modelIdObj = task.get("model_id");
+            Long currentModelId = null;
+            if (modelIdObj != null) {
+                if (modelIdObj instanceof Number) {
+                    currentModelId = ((Number) modelIdObj).longValue();
+                } else {
+                    try {
+                        currentModelId = Long.parseLong(modelIdObj.toString());
+                    } catch (NumberFormatException e) {
+                        // 忽略
+                    }
+                }
+            }
+            
+            // 检查是否已处理过：
+            // 1. 查询models表中是否已有该taskId相关的模型（通过description中的任务ID）
+            // 2. 如果任务的model_id已经被更新过（不等于原始训练时的model_id），说明已经处理过
             String checkSql = "SELECT id FROM models WHERE description LIKE ? AND is_deleted = 0 LIMIT 1";
-            List<Map<String, Object>> existingModels = mysqlAdapter.select(checkSql, "%训练任务ID: " + taskId + "%");
+            List<Map<String, Object>> existingModels = mysqlAdapter.select(checkSql, "%任务ID: " + taskId + "%");
             if (existingModels != null && !existingModels.isEmpty()) {
                 log.debug("训练任务已处理过，已存在相关模型: taskId={}", taskId);
                 return;
+            }
+            
+            // 如果任务的model_id已经被更新过，说明已经处理过（入库后会更新model_id为新模型ID）
+            // 需要查询原始的训练配置来获取原始model_id
+            String originalModelIdStr = null;
+            try {
+                String configJson = (String) task.get("config_json");
+                if (configJson != null && !configJson.isEmpty()) {
+                    // 尝试从config_json中解析original_model_id
+                    if (configJson.contains("\"original_model_id\"")) {
+                        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("\"original_model_id\"\\s*:\\s*(\\d+)");
+                        java.util.regex.Matcher matcher = pattern.matcher(configJson);
+                        if (matcher.find()) {
+                            originalModelIdStr = matcher.group(1);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.debug("解析config_json失败: taskId={}", taskId, e);
+            }
+            
+            // 如果当前model_id不等于原始model_id，说明已经处理过
+            if (currentModelId != null && originalModelIdStr != null) {
+                try {
+                    Long originalModelId = Long.parseLong(originalModelIdStr);
+                    if (!currentModelId.equals(originalModelId)) {
+                        log.debug("训练任务已处理过，model_id已被更新: taskId={}, originalModelId={}, currentModelId={}", 
+                                taskId, originalModelId, currentModelId);
+                        return;
+                    }
+                } catch (NumberFormatException e) {
+                    // 忽略
+                }
             }
             
             // 获取训练输出路径
@@ -96,19 +146,24 @@ public class TrainingPostProcessor {
                 return;
             }
             
-            // 获取原始模型ID
-            Object modelIdObj = task.get("model_id");
+            // 获取原始模型ID（优先从config_json中获取，如果没有则使用当前的model_id）
             Long originalModelId = null;
-            if (modelIdObj != null) {
-                if (modelIdObj instanceof Number) {
-                    originalModelId = ((Number) modelIdObj).longValue();
-                } else {
-                    try {
-                        originalModelId = Long.parseLong(modelIdObj.toString());
-                    } catch (NumberFormatException e) {
-                        log.warn("无效的model_id: {}", modelIdObj);
+            try {
+                String configJson = (String) task.get("config_json");
+                if (configJson != null && !configJson.isEmpty() && configJson.contains("\"original_model_id\"")) {
+                    java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("\"original_model_id\"\\s*:\\s*(\\d+)");
+                    java.util.regex.Matcher matcher = pattern.matcher(configJson);
+                    if (matcher.find()) {
+                        originalModelId = Long.parseLong(matcher.group(1));
                     }
                 }
+            } catch (Exception e) {
+                log.debug("从config_json解析original_model_id失败: taskId={}", taskId, e);
+            }
+            
+            // 如果从config_json中没找到，使用当前的model_id
+            if (originalModelId == null && currentModelId != null) {
+                originalModelId = currentModelId;
             }
             
             log.info("训练完成处理: taskId={}, model_id={}, trainDir={}, modelPath={}", 

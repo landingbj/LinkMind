@@ -11,7 +11,6 @@ import ai.mcps.spec.McpServerTransportProvider;
 import ai.mcps.spec.ServerMcpTransport;
 import ai.mcps.util.Assert;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.var;
 import reactor.core.publisher.Mono;
 
 import java.util.*;

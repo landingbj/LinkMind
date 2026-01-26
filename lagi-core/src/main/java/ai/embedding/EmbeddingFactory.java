@@ -1,8 +1,7 @@
 package ai.embedding;
 
-import ai.embedding.impl.*;
 import ai.common.pojo.EmbeddingConfig;
-import ai.utils.LagiGlobal;
+import ai.embedding.impl.*;
 
 public class EmbeddingFactory {
     public static Embeddings getEmbedding(EmbeddingConfig config) {
@@ -18,11 +17,11 @@ public class EmbeddingFactory {
         } else if (EmbeddingConstant.EMBEDDING_TYPE_LANDING.equalsIgnoreCase(type) && config.getModel_path() == null) {
             return new LandingEmbeddings(config);
         } else if (EmbeddingConstant.EMBEDDING_TYPE_ZHIPU.equalsIgnoreCase(type)) {
-            return new ZhipuEmbeddings(config);
+//            return new ZhipuEmbeddings(config);
         } else if (EmbeddingConstant.EMBEDDING_TYPE_BAICHUAN.equalsIgnoreCase(type)) {
             return new BaichuanEmbeddings(config);
         } else if (EmbeddingConstant.EMBEDDING_TYPE_SENSECHAT.equalsIgnoreCase(type)){
-            return new SenseChatEmbeddings(config);
+//            return new SenseChatEmbeddings(config);
         } else if (EmbeddingConstant.EMBEDDING_TYPE_LANDING.equalsIgnoreCase(type) && config.getModel_path() != null) {
             return new LinkMindEmbeddings(config);
         }

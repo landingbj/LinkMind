@@ -20,7 +20,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Set;
 
-import sun.misc.BASE64Encoder;
+import java.util.Base64;
 
 public class WSReadSoap {
 
@@ -82,8 +82,7 @@ public class WSReadSoap {
 			e.printStackTrace();
 		}
 		//对字节数组Base64编码
-		BASE64Encoder encoder = new BASE64Encoder();
-		return encoder.encode(data);//返回Base64编码过的字节数组字符串
+		return Base64.getEncoder().encodeToString(data);//返回Base64编码过的字节数组字符串
 	}
 
 }

@@ -29,6 +29,8 @@ import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.SQLException;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -233,6 +235,7 @@ public class DatasetServlet extends BaseServlet {
             if (datasetList != null) {
                 for (Map<String, Object> row : datasetList) {
                     Map<String, Object> item = new HashMap<>();
+                    item.put("id", row.get("id"));
                     item.put("sample_id", row.get("sample_id"));
                     item.put("name", row.get("name"));
                     item.put("description", row.get("description"));
@@ -241,15 +244,25 @@ public class DatasetServlet extends BaseServlet {
                     item.put("access_level", row.get("access_level"));
                     item.put("uploader", row.get("uploader"));
                     item.put("data_source", row.get("data_source"));
+                    Object createTimeObj = row.get("create_time");
+                    if (createTimeObj instanceof LocalDateTime) {
+                        item.put("create_time", ((LocalDateTime) createTimeObj).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+                    } else {
+                        item.put("create_time", createTimeObj);
+                    }
+
+                    Object updateTimeObj = row.get("update_time");
+                    if (updateTimeObj instanceof LocalDateTime) {
+                        item.put("update_time", ((LocalDateTime) updateTimeObj).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+                    } else {
+                        item.put("update_time", updateTimeObj);
+                    }
+                    //item.put("create_time", row.get("create_time"));
+                    //item.put("update_time", row.get("update_time"));
                     item.put("data_processing_status", row.get("data_processing_status"));
                     item.put("missing_value_mark", row.get("missing_value_mark"));
                     item.put("weight", row.get("weight"));
                     item.put("remark", row.get("remark"));
-                    item.put("storage_path", row.get("storage_path"));
-                    item.put("storage_type", row.get("storage_type"));
-                    item.put("original_url", row.get("original_url"));
-                    item.put("file_size", row.get("file_size"));
-                    
                     // 处理training_params JSON字段
                     Object trainingParams = row.get("training_params");
                     if (trainingParams != null) {
@@ -266,11 +279,13 @@ public class DatasetServlet extends BaseServlet {
                     } else {
                         item.put("training_params", null);
                     }
-                    
+                    item.put("storage_path", row.get("storage_path"));
+                    item.put("storage_type", row.get("storage_type"));
+                    item.put("original_url", row.get("original_url"));
+                    item.put("file_size", row.get("file_size"));
                     dataList.add(item);
                 }
             }
-            
             // 构建返回结果
             Map<String, Object> data = new HashMap<>();
             data.put("list", dataList);
@@ -585,6 +600,43 @@ public class DatasetServlet extends BaseServlet {
     }
     
     /**
+     * 解压ZIP文件到指定目录（用于替换场景，解压到原有 storage_path）
+     * @param zipFile ZIP文件
+     * @param targetDir 目标目录
+     * @return 解压后的目录（即 targetDir），如果解压失败则返回null
+     */
+    private File handleZipFileToPath(File zipFile, File targetDir) {
+        try {
+            if (zipFile == null || !zipFile.exists() || !zipFile.canRead()) {
+                log.error("ZIP文件不存在或不可读：{}", zipFile != null ? zipFile.getAbsolutePath() : "null");
+                return null;
+            }
+            if (targetDir == null) {
+                log.error("目标目录不能为null");
+                return null;
+            }
+            log.info("开始解压ZIP文件到指定目录：{} → {}", zipFile.getAbsolutePath(), targetDir.getAbsolutePath());
+            if (!targetDir.exists()) {
+                boolean created = targetDir.mkdirs();
+                if (!created) {
+                    log.error("创建目标目录失败：{}", targetDir.getAbsolutePath());
+                    return null;
+                }
+            }
+            int extractedCount = unzipFile(zipFile, targetDir);
+            if (extractedCount == 0) {
+                log.warn("ZIP文件解压后没有提取到任何文件");
+            } else {
+                log.info("ZIP文件解压成功，共解压 {} 个文件/目录，解压目录：{}", extractedCount, targetDir.getAbsolutePath());
+            }
+            return targetDir;
+        } catch (Exception e) {
+            log.error("解压ZIP文件到指定目录失败", e);
+            return null;
+        }
+    }
+    
+    /**
      * 解压ZIP文件到指定目录
      * @return 解压的文件/目录数量
      */
@@ -813,125 +865,565 @@ public class DatasetServlet extends BaseServlet {
      * 请求格式：JSON
      * 必填参数：sample_id
      * 可选参数：name, description, label, category, access_level, data_source, 
-     *          data_processing_status, missing_value_mark, weight, remark, training_params
+     *          data_processing_status, missing_value_mark, weight, remark, training_params, storage_path,
+     *          original_url / dataset_url（URL 替换）, file（multipart 文件替换）
+     * 
+     * 文件替换：若传 original_url 或 dataset_url（JSON），或 file（multipart 表单），则下载/上传新文件，
+     * 删除旧存储，解压或保存新内容到 hostPath/datasets/sample_id，并更新 storage_path、file_size、
+     * original_url、storage_type。与 storage_path 互斥，三者最多传其一。
+     * 
+     * 特殊处理：如果传了storage_path，会执行以下操作：
+     * 1. 将旧路径下的文件/目录移动到新路径（或移入新路径）
+     * 2. 更新数据库中的storage_path
+     * 3. 删除旧路径下的文件/目录
+     *
+     * storage_path 语义：
+     * - 若传入路径不存在：作为移动的精确目标路径，原内容移到此路径下。
+     * - 若传入路径已存在且为目录：视为「移入该目录」，实际目标为 storage_path/sample_id；
+     *   即将原内容移到该目录下的 sample_id 子目录，避免覆盖已有数据。
+     * - 若传入路径已存在且为文件：报错（无法将目录移入文件路径）。
      */
     private void updateDataset(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json;charset=utf-8");
         Map<String, Object> result = new HashMap<>();
-        
+
+        // 定义核心变量（确保可追踪）
+        String sampleId = null;
+        String oldStoragePath = null;
+        String newStoragePath = null;
+        boolean isFileMoved = false; // 标记文件是否移动成功
+        boolean didReplaceByFileOrUrl = false;
+        Long replaceFileSize = null;
+        String replaceOriginalUrl = null;
+        Integer replaceStorageType = null;
+        File uploadedFile = null;
+
         try {
-            // 解析JSON请求
-            String jsonBody = requestToJson(req);
-            if (jsonBody == null || jsonBody.trim().isEmpty()) {
-                responseError(resp, 400, "请求体不能为空");
-                return;
+            // 1. 解析请求体（支持 application/json 与 multipart/form-data）
+            JSONObject jsonObj;
+            String contentType = req.getContentType();
+            if (contentType != null && contentType.contains("multipart/form-data")) {
+                if (!ServletFileUpload.isMultipartContent(req)) {
+                    responseError(resp, 400, "请求必须是 multipart/form-data 格式");
+                    return;
+                }
+                DiskFileItemFactory factory = new DiskFileItemFactory();
+                ServletFileUpload upload = new ServletFileUpload(factory);
+                List<FileItem> items = upload.parseRequest(req);
+                jsonObj = new JSONObject();
+                for (FileItem item : items) {
+                    if (item.isFormField()) {
+                        String fieldName = item.getFieldName();
+                        String fieldValue = item.getString("UTF-8");
+                        if ("training_params".equals(fieldName) && fieldValue != null && !fieldValue.isEmpty()) {
+                            try {
+                                jsonObj.set(fieldName, objectMapper.readTree(fieldValue));
+                            } catch (Exception e) {
+                                log.warn("解析 training_params 失败，将作为字符串处理", e);
+                                jsonObj.set(fieldName, fieldValue);
+                            }
+                        } else if ("access_level".equals(fieldName) && fieldValue != null && !fieldValue.isEmpty()) {
+                            try { jsonObj.set(fieldName, Integer.parseInt(fieldValue)); } catch (NumberFormatException e) {
+                                responseError(resp, 400, "access_level 必须是整数"); return;
+                            }
+                        } else if ("weight".equals(fieldName) && fieldValue != null && !fieldValue.isEmpty()) {
+                            try { jsonObj.set(fieldName, Double.parseDouble(fieldValue)); } catch (NumberFormatException e) {
+                                responseError(resp, 400, "weight 必须是数字"); return;
+                            }
+                        } else {
+                            jsonObj.set(fieldName, fieldValue != null ? fieldValue.trim() : null);
+                        }
+                    } else {
+                        if ("file".equals(item.getFieldName())) {
+                            String tempFileName = "dataset_update_" + System.currentTimeMillis() + "_" + (item.getName() != null ? item.getName() : "file.zip");
+                            File tempFile = new File(uploadConfig.getDataset().getStorage().getContainer_temp_path(), tempFileName);
+                            tempFile.getParentFile().mkdirs();
+                            item.write(tempFile);
+                            uploadedFile = tempFile;
+                        }
+                    }
+                }
+            } else {
+                String jsonBody = requestToJson(req);
+                if (jsonBody == null || jsonBody.trim().isEmpty()) {
+                    responseError(resp, 400, "请求体不能为空");
+                    return;
+                }
+                jsonObj = JSONUtil.parseObj(jsonBody);
             }
-            
-            JSONObject jsonObj = JSONUtil.parseObj(jsonBody);
-            
-            // 必填参数校验
-            String sampleId = jsonObj.getStr("sample_id");
+
+            // 2. 必传参数校验（sample_id）
+            sampleId = jsonObj.getStr("sample_id");
             if (sampleId == null || sampleId.trim().isEmpty()) {
                 responseError(resp, 400, "sample_id参数不能为空");
                 return;
             }
-            
-            // 检查数据集是否存在
-            String checkSql = "SELECT sample_id FROM dataset_upload WHERE sample_id = ? AND is_deleted = 0";
+            sampleId = sampleId.trim();
+            log.info("开始修改数据集：sample_id={}", sampleId);
+
+            // 3. 查询数据集原有信息（重点获取旧存储路径）
+            String checkSql = "SELECT * FROM dataset_upload WHERE sample_id = ? AND is_deleted = 0";
             List<Map<String, Object>> checkResult = getMysqlAdapter().select(checkSql, sampleId);
             if (checkResult == null || checkResult.isEmpty()) {
-                responseError(resp, 404, "数据集不存在或已被删除");
+                responseError(resp, 404, "数据集不存在或已被删除：sample_id=" + sampleId);
                 return;
             }
             
-            // 构建更新SQL（只更新提供的字段）
+            // 提取旧存储路径
+            Object storagePathObj = checkResult.get(0).get("storage_path");
+            oldStoragePath = (storagePathObj == null) ? "" : storagePathObj.toString().trim();
+            log.info("数据集旧存储路径：{}", oldStoragePath);
+
+            // 4a. 文件替换：original_url / dataset_url / file 与 storage_path 互斥
+            String replaceUrl = null;
+            String ov = jsonObj.getStr("original_url");
+            if (ov != null && !ov.trim().isEmpty()) {
+                replaceUrl = ov.trim();
+            } else {
+                String du = jsonObj.getStr("dataset_url");
+                if (du != null && !du.trim().isEmpty()) replaceUrl = du.trim();
+            }
+            boolean hasReplaceFile = (uploadedFile != null && uploadedFile.exists());
+            boolean hasReplaceUrl = (replaceUrl != null);
+            boolean needUpdateStoragePath = jsonObj.containsKey("storage_path");
+            int replaceOrMoveCount = (hasReplaceFile ? 1 : 0) + (hasReplaceUrl ? 1 : 0) + (needUpdateStoragePath ? 1 : 0);
+            if (replaceOrMoveCount > 1) {
+                responseError(resp, 400, "storage_path、original_url/dataset_url、file 只能传其一，不可同时使用");
+                return;
+            }
+
+            // 4b. 替换为 file（multipart 上传 ZIP）
+            if (hasReplaceFile) {
+                if (oldStoragePath.isEmpty()) {
+                    responseError(resp, 400, "数据集无有效旧存储路径，无法替换文件：sample_id=" + sampleId);
+                    return;
+                }
+                String fileName = uploadedFile.getName();
+                if (!fileName.toLowerCase().endsWith(".zip")) {
+                    uploadedFile.delete();
+                    responseError(resp, 400, "仅支持 ZIP 格式的数据集压缩包");
+                    return;
+                }
+                if (uploadedFile.length() == 0) {
+                    uploadedFile.delete();
+                    responseError(resp, 400, "上传的 ZIP 文件为空");
+                    return;
+                }
+                File oldFile = new File(oldStoragePath);
+                File targetDir;
+                if (oldFile.exists() && oldFile.isDirectory()) {
+                    // 旧路径是目录：删除目录内容，保留目录结构
+                    targetDir = oldFile;
+                    File[] oldFiles = targetDir.listFiles();
+                    if (oldFiles != null) {
+                        for (File f : oldFiles) {
+                            if (f.isDirectory()) {
+                                deleteDirectory(f);
+                            } else {
+                                f.delete();
+                            }
+                        }
+                    }
+                    log.info("已清空旧目录内容：{}", oldStoragePath);
+                } else {
+                    // 旧路径是文件或不存在：删除文件，创建同名目录用于解压
+                    if (oldFile.exists()) {
+                        oldFile.delete();
+                    }
+                    // 使用旧路径作为目录名（从文件路径变成目录路径）
+                    targetDir = oldFile;
+                    targetDir.mkdirs();
+                    log.info("旧路径是文件，已创建同名目录用于解压：{}", targetDir.getAbsolutePath());
+                }
+                File extractDir = handleZipFileToPath(uploadedFile, targetDir);
+                uploadedFile.delete();
+                if (extractDir == null) {
+                    responseError(resp, 400, "ZIP 解压失败，请检查文件是否损坏");
+                    return;
+                }
+                File[] extracted = extractDir.listFiles();
+                if (extracted == null || extracted.length == 0) {
+                    responseError(resp, 400, "ZIP 解压后目录为空");
+                    return;
+                }
+                // 保持原 storage_path 不变
+                newStoragePath = oldStoragePath;
+                replaceFileSize = calculateDirectorySize(extractDir);
+                replaceOriginalUrl = null;
+                replaceStorageType = uploadConfig.getDataset().getStorage_type().getFile_upload();
+                didReplaceByFileOrUrl = true;
+                log.info("数据集已通过 file 替换：sample_id={}, 路径保持不变={}", sampleId, newStoragePath);
+            }
+
+            // 4c. 替换为 original_url / dataset_url（URL 下载）
+            if (hasReplaceUrl) {
+                if (oldStoragePath.isEmpty()) {
+                    responseError(resp, 400, "数据集无有效旧存储路径，无法替换文件：sample_id=" + sampleId);
+                    return;
+                }
+                String tempFileName = sampleId + "_" + System.currentTimeMillis() + getFileSuffix(replaceUrl);
+                File tempFile = new File(uploadConfig.getDataset().getStorage().getContainer_temp_path(), tempFileName);
+                tempFile.getParentFile().mkdirs();
+                try {
+                    downloadFileFromUrl(replaceUrl, tempFile);
+                } catch (Exception e) {
+                    if (tempFile.exists()) tempFile.delete();
+                    responseError(resp, 500, "URL 下载失败：" + e.getMessage());
+                    return;
+                }
+                File oldFile = new File(oldStoragePath);
+                boolean isZip = tempFile.getName().toLowerCase().endsWith(".zip");
+                if (isZip) {
+                    // ZIP 文件：解压到旧路径
+                    File targetDir;
+                    if (oldFile.exists() && oldFile.isDirectory()) {
+                        // 旧路径是目录：删除目录内容，保留目录结构
+                        targetDir = oldFile;
+                        File[] oldFiles = targetDir.listFiles();
+                        if (oldFiles != null) {
+                            for (File f : oldFiles) {
+                                if (f.isDirectory()) {
+                                    deleteDirectory(f);
+                                } else {
+                                    f.delete();
+                                }
+                            }
+                        }
+                        log.info("已清空旧目录内容：{}", oldStoragePath);
+                    } else {
+                        // 旧路径是文件或不存在：删除文件，创建同名目录用于解压
+                        if (oldFile.exists()) {
+                            oldFile.delete();
+                        }
+                        // 使用旧路径作为目录名（从文件路径变成目录路径）
+                        targetDir = oldFile;
+                        targetDir.mkdirs();
+                        log.info("旧路径是文件，已创建同名目录用于解压：{}", targetDir.getAbsolutePath());
+                    }
+                    File extractDir = handleZipFileToPath(tempFile, targetDir);
+                    tempFile.delete();
+                    if (extractDir == null) {
+                        responseError(resp, 400, "ZIP 解压失败");
+                        return;
+                    }
+                    // 保持原 storage_path 不变
+                    newStoragePath = oldStoragePath;
+                    replaceFileSize = calculateDirectorySize(extractDir);
+                } else {
+                    // 非 ZIP 文件：移动到旧路径位置（覆盖）
+                    if (oldFile.exists()) {
+                        if (oldFile.isDirectory()) {
+                            deleteDirectory(oldFile);
+                        } else {
+                            oldFile.delete();
+                        }
+                    }
+                    // 确保父目录存在
+                    File parentDir = oldFile.getParentFile();
+                    if (parentDir != null && !parentDir.exists()) {
+                        parentDir.mkdirs();
+                    }
+                    Files.move(tempFile.toPath(), oldFile.toPath());
+                    // 保持原 storage_path 不变
+                    newStoragePath = oldStoragePath;
+                    replaceFileSize = oldFile.length();
+                }
+                replaceOriginalUrl = replaceUrl;
+                replaceStorageType = uploadConfig.getDataset().getStorage_type().getUrl_download();
+                didReplaceByFileOrUrl = true;
+                log.info("数据集已通过 original_url 替换：sample_id={}, 路径保持不变={}", sampleId, newStoragePath);
+            }
+
+            // 4. 处理 storage_path 参数（移动路径，与替换互斥）
+            if (needUpdateStoragePath && !didReplaceByFileOrUrl) {
+                // 提取并校验新路径
+                newStoragePath = jsonObj.getStr("storage_path");
+                if (newStoragePath == null || newStoragePath.trim().isEmpty()) {
+                    responseError(resp, 400, "storage_path不能为空（如需保留原路径，请不要传该字段）");
+                    return;
+                }
+                newStoragePath = newStoragePath.trim();
+
+                // 如果旧路径为空，无法移动
+                if (oldStoragePath.isEmpty()) {
+                    responseError(resp, 400, "数据集无有效旧存储路径，无法移动文件：sample_id=" + sampleId);
+                    return;
+                }
+
+                // 校验：新路径和旧路径是否相同
+                if (newStoragePath.equals(oldStoragePath)) {
+                    log.info("新路径和旧路径相同，无需移动文件，仅更新数据库：{}", oldStoragePath);
+                    // 路径相同，不需要移动文件，但需要更新数据库
+                } else {
+                    // ========== 执行文件移动的核心逻辑 ==========
+                    File oldFile = new File(oldStoragePath);
+                    File newFile = new File(newStoragePath);
+
+                    // 校验1：旧文件/目录必须存在
+                    if (!oldFile.exists()) {
+                        // 提供详细的错误信息，帮助用户诊断问题
+                        String absolutePath = oldFile.getAbsolutePath();
+                        boolean isAbsolute = oldFile.isAbsolute();
+                        boolean canRead = oldFile.canRead();
+                        
+                        // 记录详细的路径信息用于调试
+                        log.error("旧路径不存在，无法移动文件。详细信息：原始路径={}, 绝对路径={}, 是否为绝对路径={}, 可读={}",
+                            oldStoragePath, absolutePath, isAbsolute, canRead);
+                        
+                        // 检查配置信息，帮助用户理解路径映射
+                        String hostPath = uploadConfig.getDataset().getStorage().getHost_mount_path();
+                        String containerBasePath = uploadConfig.getDataset().getStorage().getContainer_base_path();
+                        
+                        String errorMsg = String.format(
+                            "旧路径不存在，无法移动文件。路径：%s (绝对路径: %s)。" +
+                            "提示：请确认文件是否存在。如果文件在宿主机上，请检查容器路径映射配置。" +
+                            "配置信息：host_mount_path=%s, container_base_path=%s",
+                            oldStoragePath, absolutePath, hostPath, containerBasePath
+                        );
+                        
+                        responseError(resp, 400, errorMsg);
+                        return;
+                    }
+                    
+                    // 记录找到的旧文件信息
+                    log.info("找到旧文件/目录：{} (绝对路径: {}, 是否为目录: {})", 
+                        oldStoragePath, oldFile.getAbsolutePath(), oldFile.isDirectory());
+
+                    // 校验2：解析实际移动目标（支持「移入已存在目录」）
+                    boolean shouldMove = true;
+                    if (newFile.exists()) {
+                        if (newFile.isFile()) {
+                            responseError(resp, 400, "新路径已存在且为文件，无法将数据集移入：" + newStoragePath);
+                            return;
+                        }
+                        // 已存在的目录：移入该目录，实际目标为 storage_path/sample_id
+                        String effectivePath = new File(newStoragePath, sampleId).getAbsolutePath();
+                        File effectiveFile = new File(effectivePath);
+                        if (effectiveFile.exists()) {
+                            responseError(resp, 400, "目标目录下已存在同名数据集，禁止覆盖：" + effectivePath);
+                            return;
+                        }
+                        if (effectivePath.equals(oldStoragePath)) {
+                            log.info("目标路径与当前存储路径相同，无需移动：{}", effectivePath);
+                            shouldMove = false;
+                            newStoragePath = effectivePath;
+                        } else {
+                            newFile = effectiveFile;
+                            newStoragePath = effectivePath;
+                        }
+                    }
+
+                    if (shouldMove) {
+                    // 步骤1：确保新路径的目录结构存在（关键：创建所有必要的父目录）
+                    File newParentDir = newFile.getParentFile();
+                    if (newParentDir != null) {
+                        // 如果父目录不存在，创建所有必要的父目录
+                        if (!newParentDir.exists()) {
+                            boolean isDirCreated = newParentDir.mkdirs();
+                            if (!isDirCreated) {
+                                throw new IOException("无法创建新路径的父目录：" + newParentDir.getAbsolutePath());
+                            }
+                            log.info("创建新路径父目录成功：{}", newParentDir.getAbsolutePath());
+                        } else if (!newParentDir.isDirectory()) {
+                            throw new IOException("新路径的父路径已存在但不是目录：" + newParentDir.getAbsolutePath());
+                        }
+                    } else {
+                        // 如果父目录为null（可能是根目录），检查新路径本身
+                        // 对于Windows系统，可能是C:\这样的根路径
+                        log.warn("新路径没有父目录，可能是根路径：{}", newStoragePath);
+                    }
+
+                    // 步骤2：执行文件/目录移动（核心操作）
+                    log.info("开始移动文件/目录：{} → {}", oldStoragePath, newStoragePath);
+                    try {
+                        if (oldFile.isDirectory()) {
+                            // 目录移动：递归复制到新位置
+                            // 确保目标目录的父目录存在（copyDirectory内部会创建目标目录本身）
+                            copyDirectory(oldFile, newFile);
+                            log.info("目录复制完成，开始删除旧目录：{}", oldStoragePath);
+                            // 删除旧目录
+                            deleteDirectory(oldFile);
+                            log.info("旧目录删除成功：{}", oldStoragePath);
+                        } else {
+                            // 文件移动：确保目标文件的父目录存在后，使用Files.move
+                            // 如果父目录不存在，Files.move可能会失败，所以上面已经创建了
+                            if (newParentDir != null && !newParentDir.exists()) {
+                                boolean isDirCreated = newParentDir.mkdirs();
+                                if (!isDirCreated) {
+                                    throw new IOException("无法创建目标文件的父目录：" + newParentDir.getAbsolutePath());
+                                }
+                            }
+                            // 执行文件移动（原子操作）
+                            Files.move(oldFile.toPath(), newFile.toPath());
+                            log.info("文件移动成功，旧文件已自动删除：{}", oldStoragePath);
+                        }
+
+                        // 校验3：确认移动成功（新路径存在，旧路径不存在）
+                        if (!newFile.exists()) {
+                            throw new IOException("文件移动后新路径不存在，移动失败：" + newStoragePath);
+                        }
+                        if (oldFile.exists()) {
+                            log.warn("文件移动后旧路径仍存在，尝试强制删除：{}", oldStoragePath);
+                            // 如果旧路径还存在，强制删除
+                            if (oldFile.isDirectory()) {
+                                deleteDirectory(oldFile);
+                            } else {
+                                boolean deleted = oldFile.delete();
+                                if (!deleted) {
+                                    log.warn("删除旧文件失败：{}", oldStoragePath);
+                                }
+                            }
+                        }
+                        
+                        isFileMoved = true;
+                        log.info("文件/目录移动成功，旧路径已删除：{} → {}", oldStoragePath, newStoragePath);
+                    } catch (Exception e) {
+                        log.error("文件移动过程中发生异常：{} → {}", oldStoragePath, newStoragePath, e);
+                        // 如果移动失败，尝试清理可能已创建的新路径
+                        if (newFile.exists()) {
+                            try {
+                                if (newFile.isDirectory()) {
+                                    deleteDirectory(newFile);
+                                } else {
+                                    boolean deleted = newFile.delete();
+                                    if (!deleted) {
+                                        log.warn("清理新文件失败：{}", newStoragePath);
+                                    }
+                                }
+                                log.info("已清理移动失败时创建的新路径：{}", newStoragePath);
+                            } catch (Exception cleanupEx) {
+                                log.error("清理新路径失败：{}", newStoragePath, cleanupEx);
+                            }
+                        }
+                        throw new IOException("文件移动失败：" + e.getMessage(), e);
+                    }
+                    }
+                }
+            }
+
+            // 5. 构建数据库更新字段
             List<String> updateFields = new ArrayList<>();
             List<Object> updateParams = new ArrayList<>();
-            
-            // 可更新的字段列表
+
+            // 可更新字段列表
             String[] updatableFields = {
-                "name", "description", "label", "category", "access_level",
-                "data_source", "data_processing_status", "missing_value_mark",
-                "weight", "remark", "training_params"
+                    "name", "description", "label", "category", "access_level",
+                    "data_source", "data_processing_status", "missing_value_mark",
+                    "weight", "remark", "training_params", "storage_path"
             };
-            
+
             for (String field : updatableFields) {
                 if (jsonObj.containsKey(field)) {
                     Object value = jsonObj.get(field);
-                    
-                    if (value == null) {
-                        updateFields.add(field + " = ?");
-                        updateParams.add(null);
-                    } else if ("access_level".equals(field)) {
-                        try {
+                    switch (field) {
+                        case "access_level":
                             Integer accessLevel = jsonObj.getInt(field);
-                            if (accessLevel < 1 || accessLevel > 3) {
-                                responseError(resp, 400, "access_level必须是1、2或3");
+                            if (accessLevel == null || accessLevel < 1 || accessLevel > 3) {
+                                responseError(resp, 400, "access_level必须是1(私有)/2(公开)/3(团队)");
                                 return;
                             }
                             updateFields.add(field + " = ?");
                             updateParams.add(accessLevel);
-                        } catch (Exception e) {
-                            responseError(resp, 400, "access_level必须是整数");
-                            return;
-                        }
-                    } else if ("weight".equals(field)) {
-                        try {
+                            break;
+                        case "weight":
                             java.math.BigDecimal weight = new java.math.BigDecimal(value.toString());
                             updateFields.add(field + " = ?");
                             updateParams.add(weight);
-                        } catch (Exception e) {
-                            responseError(resp, 400, "weight必须是数字");
-                            return;
-                        }
-                    } else if ("training_params".equals(field)) {
-                        try {
+                            break;
+                        case "training_params":
                             String trainingParamsStr = objectMapper.writeValueAsString(value);
                             updateFields.add(field + " = ?");
                             updateParams.add(trainingParamsStr);
-                        } catch (Exception e) {
-                            responseError(resp, 400, "training_params格式错误");
-                            return;
-                        }
-                    } else {
-                        updateFields.add(field + " = ?");
-                        updateParams.add(value.toString());
+                            break;
+                        case "storage_path":
+                            // 如果传了storage_path，必须更新数据库（无论是否移动了文件）
+                            updateFields.add(field + " = ?");
+                            updateParams.add(newStoragePath);
+                            break;
+                        default:
+                            updateFields.add(field + " = ?");
+                            updateParams.add(value == null ? null : value.toString().trim());
+                            break;
                     }
                 }
             }
-            
-            // 检查是否有要更新的字段
+
+            // 文件/URL 替换时，更新 storage_path、file_size、original_url、storage_type
+            if (didReplaceByFileOrUrl) {
+                updateFields.add("storage_path = ?");
+                updateParams.add(newStoragePath);
+                updateFields.add("file_size = ?");
+                updateParams.add(replaceFileSize);
+                updateFields.add("original_url = ?");
+                updateParams.add(replaceOriginalUrl);
+                updateFields.add("storage_type = ?");
+                updateParams.add(replaceStorageType);
+            }
+
+            // 校验：至少有一个更新字段
             if (updateFields.isEmpty()) {
                 responseError(resp, 400, "至少需要提供一个可更新的字段");
                 return;
             }
-            
-            // 构建UPDATE SQL
+
+            // 6. 执行数据库更新
             StringBuilder sqlBuilder = new StringBuilder("UPDATE dataset_upload SET ");
             sqlBuilder.append(String.join(", ", updateFields));
+            sqlBuilder.append(", update_time = NOW()"); // 自动更新更新时间
             sqlBuilder.append(" WHERE sample_id = ? AND is_deleted = 0");
             updateParams.add(sampleId);
-            
-            // 执行更新
+
+            log.info("执行数据库更新，更新字段数：{}", updateFields.size());
             int affectedRows = getMysqlAdapter().executeUpdate(sqlBuilder.toString(), updateParams.toArray());
-            
+
+            // 7. 返回结果
             if (affectedRows > 0) {
                 result.put("code", 200);
-                result.put("msg", "数据集更新成功");
-                Map<String, Object> data = new HashMap<>();
-                data.put("sample_id", sampleId);
-                result.put("data", data);
+                if (didReplaceByFileOrUrl) {
+                    result.put("msg", "数据集文件及信息更新成功");
+                    Map<String, Object> dataMap = new HashMap<>();
+                    dataMap.put("sample_id", sampleId);
+                    dataMap.put("old_storage_path", oldStoragePath);
+                    dataMap.put("new_storage_path", newStoragePath);
+                    dataMap.put("file_size", replaceFileSize);
+                    dataMap.put("storage_type", replaceStorageType);
+                    result.put("data", dataMap);
+                } else if (needUpdateStoragePath) {
+                    result.put("msg", "数据集路径及信息更新成功");
+                    Map<String, Object> dataMap = new HashMap<>();
+                    dataMap.put("sample_id", sampleId);
+                    dataMap.put("old_storage_path", oldStoragePath);
+                    dataMap.put("new_storage_path", newStoragePath);
+                    dataMap.put("file_moved", isFileMoved);
+                    result.put("data", dataMap);
+                } else {
+                    result.put("msg", "数据集信息更新成功");
+                    Map<String, Object> dataMap = new HashMap<>();
+                    dataMap.put("sample_id", sampleId);
+                    result.put("data", dataMap);
+                }
                 responsePrint(resp, objectMapper.writeValueAsString(result));
             } else {
-                responseError(resp, 500, "数据集更新失败");
+                // 数据库更新失败：回滚文件移动
+                if (isFileMoved) {
+                    log.error("数据库更新失败，开始回滚文件移动：{} → {}", newStoragePath, oldStoragePath);
+                    rollbackFileMove(oldStoragePath, newStoragePath);
+                }
+                responseError(resp, 500, "数据集更新失败（数据库更新无影响行数）");
             }
-            
+
         } catch (Exception e) {
-            log.error("修改数据集失败", e);
+            log.error("修改数据集失败：sample_id={}", sampleId, e);
+            // 异常兜底：回滚文件移动
+            if (isFileMoved) {
+                log.error("发生异常，开始回滚文件移动：{} → {}", newStoragePath, oldStoragePath);
+                rollbackFileMove(oldStoragePath, newStoragePath);
+            }
             responseError(resp, 500, "修改数据集失败：" + e.getMessage());
         }
     }
-    
+
+
     /**
      * 删除数据集（软删除，支持批量删除）
      * @param req
@@ -1040,4 +1532,62 @@ public class DatasetServlet extends BaseServlet {
         responsePrint(resp, objectMapper.writeValueAsString(error));
     }
 
+
+    private void copyDirectory(File sourceDir, File targetDir) throws IOException {
+        if (!sourceDir.isDirectory()) {
+            throw new IOException("源路径不是目录：" + sourceDir.getAbsolutePath());
+        }
+        // 确保目标目录存在（包括所有父目录）
+        if (!targetDir.exists()) {
+            boolean isCreated = targetDir.mkdirs();
+            if (!isCreated) {
+                throw new IOException("无法创建目标目录：" + targetDir.getAbsolutePath());
+            }
+            log.debug("创建目标目录：{}", targetDir.getAbsolutePath());
+        } else if (!targetDir.isDirectory()) {
+            throw new IOException("目标路径已存在但不是目录：" + targetDir.getAbsolutePath());
+        }
+        // 遍历源目录所有文件/子目录
+        File[] files = sourceDir.listFiles();
+        if (files != null) {
+            for (File file : files) {
+                File targetFile = new File(targetDir, file.getName());
+                if (file.isDirectory()) {
+                    // 递归复制子目录
+                    copyDirectory(file, targetFile);
+                } else {
+                    // 复制文件前，确保目标文件的父目录存在
+                    File targetParent = targetFile.getParentFile();
+                    if (targetParent != null && !targetParent.exists()) {
+                        boolean isCreated = targetParent.mkdirs();
+                        if (!isCreated) {
+                            throw new IOException("无法创建目标文件的父目录：" + targetParent.getAbsolutePath());
+                        }
+                    }
+                    // 复制文件
+                    Files.copy(file.toPath(), targetFile.toPath());
+                }
+            }
+        }
+    }
+
+    // ========== 新增：文件移动回滚方法 ==========
+    private void rollbackFileMove(String oldPath, String newPath) {
+        try {
+            File oldFile = new File(oldPath);
+            File newFile = new File(newPath);
+            if (newFile.exists() && !oldFile.exists()) {
+                log.warn("开始回滚文件移动：{} → {}", newPath, oldPath);
+                if (newFile.isDirectory()) {
+                    copyDirectory(newFile, oldFile);
+                    deleteDirectory(newFile);
+                } else {
+                    Files.move(newFile.toPath(), oldFile.toPath());
+                }
+                log.info("文件移动回滚成功：{} → {}", newPath, oldPath);
+            }
+        } catch (Exception e) {
+            log.error("文件移动回滚失败：{} → {}", newPath, oldPath, e);
+        }
+    }
 }

@@ -2,9 +2,9 @@ package ai.finetune.pojo;
 
 import lombok.*;
 
-import javax.validation.constraints.NotBlank;
-import javax.validation.constraints.NotEmpty;
-import javax.validation.constraints.NotNull;
+//import javax.validation.constraints.NotBlank;
+//import javax.validation.constraints.NotEmpty;
+//import javax.validation.constraints.NotNull;
 import java.util.List;
 
 @Data
@@ -14,20 +14,20 @@ import java.util.List;
 @ToString
 public class FineTuneArgs {
 
-    @NotBlank(message = "model name can not be blank")
+//    @NotBlank(message = "model name can not be blank")
     private String model_name;
-    @NotBlank(message = "model path can not be blank")
+//    @NotBlank(message = "model path can not be blank")
     private String model_path;
     private String cache_dir;
     private Integer preprocessing_num_workers;
     private String finetuning_type;
-    @NotBlank(message = "template can not be blank")
+//    @NotBlank(message = "template can not be blank")
     private String template;
     private String rope_scaling;
     private String booster;
     private String dataset_dir;
-    @NotNull(message = "dataset can not be null")
-    @NotEmpty(message = "dataset can not be empty")
+//    @NotNull(message = "dataset can not be null")
+//    @NotEmpty(message = "dataset can not be empty")
     private List<String> dataset;
     private Integer cutoff_len;
     private Double learning_rate;

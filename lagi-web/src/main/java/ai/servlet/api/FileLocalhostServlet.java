@@ -2,7 +2,7 @@ package ai.servlet.api;
 
 import ai.servlet.BaseServlet;
 import lombok.extern.slf4j.Slf4j;
-import lombok.var;
+
 
 import javax.servlet.ServletException;
 import javax.servlet.annotation.MultipartConfig;

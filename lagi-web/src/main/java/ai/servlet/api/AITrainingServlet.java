@@ -591,11 +591,11 @@ public class AITrainingServlet extends BaseServlet {
                 handleStreamLogs(req, resp);
                 break;
             case "evaluate":
-                // TODO: 评估
+                // TODO: 评估（也是推理验证）
                 handleEvaluate(req, resp);
                 break;
             case "predict":
-                // TODO: 预测（推理验证）
+                // TODO: 预测
                 handlePredict(req, resp);
                 break;
             case "export":
@@ -1874,7 +1874,6 @@ public class AITrainingServlet extends BaseServlet {
     /**
      * 执行评估任务
      */
-
     private void handleEvaluate(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json;charset=utf-8");
 
@@ -1901,43 +1900,9 @@ public class AITrainingServlet extends BaseServlet {
                 return;
             }
 
-            // 生成任务ID和跟踪ID
-            SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMddHHmmss");
-            String timestamp = sdf.format(new Date());
-            String uuidPart = UUID.randomUUID().toString().substring(0, 8);
-            String taskId = "eval_" + timestamp + "_" + uuidPart;
-            config.put("task_id", taskId);
-            String trackId = config.getStr("track_id");
-            if (trackId == null || trackId.isEmpty()) {
-                trackId = YoloTrainerAdapter.generateTrackId();
-                config.put("track_id", trackId);
-            }
-            String userTrainLogFile = config.getStr("train_log_file");
-            if (userTrainLogFile != null && !userTrainLogFile.isEmpty()) {
-                config.put("train_log_file", userTrainLogFile);
-            }
-
-            // 保存trainer引用，用于异步执行
-            final TrainerInterface finalTrainer = trainer;
-            final String finalModelName = modelName;
-            final String finalTaskId = taskId;
-
-            // 异步执行评估任务
-            asyncTaskExecutor.submit(() -> {
-                try {
-                    finalTrainer.evaluate(config);
-                    log.info("异步评估完成：taskId={}, model={}", finalTaskId, finalModelName);
-                } catch (Exception e) {
-                    log.error("异步评估失败：taskId={}", finalTaskId, e);
-                }
-            });
-
-            // 立即返回任务提交成功的响应
-            Map<String, Object> respMap = new HashMap<>();
-            respMap.put("code", 200);
-            respMap.put("msg", "评估任务已提交");
-            respMap.put("taskId", taskId);
-            responsePrint(resp, toJson(respMap));
+            // 根据trainer类型调用对应的evaluate方法
+            String result = trainer.evaluate(config);
+            responsePrint(resp, result);
 
         } catch (Exception e) {
             log.error("执行评估失败", e);
@@ -1951,9 +1916,9 @@ public class AITrainingServlet extends BaseServlet {
     //用于异步执行任务
     private ExecutorService asyncTaskExecutor = new ThreadPoolExecutor(
             2, // 核心线程数
-            20, // 最大线程数
+            5, // 最大线程数
             60L, TimeUnit.SECONDS,
-            new LinkedBlockingQueue<>(20), // 任务队列
+            new LinkedBlockingQueue<>(10), // 任务队列
             Executors.defaultThreadFactory(),
             new ThreadPoolExecutor.AbortPolicy() // 任务满时的拒绝策略
     );
@@ -3558,7 +3523,10 @@ public class AITrainingServlet extends BaseServlet {
                 return;
             }
 
-            setParts.add("updated_at = NOW()");
+            // 使用Java时间确保时区正确（东八区），并确保更新时间一定会变化
+            String currentTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            setParts.add("updated_at = ?");
+            params.add(currentTime);
             sql.append(String.join(", ", setParts));
             sql.append(" WHERE id = ? AND is_deleted = 0");
             params.add(modelId);
@@ -3619,9 +3587,11 @@ public class AITrainingServlet extends BaseServlet {
             }
 
             // 执行软删除
+            // 使用Java时间确保时区正确（东八区）
+            String currentTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
             ai.database.impl.MysqlAdapter mysqlAdapter = MysqlAdapter.getInstance();
-            String sql = "UPDATE models SET is_deleted = 1, updated_at = NOW() WHERE id = ? AND is_deleted = 0";
-            int rowsAffected = mysqlAdapter.executeUpdate(sql, modelId);
+            String sql = "UPDATE models SET is_deleted = 1, updated_at = ? WHERE id = ? AND is_deleted = 0";
+            int rowsAffected = mysqlAdapter.executeUpdate(sql, currentTime, modelId);
 
             if (rowsAffected > 0) {
                 result.put("code", 200);

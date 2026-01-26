@@ -8,7 +8,6 @@ import ai.mcps.spec.McpSchema.Resource;
 import ai.utils.MarkdownToDocxConverter;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.var;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Flux;

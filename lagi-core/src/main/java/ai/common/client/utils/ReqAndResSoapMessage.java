@@ -13,27 +13,18 @@
 
 package ai.common.client.utils;
 
+import org.w3c.dom.DOMException;
+import org.w3c.dom.Document;
+import org.w3c.dom.NodeList;
+
+import javax.xml.soap.*;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
-
-import javax.xml.soap.MessageFactory;
-import javax.xml.soap.SOAPBody;
-import javax.xml.soap.SOAPConnection;
-import javax.xml.soap.SOAPConnectionFactory;
-import javax.xml.soap.SOAPEnvelope;
-import javax.xml.soap.SOAPException;
-import javax.xml.soap.SOAPMessage;
-import javax.xml.soap.SOAPPart;
-
-import org.w3c.dom.DOMException;
-import org.w3c.dom.Document;
-import org.w3c.dom.NodeList;
-
-import sun.misc.BASE64Encoder;
 
 public class ReqAndResSoapMessage {
 
@@ -87,8 +78,7 @@ public class ReqAndResSoapMessage {
 			e.printStackTrace();
 		}
 		//对字节数组Base64编码
-		BASE64Encoder encoder = new BASE64Encoder();
-		return encoder.encode(data);//返回Base64编码过的字节数组字符串
+		return Base64.getEncoder().encodeToString(data);//返回Base64编码过的字节数组字符串
 
 	}
 

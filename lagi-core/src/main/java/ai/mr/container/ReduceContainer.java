@@ -13,6 +13,7 @@
 
 package ai.mr.container;
 
+import java.lang.reflect.InvocationTargetException;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
@@ -63,7 +64,7 @@ public class ReduceContainer extends BaseContainer		{
 		
 		try	{
 			//通过mapper类的名称获得mapper类的一个实例
-			IMapper mapper = (IMapper) Class.forName(mapperName).newInstance();
+			IMapper mapper = (IMapper) Class.forName(mapperName).getConstructor().newInstance();
 			// 将mapper的data属性注入进去，将该类对应的查询参数Map集合注入进去
 			mapper.setParameters(parameters); 
 	
@@ -79,6 +80,11 @@ public class ReduceContainer extends BaseContainer		{
 		catch (ClassNotFoundException e) {	
 			e.printStackTrace();
 		}
+		catch (NoSuchMethodException e) {
+			e.printStackTrace();
+		} catch (InvocationTargetException e) {
+			e.printStackTrace();
+		}
 		
 		return result;
 	}
@@ -90,7 +96,7 @@ public class ReduceContainer extends BaseContainer		{
 		
 		try	{
 			//通过mapper类的名称获得mapper类的一个实例
-			IShuffler shuffler = (IShuffler) Class.forName(shufflerName).newInstance();
+			IShuffler shuffler = (IShuffler) Class.forName(shufflerName).getDeclaredConstructor().newInstance();
 			// 将mapper的data属性注入进去，将该类对应的查询参数Map集合注入进去
 			shuffler.setParameters(parameters); 
 	
@@ -105,6 +111,11 @@ public class ReduceContainer extends BaseContainer		{
 		} 
 		catch (ClassNotFoundException e) {	
 			e.printStackTrace();
+		} catch (NoSuchMethodException e) {
+			e.printStackTrace();
+		}
+		catch (InvocationTargetException e) {
+			e.printStackTrace();
 		}
 		
 		return result;
@@ -116,7 +127,7 @@ public class ReduceContainer extends BaseContainer		{
 		
 		try	{
 			//通过mapper类的名称获得mapper类的一个实例
-			IReducer reducer = (IReducer) Class.forName(reducerName).newInstance();
+			IReducer reducer = (IReducer) Class.forName(reducerName).getDeclaredConstructor().newInstance();
 			// 将mapper的data属性注入进去，将该类对应的查询参数Map集合注入进去
 			reducer.setParameters(parameters); 
 	
@@ -130,6 +141,12 @@ public class ReduceContainer extends BaseContainer		{
 			e.printStackTrace();
 		} 
 		catch (ClassNotFoundException e) {	
+			e.printStackTrace();
+		}
+		catch (NoSuchMethodException e) {
+			e.printStackTrace();
+		}
+		catch (InvocationTargetException e) {
 			e.printStackTrace();
 		}
 		

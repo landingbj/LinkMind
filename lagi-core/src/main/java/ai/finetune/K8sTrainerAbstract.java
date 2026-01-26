@@ -110,7 +110,7 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
 
             // 检查密钥是否已存在
             try {
-                coreApi.readNamespacedSecret(imagePullSecret, namespace, null, null, null);
+                coreApi.readNamespacedSecret(imagePullSecret, namespace).execute();
                 log.info("镜像拉取密钥 '{}' 已存在", imagePullSecret);
                 return;
             } catch (ApiException e) {
@@ -162,7 +162,7 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
             secret.setData(data);
 
             // 创建密钥
-            coreApi.createNamespacedSecret(namespace, secret, null, null, null);
+            coreApi.createNamespacedSecret(namespace, secret).execute();
             log.info("成功创建私有镜像仓库拉取密钥: {}", imagePullSecret);
 
         } catch (ApiException e) {
@@ -443,7 +443,7 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
             // 创建 Job
             log.info("提交Job到K8s API Server...");
             log.info("  命名空间: {}", namespace);
-            V1Job createdJob = batchApi.createNamespacedJob(namespace, job, null, null, null);
+            V1Job createdJob = batchApi.createNamespacedJob(namespace, job).execute();
             log.info("✓ Job创建成功: {}", jobName);
             if (createdJob.getMetadata() != null && createdJob.getMetadata().getUid() != null) {
                 log.info("  Job UID: {}", createdJob.getMetadata().getUid());
@@ -508,36 +508,16 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
             try {
                 // 优先使用 job-name 标签（Kubernetes 自动添加）
                 podList = coreApi.listNamespacedPod(
-                        namespace,
-                        null,
-                        null,
-                        null,
-                        null,
-                        "job-name=" + jobName,
-                        null,
-                        null,
-                        null,
-                        null,
-                        null
-                );
+                        namespace
+                ).labelSelector("job-name=" + jobName).execute();
                 log.info("使用 job-name 标签查找 Pod: jobName={}, 找到 {} 个 Pod", jobName, podList.getItems().size());
             } catch (ApiException e) {
                 log.warn("使用 job-name 标签查找 Pod 失败，尝试使用 app 标签: {}", e.getMessage());
                 // 如果 job-name 标签查找失败，尝试使用 app 标签
                 try {
                     podList = coreApi.listNamespacedPod(
-                            namespace,
-                            null,
-                            null,
-                            null,
-                            null,
-                            "app=" + jobName,
-                            null,
-                            null,
-                            null,
-                            null,
-                            null
-                    );
+                            namespace
+                    ).labelSelector("app=" + jobName).execute();
                     log.info("使用 app 标签查找 Pod: jobName={}, 找到 {} 个 Pod", jobName, podList.getItems().size());
                 } catch (ApiException e2) {
                     log.warn("使用 app 标签查找 Pod 也失败: {}", e2.getMessage());
@@ -551,14 +531,8 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
                         String podName = pod.getMetadata().getName();
                         coreApi.deleteNamespacedPod(
                                 podName,
-                                namespace,
-                                null,
-                                null,
-                                null,
-                                null,
-                                null,
-                                null
-                        );
+                                namespace
+                        ).execute();
                         deletedPodCount++;
                         log.info("成功删除 Pod: {}", podName);
                     } catch (ApiException e) {
@@ -576,14 +550,8 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
             try {
                 batchApi.deleteNamespacedJob(
                         jobName,
-                        namespace,
-                        null,
-                        null,
-                        null,
-                        null,
-                        "Background",  // 立即删除，不等待依赖对象清理
-                        null
-                );
+                        namespace
+                ).execute();
                 log.info("成功删除 Job: {}, 已删除 {} 个 Pod", jobName, deletedPodCount);
             } catch (ApiException e) {
                 // 如果 Job 已经被删除（404），忽略错误
@@ -623,17 +591,8 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
             // 获取日志
             String logText = coreApi.readNamespacedPodLog(
                     podName,
-                    namespace,
-                    null,
-                    false,
-                    false,
-                    null,
-                    null,
-                    false,
-                    null,
-                    lines,
-                    false
-            );
+                    namespace
+            ).execute();
 
             JSONObject result = new JSONObject();
             result.put("status", "success");
@@ -662,7 +621,7 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
         result.put("namespace", namespace);
 
         try {
-            V1Job job = batchApi.readNamespacedJob(jobName, namespace, null, null, null);
+            V1Job job = batchApi.readNamespacedJob(jobName, namespace).execute();
             if (job == null) {
                 result.put("status", "not_found");
                 return result;
@@ -863,18 +822,8 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
         ensureClient();
         try {
             V1JobList jobList = batchApi.listNamespacedJob(
-                    namespace,
-                    null,   // pretty
-                    null,   // _continue
-                    null,   // fieldSelector
-                    null,   // labelSelector
-                    null,   // resourceVersion
-                    null,   // timeoutSeconds
-                    null,   // limit
-                    null,   // allowWatchBookmarks
-                    null,   // _progressListener
-                    false   // _async
-            );
+                    namespace
+            ).execute();
 
             List<JSONObject> jobs = new ArrayList<>();
             if (jobList != null && jobList.getItems() != null) {
@@ -954,18 +903,8 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
     private V1Pod firstPod(String jobName) {
         try {
             V1PodList podList = coreApi.listNamespacedPod(
-                    namespace,
-                    null,
-                    null,
-                    null,
-                    null,
-                    "app=" + jobName,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null
-            );
+                    namespace
+            ).labelSelector("app=" + jobName).execute();
 
             if (podList.getItems().isEmpty()) {
                 throw new IllegalStateException("未找到 Pod, job=" + jobName);
@@ -1109,7 +1048,7 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
 
         try {
             // 1. 获取Job信息
-            V1Job job = batchApi.readNamespacedJob(jobName, namespace, null, null, null);
+            V1Job job = batchApi.readNamespacedJob(jobName, namespace).execute();
             if (job == null) {
                 result.put("status", "error");
                 result.put("message", "Job不存在: " + jobName);
@@ -1119,9 +1058,8 @@ public abstract class K8sTrainerAbstract implements TrainerInterface{
             // 2. 获取Job关联的Pods（通常Job只有一个Pod）
             String labelSelector = "job-name=" + jobName;
             V1PodList podList = coreApi.listNamespacedPod(
-                    namespace, null, null, null, null, labelSelector,
-                    null, null, null, null, null
-            );
+                    namespace
+            ).labelSelector(labelSelector).execute();
 
             if (podList.getItems().isEmpty()) {
                 result.put("status", "error");

@@ -33,12 +33,14 @@ public class ModelDatasetManager {
     public Long saveDataset(String name, String path, String description, String userId, 
                            Long fileSize, String fileType) {
         try {
+            // 使用Java时间确保时区正确（东八区）
+            String currentTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
             String sql = "INSERT INTO datasets (name, path, description, user_id, file_size, file_type, " +
                         "status, created_at, updated_at, is_deleted) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, 'active', NOW(), NOW(), 0)";
+                        "VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, 0)";
             
             int result = mysqlAdapter.executeUpdate(sql, name, path, description, userId, 
-                                                    fileSize, fileType);
+                                                    fileSize, fileType, currentTime, currentTime);
             
             if (result > 0) {
                 // 获取插入的ID
@@ -98,6 +100,8 @@ public class ModelDatasetManager {
         }
         
         try {
+            // 使用Java时间确保时区正确（东八区）
+            String currentTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
             String sql = "INSERT INTO models (name, path, version, dataset_id, " +
                         "model_type, framework, file_size, file_type, description, user_id, " +
                         "title, detail_content, category_id, model_type_id, framework_id, " +
@@ -105,7 +109,7 @@ public class ModelDatasetManager {
                         "non_trainable_params, accuracy, `precision`, `recall`, f1_score, " +
                         "tags, view_count, author, doc_link, icon_link, " +
                         "status, created_at, updated_at, is_deleted) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), 0)";
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)";
             
             int result = mysqlAdapter.executeUpdate(sql, 
                     name, path, version, datasetId,
@@ -113,7 +117,8 @@ public class ModelDatasetManager {
                     title, detailContent, categoryId, modelTypeId, frameworkId,
                     algorithm, inputShape, outputShape, totalParams, trainableParams,
                     nonTrainableParams, accuracy, precision, recall, f1Score,
-                    tags, viewCount != null ? viewCount : 0, author, docLink, iconLink, status);
+                    tags, viewCount != null ? viewCount : 0, author, docLink, iconLink, status,
+                    currentTime, currentTime);
             
             if (result > 0) {
                 // 获取插入的ID
@@ -334,16 +339,32 @@ public class ModelDatasetManager {
                 return null;
             }
             
+            // 获取训练任务信息
+            Map<String, Object> taskInfo = null;
+            if (taskId != null && !taskId.isEmpty()) {
+                try {
+                    String taskSql = "SELECT * FROM ai_training_tasks WHERE task_id = ? AND is_deleted = 0 LIMIT 1";
+                    List<Map<String, Object>> taskResults = mysqlAdapter.select(taskSql, taskId);
+                    if (taskResults != null && !taskResults.isEmpty()) {
+                        taskInfo = taskResults.get(0);
+                    }
+                } catch (Exception e) {
+                    log.warn("获取训练任务信息失败: taskId={}", taskId, e);
+                }
+            }
+            
             // 获取新版本号（使用智能版本号生成，确保唯一性）
             String originalModelName = (String) originalModel.get("name");
             String currentVersion = (String) originalModel.get("version");
             String newVersion = ModelVersionManager.generateNewVersion(originalModelName, currentVersion, taskId);
             
-            // 生成新模型名称：{原名称}-{版本号去掉V}-{时间戳}
-            // 例如：yolo11 -> yolo11-1.1.0-202601221043
+            // 生成新模型名称：提取基础名称，然后替换版本和时间戳
+            // 例如：yolo11-1.0.0-202601221038 -> yolo11-1.1.0-202601221043
+            // 例如：YOLOv11-1.2.0-202601231024 -> YOLOv11-1.3.0-202601231056
+            String baseName = extractBaseModelName(originalModelName);
             String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmm"));
             String versionWithoutV = newVersion.startsWith("V") ? newVersion.substring(1) : newVersion;
-            String newModelName = originalModelName + "-" + versionWithoutV + "-" + timestamp;
+            String newModelName = baseName + "-" + versionWithoutV + "-" + timestamp;
             
             // 复制模型信息
             String name = newModelName;
@@ -351,8 +372,10 @@ public class ModelDatasetManager {
                             ((Number) originalModel.get("dataset_id")).longValue() : null;
             String modelType = (String) originalModel.get("model_type");
             String framework = (String) originalModel.get("framework");
-            String description = "训练后自动生成，原模型ID: " + originalModelId + 
-                               ", 训练任务ID: " + taskId;
+            
+            // 生成详细的模型描述
+            String description = generateTrainingDescription(originalModel, taskInfo, taskId);
+            
             String userId = (String) originalModel.get("user_id");
             
             // 复制简介相关字段
@@ -479,5 +502,222 @@ public class ModelDatasetManager {
             return filePath.substring(lastDot + 1).toLowerCase();
         }
         return "";
+    }
+    
+    /**
+     * 生成训练后的模型描述信息
+     * 包含：原模型信息、数据集信息、训练时间等
+     * 使用HTML格式，便于页面友好显示
+     */
+    private String generateTrainingDescription(Map<String, Object> originalModel, 
+                                                 Map<String, Object> taskInfo, 
+                                                 String taskId) {
+        StringBuilder desc = new StringBuilder();
+        
+        // 使用HTML格式，便于页面显示
+        desc.append("<div style='line-height: 1.8;'>");
+        desc.append("<p style='margin: 0 0 8px 0; color: #666;'>训练后自动生成</p>");
+        
+        // 原模型信息
+        if (originalModel != null) {
+            String originalModelName = (String) originalModel.get("name");
+            Object originalModelIdObj = originalModel.get("id");
+            String originalModelId = originalModelIdObj != null ? originalModelIdObj.toString() : "未知";
+            String originalVersion = (String) originalModel.get("version");
+            
+            desc.append("<p style='margin: 0 0 8px 0;'>");
+            desc.append("<strong>基于模型：</strong>");
+            if (originalModelName != null && !originalModelName.isEmpty()) {
+                desc.append(originalModelName);
+            } else {
+                desc.append("未知模型");
+            }
+            desc.append(" <span style='color: #999;'>(ID: ").append(originalModelId);
+            if (originalVersion != null && !originalVersion.isEmpty()) {
+                desc.append(", 版本: ").append(originalVersion);
+            }
+            desc.append(")</span>");
+            desc.append("</p>");
+        } else {
+            desc.append("<p style='margin: 0 0 8px 0;'><strong>基于模型：</strong>未知模型</p>");
+        }
+        
+        // 数据集信息
+        if (taskInfo != null) {
+            Object datasetIdObj = taskInfo.get("dataset_id");
+            String datasetName = (String) taskInfo.get("dataset_name");
+            
+            if (datasetIdObj != null || (datasetName != null && !datasetName.isEmpty())) {
+                desc.append("<p style='margin: 0 0 8px 0;'>");
+                desc.append("<strong>训练数据集：</strong>");
+                if (datasetName != null && !datasetName.isEmpty()) {
+                    desc.append(datasetName);
+                } else {
+                    // 如果任务中没有数据集名称，尝试从数据集ID查询
+                    if (datasetIdObj != null) {
+                        try {
+                            Long datasetId = ((Number) datasetIdObj).longValue();
+                            Map<String, Object> datasetInfo = getDatasetById(datasetId);
+                            if (datasetInfo != null) {
+                                String dsName = (String) datasetInfo.get("name");
+                                if (dsName != null && !dsName.isEmpty()) {
+                                    desc.append(dsName);
+                                } else {
+                                    desc.append("数据集ID: ").append(datasetId);
+                                }
+                            } else {
+                                desc.append("数据集ID: ").append(datasetId);
+                            }
+                        } catch (Exception e) {
+                            desc.append("数据集ID: ").append(datasetIdObj);
+                        }
+                    } else {
+                        desc.append("未知数据集");
+                    }
+                }
+                
+                if (datasetIdObj != null) {
+                    desc.append(" <span style='color: #999;'>(ID: ").append(datasetIdObj).append(")</span>");
+                }
+                desc.append("</p>");
+            }
+        }
+        
+        // 训练时间信息
+        if (taskInfo != null) {
+            String startTime = convertToString(taskInfo.get("start_time"));
+            String endTime = convertToString(taskInfo.get("end_time"));
+            String createdAt = convertToString(taskInfo.get("created_at"));
+            
+            if (startTime != null && !startTime.isEmpty() || endTime != null && !endTime.isEmpty()) {
+                desc.append("<p style='margin: 0 0 8px 0;'>");
+                desc.append("<strong>训练时间：</strong>");
+                if (startTime != null && !startTime.isEmpty()) {
+                    desc.append(startTime);
+                }
+                if (endTime != null && !endTime.isEmpty()) {
+                    if (startTime != null && !startTime.isEmpty()) {
+                        desc.append(" ~ ");
+                    }
+                    desc.append(endTime);
+                } else if (createdAt != null && !createdAt.isEmpty()) {
+                    if (startTime != null && !startTime.isEmpty()) {
+                        desc.append(" ~ ");
+                    }
+                    desc.append(createdAt);
+                }
+                desc.append("</p>");
+            }
+        }
+        
+        // 训练参数信息
+        if (taskInfo != null) {
+            Object epochs = taskInfo.get("epochs");
+            Object batchSize = taskInfo.get("batch_size");
+            Object imageSize = taskInfo.get("image_size");
+            Object learningRate = taskInfo.get("learning_rate");
+            
+            boolean hasParams = false;
+            StringBuilder paramsDesc = new StringBuilder();
+            
+            if (epochs != null) {
+                paramsDesc.append("训练轮次: ").append(epochs);
+                hasParams = true;
+            }
+            if (batchSize != null) {
+                if (hasParams) paramsDesc.append(" | ");
+                paramsDesc.append("批次大小: ").append(batchSize);
+                hasParams = true;
+            }
+            if (imageSize != null) {
+                if (hasParams) paramsDesc.append(" | ");
+                paramsDesc.append("图片尺寸: ").append(imageSize);
+                hasParams = true;
+            }
+            if (learningRate != null) {
+                if (hasParams) paramsDesc.append(" | ");
+                paramsDesc.append("学习率: ").append(learningRate);
+                hasParams = true;
+            }
+            
+            if (hasParams) {
+                desc.append("<p style='margin: 0 0 8px 0;'>");
+                desc.append("<strong>训练参数：</strong>").append(paramsDesc);
+                desc.append("</p>");
+            }
+        }
+        
+        // 训练任务ID
+        if (taskId != null && !taskId.isEmpty()) {
+            desc.append("<p style='margin: 0; color: #999; font-size: 12px;'>");
+            desc.append("任务ID: ").append(taskId);
+            desc.append("</p>");
+        }
+        
+        desc.append("</div>");
+        return desc.toString();
+    }
+    
+    /**
+     * 从模型名称中提取基础名称（去掉版本号和时间戳部分）
+     * 例如：
+     * - "yolo11-1.0.0-202601221038" -> "yolo11"
+     * - "YOLOv11-1.2.0-202601231024" -> "YOLOv11"
+     * - "yolo11" -> "yolo11" (如果没有版本和时间戳，返回原名称)
+     */
+    private String extractBaseModelName(String modelName) {
+        if (modelName == null || modelName.isEmpty()) {
+            return "model";
+        }
+        
+        // 匹配模式：{baseName}-{version}-{timestamp}
+        // 版本号格式：数字.数字.数字 (如 1.0.0, 1.2.0)
+        // 时间戳格式：12位数字 (如 202601221038)
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("^(.+?)-\\d+\\.\\d+\\.\\d+-\\d{12}$");
+        java.util.regex.Matcher matcher = pattern.matcher(modelName);
+        
+        if (matcher.matches()) {
+            // 如果匹配到模式，提取基础名称
+            return matcher.group(1);
+        }
+        
+        // 如果没有匹配到模式，尝试匹配只有版本号的情况：{baseName}-{version}
+        pattern = java.util.regex.Pattern.compile("^(.+?)-\\d+\\.\\d+\\.\\d+$");
+        matcher = pattern.matcher(modelName);
+        if (matcher.matches()) {
+            return matcher.group(1);
+        }
+        
+        // 如果都不匹配，返回原名称
+        return modelName;
+    }
+    
+    /**
+     * 将对象转换为字符串，支持 LocalDateTime、Timestamp 等类型
+     */
+    private String convertToString(Object obj) {
+        if (obj == null) {
+            return null;
+        }
+        
+        if (obj instanceof String) {
+            return (String) obj;
+        }
+        
+        if (obj instanceof java.time.LocalDateTime) {
+            return ((java.time.LocalDateTime) obj).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        }
+        
+        if (obj instanceof java.sql.Timestamp) {
+            return ((java.sql.Timestamp) obj).toLocalDateTime().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        }
+        
+        if (obj instanceof java.util.Date) {
+            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+            return sdf.format((java.util.Date) obj);
+        }
+        
+        // 其他类型直接转换为字符串
+        return obj.toString();
     }
 }

@@ -107,7 +107,7 @@ public class MultimodalAIManager {
 
             modelNames.forEach(name->{
                 try {
-                    T newAdapter = (T) adapter.getClass().newInstance();
+                    T newAdapter = (T) adapter.getClass().getDeclaredConstructor().newInstance();
                     BeanUtil.copyProperties(adapter, newAdapter);
                     ModelService modelService = (ModelService) newAdapter;
                     Backend func = modelFuncMap.get(name);
@@ -158,7 +158,7 @@ public class MultimodalAIManager {
         }
         if(clazz != null) {
             try {
-                wrapper = (IWrapper) clazz.newInstance();
+                wrapper = (IWrapper) clazz.getDeclaredConstructor().newInstance();
             } catch (Exception e) {
                 log.error("wrapper {} newinstance failed  {}", driver,  e.getMessage());
             }
@@ -242,7 +242,7 @@ public class MultimodalAIManager {
             return null;
         }
         try {
-            modelService = (ModelService) clazz.newInstance();
+            modelService = (ModelService) clazz.getDeclaredConstructor().newInstance();
         } catch (Exception e) {
             log.error( "driver {} newinstance failed  {}", driver,  e.getMessage());
         }

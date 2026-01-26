@@ -31,7 +31,7 @@ public class OSSManager {
             Class<?> clazz = null;
             try {
                 clazz = Class.forName(ossConfig.getDriver());
-                UniversalOSS oss = (UniversalOSS) clazz.newInstance();
+                UniversalOSS oss = (UniversalOSS) clazz.getDeclaredConstructor().newInstance();
                 BeanUtil.copyProperties(ossConfig, oss);
                 UniversalOSS temp = ossMap.putIfAbsent(ossConfig.getName(), oss);
                 if(temp != null) {

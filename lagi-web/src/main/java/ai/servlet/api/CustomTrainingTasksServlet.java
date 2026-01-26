@@ -9,7 +9,6 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
-import lombok.var;
 
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;

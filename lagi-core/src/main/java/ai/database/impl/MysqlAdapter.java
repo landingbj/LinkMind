@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 
 
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.sql.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -301,7 +302,7 @@ public class MysqlAdapter {
             }
             res = pre.executeQuery();
             while (res.next()) {
-                T t = claz.newInstance();
+                T t = claz.getDeclaredConstructor().newInstance();
                 Field[] fields = claz.getDeclaredFields();
                 for (Field f : fields) {
                     f.setAccessible(true);
@@ -310,7 +311,8 @@ public class MysqlAdapter {
                 }
                 list.add(t);
             }
-        } catch (SQLException | InstantiationException | IllegalAccessException e) {
+        } catch (SQLException | InstantiationException | IllegalAccessException | NoSuchMethodException |
+                 InvocationTargetException e) {
             e.printStackTrace();
         } finally {
             close(con, pre, res);

@@ -7,6 +7,7 @@ import ai.manager.AIManager;
 import ai.manager.LlmManager;
 import cn.hutool.core.bean.BeanUtil;
 
+import java.lang.reflect.InvocationTargetException;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -20,10 +21,10 @@ public class LlmRouterDispatcher {
 
     private static ILlmAdapter copyAdapter(ILlmAdapter adapter) {
         try {
-            ILlmAdapter resAdapter = adapter.getClass().newInstance();
+            ILlmAdapter resAdapter = adapter.getClass().getDeclaredConstructor().newInstance();
             BeanUtil.copyProperties(adapter, resAdapter);
             return resAdapter;
-        } catch (InstantiationException | IllegalAccessException ignored) {
+        } catch (InstantiationException | IllegalAccessException | NoSuchMethodException | InvocationTargetException ignored) {
         }
         return null;
     }

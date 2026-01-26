@@ -79,7 +79,7 @@ public class AiServiceCallByLocal {
 				}
 			}
 			Method method = cls.getDeclaredMethod(methodName, parameterTypes);
-			returnObj = (String[]) method.invoke(cls.newInstance(),
+			returnObj = (String[]) method.invoke(cls.getDeclaredConstructor().newInstance(),
 					actualParams);
 
 		} catch (ClassNotFoundException e) {

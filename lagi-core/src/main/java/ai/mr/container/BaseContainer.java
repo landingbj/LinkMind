@@ -1,5 +1,6 @@
 package ai.mr.container;
 
+import java.lang.reflect.InvocationTargetException;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
@@ -71,13 +72,13 @@ public class BaseContainer {
 	public void registMapperExecutor(String mapperName, Map<String, ?> parameters) {
 		try {
 			// 通过mapper类的名称获得mapper类的一个实例
-			IMapper mapper = (IMapper) Class.forName(mapperName).newInstance();
+			IMapper mapper = (IMapper) Class.forName(mapperName).getDeclaredConstructor().newInstance();
 			// 将mapper的data属性注入进去，将该类对应的查询参数Map集合注入进去
 			mapper.setParameters(parameters);
 			// 将mapper名称和对应的mapper类放到新map集合里
 			mappersGroup.put(mapperName+Math.random()+System.currentTimeMillis(), mapper);//将mapper名称和对应的mapper类放到新map集合里
 		}
-		catch (InstantiationException e) {
+		catch (InstantiationException | NoSuchMethodException | InvocationTargetException e) {
 			e.printStackTrace();
 		}
 		catch (IllegalAccessException e) {
@@ -91,7 +92,7 @@ public class BaseContainer {
 	public void registMapperRaw(String mapperName, Map<String, ?> parameters) {
 		try {
 			// 通过mapper类的名称获得mapper类的一个实例
-			IMapper mapper = (IMapper) Class.forName(mapperName).newInstance();
+			IMapper mapper = (IMapper) Class.forName(mapperName).getDeclaredConstructor().newInstance();
 			// 将mapper的data属性注入进去，将该类对应的查询参数Map集合注入进去
 			mapper.setParameters(parameters);
 			// 将mapper名称和对应的mapper类放到新map集合里
@@ -105,7 +106,7 @@ public class BaseContainer {
 			}
 			mappersGroup.put(mappName, mapper);
 		}
-		catch (InstantiationException e) {
+		catch (InstantiationException | NoSuchMethodException | InvocationTargetException e) {
 			e.printStackTrace();
 		}
 		catch (IllegalAccessException e) {

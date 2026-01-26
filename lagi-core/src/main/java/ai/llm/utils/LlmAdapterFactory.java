@@ -40,7 +40,7 @@ public class LlmAdapterFactory {
         }
         try {
             Class<?> aClass = Class.forName(driver);
-            ModelService m = (ModelService) aClass.newInstance();
+            ModelService m = (ModelService) aClass.getDeclaredConstructor().newInstance();
             m.setModel(modelName);
             m.setApiKey(apiKey);
             m.setPriority(priority);

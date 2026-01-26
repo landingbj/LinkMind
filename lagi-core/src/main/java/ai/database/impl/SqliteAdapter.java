@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -156,7 +157,7 @@ public class SqliteAdapter {
             }
             res = pre.executeQuery();
             while (res.next()) {
-                T t = claz.newInstance();
+                T t = claz.getDeclaredConstructor().newInstance();
                 Field[] fields = claz.getDeclaredFields();
                 for (Field f : fields) {
                     f.setAccessible(true);
@@ -164,7 +165,7 @@ public class SqliteAdapter {
                 }
                 list.add(t);
             }
-        } catch (SQLException | InstantiationException | IllegalAccessException e) {
+        } catch (SQLException | InstantiationException | NoSuchMethodException | InvocationTargetException | IllegalAccessException e) {
             e.printStackTrace();
         } finally {
             close(con, pre, res);

@@ -118,7 +118,12 @@ public class ModelConfigManager {
                     defaultConfig
                 );
                 
-                configCache.put(modelName.toLowerCase(), config);
+
+                if (modelName != null) {
+                    configCache.put(modelName.toLowerCase(), config);
+                } else {
+                    log.warn("模型名称为空，跳过配置加载: {}", config);
+                }
                 log.debug("加载模型配置: {}, category={}, framework={}", 
                          modelName, modelCategory, modelFramework);
             }

@@ -33,12 +33,14 @@ public class ModelDatasetManager {
     public Long saveDataset(String name, String path, String description, String userId, 
                            Long fileSize, String fileType) {
         try {
+            // 使用Java时间确保时区正确（东八区）
+            String currentTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
             String sql = "INSERT INTO datasets (name, path, description, user_id, file_size, file_type, " +
                         "status, created_at, updated_at, is_deleted) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, 'active', NOW(), NOW(), 0)";
+                        "VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, 0)";
             
             int result = mysqlAdapter.executeUpdate(sql, name, path, description, userId, 
-                                                    fileSize, fileType);
+                                                    fileSize, fileType, currentTime, currentTime);
             
             if (result > 0) {
                 // 获取插入的ID
@@ -98,6 +100,8 @@ public class ModelDatasetManager {
         }
         
         try {
+            // 使用Java时间确保时区正确（东八区）
+            String currentTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
             String sql = "INSERT INTO models (name, path, version, dataset_id, " +
                         "model_type, framework, file_size, file_type, description, user_id, " +
                         "title, detail_content, category_id, model_type_id, framework_id, " +
@@ -105,7 +109,7 @@ public class ModelDatasetManager {
                         "non_trainable_params, accuracy, `precision`, `recall`, f1_score, " +
                         "tags, view_count, author, doc_link, icon_link, " +
                         "status, created_at, updated_at, is_deleted) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), 0)";
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)";
             
             int result = mysqlAdapter.executeUpdate(sql, 
                     name, path, version, datasetId,
@@ -113,7 +117,8 @@ public class ModelDatasetManager {
                     title, detailContent, categoryId, modelTypeId, frameworkId,
                     algorithm, inputShape, outputShape, totalParams, trainableParams,
                     nonTrainableParams, accuracy, precision, recall, f1Score,
-                    tags, viewCount != null ? viewCount : 0, author, docLink, iconLink, status);
+                    tags, viewCount != null ? viewCount : 0, author, docLink, iconLink, status,
+                    currentTime, currentTime);
             
             if (result > 0) {
                 // 获取插入的ID

@@ -3523,7 +3523,10 @@ public class AITrainingServlet extends BaseServlet {
                 return;
             }
             
-            setParts.add("updated_at = NOW()");
+            // 使用Java时间确保时区正确（东八区），并确保更新时间一定会变化
+            String currentTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            setParts.add("updated_at = ?");
+            params.add(currentTime);
             sql.append(String.join(", ", setParts));
             sql.append(" WHERE id = ? AND is_deleted = 0");
             params.add(modelId);
@@ -3584,9 +3587,11 @@ public class AITrainingServlet extends BaseServlet {
             }
             
             // 执行软删除
+            // 使用Java时间确保时区正确（东八区）
+            String currentTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
             ai.database.impl.MysqlAdapter mysqlAdapter = MysqlAdapter.getInstance();
-            String sql = "UPDATE models SET is_deleted = 1, updated_at = NOW() WHERE id = ? AND is_deleted = 0";
-            int rowsAffected = mysqlAdapter.executeUpdate(sql, modelId);
+            String sql = "UPDATE models SET is_deleted = 1, updated_at = ? WHERE id = ? AND is_deleted = 0";
+            int rowsAffected = mysqlAdapter.executeUpdate(sql, currentTime, modelId);
             
             if (rowsAffected > 0) {
                 result.put("code", 200);

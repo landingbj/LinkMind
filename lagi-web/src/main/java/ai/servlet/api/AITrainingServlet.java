@@ -185,19 +185,19 @@ public class AITrainingServlet extends BaseServlet {
             TrainerInterface existingTrainer = trainerMap.get(modelType);
             if (existingTrainer != null) {
                 // 检查现有trainer是否匹配当前执行模式
-                boolean isK8sTrainer = existingTrainer instanceof YoloK8sAdapter 
-                        || existingTrainer instanceof DeeplabK8sAdapter 
+                boolean isK8sTrainer = existingTrainer instanceof YoloK8sAdapter
+                        || existingTrainer instanceof DeeplabK8sAdapter
                         || existingTrainer instanceof TrackNetV3K8sAdapter;
-                boolean isDockerTrainer = existingTrainer instanceof YoloTrainerAdapter 
-                        || existingTrainer instanceof DeeplabAdapter 
+                boolean isDockerTrainer = existingTrainer instanceof YoloTrainerAdapter
+                        || existingTrainer instanceof DeeplabAdapter
                         || existingTrainer instanceof TrackNetV3Adapter;
 
-                if (("k8s".equals(executionMode) && isK8sTrainer) 
+                if (("k8s".equals(executionMode) && isK8sTrainer)
                         || ("docker".equals(executionMode) && isDockerTrainer)) {
                     log.debug("使用已存在的训练器: model={}, mode={}", modelName, executionMode);
                     return existingTrainer;
                 } else {
-                    log.info("现有训练器执行模式不匹配，重新创建: model={}, expected={}, actual={}", 
+                    log.info("现有训练器执行模式不匹配，重新创建: model={}, expected={}, actual={}",
                             modelName, executionMode, isK8sTrainer ? "k8s" : "docker");
                 }
             }
@@ -242,7 +242,7 @@ public class AITrainingServlet extends BaseServlet {
     /**
      * 配置Docker训练器（设置SSH和Docker配置）
      */
-    private void configureDockerTrainer(String modelType, TrainerInterface trainer, 
+    private void configureDockerTrainer(String modelType, TrainerInterface trainer,
                                         DiscriminativeModelsConfig discriminativeConfig) {
         try {
             if ("yolo".equals(modelType)) {
@@ -591,11 +591,11 @@ public class AITrainingServlet extends BaseServlet {
                 handleStreamLogs(req, resp);
                 break;
             case "evaluate":
-                // TODO: 评估（也是推理验证）
+                // TODO: 评估
                 handleEvaluate(req, resp);
                 break;
             case "predict":
-                // TODO: 预测
+                // TODO: 预测（推理验证）
                 handlePredict(req, resp);
                 break;
             case "export":
@@ -927,7 +927,7 @@ public class AITrainingServlet extends BaseServlet {
                     }
                 }
             }
-            
+
             if (repository == null) {
                 resp.setStatus(503);
                 response.put("code", "503");
@@ -935,7 +935,7 @@ public class AITrainingServlet extends BaseServlet {
                 responsePrint(resp, toJson(response));
                 return;
             }
-            
+
             Map<String, Object> taskDetail = repository.getTaskDetailByTaskId(taskId);
 
             if (taskDetail == null) {
@@ -1266,12 +1266,12 @@ public class AITrainingServlet extends BaseServlet {
         // 支持通过model_id和dataset_id获取路径
         ai.finetune.utils.ModelDatasetManager manager = new ai.finetune.utils.ModelDatasetManager();
         ai.config.ModelStorageConfig storageConfig = ai.config.ModelStorageConfig.getInstance();
-        
+
         String modelPath = null;
         String datasetPath = null;
         Long modelId = null;
         Long datasetId = null;
-        
+
         // 如果提供了model_id，从数据库查询模型路径
         if (config.containsKey("model_id")) {
             try {
@@ -1285,7 +1285,7 @@ public class AITrainingServlet extends BaseServlet {
                 log.warn("获取模型信息失败: modelId={}", config.get("model_id"), e);
             }
         }
-        
+
         // 如果提供了dataset_id，从数据库查询数据集路径
         if (config.containsKey("dataset_id")) {
             try {
@@ -1315,7 +1315,7 @@ public class AITrainingServlet extends BaseServlet {
             trainConfig.put("batch", config.getInt("batch", (Integer) defaultConfig.get("batch")));
             trainConfig.put("imgsz", config.getInt("imgsz", (Integer) defaultConfig.get("imgsz")));
             trainConfig.put("device", config.getStr("device", (String) defaultConfig.get("device")));
-            
+
             // 动态生成project路径，使用model_id作为子目录
             String projectBase = config.getStr("project", (String) defaultConfig.get("project"));
             if (modelId != null) {
@@ -1336,7 +1336,7 @@ public class AITrainingServlet extends BaseServlet {
             trainConfig.put("batch", config.getInt("batch", 2));
             trainConfig.put("imgsz", config.getInt("imgsz", 640));
             trainConfig.put("device", config.getStr("device", "0"));
-            
+
             // 动态生成project路径
             String projectBase = config.getStr("project", storageConfig.getProjectPath());
             if (modelId != null) {
@@ -1874,6 +1874,7 @@ public class AITrainingServlet extends BaseServlet {
     /**
      * 执行评估任务
      */
+
     private void handleEvaluate(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json;charset=utf-8");
 
@@ -1900,9 +1901,43 @@ public class AITrainingServlet extends BaseServlet {
                 return;
             }
 
-            // 根据trainer类型调用对应的evaluate方法
-            String result = trainer.evaluate(config);
-            responsePrint(resp, result);
+            // 生成任务ID和跟踪ID
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMddHHmmss");
+            String timestamp = sdf.format(new Date());
+            String uuidPart = UUID.randomUUID().toString().substring(0, 8);
+            String taskId = "eval_" + timestamp + "_" + uuidPart;
+            config.put("task_id", taskId);
+            String trackId = config.getStr("track_id");
+            if (trackId == null || trackId.isEmpty()) {
+                trackId = YoloTrainerAdapter.generateTrackId();
+                config.put("track_id", trackId);
+            }
+            String userTrainLogFile = config.getStr("train_log_file");
+            if (userTrainLogFile != null && !userTrainLogFile.isEmpty()) {
+                config.put("train_log_file", userTrainLogFile);
+            }
+
+            // 保存trainer引用，用于异步执行
+            final TrainerInterface finalTrainer = trainer;
+            final String finalModelName = modelName;
+            final String finalTaskId = taskId;
+
+            // 异步执行评估任务
+            asyncTaskExecutor.submit(() -> {
+                try {
+                    finalTrainer.evaluate(config);
+                    log.info("异步评估完成：taskId={}, model={}", finalTaskId, finalModelName);
+                } catch (Exception e) {
+                    log.error("异步评估失败：taskId={}", finalTaskId, e);
+                }
+            });
+
+            // 立即返回任务提交成功的响应
+            Map<String, Object> respMap = new HashMap<>();
+            respMap.put("code", 200);
+            respMap.put("msg", "评估任务已提交");
+            respMap.put("taskId", taskId);
+            responsePrint(resp, toJson(respMap));
 
         } catch (Exception e) {
             log.error("执行评估失败", e);
@@ -1916,9 +1951,9 @@ public class AITrainingServlet extends BaseServlet {
     //用于异步执行任务
     private ExecutorService asyncTaskExecutor = new ThreadPoolExecutor(
             2, // 核心线程数
-            5, // 最大线程数
+            20, // 最大线程数
             60L, TimeUnit.SECONDS,
-            new LinkedBlockingQueue<>(10), // 任务队列
+            new LinkedBlockingQueue<>(20), // 任务队列
             Executors.defaultThreadFactory(),
             new ThreadPoolExecutor.AbortPolicy() // 任务满时的拒绝策略
     );
@@ -3265,7 +3300,7 @@ public class AITrainingServlet extends BaseServlet {
     }
 
     // ========== 模型管理接口（合并自 ModelIntroductionServlet） ==========
-    
+
     /**
      * 创建模型（包含简介信息）
      * POST /api/ai/training/createModel
@@ -3273,13 +3308,13 @@ public class AITrainingServlet extends BaseServlet {
     private void handleCreateModel(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json;charset=utf-8");
         Map<String, Object> result = new HashMap<>();
-        
+
         try {
             String jsonBody = requestToJson(req);
             JSONObject jsonNode = JSONUtil.parseObj(jsonBody);
-            
+
             // 验证必填参数
-            if (!jsonNode.containsKey("modelName") || jsonNode.getStr("modelName") == null || 
+            if (!jsonNode.containsKey("modelName") || jsonNode.getStr("modelName") == null ||
                 jsonNode.getStr("modelName").trim().isEmpty()) {
                 resp.setStatus(400);
                 result.put("code", 400);
@@ -3287,8 +3322,8 @@ public class AITrainingServlet extends BaseServlet {
                 responsePrint(resp, toJson(result));
                 return;
             }
-            
-            if (!jsonNode.containsKey("version") || jsonNode.getStr("version") == null || 
+
+            if (!jsonNode.containsKey("version") || jsonNode.getStr("version") == null ||
                 jsonNode.getStr("version").trim().isEmpty()) {
                 resp.setStatus(400);
                 result.put("code", 400);
@@ -3296,7 +3331,7 @@ public class AITrainingServlet extends BaseServlet {
                 responsePrint(resp, toJson(result));
                 return;
             }
-            
+
             // 构建模型数据
             String modelName = jsonNode.getStr("modelName");
             String version = jsonNode.getStr("version");
@@ -3304,16 +3339,16 @@ public class AITrainingServlet extends BaseServlet {
             if (path == null || path.isEmpty()) {
                 path = "/placeholder/model_" + System.currentTimeMillis() + ".pt";
             }
-            
+
             // 调用 ModelDatasetManager 保存
             ai.finetune.utils.ModelDatasetManager manager = new ai.finetune.utils.ModelDatasetManager();
-            
+
             // 获取状态，如果未提供则默认为 'active'（用户手动创建的模型默认为活跃状态）
             String status = jsonNode.getStr("status");
             if (status == null || status.trim().isEmpty()) {
                 status = "active";
             }
-            
+
             Long modelId = manager.saveModelWithDetails(
                 modelName, path, version,
                 jsonNode.get("dataset_id") != null ? jsonNode.getLong("dataset_id") : null,
@@ -3344,7 +3379,7 @@ public class AITrainingServlet extends BaseServlet {
                 jsonNode.getStr("icon_link"),
                 status  // 第31个参数：模型状态
             );
-            
+
             if (modelId != null) {
                 result.put("code", 200);
                 result.put("msg", "模型创建成功");
@@ -3358,7 +3393,7 @@ public class AITrainingServlet extends BaseServlet {
                 resp.setStatus(400);
             }
             responsePrint(resp, toJson(result));
-            
+
         } catch (Exception e) {
             log.error("创建模型失败", e);
             resp.setStatus(500);
@@ -3367,7 +3402,7 @@ public class AITrainingServlet extends BaseServlet {
             responsePrint(resp, toJson(result));
         }
     }
-    
+
     /**
      * 更新模型（包含简介信息）
      * POST /api/ai/training/updateModel
@@ -3375,11 +3410,11 @@ public class AITrainingServlet extends BaseServlet {
     private void handleUpdateModel(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json;charset=utf-8");
         Map<String, Object> result = new HashMap<>();
-        
+
         try {
             String jsonBody = requestToJson(req);
             JSONObject jsonNode = JSONUtil.parseObj(jsonBody);
-            
+
             // 验证必填参数 id
             if (!jsonNode.containsKey("id") || jsonNode.get("id") == null) {
                 resp.setStatus(400);
@@ -3388,9 +3423,9 @@ public class AITrainingServlet extends BaseServlet {
                 responsePrint(resp, toJson(result));
                 return;
             }
-            
+
             Long modelId = jsonNode.getLong("id");
-            
+
             // 检查模型是否存在
             ai.finetune.utils.ModelDatasetManager manager = new ai.finetune.utils.ModelDatasetManager();
             Map<String, Object> existingModel = manager.getModelById(modelId);
@@ -3401,12 +3436,12 @@ public class AITrainingServlet extends BaseServlet {
                 responsePrint(resp, toJson(result));
                 return;
             }
-            
+
             // 构建更新SQL，只更新提供的字段
             StringBuilder sql = new StringBuilder("UPDATE models SET ");
             List<Object> params = new ArrayList<>();
             List<String> setParts = new ArrayList<>();
-            
+
             // 基础字段
             if (jsonNode.containsKey("modelName") && jsonNode.getStr("modelName") != null) {
                 setParts.add("name = ?");
@@ -3424,7 +3459,7 @@ public class AITrainingServlet extends BaseServlet {
                 setParts.add("description = ?");
                 params.add(jsonNode.getStr("description"));
             }
-            
+
             // 简介字段
             if (jsonNode.containsKey("title") && jsonNode.getStr("title") != null) {
                 setParts.add("title = ?");
@@ -3514,7 +3549,7 @@ public class AITrainingServlet extends BaseServlet {
                 setParts.add("icon_link = ?");
                 params.add(jsonNode.getStr("iconLink"));
             }
-            
+
             if (setParts.isEmpty()) {
                 resp.setStatus(400);
                 result.put("code", 400);
@@ -3522,16 +3557,16 @@ public class AITrainingServlet extends BaseServlet {
                 responsePrint(resp, toJson(result));
                 return;
             }
-            
+
             setParts.add("updated_at = NOW()");
             sql.append(String.join(", ", setParts));
             sql.append(" WHERE id = ? AND is_deleted = 0");
             params.add(modelId);
-            
+
             // 执行更新
             ai.database.impl.MysqlAdapter mysqlAdapter = MysqlAdapter.getInstance();
             int rowsAffected = mysqlAdapter.executeUpdate(sql.toString(), params.toArray());
-            
+
             if (rowsAffected > 0) {
                 result.put("code", 200);
                 result.put("msg", "模型更新成功");
@@ -3542,7 +3577,7 @@ public class AITrainingServlet extends BaseServlet {
                 resp.setStatus(400);
             }
             responsePrint(resp, toJson(result));
-            
+
         } catch (Exception e) {
             log.error("更新模型失败", e);
             resp.setStatus(500);
@@ -3551,7 +3586,7 @@ public class AITrainingServlet extends BaseServlet {
             responsePrint(resp, toJson(result));
         }
     }
-    
+
     /**
      * 删除模型（软删除）
      * POST /api/ai/training/deleteModel?id=xxx
@@ -3559,7 +3594,7 @@ public class AITrainingServlet extends BaseServlet {
     private void handleDeleteModel(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json;charset=utf-8");
         Map<String, Object> result = new HashMap<>();
-        
+
         try {
             String paramId = req.getParameter("id");
             if (paramId == null || paramId.trim().isEmpty()) {
@@ -3569,9 +3604,9 @@ public class AITrainingServlet extends BaseServlet {
                 responsePrint(resp, toJson(result));
                 return;
             }
-            
+
             Long modelId = Long.parseLong(paramId);
-            
+
             // 检查模型是否存在
             ai.finetune.utils.ModelDatasetManager manager = new ai.finetune.utils.ModelDatasetManager();
             Map<String, Object> existingModel = manager.getModelById(modelId);
@@ -3582,12 +3617,12 @@ public class AITrainingServlet extends BaseServlet {
                 responsePrint(resp, toJson(result));
                 return;
             }
-            
+
             // 执行软删除
             ai.database.impl.MysqlAdapter mysqlAdapter = MysqlAdapter.getInstance();
             String sql = "UPDATE models SET is_deleted = 1, updated_at = NOW() WHERE id = ? AND is_deleted = 0";
             int rowsAffected = mysqlAdapter.executeUpdate(sql, modelId);
-            
+
             if (rowsAffected > 0) {
                 result.put("code", 200);
                 result.put("msg", "模型删除成功");
@@ -3598,7 +3633,7 @@ public class AITrainingServlet extends BaseServlet {
                 resp.setStatus(400);
             }
             responsePrint(resp, toJson(result));
-            
+
         } catch (Exception e) {
             log.error("删除模型失败", e);
             resp.setStatus(500);
@@ -3607,7 +3642,7 @@ public class AITrainingServlet extends BaseServlet {
             responsePrint(resp, toJson(result));
         }
     }
-    
+
     /**
      * 获取模型详情（包含所有简介字段）
      * GET /api/ai/training/getModelDetail?id=xxx
@@ -3615,7 +3650,7 @@ public class AITrainingServlet extends BaseServlet {
     private void handleGetModelDetail(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json;charset=utf-8");
         Map<String, Object> result = new HashMap<>();
-        
+
         try {
             String paramId = req.getParameter("id");
             if (paramId == null || paramId.trim().isEmpty()) {
@@ -3625,13 +3660,13 @@ public class AITrainingServlet extends BaseServlet {
                 responsePrint(resp, toJson(result));
                 return;
             }
-            
+
             Long modelId = Long.parseLong(paramId);
-            
+
             // 查询模型详情
             ai.finetune.utils.ModelDatasetManager manager = new ai.finetune.utils.ModelDatasetManager();
             Map<String, Object> modelDetail = manager.getModelById(modelId);
-            
+
             if (modelDetail == null) {
                 resp.setStatus(404);
                 result.put("code", 404);
@@ -3639,10 +3674,10 @@ public class AITrainingServlet extends BaseServlet {
                 responsePrint(resp, toJson(result));
                 return;
             }
-            
+
             // 查询关联的分类、类型、框架名称
             ai.database.impl.MysqlAdapter mysqlAdapter = MysqlAdapter.getInstance();
-            
+
             if (modelDetail.get("category_id") != null) {
                 Long categoryId = ((Number) modelDetail.get("category_id")).longValue();
                 String categorySql = "SELECT category_name FROM model_category WHERE id = ?";
@@ -3651,7 +3686,7 @@ public class AITrainingServlet extends BaseServlet {
                     modelDetail.put("category_name", categoryResult.get(0).get("category_name"));
                 }
             }
-            
+
             if (modelDetail.get("framework_id") != null) {
                 Long frameworkId = ((Number) modelDetail.get("framework_id")).longValue();
                 String frameworkSql = "SELECT framework_name FROM model_framework_dict WHERE id = ?";
@@ -3660,7 +3695,7 @@ public class AITrainingServlet extends BaseServlet {
                     modelDetail.put("framework_name", frameworkResult.get(0).get("framework_name"));
                 }
             }
-            
+
             if (modelDetail.get("model_type_id") != null) {
                 Long modelTypeId = ((Number) modelDetail.get("model_type_id")).longValue();
                 String modelTypeSql = "SELECT type_name FROM model_type_dict WHERE id = ?";
@@ -3669,13 +3704,13 @@ public class AITrainingServlet extends BaseServlet {
                     modelDetail.put("type_name", modelTypeResult.get(0).get("type_name"));
                 }
             }
-            
+
             result.put("code", 200);
             result.put("msg", "查询成功");
             result.put("data", modelDetail);
             resp.setStatus(200);
             responsePrint(resp, toJson(result));
-            
+
         } catch (Exception e) {
             log.error("查询模型详情失败", e);
             resp.setStatus(500);
@@ -3684,7 +3719,7 @@ public class AITrainingServlet extends BaseServlet {
             responsePrint(resp, toJson(result));
         }
     }
-    
+
     /**
      * 查询模型列表（包含简介字段，支持分页、搜索）
      * GET /api/ai/training/listModelsWithDetails?page=1&page_size=10&keyword=xxx&status=xxx&category_id=xxx
@@ -3692,7 +3727,7 @@ public class AITrainingServlet extends BaseServlet {
     private void handleListModelsWithDetails(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json;charset=utf-8");
         Map<String, Object> result = new HashMap<>();
-        
+
         try {
             // 解析请求参数
             int page = 1;
@@ -3705,7 +3740,7 @@ public class AITrainingServlet extends BaseServlet {
                     page = 1;
                 }
             }
-            
+
             int pageSize = 10;
             String pageSizeParam = req.getParameter("page_size");
             if (pageSizeParam != null && !pageSizeParam.trim().isEmpty()) {
@@ -3716,15 +3751,15 @@ public class AITrainingServlet extends BaseServlet {
                     pageSize = 10;
                 }
             }
-            
+
             String keyword = req.getParameter("keyword");
             if (keyword != null) keyword = keyword.trim();
             if (keyword != null && keyword.isEmpty()) keyword = null;
-            
+
             String status = req.getParameter("status");
             if (status != null) status = status.trim();
             if (status != null && status.isEmpty()) status = null;
-            
+
             Long categoryId = null;
             String categoryParam = req.getParameter("category_id");
             if (categoryParam != null && !categoryParam.trim().isEmpty()) {
@@ -3734,14 +3769,14 @@ public class AITrainingServlet extends BaseServlet {
                     // 忽略无效参数
                 }
             }
-            
+
             // 查询数据
             ai.finetune.utils.ModelDatasetManager manager = new ai.finetune.utils.ModelDatasetManager();
             ai.database.impl.MysqlAdapter mysqlAdapter = MysqlAdapter.getInstance();
-            
+
             // 查询总数
             long total = manager.countModels(null, keyword, status, categoryId);
-            
+
             // 查询状态统计
             StringBuilder statusCountWhere = new StringBuilder(" WHERE m.is_deleted = 0 ");
             List<Object> statusParams = new ArrayList<>();
@@ -3760,8 +3795,8 @@ public class AITrainingServlet extends BaseServlet {
                 statusCountWhere.append(" AND m.category_id = ?");
                 statusParams.add(categoryId);
             }
-            
-            String statusCountSql = "SELECT m.status AS status, COUNT(*) AS cnt FROM models m" + 
+
+            String statusCountSql = "SELECT m.status AS status, COUNT(*) AS cnt FROM models m" +
                                    statusCountWhere + " GROUP BY m.status";
             List<Map<String, Object>> statusCountResult = mysqlAdapter.select(statusCountSql, statusParams.toArray());
             Map<String, Object> statusCount = new HashMap<>();
@@ -3772,18 +3807,18 @@ public class AITrainingServlet extends BaseServlet {
                     statusCount.put(statusKey.toString(), ((Number) cntValue).longValue());
                 }
             }
-            
+
             // 查询列表
             List<Map<String, Object>> rows = manager.listModelsWithDetails(null, keyword, status, categoryId, page, pageSize);
             List<Map<String, Object>> list = new ArrayList<>();
-            
+
             // 查询分类名称
             for (Map<String, Object> row : rows) {
                 Map<String, Object> item = new HashMap<>();
                 item.put("id", row.get("id"));
                 item.put("modelName", row.get("name"));
                 item.put("version", row.get("version"));
-                
+
                 // 查询分类名称
                 if (row.get("category_id") != null) {
                     Long catId = ((Number) row.get("category_id")).longValue();
@@ -3793,7 +3828,7 @@ public class AITrainingServlet extends BaseServlet {
                         item.put("category", catResult.get(0).get("category_name"));
                     }
                 }
-                
+
                 item.put("title", row.get("title"));
                 item.put("author", row.get("author"));
                 item.put("status", row.get("status"));
@@ -3801,19 +3836,19 @@ public class AITrainingServlet extends BaseServlet {
                 item.put("createTime", row.get("created_at"));
                 list.add(item);
             }
-            
+
             // 构建返回结果
             Map<String, Object> data = new HashMap<>();
             data.put("total", total);
             data.put("statusCount", statusCount);
             data.put("list", list);
-            
+
             result.put("code", 200);
             result.put("msg", "查询成功");
             result.put("data", data);
             resp.setStatus(200);
             responsePrint(resp, toJson(result));
-            
+
         } catch (Exception e) {
             log.error("查询模型列表失败", e);
             resp.setStatus(500);
@@ -3822,7 +3857,7 @@ public class AITrainingServlet extends BaseServlet {
             responsePrint(resp, toJson(result));
         }
     }
-    
+
     /**
      * 查询模型分类下拉框
      * GET /api/ai/training/queryModelCategory
@@ -3835,14 +3870,14 @@ public class AITrainingServlet extends BaseServlet {
             ai.database.impl.MysqlAdapter mysqlAdapter = MysqlAdapter.getInstance();
             String sql = "SELECT id, category_name AS name FROM model_category";
             List<Map<String, Object>> categoryList = mysqlAdapter.select(sql);
-            
+
             for (Map<String, Object> map : categoryList) {
                 Map<String, Object> option = new HashMap<>();
                 option.put("id", map.get("id"));
                 option.put("name", map.get("name"));
                 options.add(option);
             }
-            
+
             result.put("code", 200);
             result.put("msg", "查询模型分类成功");
             result.put("data", options);
@@ -3855,7 +3890,7 @@ public class AITrainingServlet extends BaseServlet {
             responsePrint(resp, toJson(result));
         }
     }
-    
+
     /**
      * 查询模型类型下拉框
      * GET /api/ai/training/queryModelType
@@ -3868,14 +3903,14 @@ public class AITrainingServlet extends BaseServlet {
             ai.database.impl.MysqlAdapter mysqlAdapter = MysqlAdapter.getInstance();
             String sql = "SELECT id, type_name AS name FROM model_type_dict";
             List<Map<String, Object>> typeList = mysqlAdapter.select(sql);
-            
+
             for (Map<String, Object> map : typeList) {
                 Map<String, Object> option = new HashMap<>();
                 option.put("id", map.get("id"));
                 option.put("name", map.get("name"));
                 options.add(option);
             }
-            
+
             result.put("code", 200);
             result.put("msg", "查询模型类型成功");
             result.put("data", options);
@@ -3888,7 +3923,7 @@ public class AITrainingServlet extends BaseServlet {
             responsePrint(resp, toJson(result));
         }
     }
-    
+
     /**
      * 查询框架下拉框
      * GET /api/ai/training/queryFramework
@@ -3901,14 +3936,14 @@ public class AITrainingServlet extends BaseServlet {
             ai.database.impl.MysqlAdapter mysqlAdapter = MysqlAdapter.getInstance();
             String sql = "SELECT id, framework_name AS name FROM model_framework_dict";
             List<Map<String, Object>> frameworkList = mysqlAdapter.select(sql);
-            
+
             for (Map<String, Object> map : frameworkList) {
                 Map<String, Object> option = new HashMap<>();
                 option.put("id", map.get("id"));
                 option.put("name", map.get("name"));
                 options.add(option);
             }
-            
+
             result.put("code", 200);
             result.put("msg", "查询框架成功");
             result.put("data", options);

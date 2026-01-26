@@ -289,6 +289,10 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
             StringBuilder dockerCmd = new StringBuilder();
             dockerCmd.append("docker run --rm"); // --rm 自动删除容器
 
+            // GPU 支持
+            dockerCmd.append(" --gpus all");
+
+            dockerCmd.append(" --shm-size=8g");
             // 数据卷挂载
             dockerCmd.append(" -v ").append(volumeMount);
 
@@ -425,7 +429,7 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
             // 更新预测任务状态
             if (isSuccess(result)) {
                 updateYoloTaskStatus(taskId, "completed", "预测任务完成");
-                updateDeeplabTaskProgress(taskId, "100%");
+                updateDeeplabTaskProgress(taskId, "100");
                 addYoloPredictLog(taskId, "INFO", "预测任务完成", hostLogFilePath);
 
                 // 确保日志文件已上传到指定路径

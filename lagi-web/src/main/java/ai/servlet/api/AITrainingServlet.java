@@ -2,7 +2,9 @@ package ai.servlet.api;
 
 import ai.common.utils.ObservableList;
 import ai.config.ContextLoader;
+import ai.config.GlobalConfigurations;
 import ai.config.pojo.DiscriminativeModelsConfig;
+import ai.config.pojo.ModelPlatformConfig;
 import ai.database.impl.MysqlAdapter;
 import ai.finetune.*;
 
@@ -10,7 +12,6 @@ import ai.finetune.repository.TrainingTaskRepository;
 import ai.servlet.BaseServlet;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
-import cn.hutool.setting.yaml.YamlUtil;
 import com.google.gson.Gson;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
@@ -71,28 +72,146 @@ public class AITrainingServlet extends BaseServlet {
      * 从配置中获取执行模式（docker / k8s），默认 docker
      */
     @NotNull
-    private String getExecutionMode(String modelType, DiscriminativeModelsConfig discriminativeConfig) {
-        // 目前 execution_mode 配在 lagi.yml 的 model_platform.discriminative_models.execution_mode
-        try {
-            Map<?, ?> root = YamlUtil.loadByPath("lagi.yml");
-            if (root != null && root.get("model_platform") instanceof Map) {
-                Map<?, ?> mp = (Map<?, ?>) root.get("model_platform");
-                Object dmObj = mp.get("discriminative_models");
-                if (dmObj instanceof Map) {
-                    Map<?, ?> dm = (Map<?, ?>) dmObj;
-                    Object mode = dm.get("execution_mode");
-                    if (mode != null) {
-                        String v = mode.toString().trim().toLowerCase();
-                        if ("docker".equals(v) || "k8s".equals(v)) {
-                            return v;
-                        }
-                    }
-                }
+    private String getExecutionMode() {
+        String executionMode = null;
+        GlobalConfigurations configuration = ContextLoader.configuration;
+        if(configuration != null && configuration.getModelPlatformConfig() != null){
+            ModelPlatformConfig modelPlatformConfig = configuration.getModelPlatformConfig();
+            DiscriminativeModelsConfig discriminativeModelsConfig = modelPlatformConfig.getDiscriminativeModelsConfig();
+            if(discriminativeModelsConfig != null) {
+                executionMode = discriminativeModelsConfig.getExecutionMode();
             }
-        } catch (Exception e) {
-            log.warn("读取执行模式失败，使用默认 docker: {}", e.getMessage());
         }
-        return "docker";
+        return executionMode == null ? "docker" : executionMode;
+    }
+
+
+    @Override
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        if (!isTrainerAvailable()) {
+            sendServiceUnavailableError(resp, null);
+            return;
+        }
+
+        String url = req.getRequestURI();
+        String method = url.substring(url.lastIndexOf("/") + 1);
+
+        switch (method) {
+            case "start":
+                handleStartTraining(req, resp);
+                break;
+            case "pause":
+                handlePauseContainer(req, resp);
+                break;
+            case "resume":
+                handleResumeContainer(req, resp);
+                break;
+            case "stop":
+                handleStopContainer(req, resp);
+                break;
+            case "remove":
+                handleRemoveContainer(req, resp);
+                break;
+            case "deleted":
+                handleDeletedContainer(req, resp);
+                break;
+            case "status":
+                handleGetStatus(req, resp);
+                break;
+            case "logs":
+                handleGetLogs(req, resp);
+                break;
+            case "stream":
+                handleStreamLogs(req, resp);
+                break;
+            case "evaluate":
+                // TODO: 评估（也是推理验证）
+                handleEvaluate(req, resp);
+                break;
+            case "predict":
+                // TODO: 预测
+                handlePredict(req, resp);
+                break;
+            case "export":
+                // TODO: 导出模型
+                handleExportModel(req, resp);
+                break;
+            case "upload":
+                handleUploadFile(req, resp);
+                break;
+            case "download":
+                handleDownloadFile(req, resp);
+                break;
+            case "commit":
+                handleCommitImage(req, resp);
+                break;
+            case "list":
+                handleListContainers(req, resp);
+                break;
+            case "models":
+                handleListModels(req, resp);
+                break;
+            case "detail":
+                handledetail(req, resp);
+                break;
+            case "resources":
+                handleGetResourceUsage(req, resp);
+                break;
+            case "updateData":
+                handleUpdateData(req, resp);
+                break;
+
+            case "monitor":
+                handleMonitor(req, resp);
+                break;
+            case "uploadModel":
+                handleUploadModel(req, resp);
+                break;
+            case "uploadDataset":
+                handleUploadDataset(req, resp);
+                break;
+            case "listModels":
+                handleListModelsForTraining(req, resp);
+                break;
+            case "listDatasets":
+                handleListDatasetsForTraining(req, resp);
+                break;
+            case "createModel":
+                handleCreateModel(req, resp);
+                break;
+            case "updateModel":
+                handleUpdateModel(req, resp);
+                break;
+            case "deleteModel":
+                handleDeleteModel(req, resp);
+                break;
+            case "getModelDetail":
+                handleGetModelDetail(req, resp);
+                break;
+            case "listModelsWithDetails":
+                handleListModelsWithDetails(req, resp);
+                break;
+            case "queryModelCategory":
+                handleQueryModelCategory(req, resp);
+                break;
+            case "queryModelType":
+                handleQueryModelType(req, resp);
+                break;
+            case "queryFramework":
+                handleQueryFramework(req, resp);
+                break;
+            default:
+                resp.setStatus(404);
+                Map<String, String> error = new HashMap<>();
+                error.put("error", "接口不存在: " + method);
+                responsePrint(resp, toJson(error));
+        }
+    }
+
+
+    @Override
+    protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        this.doGet(req, resp);
     }
 
     /**
@@ -179,29 +298,7 @@ public class AITrainingServlet extends BaseServlet {
             String modelType = normalizeModelType(lowerModelName);
 
             // 获取执行模式
-            String executionMode = getExecutionMode(modelType, discriminativeConfig);
-
-            // 检查trainerMap中是否已有对应执行模式的trainer（使用标准化的模型类型）
-            TrainerInterface existingTrainer = trainerMap.get(modelType);
-            if (existingTrainer != null) {
-                // 检查现有trainer是否匹配当前执行模式
-                boolean isK8sTrainer = existingTrainer instanceof YoloK8sAdapter
-                        || existingTrainer instanceof DeeplabK8sAdapter
-                        || existingTrainer instanceof TrackNetV3K8sAdapter;
-                boolean isDockerTrainer = existingTrainer instanceof YoloTrainerAdapter
-                        || existingTrainer instanceof DeeplabAdapter
-                        || existingTrainer instanceof TrackNetV3Adapter;
-
-                if (("k8s".equals(executionMode) && isK8sTrainer)
-                        || ("docker".equals(executionMode) && isDockerTrainer)) {
-                    log.debug("使用已存在的训练器: model={}, mode={}", modelName, executionMode);
-                    return existingTrainer;
-                } else {
-                    log.info("现有训练器执行模式不匹配，重新创建: model={}, expected={}, actual={}",
-                            modelName, executionMode, isK8sTrainer ? "k8s" : "docker");
-                }
-            }
-
+            String executionMode = getExecutionMode();
             // 创建新的trainer
             TrainerInterface trainer = TrainerFactory.createTrainer(modelType, executionMode);
 
@@ -390,7 +487,7 @@ public class AITrainingServlet extends BaseServlet {
             }
 
             // 读取执行模式：docker 或 k8s
-            String executionMode = getExecutionMode("yolo", discriminativeConfig);
+            String executionMode = getExecutionMode();
             TrainerInterface trainer = TrainerFactory.createTrainer("yolo", executionMode);
 
             if ("docker".equals(executionMode)) {
@@ -455,7 +552,7 @@ public class AITrainingServlet extends BaseServlet {
                 return;
             }
 
-            String executionMode = getExecutionMode("deeplab", discriminativeConfig);
+            String executionMode = getExecutionMode();
             TrainerInterface trainer = TrainerFactory.createTrainer("deeplab", executionMode);
 
             if ("docker".equals(executionMode)) {
@@ -513,7 +610,7 @@ public class AITrainingServlet extends BaseServlet {
                 return;
             }
 
-            String executionMode = getExecutionMode("tracknetv3", discriminativeConfig);
+            String executionMode = getExecutionMode();
             TrainerInterface trainer = TrainerFactory.createTrainer("tracknetv3", executionMode);
 
             if ("docker".equals(executionMode)) {
@@ -552,127 +649,7 @@ public class AITrainingServlet extends BaseServlet {
         }
     }
 
-    @Override
-    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        if (!isTrainerAvailable()) {
-            sendServiceUnavailableError(resp, null);
-            return;
-        }
 
-        String url = req.getRequestURI();
-        String method = url.substring(url.lastIndexOf("/") + 1);
-
-        switch (method) {
-            case "start":
-                handleStartTraining(req, resp);
-                break;
-            case "pause":
-                handlePauseContainer(req, resp);
-                break;
-            case "resume":
-                handleResumeContainer(req, resp);
-                break;
-            case "stop":
-                handleStopContainer(req, resp);
-                break;
-            case "remove":
-                handleRemoveContainer(req, resp);
-                break;
-            case "deleted":
-                handleDeletedContainer(req, resp);
-                break;
-            case "status":
-                handleGetStatus(req, resp);
-                break;
-            case "logs":
-                handleGetLogs(req, resp);
-                break;
-            case "stream":
-                handleStreamLogs(req, resp);
-                break;
-            case "evaluate":
-                // TODO: 评估（也是推理验证）
-                handleEvaluate(req, resp);
-                break;
-            case "predict":
-                // TODO: 预测
-                handlePredict(req, resp);
-                break;
-            case "export":
-                // TODO: 导出模型
-                handleExportModel(req, resp);
-                break;
-            case "upload":
-                handleUploadFile(req, resp);
-                break;
-            case "download":
-                handleDownloadFile(req, resp);
-                break;
-            case "commit":
-                handleCommitImage(req, resp);
-                break;
-            case "list":
-                handleListContainers(req, resp);
-                break;
-            case "models":
-                handleListModels(req, resp);
-                break;
-            case "detail":
-                handledetail(req, resp);
-                break;
-            case "resources":
-                handleGetResourceUsage(req, resp);
-                break;
-            case "updateData":
-                handleUpdateData(req, resp);
-                break;
-
-            case "monitor":
-                handleMonitor(req, resp);
-                break;
-            case "uploadModel":
-                handleUploadModel(req, resp);
-                break;
-            case "uploadDataset":
-                handleUploadDataset(req, resp);
-                break;
-            case "listModels":
-                handleListModelsForTraining(req, resp);
-                break;
-            case "listDatasets":
-                handleListDatasetsForTraining(req, resp);
-                break;
-            case "createModel":
-                handleCreateModel(req, resp);
-                break;
-            case "updateModel":
-                handleUpdateModel(req, resp);
-                break;
-            case "deleteModel":
-                handleDeleteModel(req, resp);
-                break;
-            case "getModelDetail":
-                handleGetModelDetail(req, resp);
-                break;
-            case "listModelsWithDetails":
-                handleListModelsWithDetails(req, resp);
-                break;
-            case "queryModelCategory":
-                handleQueryModelCategory(req, resp);
-                break;
-            case "queryModelType":
-                handleQueryModelType(req, resp);
-                break;
-            case "queryFramework":
-                handleQueryFramework(req, resp);
-                break;
-            default:
-                resp.setStatus(404);
-                Map<String, String> error = new HashMap<>();
-                error.put("error", "接口不存在: " + method);
-                responsePrint(resp, toJson(error));
-        }
-    }
 
     private void handleMonitor(HttpServletRequest req, HttpServletResponse resp) {
         // TODO: 添加监控功能
@@ -1058,10 +1035,7 @@ public class AITrainingServlet extends BaseServlet {
         return false;
     }
 
-    @Override
-    protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        this.doGet(req, resp);
-    }
+
 
     /**
      * 启动训练任务（通用版，支持所有模型）

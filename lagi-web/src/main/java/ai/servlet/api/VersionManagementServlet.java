@@ -322,6 +322,7 @@ public class VersionManagementServlet extends BaseServlet {
 
 
             // 平均准确率
+            // 注意：数据库中存储的已经是百分比值（如78.30），不需要再乘以100
             String avgAccuracySql = "SELECT AVG(accuracy_rate) AS avg_acc FROM model_version WHERE is_deleted = 0 AND accuracy_rate IS NOT NULL";
             List<Map<String, Object>> avgAccuracyResult = getMysqlAdapter().select(avgAccuracySql);
             String avgAccuracy = "0%";
@@ -329,7 +330,7 @@ public class VersionManagementServlet extends BaseServlet {
                 Object avgAccObj = avgAccuracyResult.get(0).get("avg_acc");
                 if (avgAccObj != null) {
                     double avgAcc = ((Number) avgAccObj).doubleValue();
-                    avgAccuracy = String.format("%.2f%%", avgAcc * 100);
+                    avgAccuracy = String.format("%.2f%%", avgAcc);
                 }
             }
             stat.put("avgAccuracy", avgAccuracy);
@@ -393,11 +394,12 @@ public class VersionManagementServlet extends BaseServlet {
                     item.put("status", status);
 
                     // 处理准确率：转换为百分比字符串
+                    // 注意：数据库中存储的已经是百分比值（如78.30），不需要再乘以100
                     Object accuracyRateObj = row.get("accuracy_rate");
                     String accuracy = "0%";
                     if (accuracyRateObj != null) {
                         double accuracyRate = ((Number) accuracyRateObj).doubleValue();
-                        accuracy = String.format("%.0f%%", accuracyRate * 100);
+                        accuracy = String.format("%.2f%%", accuracyRate);
                     }
                     item.put("accuracy", accuracy);
 

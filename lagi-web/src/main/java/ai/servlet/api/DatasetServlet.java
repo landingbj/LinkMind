@@ -415,6 +415,7 @@ public class DatasetServlet extends BaseServlet {
             Integer storageType = null;
             String originalUrl = null;
             Long fileSize = 0L;
+            String configPath = null;  // YAML配置文件路径
 
             // 方式1：服务器绝对路径上传
             if (paramMap.containsKey("absolute_path") && paramMap.get("absolute_path") != null) {
@@ -434,8 +435,20 @@ public class DatasetServlet extends BaseServlet {
                         return;
                     }
                     storagePath = extractDir.getAbsolutePath();
+                    // 查找解压目录中的 YAML 文件
+                    configPath = findYamlFile(extractDir);
                 } else {
                     storagePath = absolutePath;
+                    // 如果是单个文件，检查是否是 yaml 文件
+                    if (absolutePath.toLowerCase().endsWith(".yaml") || absolutePath.toLowerCase().endsWith(".yml")) {
+                        configPath = absolutePath;
+                    } else {
+                        // 如果是目录，查找其中的 yaml 文件
+                        File absoluteDir = new File(absolutePath);
+                        if (absoluteDir.isDirectory()) {
+                            configPath = findYamlFile(absoluteDir);
+                        }
+                    }
                 }
                 storageType = uploadConfig.getDataset().getStorage_type().getAbsolute_path();
                 fileSize = absoluteFile.length();
@@ -464,6 +477,8 @@ public class DatasetServlet extends BaseServlet {
                         return;
                     }
                     storagePath = extractDir.getAbsolutePath();
+                    // 查找解压目录中的 YAML 文件
+                    configPath = findYamlFile(extractDir);
                     // 删除临时ZIP文件
                     tempFile.delete();
                 } else {
@@ -473,6 +488,10 @@ public class DatasetServlet extends BaseServlet {
                     targetFile.getParentFile().mkdirs();
                     Files.move(tempFile.toPath(), targetFile.toPath());
                     storagePath = targetFile.getAbsolutePath();
+                    // 检查是否是 yaml 文件
+                    if (targetFile.getName().toLowerCase().endsWith(".yaml") || targetFile.getName().toLowerCase().endsWith(".yml")) {
+                        configPath = storagePath;
+                    }
                 }
                 storageType = uploadConfig.getDataset().getStorage_type().getUrl_download();
                 fileSize = new File(storagePath).isDirectory() ? 
@@ -521,6 +540,9 @@ public class DatasetServlet extends BaseServlet {
                 storageType = uploadConfig.getDataset().getStorage_type().getFile_upload();
                 fileSize = calculateDirectorySize(extractDir);
                 
+                // 查找解压目录中的 YAML 文件
+                configPath = findYamlFile(extractDir);
+                
                 // 删除临时上传文件
                 uploadedFile.delete();
 
@@ -531,7 +553,7 @@ public class DatasetServlet extends BaseServlet {
             }
 
             // 5. 插入数据库
-            boolean insertSuccess = insertDatasetToDb(paramMap, sampleId, storagePath, storageType, originalUrl, fileSize, uploader);
+            boolean insertSuccess = insertDatasetToDb(paramMap, sampleId, storagePath, storageType, originalUrl, fileSize, uploader, configPath);
             if (insertSuccess) {
                 Map<String, Object> success = new HashMap<>();
                 success.put("code", 200);
@@ -541,6 +563,7 @@ public class DatasetServlet extends BaseServlet {
                 data.put("storage_path", storagePath);
                 data.put("file_size", fileSize);
                 data.put("storage_type", storageType);
+                data.put("config_path", configPath);  // 添加 config_path 到响应中
                 success.put("data", data);
                 responsePrint(resp, objectMapper.writeValueAsString(success));
             } else {
@@ -795,12 +818,12 @@ public class DatasetServlet extends BaseServlet {
      * 插入数据集信息到数据库
      */
     private boolean insertDatasetToDb(Map<String, Object> paramMap, String sampleId, String storagePath,
-                                      Integer storageType, String originalUrl, Long fileSize, String uploader) throws SQLException {
+                                      Integer storageType, String originalUrl, Long fileSize, String uploader, String configPath) throws SQLException {
         String sql = "INSERT INTO dataset_upload (" +
                 "sample_id, name, description, label, category, access_level, uploader, " +
                 "data_source, data_processing_status, missing_value_mark, weight, remark, " +
-                "training_params, storage_path, storage_type, original_url, file_size, is_deleted" +
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                "training_params, config_path, storage_path, storage_type, original_url, file_size, is_deleted" +
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         
         // 处理权重（默认1.0）
         Object weight = paramMap.get("weight");
@@ -836,6 +859,7 @@ public class DatasetServlet extends BaseServlet {
                 weight,
                 getStringValue(paramMap.get("remark")),
                 trainingParamsStr,
+                configPath,  // config_path 字段
                 storagePath,
                 storageType,
                 originalUrl,
@@ -854,6 +878,45 @@ public class DatasetServlet extends BaseServlet {
             return null;
         }
         return value.toString();
+    }
+
+    /**
+     * 递归查找目录中的 .yaml 文件
+     * @param directory 要搜索的目录
+     * @return 找到的第一个 .yaml 文件的完整路径，如果未找到则返回 null
+     */
+    private String findYamlFile(File directory) {
+        if (directory == null || !directory.exists() || !directory.isDirectory()) {
+            return null;
+        }
+        
+        File[] files = directory.listFiles();
+        if (files == null) {
+            return null;
+        }
+        
+        // 先查找当前目录下的 .yaml 文件
+        for (File file : files) {
+            if (file.isFile()) {
+                String fileName = file.getName().toLowerCase();
+                if (fileName.endsWith(".yaml") || fileName.endsWith(".yml")) {
+                    log.info("找到 YAML 文件：{}", file.getAbsolutePath());
+                    return file.getAbsolutePath();
+                }
+            }
+        }
+        
+        // 如果当前目录没找到，递归查找子目录
+        for (File file : files) {
+            if (file.isDirectory()) {
+                String yamlPath = findYamlFile(file);
+                if (yamlPath != null) {
+                    return yamlPath;
+                }
+            }
+        }
+        
+        return null;
     }
 
 
@@ -896,6 +959,7 @@ public class DatasetServlet extends BaseServlet {
         Long replaceFileSize = null;
         String replaceOriginalUrl = null;
         Integer replaceStorageType = null;
+        String newConfigPath = null;  // 新的 config_path（YAML 文件路径）
         File uploadedFile = null;
 
         try {
@@ -1051,8 +1115,10 @@ public class DatasetServlet extends BaseServlet {
                 replaceFileSize = calculateDirectorySize(extractDir);
                 replaceOriginalUrl = null;
                 replaceStorageType = uploadConfig.getDataset().getStorage_type().getFile_upload();
+                // 查找解压目录中的 YAML 文件
+                newConfigPath = findYamlFile(extractDir);
                 didReplaceByFileOrUrl = true;
-                log.info("数据集已通过 file 替换：sample_id={}, 路径保持不变={}", sampleId, newStoragePath);
+                log.info("数据集已通过 file 替换：sample_id={}, 路径保持不变={}, config_path={}", sampleId, newStoragePath, newConfigPath);
             }
 
             // 4c. 替换为 original_url / dataset_url（URL 下载）
@@ -1109,6 +1175,8 @@ public class DatasetServlet extends BaseServlet {
                     // 保持原 storage_path 不变
                     newStoragePath = oldStoragePath;
                     replaceFileSize = calculateDirectorySize(extractDir);
+                    // 查找解压目录中的 YAML 文件
+                    newConfigPath = findYamlFile(extractDir);
                 } else {
                     // 非 ZIP 文件：移动到旧路径位置（覆盖）
                     if (oldFile.exists()) {
@@ -1127,11 +1195,15 @@ public class DatasetServlet extends BaseServlet {
                     // 保持原 storage_path 不变
                     newStoragePath = oldStoragePath;
                     replaceFileSize = oldFile.length();
+                    // 检查是否是 yaml 文件
+                    if (oldFile.getName().toLowerCase().endsWith(".yaml") || oldFile.getName().toLowerCase().endsWith(".yml")) {
+                        newConfigPath = newStoragePath;
+                    }
                 }
                 replaceOriginalUrl = replaceUrl;
                 replaceStorageType = uploadConfig.getDataset().getStorage_type().getUrl_download();
                 didReplaceByFileOrUrl = true;
-                log.info("数据集已通过 original_url 替换：sample_id={}, 路径保持不变={}", sampleId, newStoragePath);
+                log.info("数据集已通过 original_url 替换：sample_id={}, 路径保持不变={}, config_path={}", sampleId, newStoragePath, newConfigPath);
             }
 
             // 4. 处理 storage_path 参数（移动路径，与替换互斥）
@@ -1277,6 +1349,17 @@ public class DatasetServlet extends BaseServlet {
                         
                         isFileMoved = true;
                         log.info("文件/目录移动成功，旧路径已删除：{} → {}", oldStoragePath, newStoragePath);
+                        
+                        // 文件移动成功后，在新路径中查找 YAML 文件
+                        File newFileForYaml = new File(newStoragePath);
+                        if (newFileForYaml.exists()) {
+                            if (newFileForYaml.isDirectory()) {
+                                newConfigPath = findYamlFile(newFileForYaml);
+                            } else if (newFileForYaml.getName().toLowerCase().endsWith(".yaml") || 
+                                      newFileForYaml.getName().toLowerCase().endsWith(".yml")) {
+                                newConfigPath = newStoragePath;
+                            }
+                        }
                     } catch (Exception e) {
                         log.error("文件移动过程中发生异常：{} → {}", oldStoragePath, newStoragePath, e);
                         // 如果移动失败，尝试清理可能已创建的新路径
@@ -1309,7 +1392,7 @@ public class DatasetServlet extends BaseServlet {
             String[] updatableFields = {
                     "name", "description", "label", "category", "access_level",
                     "data_source", "data_processing_status", "missing_value_mark",
-                    "weight", "remark", "training_params", "storage_path"
+                    "weight", "remark", "training_params", "storage_path", "config_path"
             };
 
             for (String field : updatableFields) {
@@ -1340,6 +1423,12 @@ public class DatasetServlet extends BaseServlet {
                             updateFields.add(field + " = ?");
                             updateParams.add(newStoragePath);
                             break;
+                        case "config_path":
+                            // 如果用户手动指定了 config_path，使用用户指定的值
+                            // 注意：如果同时有文件替换或路径移动，会自动查找的 config_path 会覆盖手动指定的值
+                            updateFields.add(field + " = ?");
+                            updateParams.add(value == null ? null : value.toString().trim());
+                            break;
                         default:
                             updateFields.add(field + " = ?");
                             updateParams.add(value == null ? null : value.toString().trim());
@@ -1348,7 +1437,7 @@ public class DatasetServlet extends BaseServlet {
                 }
             }
 
-            // 文件/URL 替换时，更新 storage_path、file_size、original_url、storage_type
+            // 文件/URL 替换时，更新 storage_path、file_size、original_url、storage_type、config_path
             if (didReplaceByFileOrUrl) {
                 updateFields.add("storage_path = ?");
                 updateParams.add(newStoragePath);
@@ -1358,6 +1447,33 @@ public class DatasetServlet extends BaseServlet {
                 updateParams.add(replaceOriginalUrl);
                 updateFields.add("storage_type = ?");
                 updateParams.add(replaceStorageType);
+                // 更新 config_path（如果找到了新的 YAML 文件）
+                if (newConfigPath != null) {
+                    // 移除用户手动指定的 config_path（如果存在），使用自动查找的
+                    for (int i = updateFields.size() - 1; i >= 0; i--) {
+                        if (updateFields.get(i).equals("config_path = ?")) {
+                            updateFields.remove(i);
+                            updateParams.remove(i);
+                            break;
+                        }
+                    }
+                    updateFields.add("config_path = ?");
+                    updateParams.add(newConfigPath);
+                }
+            }
+            
+            // storage_path 移动时，如果找到了新的 config_path，也要更新（优先使用自动查找的）
+            if (needUpdateStoragePath && !didReplaceByFileOrUrl && newConfigPath != null) {
+                // 移除用户手动指定的 config_path（如果存在），使用自动查找的
+                for (int i = updateFields.size() - 1; i >= 0; i--) {
+                    if (updateFields.get(i).equals("config_path = ?")) {
+                        updateFields.remove(i);
+                        updateParams.remove(i);
+                        break;
+                    }
+                }
+                updateFields.add("config_path = ?");
+                updateParams.add(newConfigPath);
             }
 
             // 校验：至少有一个更新字段
@@ -1387,6 +1503,7 @@ public class DatasetServlet extends BaseServlet {
                     dataMap.put("new_storage_path", newStoragePath);
                     dataMap.put("file_size", replaceFileSize);
                     dataMap.put("storage_type", replaceStorageType);
+                    dataMap.put("config_path", newConfigPath);  // 添加 config_path 到响应
                     result.put("data", dataMap);
                 } else if (needUpdateStoragePath) {
                     result.put("msg", "数据集路径及信息更新成功");
@@ -1395,6 +1512,7 @@ public class DatasetServlet extends BaseServlet {
                     dataMap.put("old_storage_path", oldStoragePath);
                     dataMap.put("new_storage_path", newStoragePath);
                     dataMap.put("file_moved", isFileMoved);
+                    dataMap.put("config_path", newConfigPath);  // 添加 config_path 到响应
                     result.put("data", dataMap);
                 } else {
                     result.put("msg", "数据集信息更新成功");

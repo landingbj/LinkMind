@@ -164,7 +164,7 @@ public class ModelDatasetManager {
     public Map<String, Object> getDatasetById(Long datasetId) {
         try {
             // 使用 dataset_upload 表，字段映射：storage_path -> path
-            String sql = "SELECT id, sample_id, name, storage_path AS path, description, uploader AS user_id, " +
+            String sql = "SELECT id, sample_id, name, config_path, storage_path, description, uploader AS user_id, " +
                         "file_size, storage_type, original_url, create_time AS upload_time, " +
                         "update_time, is_deleted " +
                         "FROM dataset_upload WHERE id = ? AND (is_deleted = 0 OR is_deleted IS NULL)";

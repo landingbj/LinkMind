@@ -1266,7 +1266,11 @@ public class AITrainingServlet extends BaseServlet {
                 datasetId = config.getLong("dataset_id");
                 Map<String, Object> datasetInfo = manager.getDatasetById(datasetId);
                 if (datasetInfo != null) {
-                    datasetPath = (String) datasetInfo.get("path");
+                    // datasetPath = (String) datasetInfo.get("path");
+                    // 优先取config_path，为空则取storage_path
+                    String configPath = (String) datasetInfo.get("config_path");
+                    String storagePath = (String) datasetInfo.get("storage_path");
+                    datasetPath = (configPath != null && !configPath.trim().isEmpty()) ? configPath : storagePath;
                     trainConfig.put("dataset_id", datasetId);
                 }
             } catch (Exception e) {

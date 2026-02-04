@@ -4,6 +4,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import lombok.*;
 
+import java.util.List;
+
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
@@ -19,4 +21,8 @@ public class ModelPlatformConfig {
     private Boolean remote;
     private String remoteServiceUrl;
 
+    private List<List<String>> volumes;
+    private List<List<String>> envs;
+    private String operatingPlatform;
+    private Docker docker;
 }

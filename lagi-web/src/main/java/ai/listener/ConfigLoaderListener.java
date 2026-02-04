@@ -2,6 +2,9 @@ package ai.listener;
 
 import ai.config.ContextLoader;
 import ai.config.UploadConfig;
+import ai.finetune.service.TrainerService;
+import ai.finetune.service.impl.DockerTrainerServiceImpl;
+import ai.finetune.service.impl.K8sTrainerServiceImpl;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.servlet.ServletContext;
@@ -25,6 +28,14 @@ public class ConfigLoaderListener implements ServletContextListener {
             ContextLoader.loadContext();
             UploadConfig uploadConfig = ContextLoader.loadConfig("upload-config.yml", UploadConfig.class);
             ContextLoader.registerBean(UploadConfig.class, uploadConfig);
+            String operatingPlatform = ContextLoader.configuration.getModelPlatformConfig().getOperatingPlatform();
+            if("docker".equalsIgnoreCase(operatingPlatform)) {
+                ContextLoader.registerBean(TrainerService.class, new DockerTrainerServiceImpl());
+            } else if("k8s".equalsIgnoreCase(operatingPlatform)) {
+                ContextLoader.registerBean(TrainerService.class, new K8sTrainerServiceImpl());
+            } else {
+                log.error("不支持的操作系统平台：{}", operatingPlatform);
+            }
         } catch (Exception e) {
             // 捕获所有异常，记录详细日志并抛出，让Tomcat明确感知监听器启动失败
             String errorMsg = "ConfigLoaderListener监听器初始化失败";

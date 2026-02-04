@@ -68,8 +68,8 @@ public class TrainingTaskRepository {
                 "(task_id, track_id, model_name, model_category, model_framework, task_type, " +
                 "container_name, container_id, docker_image, gpu_ids, use_gpu, " +
                 "dataset_path, model_path, epochs, batch_size, image_size, optimizer, " +
-                "status, progress, current_epoch, start_time, created_at, is_deleted, user_id, template_id, config_json) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                "status, progress, current_epoch, start_time, created_at, is_deleted, user_id, template_id, config_json, output_path) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
         int result = mysqlAdapter.executeUpdate(sql,
                 task.getTaskId(),
@@ -97,7 +97,9 @@ public class TrainingTaskRepository {
                 0,  // is_deleted
                 task.getUserId(),  // 添加 user_id
                 task.getTemplateId(), // 添加 template_id
-                task.getConfigJson() != null ? task.getConfigJson().toString() : "{}");
+                task.getConfigJson() != null ? task.getConfigJson().toString() : "{}",
+                task.getOutputPath()
+        );
 
         log.info("训练任务已保存: taskId={}, model={}, category={}, framework={}, userId={}",
                 task.getTaskId(), task.getModelName(), task.getModelCategory(), task.getModelFramework(), task.getUserId());
@@ -305,11 +307,11 @@ public class TrainingTaskRepository {
      * 添加训练日志
      */
     public boolean addTrainingLog(String taskId, String logLevel, String logContent) {
-        String sql = "INSERT INTO ai_training_logs (task_id, log_level, log_content, log_time, created_at) " +
-                "VALUES (?, ?, ?, ?, ?)";
+        String sql = "INSERT INTO ai_training_logs (task_id, log_level, log_message, created_at) " +
+                "VALUES (?, ?, ?, ?)";
         try {
             String currentTime = getCurrentTime();
-            int result = mysqlAdapter.executeUpdate(sql, taskId, logLevel, logContent, currentTime, currentTime);
+            int result = mysqlAdapter.executeUpdate(sql, taskId, logLevel, logContent, currentTime);
             return result > 0;
         } catch (Exception e) {
             log.error("添加训练日志失败: taskId={}", taskId, e);
@@ -1096,6 +1098,28 @@ public class TrainingTaskRepository {
             log.error("根据任务ID更新任务信息失败: taskId={}", taskId, e);
             return false;
         }
+    }
+
+    /**
+     * 根据存储路径查询数据集名称
+     * @param storagePath 数据集存储路径
+     * @return 数据集名称，如果未找到则返回 null
+     */
+    public String getDatasetNameByStoragePath(String storagePath) {
+        if (storagePath == null || storagePath.isEmpty()) {
+            return null;
+        }
+        try {
+            String sql = "SELECT name FROM dataset_upload WHERE storage_path = ? AND is_deleted = 0 LIMIT 1";
+            List<Map<String, Object>> result = mysqlAdapter.select(sql, storagePath);
+            if (result != null && !result.isEmpty()) {
+                Object name = result.get(0).get("name");
+                return name != null ? name.toString() : null;
+            }
+        } catch (Exception e) {
+            log.error("根据存储路径查询数据集名称失败: storagePath={}, error={}", storagePath, e.getMessage(), e);
+        }
+        return null;
     }
 }
 

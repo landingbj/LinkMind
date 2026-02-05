@@ -1,7 +1,12 @@
 package ai.finetune.repository;
 
+import ai.config.pojo.ModelMapper;
 import ai.database.impl.MysqlAdapter;
+import ai.finetune.config.ModelConfigManager;
 import ai.finetune.dto.TrainingTaskDTO;
+import ai.finetune.util.ParameterUtil;
+import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONObject;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -27,8 +32,12 @@ public class TrainingTaskRepository {
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final Gson gson = new Gson();
 
+    private final ModelConfigManager modelConfigManager;
+
     public TrainingTaskRepository(MysqlAdapter mysqlAdapter) {
         this.mysqlAdapter = mysqlAdapter;
+        this.modelConfigManager = new ModelConfigManager(mysqlAdapter);
+        this.modelConfigManager.loadConfigsFromDatabase();
     }
 
     /**
@@ -57,6 +66,178 @@ public class TrainingTaskRepository {
             log.error("保存任务到数据库失败: taskId={}, type={}, error={}",
                     task.getTaskId(), task.getTaskType(), e.getMessage(), e);
             return false;
+        }
+    }
+
+    /**
+     * 保存训练任务到数据库
+     */
+    public void saveTrainingTaskToDB(String taskId, String trackId, String containerName, JSONObject config, ModelMapper modelMapper) {
+        try {
+            String modelName = config.getStr("model_name", "custom_model");
+            ModelConfigManager.ModelConfig modelConfig = modelConfigManager.getModelConfig(modelName, config);
+
+            // 从配置中读取数据集名称
+            String datasetName = config.getStr("dataset_name", "外部数据集");
+            String datasetPath = config.getStr("data", "");
+            if (StrUtil.isNotBlank(datasetPath)) {
+                // 通过 DAO 查询数据集名称
+                String queriedName = getDatasetNameByStoragePath(datasetPath);
+                if (StrUtil.isNotBlank(queriedName)) {
+                    datasetName = queriedName;
+                    config.set("dataset_name", datasetName);
+                }
+            }
+
+            // 构建 TrainingTaskDTO
+            TrainingTaskDTO task = TrainingTaskDTO.builder()
+                    .taskId(taskId)
+                    .trackId(trackId)
+                    .taskType("train")
+                    .modelName(modelName)
+                    .modelCategory(modelConfig.getModelCategory())
+                    .modelFramework(modelConfig.getModelFramework())
+                    .containerName(containerName)
+                    .dockerImage(config.getStr("_docker_image", ""))
+                    .datasetPath(datasetPath)
+                    .modelPath(config.getStr("model_path", ""))
+                    .epochs(config.getInt("epochs", null))
+                    .batchSize(config.getInt("batch", null))
+                    .imageSize(config.getInt("imgsz") != null ? String.valueOf(config.getInt("imgsz")) : null)
+                    .optimizer(config.getStr("optimizer", "sgd"))
+                    .gpuIds(config.getStr("device", "0"))
+                    .useGpu(config.getStr("device", "0").equals("cpu") ? "0" : "1")
+                    .status("starting")
+                    .progress("0%")
+                    .configJson(config)
+                    .build();
+
+            ParameterUtil.attrMapping(modelMapper.getAttrMapping(), config, task);
+            // 设置额外的字段（如果 Builder 不支持）
+            TrainingTaskDTO taskDTO = task;
+            if (StrUtil.isNotBlank(datasetName)) {
+                taskDTO.setDatasetName(datasetName);
+            }
+            if (StrUtil.isNotBlank(config.getStr("user_id"))) {
+                taskDTO.setUserId(config.getStr("user_id"));
+            }
+            if (config.getInt("template_id") != null) {
+                taskDTO.setTemplateId(config.getInt("template_id"));
+            }
+
+            saveTask(taskDTO);
+            log.info("训练任务已保存到数据库: taskId={}, model={}, category={}, framework={}",
+                    taskId, modelName, modelConfig.getModelCategory(), modelConfig.getModelFramework());
+        } catch (Exception e) {
+            log.error("保存训练任务到数据库失败: taskId={}, error={}", taskId, e.getMessage(), e);
+            throw new RuntimeException("保存训练任务到数据库失败: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 保存评估任务到数据库
+     */
+    public void saveEvaluationTaskToDB(String taskId, JSONObject config) {
+        try {
+            String modelName = config.getStr("model_name", "custom_model");
+            ModelConfigManager.ModelConfig modelConfig = modelConfigManager.getModelConfig(modelName, config);
+
+            TrainingTaskDTO task = TrainingTaskDTO.builder()
+                    .taskId(taskId)
+                    .taskType("evaluate")
+                    .modelName(modelName)
+                    .modelCategory(modelConfig.getModelCategory())
+                    .modelFramework(modelConfig.getModelFramework())
+                    .datasetPath(config.getStr("data", ""))
+                    .modelPath(config.getStr("model_path", ""))
+                    .imageSize(config.getInt("imgsz") != null ? String.valueOf(config.getInt("imgsz")) : null)
+                    .optimizer(config.getStr("optimizer", "sgd"))
+                    .status("running")
+                    .progress("0%")
+                    .configJson(config)
+                    .build();
+
+            // 设置额外的字段
+            if (StrUtil.isNotBlank(config.getStr("user_id"))) {
+                task.setUserId(config.getStr("user_id"));
+            }
+
+            saveTask(task);
+            log.info("评估任务已保存到数据库: taskId={}, model={}", taskId, modelName);
+        } catch (Exception e) {
+            log.error("保存评估任务到数据库失败: taskId={}, error={}", taskId, e.getMessage(), e);
+            throw new RuntimeException("保存评估任务到数据库失败: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 保存预测任务到数据库
+     */
+    public void savePredictionTaskToDB(String taskId, JSONObject config) {
+        try {
+            String modelName = config.getStr("model_name", "custom_model");
+            ModelConfigManager.ModelConfig modelConfig = modelConfigManager.getModelConfig(modelName, config);
+
+            TrainingTaskDTO task = TrainingTaskDTO.builder()
+                    .taskId(taskId)
+                    .taskType("predict")
+                    .modelName(modelName)
+                    .modelCategory(modelConfig.getModelCategory())
+                    .modelFramework(modelConfig.getModelFramework())
+                    .modelPath(config.getStr("model_path", ""))
+                    .gpuIds(config.getStr("device", "cpu"))
+                    .useGpu(config.getStr("device", "cpu").equals("cpu") ? "0" : "1")
+                    .status("running")
+                    .progress("0%")
+                    .configJson(config)
+                    .build();
+
+            // 设置额外的字段
+            if (StrUtil.isNotBlank(config.getStr("user_id"))) {
+                task.setUserId(config.getStr("user_id"));
+            }
+
+            saveTask(task);
+            log.info("预测任务已保存到数据库: taskId={}, model={}", taskId, modelName);
+        } catch (Exception e) {
+            log.error("保存预测任务到数据库失败: taskId={}, error={}", taskId, e.getMessage(), e);
+            throw new RuntimeException("保存预测任务到数据库失败: " + e.getMessage(), e);
+        }
+    }
+
+
+    /**
+     * 保存转换任务到数据库
+     */
+    public void saveConvertTaskToDB(String taskId, JSONObject config) {
+        try {
+            String modelName = config.getStr("model_name", "custom_model");
+            ModelConfigManager.ModelConfig modelConfig = modelConfigManager.getModelConfig(modelName, config);
+
+            TrainingTaskDTO task = TrainingTaskDTO.builder()
+                    .taskId(taskId)
+                    .taskType("export")
+                    .modelName(modelName)
+                    .modelCategory(modelConfig.getModelCategory())
+                    .modelFramework(modelConfig.getModelFramework())
+                    .modelPath(config.getStr("model_path", ""))
+                    .gpuIds(config.getStr("device", "cpu"))
+                    .useGpu(config.getStr("device", "cpu").equals("cpu") ? "0" : "1")
+                    .status("running")
+                    .progress("0%")
+                    .configJson(config)
+                    .build();
+
+            // 设置额外的字段
+            if (StrUtil.isNotBlank(config.getStr("user_id"))) {
+                task.setUserId(config.getStr("user_id"));
+            }
+
+            saveTask(task);
+            log.info("转换任务已保存到数据库: taskId={}, model={}", taskId, modelName);
+        } catch (Exception e) {
+            log.error("保存转换任务到数据库失败: taskId={}, error={}", taskId, e.getMessage(), e);
+            throw new RuntimeException("保存转换任务到数据库失败: " + e.getMessage(), e);
         }
     }
 
@@ -202,6 +383,7 @@ public class TrainingTaskRepository {
                 currentTime,
                 currentTime,
                 0,
+                task.getUserId(),
                 task.getConfigJson() != null ? task.getConfigJson().toString() : "{}");
 
         log.info("导出任务已保存: taskId={}, model={}", task.getTaskId(), task.getModelName());

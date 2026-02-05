@@ -25,4 +25,5 @@ public class ModelPlatformConfig {
     private List<List<String>> envs;
     private String operatingPlatform;
     private Docker docker;
+    private K8S k8s;
 }

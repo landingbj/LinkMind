@@ -1,0 +1,51 @@
+#apiVersion: batch/v1
+#kind: Job
+#metadata:
+#  name: yolo-job-train
+#spec:
+#  template:
+#    spec:
+#      containers:
+#        - name: yolo-trainer
+#          image: 192.168.200.26/trainer_images/yolov8_trainer:v1
+#          command: ["/bin/bash", "-c", "entrypoint.sh"]
+##          volumeMounts:
+##            - name: data-volume
+##              mountPath: /data/wangshuanglong
+#          resources:
+#            limits:
+#              nvidia.com/gpu: 1
+#            requests:
+#              nvidia.com/gpu: 1
+##      volumes:
+##        - name: data-volume
+##          hostPath:
+##            path: /data/wangshuanglong
+#      restartPolicy: Never
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k8strain-20260205145954-0f7fde00
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 86400
+  completions: 1
+  parallelism: 1
+  template:
+    spec:
+      containers:
+        - name: yolo-trainer
+          image: 192.168.200.26/trainer_images/yolov8_trainer:v1
+          resources:
+            limits:
+#              nvidia.com/gpu: 0
+              memory: 8Gi
+            requests:
+#              nvidia.com/gpu: 1
+              memory: 8Gi
+      # 核心新增：添加容忍策略，匹配节点的GPU污点
+      tolerations:
+        - key: "nvidia.com/gpu"       # 对应节点污点的key（步骤1查到的）
+          operator: "Exists"          # 只要该key存在就容忍
+          effect: "NoSchedule"        # 对应节点污点的effect（步骤1查到的）
+      restartPolicy: Never

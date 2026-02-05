@@ -1,14 +1,17 @@
 package ai.finetune.util;
 
+import ai.config.pojo.ModelMapper;
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONObject;
 
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-public class AttributeUtil {
+public class ParameterUtil {
 
     public static void attrMapping(String mappingStr, Object source, Object target) {
         if(mappingStr == null) {
@@ -51,6 +54,40 @@ public class AttributeUtil {
                 }
             }
         }
+    }
+
+
+    public static String buildCmd(ModelMapper modelMapper, JSONObject config, String cmdPattern, String volumes, String envs) {
+        attrAccess(modelMapper.getAttrAccess(), config, config);
+        String taskId = config.getStr("task_id");
+        String parseType = modelMapper.getParseType();
+        if(parseType == null) {
+            parseType = "unparsed";
+        }
+        if(parseType.equals("unparsed")) {
+            return StrUtil.format(cmdPattern, "--name " + taskId + " " + volumes + " " + envs + " " , config.toString());
+        }
+        return null;
+    }
+
+    /**
+     * 匹配模型配置
+     */
+    public static ModelMapper matchModel(List<ModelMapper> models, JSONObject config) {
+        String modelName = config.getStr("model_name", "");
+        if (models == null) {
+            return null;
+        }
+        for (ModelMapper model : models) {
+            if(model == null) {
+                continue;
+            }
+            String modelPattern = model.getModelPattern();
+            if (modelPattern != null && Pattern.matches(modelPattern, modelName)) {
+                return model;
+            }
+        }
+        return null;
     }
 
 }

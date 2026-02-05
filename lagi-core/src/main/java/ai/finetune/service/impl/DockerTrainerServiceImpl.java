@@ -6,12 +6,11 @@ import ai.config.pojo.Docker;
 import ai.config.pojo.ModelMapper;
 import ai.config.pojo.ModelPlatformConfig;
 import ai.database.impl.MysqlAdapter;
-import ai.finetune.config.ModelConfigManager;
-import ai.finetune.dto.TrainingTaskDTO;
 import ai.finetune.repository.TrainingTaskRepository;
 import ai.finetune.service.TrainerService;
-import ai.finetune.util.AttributeUtil;
+import ai.finetune.util.ParameterUtil;
 import ai.finetune.util.DockerTrainerUtil;
+import cn.hutool.core.map.MapUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
@@ -21,6 +20,7 @@ import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -36,7 +36,6 @@ public class DockerTrainerServiceImpl implements TrainerService {
     private final String volumes;
     private final String envs;
     private final TrainingTaskRepository taskRepository;
-    private final ModelConfigManager modelConfigManager;
 
     static {
         ThreadPoolManager.registerExecutor("docker-trainer");
@@ -72,213 +71,8 @@ public class DockerTrainerServiceImpl implements TrainerService {
         // 初始化 DAO
         MysqlAdapter mysqlAdapter = MysqlAdapter.getInstance();
         this.taskRepository = new TrainingTaskRepository(mysqlAdapter);
-        this.modelConfigManager = new ModelConfigManager(mysqlAdapter);
-        this.modelConfigManager.loadConfigsFromDatabase();
     }
 
-    /**
-     * 构建 Docker 命令
-     */
-    private String buildCmd(String parseType, String cmdPattern, String containerId , JSONObject config) {
-        if(parseType == null) {
-            parseType = "unparsed";
-        }
-        if(parseType.equals("unparsed")) {
-            return StrUtil.format(cmdPattern, "--name " + containerId + " " + volumes + " " + envs + " " , config.toString());
-        }
-        return null;
-    }
-
-    /**
-     * 匹配模型配置
-     */
-    private ModelMapper matchModel(JSONObject config) {
-        String modelName = config.getStr("model_name", "");
-        List<ModelMapper> models = docker.getModels();
-        if (models == null) {
-            return null;
-        }
-        for (ModelMapper model : models) {
-            String modelPattern = model.getModelPattern();
-            if (modelPattern != null && Pattern.matches(modelPattern, modelName)) {
-                return model;
-            }
-        }
-        return null;
-    }
-
-
-
-    /**
-     * 保存训练任务到数据库
-     */
-    private void saveTrainingTaskToDB(String taskId, String trackId, String containerName, JSONObject config, ModelMapper modelMapper) {
-        try {
-            String modelName = config.getStr("model_name", "custom_model");
-            ModelConfigManager.ModelConfig modelConfig = modelConfigManager.getModelConfig(modelName, config);
-            
-            // 从配置中读取数据集名称
-            String datasetName = config.getStr("dataset_name", "外部数据集");
-            String datasetPath = config.getStr("data", "");
-            if (StrUtil.isNotBlank(datasetPath)) {
-                // 通过 DAO 查询数据集名称
-                String queriedName = taskRepository.getDatasetNameByStoragePath(datasetPath);
-                if (StrUtil.isNotBlank(queriedName)) {
-                    datasetName = queriedName;
-                    config.set("dataset_name", datasetName);
-                }
-            }
-            
-            // 构建 TrainingTaskDTO
-            TrainingTaskDTO task = TrainingTaskDTO.builder()
-                    .taskId(taskId)
-                    .trackId(trackId)
-                    .taskType("train")
-                    .modelName(modelName)
-                    .modelCategory(modelConfig.getModelCategory())
-                    .modelFramework(modelConfig.getModelFramework())
-                    .containerName(containerName)
-                    .dockerImage(config.getStr("_docker_image", ""))
-                    .datasetPath(datasetPath)
-                    .modelPath(config.getStr("model_path", ""))
-                    .epochs(config.getInt("epochs", null))
-                    .batchSize(config.getInt("batch", null))
-                    .imageSize(config.getInt("imgsz") != null ? String.valueOf(config.getInt("imgsz")) : null)
-                    .optimizer(config.getStr("optimizer", "sgd"))
-                    .gpuIds(config.getStr("device", "0"))
-                    .useGpu(config.getStr("device", "0").equals("cpu") ? "0" : "1")
-                    .status("starting")
-                    .progress("0%")
-                    .configJson(config)
-                    .build();
-
-            AttributeUtil.attrMapping(modelMapper.getAttrMapping(), config, task);
-            // 设置额外的字段（如果 Builder 不支持）
-            TrainingTaskDTO taskDTO = task;
-            if (StrUtil.isNotBlank(datasetName)) {
-                taskDTO.setDatasetName(datasetName);
-            }
-            if (StrUtil.isNotBlank(config.getStr("user_id"))) {
-                taskDTO.setUserId(config.getStr("user_id"));
-            }
-            if (config.getInt("template_id") != null) {
-                taskDTO.setTemplateId(config.getInt("template_id"));
-            }
-            
-            taskRepository.saveTask(taskDTO);
-            log.info("训练任务已保存到数据库: taskId={}, model={}, category={}, framework={}",
-                    taskId, modelName, modelConfig.getModelCategory(), modelConfig.getModelFramework());
-        } catch (Exception e) {
-            log.error("保存训练任务到数据库失败: taskId={}, error={}", taskId, e.getMessage(), e);
-            throw new RuntimeException("保存训练任务到数据库失败: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * 保存评估任务到数据库
-     */
-    private void saveEvaluationTaskToDB(String taskId, JSONObject config) {
-        try {
-            String modelName = config.getStr("model_name", "custom_model");
-            ModelConfigManager.ModelConfig modelConfig = modelConfigManager.getModelConfig(modelName, config);
-            
-            TrainingTaskDTO task = TrainingTaskDTO.builder()
-                    .taskId(taskId)
-                    .taskType("evaluate")
-                    .modelName(modelName)
-                    .modelCategory(modelConfig.getModelCategory())
-                    .modelFramework(modelConfig.getModelFramework())
-                    .datasetPath(config.getStr("data", ""))
-                    .modelPath(config.getStr("model_path", ""))
-                    .imageSize(config.getInt("imgsz") != null ? String.valueOf(config.getInt("imgsz")) : null)
-                    .optimizer(config.getStr("optimizer", "sgd"))
-                    .status("running")
-                    .progress("0%")
-                    .configJson(config)
-                    .build();
-
-            // 设置额外的字段
-            if (StrUtil.isNotBlank(config.getStr("user_id"))) {
-                task.setUserId(config.getStr("user_id"));
-            }
-            
-            taskRepository.saveTask(task);
-            log.info("评估任务已保存到数据库: taskId={}, model={}", taskId, modelName);
-        } catch (Exception e) {
-            log.error("保存评估任务到数据库失败: taskId={}, error={}", taskId, e.getMessage(), e);
-            throw new RuntimeException("保存评估任务到数据库失败: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * 保存预测任务到数据库
-     */
-    private void savePredictionTaskToDB(String taskId, JSONObject config) {
-        try {
-            String modelName = config.getStr("model_name", "custom_model");
-            ModelConfigManager.ModelConfig modelConfig = modelConfigManager.getModelConfig(modelName, config);
-            
-            TrainingTaskDTO task = TrainingTaskDTO.builder()
-                    .taskId(taskId)
-                    .taskType("predict")
-                    .modelName(modelName)
-                    .modelCategory(modelConfig.getModelCategory())
-                    .modelFramework(modelConfig.getModelFramework())
-                    .modelPath(config.getStr("model_path", ""))
-                    .gpuIds(config.getStr("device", "cpu"))
-                    .useGpu(config.getStr("device", "cpu").equals("cpu") ? "0" : "1")
-                    .status("running")
-                    .progress("0%")
-                    .configJson(config)
-                    .build();
-            
-            // 设置额外的字段
-            if (StrUtil.isNotBlank(config.getStr("user_id"))) {
-                task.setUserId(config.getStr("user_id"));
-            }
-            
-            taskRepository.saveTask(task);
-            log.info("预测任务已保存到数据库: taskId={}, model={}", taskId, modelName);
-        } catch (Exception e) {
-            log.error("保存预测任务到数据库失败: taskId={}, error={}", taskId, e.getMessage(), e);
-            throw new RuntimeException("保存预测任务到数据库失败: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * 保存转换任务到数据库
-     */
-    private void saveConvertTaskToDB(String taskId, JSONObject config) {
-        try {
-            String modelName = config.getStr("model_name", "custom_model");
-            ModelConfigManager.ModelConfig modelConfig = modelConfigManager.getModelConfig(modelName, config);
-            
-            TrainingTaskDTO task = TrainingTaskDTO.builder()
-                    .taskId(taskId)
-                    .taskType("export")
-                    .modelName(modelName)
-                    .modelCategory(modelConfig.getModelCategory())
-                    .modelFramework(modelConfig.getModelFramework())
-                    .modelPath(config.getStr("model_path", ""))
-                    .gpuIds(config.getStr("device", "cpu"))
-                    .useGpu(config.getStr("device", "cpu").equals("cpu") ? "0" : "1")
-                    .status("running")
-                    .progress("0%")
-                    .configJson(config)
-                    .build();
-            
-            // 设置额外的字段
-            if (StrUtil.isNotBlank(config.getStr("user_id"))) {
-                task.setUserId(config.getStr("user_id"));
-            }
-            
-            taskRepository.saveTask(task);
-            log.info("转换任务已保存到数据库: taskId={}, model={}", taskId, modelName);
-        } catch (Exception e) {
-            log.error("保存转换任务到数据库失败: taskId={}, error={}", taskId, e.getMessage(), e);
-            throw new RuntimeException("保存转换任务到数据库失败: " + e.getMessage(), e);
-        }
-    }
 
 
     @Override
@@ -303,7 +97,7 @@ public class DockerTrainerServiceImpl implements TrainerService {
         final String finalTaskId = taskId;
         final String finalTrackId = trackId;
         
-        ModelMapper docker4Model = matchModel(config);
+        ModelMapper docker4Model = ParameterUtil.matchModel(docker.getModels(), config);
         if (docker4Model == null) {
             throw new RuntimeException("未匹配到模型");
         }
@@ -312,8 +106,7 @@ public class DockerTrainerServiceImpl implements TrainerService {
             throw new RuntimeException("模型未配置训练命令");
         }
 
-        AttributeUtil.attrAccess(docker4Model.getAttrAccess(), config, config);
-        String cmd = buildCmd(docker4Model.getParseType(), trainCmd, taskId , config);
+        String cmd = ParameterUtil.buildCmd(docker4Model, config, trainCmd , volumes, envs);
         System.out.println("cmd: " + cmd);
         if(StrUtil.isBlank(cmd)) {
             throw new RuntimeException("构建训练命令失败");
@@ -329,7 +122,7 @@ public class DockerTrainerServiceImpl implements TrainerService {
         // 保存任务到数据库
         try {
             // TODO 2026/2/4 开启事务
-            saveTrainingTaskToDB(finalTaskId, finalTrackId, containerName, config, docker4Model);
+            taskRepository.saveTrainingTaskToDB(finalTaskId, finalTrackId, containerName, config, docker4Model);
             taskRepository.addTrainingLog(finalTaskId, "INFO", "训练任务已启动，容器名称: " + containerName);
         } catch (Exception e) {
             log.error("保存训练任务到数据库失败: taskId={}", finalTaskId, e);
@@ -340,10 +133,10 @@ public class DockerTrainerServiceImpl implements TrainerService {
                 log.info("执行训练命令: {}", cmd);
                 try {
                     String result = DockerTrainerUtil.executeRemoteCommand(
-                            docker.getHost(), docker.getPort(), docker.getUsername(), docker.getPassword(), cmd, (a)->{
+                            docker.getHost(), docker.getPort(), docker.getUsername(), docker.getPassword(), cmd, ()->{
                                 taskRepository.updateTaskStatus(finalTaskId, "running", "训练任务正在运行...");
-                                return a;
-                            });
+                                return "";
+                            }, null);
                     // 成功时更新状态为运行中
                     taskRepository.updateTaskStatus(finalTaskId, "completed", "训练任务启动成功");
                     taskRepository.addTrainingLog(finalTaskId, "INFO", "容器启动成功，开始训练");
@@ -402,13 +195,13 @@ public class DockerTrainerServiceImpl implements TrainerService {
         
         // 保存评估任务到数据库
         try {
-            saveEvaluationTaskToDB(finalTaskId, config);
+            taskRepository.saveEvaluationTaskToDB(finalTaskId, config);
             taskRepository.addTrainingLog(finalTaskId, "INFO", "开始执行评估任务");
         } catch (Exception e) {
             log.error("保存评估任务到数据库失败: taskId={}", finalTaskId, e);
         }
         
-        ModelMapper docker4Model = matchModel(config);
+        ModelMapper docker4Model = ParameterUtil.matchModel(docker.getModels(), config);
         if (docker4Model == null) {
             throw new RuntimeException("未匹配到模型");
         }
@@ -417,7 +210,7 @@ public class DockerTrainerServiceImpl implements TrainerService {
             throw new RuntimeException("模型未配置评估命令");
         }
 
-        String cmd = buildCmd(docker4Model.getParseType(), evaluateCmd, taskId, config);
+        String cmd = ParameterUtil.buildCmd(docker4Model, config, evaluateCmd, volumes, envs);
         log.info("开始执行评估任务: taskId={}", taskId);
         log.info("执行评估命令: {}", cmd);
         if(StrUtil.isBlank(cmd)) {
@@ -461,13 +254,13 @@ public class DockerTrainerServiceImpl implements TrainerService {
         
         // 保存预测任务到数据库
         try {
-            savePredictionTaskToDB(finalTaskId, config);
+            taskRepository.savePredictionTaskToDB(finalTaskId, config);
             taskRepository.addTrainingLog(finalTaskId, "INFO", "开始执行预测任务");
         } catch (Exception e) {
             log.error("保存预测任务到数据库失败: taskId={}", finalTaskId, e);
         }
-        
-        ModelMapper docker4Model = matchModel(config);
+
+        ModelMapper docker4Model = ParameterUtil.matchModel(docker.getModels(), config);
         if (docker4Model == null) {
             throw new RuntimeException("未匹配到模型");
         }
@@ -477,7 +270,7 @@ public class DockerTrainerServiceImpl implements TrainerService {
         }
 
         log.info("开始执行预测任务: taskId={}", finalTaskId);
-        String cmd = buildCmd(docker4Model.getParseType(), predictCmd, taskId, config);
+        String cmd = ParameterUtil.buildCmd(docker4Model, config, predictCmd, volumes, envs);
         if(StrUtil.isBlank(cmd)) {
             throw new RuntimeException("构建预测命令失败");
         }
@@ -522,13 +315,13 @@ public class DockerTrainerServiceImpl implements TrainerService {
         
         // 保存转换任务到数据库
         try {
-            saveConvertTaskToDB(finalTaskId, config);
+            taskRepository.saveConvertTaskToDB(finalTaskId, config);
             taskRepository.addTrainingLog(finalTaskId, "INFO", "开始执行模型转换");
         } catch (Exception e) {
             log.error("保存转换任务到数据库失败: taskId={}", finalTaskId, e);
         }
-        
-        ModelMapper docker4Model = matchModel(config);
+
+        ModelMapper docker4Model = ParameterUtil.matchModel(docker.getModels(), config);
         if (docker4Model == null) {
             throw new RuntimeException("未匹配到模型");
         }
@@ -538,7 +331,7 @@ public class DockerTrainerServiceImpl implements TrainerService {
         }
 
         log.info("开始执行转换任务: taskId={}", finalTaskId);
-        String cmd = buildCmd(docker4Model.getParseType(), convertCmd, taskId, config);
+        String cmd = ParameterUtil.buildCmd(docker4Model, config, convertCmd, volumes, envs);
         if(StrUtil.isBlank(cmd)) {
             throw new RuntimeException("构建转换命令失败");
         }
@@ -546,8 +339,14 @@ public class DockerTrainerServiceImpl implements TrainerService {
             try {
                 log.info("执行转换命令: {}", cmd);
                 String result = DockerTrainerUtil.executeRemoteCommand(
-                        docker.getHost(), docker.getPort(), docker.getUsername(), docker.getPassword(), cmd);
-                // TODO 2026/2/3 更新转化地址
+                        docker.getHost(), docker.getPort(), docker.getUsername(), docker.getPassword(), cmd, null, (line)->{
+                            Pattern pattern = Pattern.compile("exported_path=([^\\s\\n]+)");
+                            Matcher matcher = pattern.matcher(line);
+                            if (matcher.find()) {
+                                String exportedPath = matcher.group(1);
+                                taskRepository.updateTaskByTaskId(finalTaskId, MapUtil.of("output_path", exportedPath));
+                            }
+                        });
                 // 成功时更新状态为完成
                 taskRepository.updateTaskStatus(finalTaskId, "completed", "模型转换完成");
                 taskRepository.addTrainingLog(finalTaskId, "INFO", "模型转换完成");
@@ -652,11 +451,22 @@ public class DockerTrainerServiceImpl implements TrainerService {
                 "  \"template_id\" : 1\n" +
                 "}";
         JSONObject config = JSONUtil.parseObj(ConfigStr);
-        Future<String> stringFuture = dockerTrainerService.startTrainingTask(config);
+//        Future<String> stringFuture = dockerTrainerService.startTrainingTask(config);
 //        System.out.println(stringFuture.get());
 //        for (int i = 0; i < 20; i++) {
 //            System.out.println(dockerTrainerService.getTaskStatus("train_task_20261124_004"));
 //            Thread.sleep(1000);
 //        }
+        String convertStr = "{\n" +
+                "  \"model_name\":\"yolo\",\n" +
+                "  \"the_train_type\": \"export\",\n" +
+                "  \"model_path\": \"/data/wangshuanglong/models/yolo11n.pt\",\n" +
+                "  \"export_format\": \"onnx\",\n" +
+                "  \"opset\": 18,\n" +
+                "  \"device\": \"0\"\n" +
+                "}";
+        JSONObject convertConfig = JSONUtil.parseObj(convertStr);
+        Future<String> stringFuture = dockerTrainerService.startConvertTask(convertConfig);
+        System.out.println(stringFuture.get());
     }
 }

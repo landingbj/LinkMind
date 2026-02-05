@@ -25,4 +25,12 @@ public class ModelMapper {
     private String convertCmd;
     @JsonProperty("evaluate_cmd")
     private String evaluateCmd;
+    @JsonProperty("k8s_train_path")
+    private String k8sTrainPath;
+    @JsonProperty("k8s_predict_path")
+    private String k8sPredictPath;
+    @JsonProperty("k8s_convert_path")
+    private String k8sConvertPath;
+    @JsonProperty("k8s_evaluate_path")
+    private String k8sEvaluatePath;
 }

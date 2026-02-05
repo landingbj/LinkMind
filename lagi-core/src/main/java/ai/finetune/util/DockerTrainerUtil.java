@@ -13,7 +13,8 @@ import java.io.InputStreamReader;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.UUID;
-import java.util.function.Function;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /**
  * Docker 容器训练工具类
@@ -118,7 +119,7 @@ public class DockerTrainerUtil {
 
 
     public static String executeRemoteCommand(String sshHost, int sshPort, String sshUsername, String sshPassword, String command) {
-        return executeRemoteCommand(sshHost, sshPort, sshUsername, sshPassword, command, null);
+        return executeRemoteCommand(sshHost, sshPort, sshUsername, sshPassword, command, null, null);
     }
 
 
@@ -131,7 +132,7 @@ public class DockerTrainerUtil {
      * @param command 要执行的命令
      * @return 执行结果（JSON字符串）
      */
-    public static <T, R> String executeRemoteCommand(String sshHost, int sshPort, String sshUsername, String sshPassword, String command, Function<T, R> callback) {
+    public static String executeRemoteCommand(String sshHost, int sshPort, String sshUsername, String sshPassword, String command, Supplier<String> execCallback, Consumer<String> eachLineCallback) {
         StringBuilder output = new StringBuilder();
         StringBuilder errorOutput = new StringBuilder();
         Session session = null;
@@ -155,8 +156,8 @@ public class DockerTrainerUtil {
             channelExec.connect();
             log.debug("执行远程命令: {}", command);
 
-            if(callback != null) {
-                callback.apply(null);
+            if(execCallback != null) {
+                execCallback.get();
             }
 
             // 读取标准输出
@@ -164,6 +165,9 @@ public class DockerTrainerUtil {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     output.append(line).append("\n");
+                    if(eachLineCallback != null) {
+                        eachLineCallback.accept(line);
+                    }
                     log.debug("远程输出: {}", line);
                 }
             }

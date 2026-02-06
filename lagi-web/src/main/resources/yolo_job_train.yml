@@ -1,27 +1,3 @@
-#apiVersion: batch/v1
-#kind: Job
-#metadata:
-#  name: yolo-job-train
-#spec:
-#  template:
-#    spec:
-#      containers:
-#        - name: yolo-trainer
-#          image: 192.168.200.26/trainer_images/yolov8_trainer:v1
-#          command: ["/bin/bash", "-c", "entrypoint.sh"]
-##          volumeMounts:
-##            - name: data-volume
-##              mountPath: /data/wangshuanglong
-#          resources:
-#            limits:
-#              nvidia.com/gpu: 1
-#            requests:
-#              nvidia.com/gpu: 1
-##      volumes:
-##        - name: data-volume
-##          hostPath:
-##            path: /data/wangshuanglong
-#      restartPolicy: Never
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -36,9 +12,12 @@ spec:
       containers:
         - name: yolo-trainer
           image: 192.168.200.26/trainer_images/yolov8_trainer:v1
+          env:
+            - name: CONFIG
+              value: '{}'
           resources:
             limits:
-#              nvidia.com/gpu: 0
+#              nvidia.com/gpu: 1
               memory: 8Gi
             requests:
 #              nvidia.com/gpu: 1

@@ -26,6 +26,7 @@ import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 
@@ -86,12 +87,21 @@ public class K8sTrainerServiceImpl implements TrainerService {
     private V1Job loadJobFromYamlAndEnhance(ModelMapper modelMapper, String yamlFilePath, JSONObject config) throws IOException {
         // 尝试先作为 Job 加载（支持文件路径与 classpath 资源）
         Object resource;
+        String yamlContent = getYamlContent(yamlFilePath);
+        // 根据 modelMapper 的 parseType 决定是否添加 CONFIG 环境变量
+        if (modelMapper != null && modelMapper.getParseType() != null) {
+            if ("unparsed".equalsIgnoreCase(modelMapper.getParseType())) {
+                String configstr = config.toString();
+                yamlContent =  StrUtil.format(yamlContent, configstr);
+                System.out.println("yamlContent: " + yamlContent);
+            }
+        }
         try {
-            resource = Yaml.loadAs(getYamlReader(yamlFilePath), V1Job.class);
+            resource = Yaml.loadAs(yamlContent, V1Job.class);
         } catch (Exception e) {
             // 如果不是 Job，尝试作为 Pod 加载
             try {
-                resource = Yaml.loadAs(getYamlReader(yamlFilePath), V1Pod.class);
+                resource = Yaml.loadAs(yamlContent, V1Pod.class);
             } catch (Exception e2) {
                 throw new IOException("无法解析 YAML 文件为 Job 或 Pod: " + yamlFilePath, e2);
             }
@@ -169,16 +179,6 @@ public class K8sTrainerServiceImpl implements TrainerService {
             }
         }
 
-        // 根据 modelMapper 的 parseType 决定是否添加 CONFIG 环境变量
-        if (modelMapper != null && modelMapper.getParseType() != null) {
-            if ("unparsed".equalsIgnoreCase(modelMapper.getParseType())) {
-                V1EnvVar envVar = new V1EnvVar();
-                envVar.setName("CONFIG");
-                envVar.setValue(config != null ? config.toString() : "{}");
-                containerEnvs.add(envVar);
-            }
-        }
-        
         // 添加额外的 volumes
         List<V1Volume> podVolumes = podSpec.getVolumes();
         if (podVolumes == null) {
@@ -258,18 +258,37 @@ public class K8sTrainerServiceImpl implements TrainerService {
         return new InputStreamReader(is, StandardCharsets.UTF_8);
     }
 
+    private String getYamlContent(String yamlFilePath) throws IOException {
+        return readFileToString(getYamlReader(yamlFilePath));
+    }
+
+    /**
+     * 将 Reader 中的内容读取为字符串
+     */
+    private String readFileToString(Reader reader) throws IOException {
+        StringBuilder content = new StringBuilder();
+        char[] buffer = new char[1024];
+        int length;
+        while ((length = reader.read(buffer)) != -1) {
+            content.append(buffer, 0, length);
+        }
+        reader.close();
+        return content.toString();
+    }
+
     @Override
     public Future<String> startTrainingTask(JSONObject config) {
         if(config == null) {
             throw new RuntimeException("无有效训练参数");
         }
-        
-        // 获取任务ID和跟踪ID
+
         String taskId = config.getStr("task_id");
         if (StrUtil.isBlank(taskId)) {
-            taskId = K8sTrainerUtil.generateTaskId();
+            taskId = K8sTrainerUtil.generateResourceName("k8s_train");
             config.set("task_id", taskId);
         }
+        // 获取任务ID和跟踪ID
+
         String trackId = config.getStr("track_id");
         if (StrUtil.isBlank(trackId)) {
             trackId = K8sTrainerUtil.generateTrackId();
@@ -277,9 +296,6 @@ public class K8sTrainerServiceImpl implements TrainerService {
         }
 
         // 保存为 final 变量供 lambda 使用
-        final String finalTaskId = taskId;
-        final String finalTrackId = trackId;
-        
         ModelMapper k8s4Model = ParameterUtil.matchModel(k8s.getModels(), config);
         if (k8s4Model == null) {
             throw new RuntimeException("未匹配到模型");
@@ -292,18 +308,20 @@ public class K8sTrainerServiceImpl implements TrainerService {
 
         ParameterUtil.attrAccess(k8s4Model.getAttrAccess(), config, config);
         // 生成资源名称
-        String resourceName = K8sTrainerUtil.generateResourceName("k8s_train");
-        config.set("_resource_name", resourceName);
+
+        config.set("_resource_name", taskId);
         config.set("_status", "starting");
         
         // 保存任务到数据库
+        final String finalTaskId = taskId;
+        final String finalTrackId = trackId;
         try {
-            taskRepository.saveTrainingTaskToDB(finalTaskId, finalTrackId, resourceName, config, k8s4Model);
-            taskRepository.addTrainingLog(finalTaskId, "INFO", "训练任务已启动，资源名称: " + resourceName);
+            taskRepository.saveTrainingTaskToDB(taskId, finalTrackId, taskId, config, k8s4Model);
+            taskRepository.addTrainingLog(taskId, "INFO", "训练任务已启动，资源名称: " + taskId);
         } catch (Exception e) {
-            log.error("保存训练任务到数据库失败: taskId={}", finalTaskId, e);
+            log.error("保存训练任务到数据库失败: taskId={}", taskId, e);
         }
-        
+
         return executorService.submit(() -> {
             log.info("开始执行训练任务: taskId={}, trackId={} config={}", finalTaskId, finalTrackId, config);
             try {
@@ -316,7 +334,7 @@ public class K8sTrainerServiceImpl implements TrainerService {
                     metadata = new V1ObjectMeta();
                     job.setMetadata(metadata);
                 }
-                metadata.setName(resourceName);
+                metadata.setName(finalTaskId);
                 metadata.setNamespace(namespace);
                 
                 // 创建 Job
@@ -370,21 +388,14 @@ public class K8sTrainerServiceImpl implements TrainerService {
         
         String taskId = config.getStr("task_id");
         if (StrUtil.isBlank(taskId)) {
-            taskId = K8sTrainerUtil.generateTaskId();
+            taskId = K8sTrainerUtil.generateResourceName("k8s_evaluate");
             config.set("task_id", taskId);
         }
         
         final String finalTaskId = taskId;
         config.set("_status", "running");
-        
-        // 保存评估任务到数据库
-        try {
-            taskRepository.saveEvaluationTaskToDB(finalTaskId, config);
-            taskRepository.addTrainingLog(finalTaskId, "INFO", "开始执行评估任务");
-        } catch (Exception e) {
-            log.error("保存评估任务到数据库失败: taskId={}", finalTaskId, e);
-        }
-        
+
+
         ModelMapper k8s4Model = ParameterUtil.matchModel(k8s.getModels(), config);
         if (k8s4Model == null) {
             throw new RuntimeException("未匹配到模型");
@@ -394,10 +405,19 @@ public class K8sTrainerServiceImpl implements TrainerService {
             throw new RuntimeException("模型未配置 K8s 评估 YAML 路径");
         }
 
-        String resourceName = K8sTrainerUtil.generateResourceName("k8s_evaluate");
-        config.set("_resource_name", resourceName);
-        
+        ParameterUtil.attrAccess(k8s4Model.getAttrAccess(), config, config);
+        config.set("_resource_name", taskId);
+
+        // 保存评估任务到数据库
+        try {
+            taskRepository.saveEvaluationTaskToDB(finalTaskId, config);
+            taskRepository.addTrainingLog(finalTaskId, "INFO", "开始执行评估任务");
+        } catch (Exception e) {
+            log.error("保存评估任务到数据库失败: taskId={}", finalTaskId, e);
+        }
+
         log.info("开始执行评估任务: taskId={} config={}", taskId, config);
+        String finalTaskId1 = taskId;
         return executorService.submit(() -> {
             try {
                 // 加载并增强 YAML
@@ -408,7 +428,7 @@ public class K8sTrainerServiceImpl implements TrainerService {
                     metadata = new V1ObjectMeta();
                     job.setMetadata(metadata);
                 }
-                metadata.setName(resourceName);
+                metadata.setName(finalTaskId1);
                 metadata.setNamespace(namespace);
                 
                 V1Job createdJob = K8sTrainerUtil.createJobFromYamlString(
@@ -437,20 +457,12 @@ public class K8sTrainerServiceImpl implements TrainerService {
         
         String taskId = config.getStr("task_id");
         if (StrUtil.isBlank(taskId)) {
-            taskId = K8sTrainerUtil.generateTaskId();
+            taskId = K8sTrainerUtil.generateResourceName("k8s_predict");
             config.set("task_id", taskId);
         }
         
         final String finalTaskId = taskId;
         config.set("_status", "running");
-        
-        // 保存预测任务到数据库
-        try {
-            taskRepository.savePredictionTaskToDB(finalTaskId, config);
-            taskRepository.addTrainingLog(finalTaskId, "INFO", "开始执行预测任务");
-        } catch (Exception e) {
-            log.error("保存预测任务到数据库失败: taskId={}", finalTaskId, e);
-        }
 
         ModelMapper k8s4Model = ParameterUtil.matchModel(k8s.getModels(), config);
         if (k8s4Model == null) {
@@ -461,10 +473,18 @@ public class K8sTrainerServiceImpl implements TrainerService {
             throw new RuntimeException("模型未配置 K8s 预测 YAML 路径");
         }
 
+        ParameterUtil.attrAccess(k8s4Model.getAttrAccess(), config, config);
+        config.set("_resource_name", taskId);
+
+        // 保存预测任务到数据库
+        try {
+            taskRepository.savePredictionTaskToDB(taskId, config);
+            taskRepository.addTrainingLog(taskId, "INFO", "开始执行预测任务");
+        } catch (Exception e) {
+            log.error("保存预测任务到数据库失败: taskId={}", finalTaskId, e);
+        }
         log.info("开始执行预测任务: taskId={}", finalTaskId);
-        String resourceName = K8sTrainerUtil.generateResourceName("k8s_predict");
-        config.set("_resource_name", resourceName);
-        
+
         return executorService.submit(() -> {
             log.info("执行预测任务: taskId={} config={}", finalTaskId, config);
             try {
@@ -476,7 +496,7 @@ public class K8sTrainerServiceImpl implements TrainerService {
                     metadata = new V1ObjectMeta();
                     job.setMetadata(metadata);
                 }
-                metadata.setName(resourceName);
+                metadata.setName(finalTaskId);
                 metadata.setNamespace(namespace);
                 
                 V1Job createdJob = K8sTrainerUtil.createJobFromYamlString(
@@ -506,20 +526,12 @@ public class K8sTrainerServiceImpl implements TrainerService {
         
         String taskId = config.getStr("task_id");
         if (StrUtil.isBlank(taskId)) {
-            taskId = K8sTrainerUtil.generateTaskId();
+            taskId = K8sTrainerUtil.generateResourceName("k8s_convert");
             config.set("task_id", taskId);
         }
         
         final String finalTaskId = taskId;
         config.set("_status", "running");
-        
-        // 保存转换任务到数据库
-        try {
-            taskRepository.saveConvertTaskToDB(finalTaskId, config);
-            taskRepository.addTrainingLog(finalTaskId, "INFO", "开始执行模型转换");
-        } catch (Exception e) {
-            log.error("保存转换任务到数据库失败: taskId={}", finalTaskId, e);
-        }
 
         ModelMapper k8s4Model = ParameterUtil.matchModel(k8s.getModels(), config);
         if (k8s4Model == null) {
@@ -530,10 +542,18 @@ public class K8sTrainerServiceImpl implements TrainerService {
             throw new RuntimeException("模型未配置 K8s 转换 YAML 路径");
         }
 
-        log.info("开始执行转换任务: taskId={}", finalTaskId);
-        String resourceName = K8sTrainerUtil.generateResourceName("k8s_convert");
-        config.set("_resource_name", resourceName);
-        
+        log.info("开始W执行转换任务: taskId={}", finalTaskId);
+        ParameterUtil.attrAccess(k8s4Model.getAttrAccess(), config, config);
+        config.set("_resource_name", taskId);
+
+        // 保存转换任务到数据库
+        try {
+            taskRepository.saveConvertTaskToDB(finalTaskId, config);
+            taskRepository.addTrainingLog(finalTaskId, "INFO", "开始执行模型转换");
+        } catch (Exception e) {
+            log.error("保存转换任务到数据库失败: taskId={}", finalTaskId, e);
+        }
+
         return executorService.submit(() -> {
             try {
                 log.info("执行转换任务: taskId={}, config={}", finalTaskId, config);
@@ -545,7 +565,7 @@ public class K8sTrainerServiceImpl implements TrainerService {
                     metadata = new V1ObjectMeta();
                     job.setMetadata(metadata);
                 }
-                metadata.setName(resourceName);
+                metadata.setName(finalTaskId);
                 metadata.setNamespace(namespace);
                 
                 V1Job createdJob = K8sTrainerUtil.createJobFromYamlString(
@@ -655,7 +675,7 @@ public class K8sTrainerServiceImpl implements TrainerService {
         }
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws ExecutionException, InterruptedException {
         ContextLoader.loadContext();
         K8sTrainerServiceImpl k8sTrainerService = new K8sTrainerServiceImpl();
         String ConfigStr = "{\n" +
@@ -674,7 +694,24 @@ public class K8sTrainerServiceImpl implements TrainerService {
                 "  \"user_id\":\"241224\",\n" +
                 "  \"template_id\" : 1\n" +
                 "}";
-        JSONObject config = JSONUtil.parseObj(ConfigStr);
-        k8sTrainerService.startTrainingTask(config);
+//        JSONObject config = JSONUtil.parseObj(ConfigStr);
+//        k8sTrainerService.startTrainingTask(config);
+
+//        String s = k8sTrainerService.stopTask("k8strain-20260206094416-5309cda1");
+//        System.out.println(s);
+
+        String predictConfigStr = "{\n" +
+                "  \"model_name\": \"yolov8\",\n" +
+                "  \"user_id\": \"241224\",\n" +
+                "  \"template_id\": \"1cdb9ad8-b279-447a-b828-61aa17f6eae5\",\n" +
+                "  \"the_train_type\": \"predict\",\n" +
+                "  \"model_path\": \"/data/wangshuanglong/models/yolo11n.pt\",\n" +
+                "  \"source\": \"/data/wangshuanglong/tmp/1363e197f334d89dd572104823ba0e00.jpg\",\n" +
+                "  \"device\": \"cpu\",\n" +
+                "  \"project\": \"/data/wangshuanglong/predict\"\n" +
+                "}";
+        Future<String> stringFuture = k8sTrainerService.startPredictionTask(JSONUtil.parseObj(predictConfigStr));
+        System.out.println(stringFuture.get());
+
     }
 }

@@ -146,6 +146,18 @@ public class AITrainingServlet1 extends RestfulServlet {
         throw new RRException("为找到对应的训练服务");
     }
 
+    @Get("resources")
+    public JSONObject resources(@Param("taskId") String taskId, @Param("containerId") String containerId) {
+        if (trainerService != null) {
+            try {
+                return trainerService.getResourceInfo(StrUtil.isBlank(taskId)?containerId:taskId);
+            } catch (Exception e) {
+                throw new RRException(e.getMessage());
+            }
+        }
+        throw new RRException("为找到对应的服务");
+    }
+
 
 
 }

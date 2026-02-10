@@ -65,4 +65,6 @@ public interface TrainerService {
 
     String getRunningTaskInfo();
 
+    JSONObject getResourceInfo(String taskId);
+
 }

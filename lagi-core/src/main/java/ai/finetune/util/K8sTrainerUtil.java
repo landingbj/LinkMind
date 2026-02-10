@@ -1,5 +1,6 @@
 package ai.finetune.util;
 
+import io.kubernetes.client.custom.Quantity;
 import io.kubernetes.client.openapi.ApiClient;
 import io.kubernetes.client.openapi.ApiException;
 import io.kubernetes.client.openapi.apis.BatchV1Api;
@@ -34,11 +35,11 @@ public class K8sTrainerUtil {
 
     /**
      * 初始化 Kubernetes 客户端（基于 kubeconfig）
+     *
      * @param kubeConfigPath kubeconfig 文件路径，如果为 null 则使用默认路径 ~/.kube/config
-     * @return ApiClient 实例
      * @throws IOException IO 异常
      */
-    public static ApiClient initK8sClient(String kubeConfigPath) throws IOException {
+    public static void initK8sClient(String kubeConfigPath) throws IOException {
         // 禁用 SSL 主机名验证（解决证书 SAN 不匹配问题）
         disableSSLHostnameVerification();
         
@@ -64,7 +65,6 @@ public class K8sTrainerUtil {
         io.kubernetes.client.openapi.Configuration.setDefaultApiClient(apiClient);
         
         log.info("Kubernetes 客户端初始化成功（已禁用 SSL 主机名验证）");
-        return apiClient;
     }
     
     /**
@@ -600,16 +600,6 @@ public class K8sTrainerUtil {
     }
 
     /**
-     * 生成随机的 Task ID（与 DockerTrainerUtil 保持一致）
-     */
-    public static String generateTaskId() {
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMddHHmmss");
-        String timestamp = sdf.format(new Date());
-        String uuidPart = UUID.randomUUID().toString().substring(0, 8);
-        return "task_" + timestamp + "_" + uuidPart;
-    }
-
-    /**
      * 生成随机的 Track ID（与 DockerTrainerUtil 保持一致）
      */
     public static String generateTrackId() {
@@ -649,5 +639,158 @@ public class K8sTrainerUtil {
         }
         
         return name;
+    }
+
+    /**
+     * 根据 Job 名称获取关联的 Pod
+     * @param jobName Job 名称
+     * @param namespace 命名空间
+     * @return Pod 对象，如果不存在则返回 null
+     * @throws ApiException Kubernetes API 异常
+     */
+    public static V1Pod getPodByJobName(String jobName, String namespace) throws ApiException {
+        log.info("根据 Job 名称查找 Pod: {}, namespace: {}", jobName, namespace);
+        
+        CoreV1Api coreV1Api = new CoreV1Api();
+        try {
+            // 查找 Job 关联的 Pod（通过 job-name label）
+            V1PodList podList = coreV1Api.listNamespacedPod(namespace)
+                    .labelSelector("job-name=" + jobName)
+                    .execute();
+            
+            if (podList.getItems() == null || podList.getItems().isEmpty()) {
+                log.warn("Job 关联的 Pod 不存在: {}", jobName);
+                return null;
+            }
+            
+            // 优先获取 Running 状态的 Pod，否则使用第一个
+            V1Pod targetPod = podList.getItems().stream()
+                    .filter(pod -> {
+                        V1PodStatus status = pod.getStatus();
+                        return status != null && "Running".equalsIgnoreCase(status.getPhase());
+                    })
+                    .findFirst()
+                    .orElse(podList.getItems().get(0));
+            
+            return targetPod;
+        } catch (ApiException e) {
+            if (e.getCode() == 404) {
+                log.warn("Job 或 Pod 不存在: {}", jobName);
+                return null;
+            }
+            log.error("查找 Pod 失败: {}", e.getMessage());
+            throw new RuntimeException("查找 Pod 失败: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 从 Metrics API 获取 Pod 的 CPU 和内存使用情况
+     * @param podName Pod 名称
+     * @param namespace 命名空间
+     * @return 包含 cpu 和 memory 使用量的 Map，如果获取失败则返回 null
+     */
+    public static java.util.Map<String, Object> getPodMetrics(String podName, String namespace) {
+        log.info("获取 Pod 指标: {}, namespace: {}", podName, namespace);
+        
+        try {
+            ApiClient apiClient = io.kubernetes.client.openapi.Configuration.getDefaultApiClient();
+            if (apiClient == null) {
+                log.warn("Kubernetes API 客户端未初始化");
+                return null;
+            }
+            
+            String basePath = apiClient.getBasePath();
+            if (basePath == null || basePath.isEmpty()) {
+                log.warn("API 基础路径为空");
+                return null;
+            }
+            
+            // 尝试 v1beta1 API
+            String url = basePath + "/apis/metrics.k8s.io/v1beta1/namespaces/" + namespace + "/pods/" + podName;
+            
+            okhttp3.OkHttpClient httpClient = apiClient.getHttpClient();
+            if (httpClient == null) {
+                log.warn("HTTP 客户端未初始化");
+                return null;
+            }
+            
+            okhttp3.Request request = new okhttp3.Request.Builder()
+                    .url(url)
+                    .get()
+                    .addHeader("Accept", "application/json")
+                    .build();
+            
+            okhttp3.Response response = httpClient.newCall(request).execute();
+            try {
+                if (response.isSuccessful() && response.body() != null) {
+                    String responseBody = response.body().string();
+                    cn.hutool.json.JSONObject metrics = cn.hutool.json.JSONUtil.parseObj(responseBody);
+                    
+                    if (metrics != null) {
+                        cn.hutool.json.JSONArray containers = metrics.getJSONArray("containers");
+                        if (containers != null && containers.size() > 0) {
+                            cn.hutool.json.JSONObject container = containers.getJSONObject(0);
+                            cn.hutool.json.JSONObject usage = container.getJSONObject("usage");
+                            
+                            if (usage != null) {
+                                java.util.Map<String, Object> result = new java.util.HashMap<>();
+                                result.put("cpu", usage.getStr("cpu"));
+                                result.put("memory", usage.getStr("memory"));
+                                log.info("成功从 Metrics API 获取 Pod 指标");
+                                return result;
+                            }
+                        }
+                    }
+                } else {
+                    int code = response.code();
+                    if (code == 404) {
+                        log.debug("Metrics API 不可用 (404)，集群可能未安装 metrics-server。将使用资源请求/限制作为参考值");
+                    } else {
+                        log.warn("Metrics API 调用失败: code={}, message={}", code, response.message());
+                    }
+                }
+            } finally {
+                if (response != null) {
+                    response.close();
+                }
+            }
+        } catch (okhttp3.internal.http2.StreamResetException e) {
+            log.debug("Metrics API 连接被重置，可能未安装 metrics-server: {}", e.getMessage());
+        } catch (java.net.UnknownHostException e) {
+            log.debug("无法解析 Metrics API 主机名，可能未安装 metrics-server: {}", e.getMessage());
+        } catch (Exception e) {
+            log.debug("获取 Pod 指标失败（Metrics API 可能不可用）: {}", e.getMessage());
+        }
+        
+        return null;
+    }
+
+    /**
+     * 获取 Pod 的资源请求和限制
+     * @param pod Pod 对象
+     * @return 包含 requests 和 limits 的 Map
+     */
+    public static java.util.Map<String, java.util.Map<String, Quantity>> getPodResourceRequirements(V1Pod pod) {
+        java.util.Map<String, java.util.Map<String, Quantity>> result = new java.util.HashMap<>();
+        java.util.Map<String, Quantity> requests = new java.util.HashMap<>();
+        java.util.Map<String, Quantity> limits = new java.util.HashMap<>();
+        
+        if (pod != null && pod.getSpec() != null && pod.getSpec().getContainers() != null) {
+            for (V1Container container : pod.getSpec().getContainers()) {
+                V1ResourceRequirements resources = container.getResources();
+                if (resources != null) {
+                    if (resources.getRequests() != null) {
+                        requests.putAll(resources.getRequests());
+                    }
+                    if (resources.getLimits() != null) {
+                        limits.putAll(resources.getLimits());
+                    }
+                }
+            }
+        }
+        
+        result.put("requests", requests);
+        result.put("limits", limits);
+        return result;
     }
 }

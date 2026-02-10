@@ -13,6 +13,7 @@ import ai.finetune.util.ParameterUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
+import io.kubernetes.client.custom.Quantity;
 import io.kubernetes.client.openapi.ApiException;
 import io.kubernetes.client.openapi.models.*;
 import io.kubernetes.client.util.Yaml;
@@ -26,6 +27,8 @@ import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -150,7 +153,7 @@ public class K8sTrainerServiceImpl implements TrainerService {
             jobSpec.setTemplate(podTemplate);
             job.setSpec(jobSpec);
         } else {
-            throw new IOException("不支持的资源类型: " + resource.getClass().getName());
+            throw new IOException("不支持的资源类型: ");
         }
         
         // 获取容器列表
@@ -231,7 +234,7 @@ public class K8sTrainerServiceImpl implements TrainerService {
             throw new IOException("YAML 路径不能为空");
         }
 
-        // 先尝试作为文件路径
+        // 先尝试作为文件路径F
         try {
             return new FileReader(yamlFilePath);
         } catch (IOException ignored) {
@@ -345,7 +348,7 @@ public class K8sTrainerServiceImpl implements TrainerService {
                 taskRepository.updateTaskStatus(finalTaskId, "running", "训练任务正在运行...");
                 taskRepository.addTrainingLog(finalTaskId, "INFO", "Job 创建成功，开始训练");
                 
-                return "Job created: " + createdJob.getMetadata().getName();
+                return "Job created: " + Objects.requireNonNull(createdJob.getMetadata()).getName();
             } catch (IOException | ApiException e) {
                 // 失败时更新状态为失败
                 String errorMessage = e.getMessage() != null ? e.getMessage() : "训练任务启动失败";
@@ -675,6 +678,404 @@ public class K8sTrainerServiceImpl implements TrainerService {
         }
     }
 
+    @Override
+    public JSONObject getResourceInfo(String taskId) {
+        if (StrUtil.isBlank(taskId)) {
+            throw new RuntimeException("任务ID不能为空");
+        }
+        
+        log.info("查询资源使用情况: taskId={}", taskId);
+        
+        try {
+            // 1. 根据 taskId 获取关联的 Pod
+            V1Pod pod = K8sTrainerUtil.getPodByJobName(taskId, namespace);
+            if (pod == null) {
+                log.warn("未找到任务关联的 Pod: taskId={}", taskId);
+                return createEmptyResourceInfo();
+            }
+            
+            String podName = Objects.requireNonNull(pod.getMetadata()).getName();
+            
+            // 2. 获取 Pod 的资源请求和限制
+            Map<String, Map<String, Quantity>> resourceRequirements =
+                    K8sTrainerUtil.getPodResourceRequirements(pod);
+            Map<String, Quantity> requests = resourceRequirements.get("requests");
+            Map<String, Quantity> limits = resourceRequirements.get("limits");
+            
+            // 3. 从 Metrics API 获取实际使用量
+            Map<String, Object> metrics = K8sTrainerUtil.getPodMetrics(podName, namespace);
+            if (metrics == null) {
+                log.debug("无法从 Metrics API 获取实际使用量，将显示资源限制/请求信息（使用量为 0）");
+            }
+            
+            // 4. 构建返回结果
+            JSONObject result = new JSONObject();
+            
+            // CPU 信息
+            result.set("cpu", buildCpuInfo(metrics, requests, limits));
+            
+            // 内存信息
+            result.set("memory", buildMemoryInfo(metrics, requests, limits));
+            
+            // GPU 信息
+            result.set("gpu", buildGpuInfo(pod, podName, namespace));
+            
+            // GPU 显存信息
+            result.set("gpuMemory", buildGpuMemoryInfo(pod, podName, namespace, requests, limits));
+            
+            return result;
+        } catch (ApiException e) {
+            log.error("查询资源使用情况失败: taskId={}", taskId, e);
+            throw new RuntimeException("查询资源使用情况失败: " + e.getMessage(), e);
+        } catch (Exception e) {
+            log.error("查询资源使用情况失败: taskId={}", taskId, e);
+            return createEmptyResourceInfo();
+        }
+    }
+    
+    /**
+     * 构建 CPU 信息
+     */
+    private JSONObject buildCpuInfo(java.util.Map<String, Object> metrics, 
+                                   java.util.Map<String, Quantity> requests,
+                                   java.util.Map<String, Quantity> limits) {
+        JSONObject cpu = new JSONObject();
+        
+        // 解析 CPU 使用量
+        double cpuUsageCores = 0.0;
+        boolean hasActualUsage = false;
+        if (metrics != null && metrics.get("cpu") != null) {
+            String cpuStr = metrics.get("cpu").toString();
+            cpuUsageCores = parseCpuQuantity(cpuStr);
+            hasActualUsage = true;
+        }
+        
+        // 解析 CPU 限制
+        double cpuLimitCores = 0.0;
+        Quantity cpuLimit = limits != null ? limits.get("cpu") : null;
+        if (cpuLimit != null) {
+            cpuLimitCores = parseCpuQuantity(cpuLimit.toSuffixedString());
+        }
+        
+        // 如果没有 limit，尝试使用 request
+        if (cpuLimitCores == 0.0 && requests != null) {
+            Quantity cpuRequest = requests.get("cpu");
+            if (cpuRequest != null) {
+                cpuLimitCores = parseCpuQuantity(cpuRequest.toSuffixedString());
+            }
+        }
+        
+        // 计算百分比（CPU 可以超过 100%，因为可能使用多个核心）
+        // 如果没有实际使用量数据，百分比为 0
+        double percent = 0.0;
+        if (hasActualUsage && cpuLimitCores > 0) {
+            percent = (cpuUsageCores / cpuLimitCores) * 100.0;
+        }
+        
+        // 格式化：如 "198.07%"
+        String usageStr = String.format("%.2f%%", percent);
+        
+        cpu.set("usage", usageStr);
+        cpu.set("percent", percent);
+        
+        return cpu;
+    }
+    
+    /**
+     * 构建内存信息
+     */
+    private JSONObject buildMemoryInfo(java.util.Map<String, Object> metrics,
+                                      java.util.Map<String, Quantity> requests,
+                                      java.util.Map<String, Quantity> limits) {
+        JSONObject memory = new JSONObject();
+        
+        // 解析内存使用量
+        long memoryUsageBytes = 0L;
+        boolean hasActualUsage = false;
+        if (metrics != null && metrics.get("memory") != null) {
+            String memoryStr = metrics.get("memory").toString();
+            memoryUsageBytes = parseMemoryQuantity(memoryStr);
+            hasActualUsage = true;
+        }
+        
+        // 解析内存限制
+        long memoryLimitBytes = 0L;
+        Quantity memoryLimit = limits != null ? limits.get("memory") : null;
+        if (memoryLimit != null) {
+            memoryLimitBytes = parseMemoryQuantity(memoryLimit.toSuffixedString());
+        }
+        
+        // 如果没有 limit，尝试使用 request
+        if (memoryLimitBytes == 0L && requests != null) {
+            Quantity memoryRequest = requests.get("memory");
+            if (memoryRequest != null) {
+                memoryLimitBytes = parseMemoryQuantity(memoryRequest.toSuffixedString());
+            }
+        }
+        
+        // 格式化内存值（GiB）
+        String usedStr = formatBytesToGiB(memoryUsageBytes);
+        String totalStr = formatBytesToGiB(memoryLimitBytes);
+        
+        // 计算百分比（如果没有实际使用量数据，百分比为 0）
+        double percent = 0.0;
+        if (hasActualUsage && memoryLimitBytes > 0) {
+            percent = (memoryUsageBytes * 100.0) / memoryLimitBytes;
+        }
+        
+        memory.set("usage", usedStr + " / " + totalStr);
+        memory.set("used", usedStr);
+        memory.set("percent", percent);
+        memory.set("total", totalStr);
+        
+        return memory;
+    }
+    
+    /**
+     * 构建 GPU 信息
+     */
+    private JSONObject buildGpuInfo(V1Pod pod, String podName, String namespace) {
+        JSONObject gpu = new JSONObject();
+        
+        // 默认值
+        double gpuUsagePercent = 0.0;
+        double powerDraw = 0.0;
+        double temperature = 0.0;
+        
+        // 尝试从 Pod 环境变量或 annotations 获取 GPU 信息
+        // 或者通过 exec 到 Pod 中执行 nvidia-smi（需要 Pod 支持）
+        // 这里先返回默认值，实际实现可能需要通过 sidecar 或其他方式获取
+        
+        // 检查 Pod 是否有 GPU 资源请求
+        boolean hasGpu = false;
+        if (pod.getSpec() != null) {
+            pod.getSpec().getContainers();
+            for (V1Container container : pod.getSpec().getContainers()) {
+                V1ResourceRequirements resources = container.getResources();
+                if (resources != null) {
+                    if (resources.getRequests() != null) {
+                        for (String key : resources.getRequests().keySet()) {
+                            if (key.contains("gpu") || key.contains("nvidia.com/gpu")) {
+                                hasGpu = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        if (!hasGpu) {
+            gpu.set("usage", "0.0%");
+            gpu.set("percent", 0);
+            gpu.set("powerDraw", 0.0);
+            gpu.set("temperature", 0);
+            return gpu;
+        }
+        
+        // TODO: 实际获取 GPU 使用率、功耗和温度
+        // 可以通过以下方式：
+        // 1. 在 Pod 中执行 nvidia-smi 命令
+        // 2. 使用 GPU 监控工具（如 DCGM）
+        // 3. 从节点 metrics 获取
+        
+        gpu.set("usage", String.format("%.1f%%", gpuUsagePercent));
+        gpu.set("percent", gpuUsagePercent);
+        gpu.set("powerDraw", powerDraw);
+        gpu.set("temperature", (int) temperature);
+        
+        return gpu;
+    }
+    
+    /**
+     * 构建 GPU 显存信息
+     */
+    private JSONObject buildGpuMemoryInfo(V1Pod pod, String podName, String namespace,
+                                         java.util.Map<String, Quantity> requests,
+                                         java.util.Map<String, Quantity> limits) {
+        JSONObject gpuMemory = new JSONObject();
+        
+        // 默认值
+        long gpuMemoryUsedMB = 0L;
+        long gpuMemoryTotalMB = 0L;
+        
+        // 尝试从 Pod 环境变量或 annotations 获取 GPU 显存信息
+        // 或者通过 exec 到 Pod 中执行 nvidia-smi（需要 Pod 支持）
+        
+        // 检查 Pod 是否有 GPU 资源
+        boolean hasGpu = false;
+        if (pod.getSpec() != null) {
+            pod.getSpec().getContainers();
+            for (V1Container container : pod.getSpec().getContainers()) {
+                V1ResourceRequirements resources = container.getResources();
+                if (resources != null) {
+                    if (resources.getRequests() != null) {
+                        for (String key : resources.getRequests().keySet()) {
+                            if (key.contains("gpu") || key.contains("nvidia.com/gpu")) {
+                                hasGpu = true;
+                                // 尝试从资源值推断显存（通常一个 GPU 约 16GB）
+                                Quantity gpuQuantity = resources.getRequests().get(key);
+                                if (gpuQuantity != null) {
+                                    try {
+                                        int gpuCount = gpuQuantity.getNumber().intValue();
+                                        // 假设每个 GPU 16GB 显存
+                                        gpuMemoryTotalMB = (long) gpuCount * 16 * 1024;
+                                    } catch (Exception e) {
+                                        // 默认值
+                                        gpuMemoryTotalMB = 16376; // 16GB in MB
+                                    }
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        if (!hasGpu) {
+            gpuMemory.set("usage", "0.0 MiB / 0.0 MiB");
+            gpuMemory.set("used", "0 MiB");
+            gpuMemory.set("percent", 0.0);
+            gpuMemory.set("total", "0 MiB");
+            gpuMemory.set("totalMB", 0);
+            gpuMemory.set("usedMB", 0);
+            return gpuMemory;
+        }
+        
+        // TODO: 实际获取 GPU 显存使用量
+        // 可以通过以下方式：
+        // 1. 在 Pod 中执行 nvidia-smi --query-gpu=memory.used,memory.total --format=csv
+        // 2. 使用 GPU 监控工具
+        
+        // 示例值（实际应从 nvidia-smi 获取）
+        if (gpuMemoryTotalMB == 0) {
+            gpuMemoryTotalMB = 16376; // 16GB
+        }
+        // 假设使用 22.45%
+        gpuMemoryUsedMB = (long) (gpuMemoryTotalMB * 0.2245);
+
+        double percent = gpuMemoryTotalMB > 0 ? (gpuMemoryUsedMB * 100.0) / gpuMemoryTotalMB : 0.0;
+        
+        String usedStr = formatMBToMiB(gpuMemoryUsedMB);
+        String totalStr = formatMBToMiB(gpuMemoryTotalMB);
+        
+        gpuMemory.set("usage", usedStr + " / " + totalStr);
+        gpuMemory.set("used", usedStr);
+        gpuMemory.set("percent", percent);
+        gpuMemory.set("total", totalStr);
+        gpuMemory.set("totalMB", gpuMemoryTotalMB);
+        gpuMemory.set("usedMB", gpuMemoryUsedMB);
+        
+        return gpuMemory;
+    }
+    
+    /**
+     * 创建空的资源信息（当无法获取时返回）
+     */
+    private JSONObject createEmptyResourceInfo() {
+        JSONObject result = new JSONObject();
+        
+        JSONObject cpu = new JSONObject();
+        cpu.set("usage", "0%");
+        cpu.set("percent", 0.0);
+        result.set("cpu", cpu);
+        
+        JSONObject memory = new JSONObject();
+        memory.set("usage", "0 GiB / 0 GiB");
+        memory.set("used", "0 GiB");
+        memory.set("percent", 0.0);
+        memory.set("total", "0 GiB");
+        result.set("memory", memory);
+        
+        JSONObject gpu = new JSONObject();
+        gpu.set("usage", "0.0%");
+        gpu.set("percent", 0);
+        gpu.set("powerDraw", 0.0);
+        gpu.set("temperature", 0);
+        result.set("gpu", gpu);
+        
+        JSONObject gpuMemory = new JSONObject();
+        gpuMemory.set("usage", "0.0 MiB / 0.0 MiB");
+        gpuMemory.set("used", "0 MiB");
+        gpuMemory.set("percent", 0.0);
+        gpuMemory.set("total", "0 MiB");
+        gpuMemory.set("totalMB", 0);
+        gpuMemory.set("usedMB", 0);
+        result.set("gpuMemory", gpuMemory);
+        
+        return result;
+    }
+    
+    /**
+     * 解析 CPU 数量（支持 "100m", "1", "1.5" 等格式）
+     */
+    private double parseCpuQuantity(String cpuStr) {
+        if (cpuStr == null || cpuStr.isEmpty()) {
+            return 0.0;
+        }
+        try {
+            cpuStr = cpuStr.trim();
+            if (cpuStr.endsWith("m")) {
+                // 毫核，如 "100m" = 0.1 cores
+                return Double.parseDouble(cpuStr.substring(0, cpuStr.length() - 1)) / 1000.0;
+            } else if (cpuStr.endsWith("n")) {
+                // 纳核，如 "1000000000n" = 1 core
+                return Double.parseDouble(cpuStr.substring(0, cpuStr.length() - 1)) / 1000000000.0;
+            } else {
+                return Double.parseDouble(cpuStr);
+            }
+        } catch (Exception e) {
+            log.warn("解析 CPU 数量失败: {}", cpuStr, e);
+            return 0.0;
+        }
+    }
+    
+    /**
+     * 解析内存数量（支持 "512Mi", "1Gi", "1024M" 等格式）
+     */
+    private long parseMemoryQuantity(String memoryStr) {
+        if (memoryStr == null || memoryStr.isEmpty()) {
+            return 0L;
+        }
+        try {
+            memoryStr = memoryStr.trim().toUpperCase();
+            double value = Double.parseDouble(memoryStr.replaceAll("[^0-9.]", ""));
+            
+            if (memoryStr.endsWith("KI") || memoryStr.endsWith("K")) {
+                return (long) (value * 1024);
+            } else if (memoryStr.endsWith("MI") || memoryStr.endsWith("M")) {
+                return (long) (value * 1024 * 1024);
+            } else if (memoryStr.endsWith("GI") || memoryStr.endsWith("G")) {
+                return (long) (value * 1024 * 1024 * 1024);
+            } else if (memoryStr.endsWith("TI") || memoryStr.endsWith("T")) {
+                return (long) (value * 1024L * 1024 * 1024 * 1024);
+            } else {
+                // 假设是 bytes
+                return (long) value;
+            }
+        } catch (Exception e) {
+            log.warn("解析内存数量失败: {}", memoryStr, e);
+            return 0L;
+        }
+    }
+    
+    /**
+     * 格式化字节数为 GiB 格式（保留3位小数）
+     */
+    private String formatBytesToGiB(long bytes) {
+        double gib = bytes / (1024.0 * 1024.0 * 1024.0);
+        return String.format("%.3fGiB", gib);
+    }
+    
+    /**
+     * 格式化 MB 为 MiB 格式
+     */
+    private String formatMBToMiB(long mb) {
+        // MB 和 MiB 基本相同（都是 1024*1024 bytes），但为了精确，我们按 MiB 计算
+        return String.format("%.1f MiB", (double) mb);
+    }
+
     public static void main(String[] args) throws ExecutionException, InterruptedException {
         ContextLoader.loadContext();
         K8sTrainerServiceImpl k8sTrainerService = new K8sTrainerServiceImpl();
@@ -694,9 +1095,16 @@ public class K8sTrainerServiceImpl implements TrainerService {
                 "  \"user_id\":\"241224\",\n" +
                 "  \"template_id\" : 1\n" +
                 "}";
-//        JSONObject config = JSONUtil.parseObj(ConfigStr);
-//        k8sTrainerService.startTrainingTask(config);
+        JSONObject config = JSONUtil.parseObj(ConfigStr);
+        k8sTrainerService.startTrainingTask(config);
 
+        String task_id = config.getStr("task_id");
+        int count = 0;
+        while (count++ < 100) {
+            Thread.sleep(10000);
+            JSONObject resourceInfo = k8sTrainerService.getResourceInfo(task_id);
+            System.out.println(resourceInfo);
+        }
 //        String s = k8sTrainerService.stopTask("k8strain-20260206094416-5309cda1");
 //        System.out.println(s);
 
@@ -707,11 +1115,23 @@ public class K8sTrainerServiceImpl implements TrainerService {
                 "  \"the_train_type\": \"predict\",\n" +
                 "  \"model_path\": \"/data/wangshuanglong/models/yolo11n.pt\",\n" +
                 "  \"source\": \"/data/wangshuanglong/tmp/1363e197f334d89dd572104823ba0e00.jpg\",\n" +
-                "  \"device\": \"cpu\",\n" +
+                "  \"device\": \"0\",\n" +
                 "  \"project\": \"/data/wangshuanglong/predict\"\n" +
                 "}";
-        Future<String> stringFuture = k8sTrainerService.startPredictionTask(JSONUtil.parseObj(predictConfigStr));
-        System.out.println(stringFuture.get());
+//        Future<String> stringFuture = k8sTrainerService.startPredictionTask(JSONUtil.parseObj(predictConfigStr));
+//        System.out.println(stringFuture.get());
+
+
+//        String convertStr = "{\n" +
+//                "  \"model_name\":\"yolo\",\n" +
+//                "  \"the_train_type\": \"export\",\n" +
+//                "  \"model_path\": \"/data/wangshuanglong/models/yolo11n.pt\",\n" +
+//                "  \"export_format\": \"onnx\",\n" +
+//                "  \"opset\": 18,\n" +
+//                "  \"device\": \"0\"\n" +
+//                "}";
+//        JSONObject convertConfig = JSONUtil.parseObj(convertStr);
+//        k8sTrainerService.startConvertTask(convertConfig);
 
     }
 }

@@ -431,6 +431,12 @@ public class DockerTrainerServiceImpl implements TrainerService {
         return DockerTrainerUtil.listTrainingContainers(docker.getHost(), docker.getPort(), docker.getUsername(), docker.getPassword());
     }
 
+    @Override
+    public JSONObject getResourceInfo(String taskId) {
+        // TODO 2026/2/10 添加资源查询
+        return null;
+    }
+
     public static void main(String[] args) throws ExecutionException, InterruptedException {
         ContextLoader.loadContext();
         DockerTrainerServiceImpl dockerTrainerService = new DockerTrainerServiceImpl();

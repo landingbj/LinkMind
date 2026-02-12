@@ -44,7 +44,7 @@ stores:
     # This  is an adapter for Elasticsearch, providing search and analytics capabilities on large datasets.
     - name: elastic
       driver: ai.bigdata.impl.ElasticSearchAdapter
-      host: localhost
+      host: 172.16.110.40
       port: 9200
       enable: true
 

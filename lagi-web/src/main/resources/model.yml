@@ -21,6 +21,15 @@ models:
     driver: ai.llm.adapter.impl.VicunaAdapter
     api_address: http://localhost:8090/v1/chat/completions
 
+  # Qwen3-32B 本地部署大模型 (OpenAI 兼容接口)
+  - name: qwen3
+    type: Vicuna
+    enable: true
+    model: qwen3-32b
+    driver: ai.llm.adapter.impl.QwenCompatibleAdapter
+    api_address: http://172.16.110.40:8000/v1/chat/completions
+    api_key: dummy
+
   # ChatGPT is a state-of-the-art language model developed by OpenAI
   - name: chatgpt
     type: OpenAI

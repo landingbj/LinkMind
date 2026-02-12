@@ -46,7 +46,7 @@ stores:
       similarity_cutoff: 0.5
       parent_depth: 1
       child_depth: 1
-      url: http://localhost:8000
+      url: http://172.16.110.40:8003
 
   rag: # RAG enhances large language models by integrating external knowledge retrieval.
     vector: chroma
@@ -84,14 +84,23 @@ include_stores: store.yml
 
 functions:
   embedding:
-    - backend: qwen
-      type: Qwen
-      api_key: you-api-key
+    # BGE-Embedding 本地部署 (OpenAI 兼容接口)
+    - backend: qwen3
+      type: OpenAI
+      api_key: dummy
+      model_name: bge-large-zh-v1.5
+      api_endpoint: http://172.16.110.40:8000/v1/embeddings
 
   chat:
-    route: best((landing&qwen),(kimi|chatgpt))
+    route: best(qwen3)
     filter: sensitive,priority,stopping,continue
     backends:
+      - backend: qwen3
+        model: qwen3-32b
+        enable: true
+        stream: true
+        priority: 400
+
       - backend: landing
         model: cascade
         enable: true

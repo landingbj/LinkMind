@@ -26,6 +26,7 @@ import ai.servlet.annotation.Post;
 import ai.response.RestfulResponse;
 import ai.utils.StringUtils;
 import cn.hutool.core.convert.Convert;
+import cn.hutool.json.JSONUtil;
 
 /**
  * @program: RestfulServlet
@@ -279,7 +280,8 @@ public class RestfulServlet extends BaseServlet {
 
     private Object convertBody(HttpServletRequest req, Class<?> type) {
         try {
-            return reqBodyToObj(req, type);
+            String jsonStr = requestToJson(req);
+            return JSONUtil.toBean(jsonStr,  type);
         } catch (Exception e) {
             e.printStackTrace();
         }

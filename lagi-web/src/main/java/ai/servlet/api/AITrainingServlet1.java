@@ -31,7 +31,7 @@ public class AITrainingServlet1 extends RestfulServlet {
     private final TrainerService trainerService = ContextLoader.getBean(TrainerService.class);
 
     @Post("start")
-    public String start(@Body("config") JSONObject config) {
+    public String start(@Body JSONObject config) {
         config.set("the_train_type", "train");
         if (trainerService != null) {
             trainerService.startTrainingTask(config);
@@ -41,7 +41,7 @@ public class AITrainingServlet1 extends RestfulServlet {
     }
 
     @Post("pause")
-    public String pause(@Body("taskId") String taskId) {
+    public String pause(@Body String taskId) {
         if (trainerService != null) {
             return trainerService.pauseTask(taskId);
         }
@@ -110,7 +110,7 @@ public class AITrainingServlet1 extends RestfulServlet {
     }
 
     @Post("predict")
-    public String predict(@Body("config") JSONObject config) {
+    public String predict(@Body JSONObject config) {
         config.set("the_train_type", "predict");
         if (trainerService != null) {
             trainerService.startPredictionTask(config);
@@ -120,7 +120,7 @@ public class AITrainingServlet1 extends RestfulServlet {
     }
 
     @Post("export")
-    public String export(@Body("config") JSONObject config) {
+    public String export(@Body JSONObject config) {
         config.set("the_train_type", "export");
         if (trainerService != null) {
             try {

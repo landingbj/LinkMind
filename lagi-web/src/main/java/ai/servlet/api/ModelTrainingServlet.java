@@ -4,6 +4,7 @@ import ai.common.utils.ObservableList;
 import ai.config.ContextLoader;
 import ai.config.UploadConfig;
 import ai.config.pojo.DiscriminativeModelsConfig;
+import ai.database.impl.MysqlAdapter;
 import ai.finetune.YoloK8sAdapter;
 import ai.finetune.YoloTrainerAdapter;
 import ai.finetune.repository.TrainingTaskRepository;
@@ -81,32 +82,8 @@ public class ModelTrainingServlet extends BaseServlet {
         String method = url.substring(url.lastIndexOf("/") + 1);
 
         switch (method) {
-            case "start":
-                handleStartTraining(req, resp);
-                break;
-            case "pause":
-                handlePauseContainer(req, resp);
-                break;
-            case "resume":
-                handleResumeContainer(req, resp);
-                break;
-            case "stop":
-                handleStopContainer(req, resp);
-                break;
             case "logs":
                 handleGetLogs(req, resp);
-                break;
-            case "stream":
-                handleStreamLogs(req, resp);
-                break;
-            case "evaluate":
-                handleEvaluate(req, resp);
-                break;
-            case "predict":
-                handlePredict(req, resp);
-                break;
-            case "export":
-                handleExportModel(req, resp);
                 break;
             case "upload":
                 handleUploadFile(req, resp);
@@ -581,91 +558,6 @@ public class ModelTrainingServlet extends BaseServlet {
 
 
     /**
-     * 启动训练任务（通用）
-     * POST /model/training/start
-     *
-     * 请求参数（JSON）：
-     * {
-     *   "model_name": "yolov8",  // 必需：模型名称
-     *   "task_id": "可选，不传则自动生成",
-     *   "track_id": "可选，不传则自动生成",
-     *   "model_path": "/app/data/models/yolo11n.pt",
-     *   "data": "/app/data/datasets/YoloV8/data.yaml",
-     *   "epochs": 10,
-     *   "batch": 2,
-     *   "imgsz": 640,
-     *   "device": "0",
-     *   ... // 其他模型特定参数
-     * }
-     */
-    private void handleStartTraining(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        resp.setContentType("application/json;charset=utf-8");
-
-        try {
-            String jsonBody = requestToJson(req);
-            JSONObject config = JSONUtil.parseObj(jsonBody);
-
-            // 获取模型名称（必需参数）
-            String modelName = config.getStr("model_name");
-            if (modelName == null || modelName.isEmpty()) {
-                resp.setStatus(400);
-                Map<String, String> error = new HashMap<>();
-                error.put("error", "缺少必需参数: model_name");
-                error.put("支持的模型", "yolov8, yolov11, centernet, crnn, hrnet, pidnet, deeplabv3, sports_reid, clip_reid, resnet18, osnet, tdeed, transnetv2, tracknetv3, paddleocrv4");
-                responsePrint(resp, toJson(error));
-                return;
-            }
-
-            // 获取或创建该模型的训练器
-            YoloK8sAdapter trainer = getOrCreateTrainer(modelName);
-            if (trainer == null) {
-                sendServiceUnavailableError(resp, modelName);
-                return;
-            }
-
-            // 生成或获取任务ID
-            String taskId = config.getStr("task_id");
-            if (taskId == null || taskId.isEmpty()) {
-                taskId = UUID.randomUUID().toString();
-            }
-
-            String trackId = config.getStr("track_id");
-            if (trackId == null || trackId.isEmpty()) {
-                trackId = UUID.randomUUID().toString();
-            }
-
-            // 记录任务所属的模型
-            taskModelMap.put(taskId, modelName);
-
-            // 构建训练配置
-            JSONObject trainConfig = buildTrainConfig(config, taskId, trackId, modelName);
-
-            // 启动训练
-            String result = trainer.startTraining(taskId, trackId, trainConfig);
-
-            // 保存任务到容器的映射
-            if (YoloK8sAdapter.isSuccess(result)) {
-                JSONObject resultJson = JSONUtil.parseObj(result);
-                String containerName = resultJson.getStr("containerName");
-                taskContainerMap.put(taskId, containerName);
-
-                // 在返回结果中添加模型名称
-                resultJson.put("modelName", modelName);
-                result = resultJson.toString();
-            }
-
-            responsePrint(resp, result);
-
-        } catch (Exception e) {
-            log.error("启动训练任务失败", e);
-            resp.setStatus(500);
-            Map<String, String> error = new HashMap<>();
-            error.put("error", e.getMessage());
-            responsePrint(resp, toJson(error));
-        }
-    }
-
-    /**
      * 构建训练配置
      */
     private JSONObject buildTrainConfig(JSONObject inputConfig, String taskId, String trackId, String modelName) {
@@ -737,126 +629,6 @@ public class ModelTrainingServlet extends BaseServlet {
         return trainConfig;
     }
 
-    /**
-     * 暂停容器
-     * POST /model/training/pause?taskId=xxx
-     */
-    private void handlePauseContainer(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        resp.setContentType("application/json;charset=utf-8");
-
-        try {
-            String taskId = req.getParameter("taskId");
-            String containerId = getContainerIdFromRequest(req);
-
-            if (containerId == null) {
-                resp.setStatus(400);
-                Map<String, String> error = new HashMap<>();
-                error.put("error", "缺少 taskId 或 containerId 参数");
-                responsePrint(resp, toJson(error));
-                return;
-            }
-
-            // 获取对应的训练器
-            YoloK8sAdapter trainer = getTrainerForTask(taskId);
-            if (trainer == null) {
-                resp.setStatus(404);
-                Map<String, String> error = new HashMap<>();
-                error.put("error", "找不到对应的训练器");
-                responsePrint(resp, toJson(error));
-                return;
-            }
-
-            String result = trainer.pauseContainer(containerId);
-            responsePrint(resp, result);
-
-        } catch (Exception e) {
-            log.error("暂停容器失败", e);
-            resp.setStatus(500);
-            Map<String, String> error = new HashMap<>();
-            error.put("error", e.getMessage());
-            responsePrint(resp, toJson(error));
-        }
-    }
-
-    /**
-     * 恢复容器
-     * POST /model/training/resume?taskId=xxx
-     */
-    private void handleResumeContainer(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        resp.setContentType("application/json;charset=utf-8");
-
-        try {
-            String taskId = req.getParameter("taskId");
-            String containerId = getContainerIdFromRequest(req);
-
-            if (containerId == null) {
-                resp.setStatus(400);
-                Map<String, String> error = new HashMap<>();
-                error.put("error", "缺少 taskId 或 containerId 参数");
-                responsePrint(resp, toJson(error));
-                return;
-            }
-
-            YoloK8sAdapter trainer = getTrainerForTask(taskId);
-            if (trainer == null) {
-                resp.setStatus(404);
-                Map<String, String> error = new HashMap<>();
-                error.put("error", "找不到对应的训练器");
-                responsePrint(resp, toJson(error));
-                return;
-            }
-
-            String result = trainer.resumeContainer(containerId);
-            responsePrint(resp, result);
-
-        } catch (Exception e) {
-            log.error("恢复容器失败", e);
-            resp.setStatus(500);
-            Map<String, String> error = new HashMap<>();
-            error.put("error", e.getMessage());
-            responsePrint(resp, toJson(error));
-        }
-    }
-
-    /**
-     * 停止容器
-     * POST /model/training/stop?taskId=xxx
-     */
-    private void handleStopContainer(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        resp.setContentType("application/json;charset=utf-8");
-
-        try {
-            String taskId = req.getParameter("taskId");
-            String containerId = getContainerIdFromRequest(req);
-
-            if (containerId == null) {
-                resp.setStatus(400);
-                Map<String, String> error = new HashMap<>();
-                error.put("error", "缺少 taskId 或 containerId 参数");
-                responsePrint(resp, toJson(error));
-                return;
-            }
-
-            YoloK8sAdapter trainer = getTrainerForTask(taskId);
-            if (trainer == null) {
-                resp.setStatus(404);
-                Map<String, String> error = new HashMap<>();
-                error.put("error", "找不到对应的训练器");
-                responsePrint(resp, toJson(error));
-                return;
-            }
-
-            String result = trainer.stopContainer(containerId);
-            responsePrint(resp, result);
-
-        } catch (Exception e) {
-            log.error("停止容器失败", e);
-            resp.setStatus(500);
-            Map<String, String> error = new HashMap<>();
-            error.put("error", e.getMessage());
-            responsePrint(resp, toJson(error));
-        }
-    }
 
 
     /**
@@ -902,165 +674,7 @@ public class ModelTrainingServlet extends BaseServlet {
         }
     }
 
-    /**
-     * 流式获取容器日志
-     * GET /model/training/stream?taskId=xxx
-     */
-    private void handleStreamLogs(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        String taskId = req.getParameter("taskId");
-        String containerId = getContainerIdFromRequest(req);
 
-        if (containerId == null) {
-            resp.setStatus(400);
-            resp.setContentType("application/json;charset=utf-8");
-            Map<String, String> error = new HashMap<>();
-            error.put("error", "缺少 taskId 或 containerId 参数");
-            responsePrint(resp, toJson(error));
-            return;
-        }
-
-        YoloK8sAdapter trainer = getTrainerForTask(taskId);
-        if (trainer == null) {
-            resp.setStatus(404);
-            resp.setContentType("application/json;charset=utf-8");
-            Map<String, String> error = new HashMap<>();
-            error.put("error", "找不到对应的训练器");
-            responsePrint(resp, toJson(error));
-            return;
-        }
-
-        // 设置 SSE 响应头
-        resp.setContentType("text/event-stream");
-        resp.setCharacterEncoding("UTF-8");
-        resp.setHeader("Cache-Control", "no-cache");
-        resp.setHeader("Connection", "keep-alive");
-
-        PrintWriter writer = resp.getWriter();
-
-        try {
-            // 创建流式日志输出
-            ObservableList<String> logStream = trainer.getContainerLogsStream(containerId);
-
-            // 订阅日志流
-            logStream.getObservable().subscribe(
-                line -> {
-                    try {
-                        writer.write("data: " + line + "\n\n");
-                        writer.flush();
-                    } catch (Exception e) {
-                        log.error("发送日志流失败", e);
-                    }
-                },
-                error -> {
-                    log.error("日志流错误", error);
-                    writer.write("event: error\ndata: " + error.getMessage() + "\n\n");
-                    writer.flush();
-                },
-                () -> {
-                    writer.write("event: complete\ndata: 日志流结束\n\n");
-                    writer.flush();
-                }
-            );
-
-        } catch (Exception e) {
-            log.error("创建日志流失败", e);
-            writer.write("event: error\ndata: " + e.getMessage() + "\n\n");
-            writer.flush();
-        }
-    }
-
-    /**
-     * 执行评估任务
-     * POST /model/training/evaluate
-     */
-    private void handleEvaluate(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        resp.setContentType("application/json;charset=utf-8");
-
-        try {
-            String jsonBody = requestToJson(req);
-            JSONObject config = JSONUtil.parseObj(jsonBody);
-
-            String modelName = config.getStr("model_name", "yolov8");
-            YoloK8sAdapter trainer = getOrCreateTrainer(modelName);
-
-            if (trainer == null) {
-                sendServiceUnavailableError(resp, modelName);
-                return;
-            }
-
-            String result = trainer.evaluate(config);
-            responsePrint(resp, result);
-
-        } catch (Exception e) {
-            log.error("执行评估失败", e);
-            resp.setStatus(500);
-            Map<String, String> error = new HashMap<>();
-            error.put("error", e.getMessage());
-            responsePrint(resp, toJson(error));
-        }
-    }
-
-    /**
-     * 执行预测任务
-     * POST /model/training/predict
-     */
-    private void handlePredict(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        resp.setContentType("application/json;charset=utf-8");
-
-        try {
-            String jsonBody = requestToJson(req);
-            JSONObject config = JSONUtil.parseObj(jsonBody);
-
-            String modelName = config.getStr("model_name", "yolov8");
-            YoloK8sAdapter trainer = getOrCreateTrainer(modelName);
-
-            if (trainer == null) {
-                sendServiceUnavailableError(resp, modelName);
-                return;
-            }
-
-            String result = trainer.predict(config);
-            responsePrint(resp, result);
-
-        } catch (Exception e) {
-            log.error("执行预测失败", e);
-            resp.setStatus(500);
-            Map<String, String> error = new HashMap<>();
-            error.put("error", e.getMessage());
-            responsePrint(resp, toJson(error));
-        }
-    }
-
-    /**
-     * 导出模型
-     * POST /model/training/export
-     */
-    private void handleExportModel(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        resp.setContentType("application/json;charset=utf-8");
-
-        try {
-            String jsonBody = requestToJson(req);
-            JSONObject config = JSONUtil.parseObj(jsonBody);
-
-            String modelName = config.getStr("model_name", "yolov8");
-            YoloK8sAdapter trainer = getOrCreateTrainer(modelName);
-
-            if (trainer == null) {
-                sendServiceUnavailableError(resp, modelName);
-                return;
-            }
-
-            String result = trainer.exportModel(config);
-            responsePrint(resp, result);
-
-        } catch (Exception e) {
-            log.error("导出模型失败", e);
-            resp.setStatus(500);
-            Map<String, String> error = new HashMap<>();
-            error.put("error", e.getMessage());
-            responsePrint(resp, toJson(error));
-        }
-    }
 
     /**
      * 上传文件到容器
@@ -1280,19 +894,19 @@ public class ModelTrainingServlet extends BaseServlet {
                 try {
                     Path tempZipFile = Files.createTempFile("download_", ".zip");
                     zipDirectory(file.toPath(), tempZipFile);
-                    
+
                     String fileName = file.getName() + ".zip";
                     String encodedFileName = java.net.URLEncoder.encode(fileName, "UTF-8");
-                    
+
                     // 设置响应头
                     resp.setContentType("application/zip");
                     resp.setHeader("Content-Disposition", "attachment; filename=\"" + encodedFileName + "\"");
                     resp.setContentLengthLong(Files.size(tempZipFile));
-                    
+
                     // 传输文件
                     try (InputStream inputStream = Files.newInputStream(tempZipFile);
                          java.io.OutputStream outputStream = resp.getOutputStream()) {
-                        
+
                         byte[] buffer = new byte[8192];
                         int bytesRead;
                         while ((bytesRead = inputStream.read(buffer)) != -1) {
@@ -1300,11 +914,11 @@ public class ModelTrainingServlet extends BaseServlet {
                         }
                         outputStream.flush();
                     }
-                    
+
                     // 删除临时文件
                     Files.deleteIfExists(tempZipFile);
                     log.info("目录下载成功: {} (压缩为 {})", outputPath, fileName);
-                    
+
                 } catch (Exception e) {
                     log.error("目录压缩下载失败: {}", outputPath, e);
                     resp.setStatus(500);
@@ -1317,16 +931,16 @@ public class ModelTrainingServlet extends BaseServlet {
                 // 如果是文件，直接下载
                 String fileName = file.getName();
                 String encodedFileName = java.net.URLEncoder.encode(fileName, "UTF-8");
-                
+
                 // 设置响应头
                 resp.setContentType("application/octet-stream");
                 resp.setHeader("Content-Disposition", "attachment; filename=\"" + encodedFileName + "\"");
                 resp.setContentLengthLong(file.length());
-                
+
                 // 传输文件
                 try (java.io.FileInputStream fileInputStream = new java.io.FileInputStream(file);
                      java.io.OutputStream outputStream = resp.getOutputStream()) {
-                    
+
                     byte[] buffer = new byte[8192];
                     int bytesRead;
                     while ((bytesRead = fileInputStream.read(buffer)) != -1) {
@@ -1334,7 +948,7 @@ public class ModelTrainingServlet extends BaseServlet {
                     }
                     outputStream.flush();
                 }
-                
+
                 log.info("文件下载成功: {}", outputPath);
             }
 
@@ -1537,44 +1151,6 @@ public class ModelTrainingServlet extends BaseServlet {
      * 优先从 AITrainingServlet.yoloTrainer 获取，如果为 null 则尝试其他方式
      */
     private TrainingTaskRepository getTrainingTaskRepository() {
-        // 优先使用 AITrainingServlet.yoloTrainer（向后兼容）
-        if (AITrainingServlet.yoloTrainer != null) {
-            return AITrainingServlet.yoloTrainer.getRepository();
-        }
-
-        // 如果 yoloTrainer 为 null，尝试从 trainerMap 中获取
-        // 注意：这里需要访问 AITrainingServlet 的 trainerMap，但由于它是私有的，
-        // 我们可以尝试通过反射或者使用 getYoloTrainer() 方法（如果存在）
-        // 或者直接使用本类的 trainerMap
-        for (YoloK8sAdapter trainer : trainerMap.values()) {
-            if (trainer != null) {
-                return trainer.getRepository();
-            }
-        }
-
-        // 如果都获取不到，尝试从 AITrainingServlet 获取（通过反射或公共方法）
-        // 这里先尝试使用 AITrainingServlet 的静态方法（如果存在）
-        try {
-            // 尝试通过反射获取 AITrainingServlet 的 trainerMap
-            java.lang.reflect.Field trainerMapField = AITrainingServlet.class.getDeclaredField("trainerMap");
-            trainerMapField.setAccessible(true);
-            @SuppressWarnings("unchecked")
-            Map<String, Object> aiTrainerMap = (Map<String, Object>) trainerMapField.get(null);
-            
-            if (aiTrainerMap != null && !aiTrainerMap.isEmpty()) {
-                for (Object trainer : aiTrainerMap.values()) {
-                    if (trainer instanceof YoloTrainerAdapter) {
-                        return ((YoloTrainerAdapter) trainer).getRepository();
-                    } else if (trainer instanceof YoloK8sAdapter) {
-                        return ((YoloK8sAdapter) trainer).getRepository();
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.warn("无法通过反射获取 AITrainingServlet 的 trainerMap: {}", e.getMessage());
-        }
-
-        log.error("无法获取 TrainingTaskRepository，所有训练器均未初始化");
-        return null;
+        return new TrainingTaskRepository(MysqlAdapter.getInstance());
     }
 }

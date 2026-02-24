@@ -67,7 +67,7 @@ public class DockerTrainerServiceImpl implements TrainerService {
             }
         }
         this.envs = envsSB.toString();
-        
+
         // 初始化 DAO
         MysqlAdapter mysqlAdapter = MysqlAdapter.getInstance();
         this.taskRepository = new TrainingTaskRepository(mysqlAdapter);
@@ -80,7 +80,7 @@ public class DockerTrainerServiceImpl implements TrainerService {
         if(config == null) {
             throw new RuntimeException("无有效训练参数");
         }
-        
+
         // 获取任务ID和跟踪ID
         String taskId = config.getStr("task_id");
         if (StrUtil.isBlank(taskId)) {
@@ -96,7 +96,7 @@ public class DockerTrainerServiceImpl implements TrainerService {
         // 保存为 final 变量供 lambda 使用
         final String finalTaskId = taskId;
         final String finalTrackId = trackId;
-        
+
         ModelMapper docker4Model = ParameterUtil.matchModel(docker.getModels(), config);
         if (docker4Model == null) {
             throw new RuntimeException("未匹配到模型");
@@ -117,8 +117,8 @@ public class DockerTrainerServiceImpl implements TrainerService {
         // Docker 镜像名称从配置中获取，如果没有则使用空字符串
         String dockerImage = config.getStr("docker_image", "");
         config.set("_docker_image", dockerImage);
-        config.set("_status", "starting");
-        
+        config.set("_status", "running");
+
         // 保存任务到数据库
         try {
             // TODO 2026/2/4 开启事务
@@ -127,7 +127,7 @@ public class DockerTrainerServiceImpl implements TrainerService {
         } catch (Exception e) {
             log.error("保存训练任务到数据库失败: taskId={}", finalTaskId, e);
         }
-        
+
         return executorService.submit(() -> {
                 log.info("开始执行训练任务: taskId={}, trackId={}", finalTaskId, finalTrackId);
                 log.info("执行训练命令: {}", cmd);
@@ -150,7 +150,7 @@ public class DockerTrainerServiceImpl implements TrainerService {
                 }
         });
     }
-    
+
 
 
     @Override
@@ -158,17 +158,17 @@ public class DockerTrainerServiceImpl implements TrainerService {
         if (StrUtil.isBlank(taskId)) {
             throw new RuntimeException("任务ID不能为空");
         }
-        
+
         try {
             String result = DockerTrainerUtil.stopContainer(
                     docker.getHost(), docker.getPort(), docker.getUsername(), docker.getPassword(), taskId);
-            
+
             // 成功时更新状态为已停止
             java.time.LocalDateTime now = java.time.LocalDateTime.now();
             String endTime = now.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
             taskRepository.updateTaskStopStatus(taskId, endTime);
             taskRepository.addTrainingLog(taskId, "INFO", "容器已停止: " + taskId);
-            
+
             return result;
         } catch (RuntimeException e) {
             // 失败时记录日志
@@ -183,16 +183,16 @@ public class DockerTrainerServiceImpl implements TrainerService {
         if(config == null) {
             throw new RuntimeException("无有效评估参数");
         }
-        
+
         String taskId = config.getStr("task_id");
         if (StrUtil.isBlank(taskId)) {
             taskId = DockerTrainerUtil.generateTaskId();
             config.set("task_id", taskId);
         }
-        
+
         final String finalTaskId = taskId;
         config.set("_status", "running");
-        
+
         // 保存评估任务到数据库
         try {
             taskRepository.saveEvaluationTaskToDB(finalTaskId, config);
@@ -200,7 +200,7 @@ public class DockerTrainerServiceImpl implements TrainerService {
         } catch (Exception e) {
             log.error("保存评估任务到数据库失败: taskId={}", finalTaskId, e);
         }
-        
+
         ModelMapper docker4Model = ParameterUtil.matchModel(docker.getModels(), config);
         if (docker4Model == null) {
             throw new RuntimeException("未匹配到模型");
@@ -220,11 +220,11 @@ public class DockerTrainerServiceImpl implements TrainerService {
             try {
                 String result = DockerTrainerUtil.executeRemoteCommand(
                         docker.getHost(), docker.getPort(), docker.getUsername(), docker.getPassword(), cmd);
-                
+
                 // 成功时更新状态为完成
                 taskRepository.updateTaskStatus(finalTaskId, "completed", "评估任务完成");
                 taskRepository.addTrainingLog(finalTaskId, "INFO", "评估任务完成");
-                
+
                 return result;
             } catch (RuntimeException e) {
                 // 失败时更新状态为失败，异常信息在 message 里
@@ -242,16 +242,16 @@ public class DockerTrainerServiceImpl implements TrainerService {
         if(config == null) {
             throw new RuntimeException("无有效预测参数");
         }
-        
+
         String taskId = config.getStr("task_id");
         if (StrUtil.isBlank(taskId)) {
             taskId = DockerTrainerUtil.generateTaskId();
             config.set("task_id", taskId);
         }
-        
+
         final String finalTaskId = taskId;
         config.set("_status", "running");
-        
+
         // 保存预测任务到数据库
         try {
             taskRepository.savePredictionTaskToDB(finalTaskId, config);
@@ -279,12 +279,12 @@ public class DockerTrainerServiceImpl implements TrainerService {
             try {
                 String result = DockerTrainerUtil.executeRemoteCommand(
                         docker.getHost(), docker.getPort(), docker.getUsername(), docker.getPassword(), cmd);
-                
+
                 // 成功时更新状态为完成
                 taskRepository.updateTaskStatus(finalTaskId, "completed", "预测任务完成");
                 taskRepository.updateTaskProgress(finalTaskId, 0, "100%");
                 taskRepository.addTrainingLog(finalTaskId, "INFO", "预测任务完成");
-                
+
                 return result;
             } catch (RuntimeException e) {
                 // 失败时更新状态为失败，异常信息在 message 里
@@ -303,16 +303,16 @@ public class DockerTrainerServiceImpl implements TrainerService {
         if(config == null) {
             throw new RuntimeException("无有效转换参数");
         }
-        
+
         String taskId = config.getStr("task_id");
         if (StrUtil.isBlank(taskId)) {
             taskId = DockerTrainerUtil.generateTaskId();
             config.set("task_id", taskId);
         }
-        
+
         final String finalTaskId = taskId;
         config.set("_status", "running");
-        
+
         // 保存转换任务到数据库
         try {
             taskRepository.saveConvertTaskToDB(finalTaskId, config);
@@ -350,7 +350,7 @@ public class DockerTrainerServiceImpl implements TrainerService {
                 // 成功时更新状态为完成
                 taskRepository.updateTaskStatus(finalTaskId, "completed", "模型转换完成");
                 taskRepository.addTrainingLog(finalTaskId, "INFO", "模型转换完成");
-                
+
                 return result;
             } catch (RuntimeException e) {
                 // 失败时更新状态为失败，异常信息在 message 里

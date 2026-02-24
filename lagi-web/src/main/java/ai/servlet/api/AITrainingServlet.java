@@ -1219,13 +1219,11 @@ public class AITrainingServlet extends BaseServlet {
         trainConfig.put("task_id", taskId);
         trainConfig.put("track_id", trackId);
         trainConfig.put("model_name", config.getStr("model_name", "yolov8")); // 传递模型名称
-        // 如果用户没有指定 train_log_file，不设置默认值，让 YoloTrainerAdapter 根据 taskId 自动生成
+
         String userTrainLogFile = config.getStr("train_log_file");
         if (userTrainLogFile != null && !userTrainLogFile.isEmpty()) {
             trainConfig.put("train_log_file", userTrainLogFile);
         }
-        // 如果没有指定，不设置 train_log_file，让适配器根据 taskId 自动生成到 /app/data/log/train/{taskId}.log
-
         // 添加用户ID到配置中
         if (userId != null && !userId.isEmpty()) {
             trainConfig.put("user_id", userId);
@@ -1364,7 +1362,6 @@ public class AITrainingServlet extends BaseServlet {
         if (userTrainLogFile != null && !userTrainLogFile.isEmpty()) {
             trainConfig.put("train_log_file", userTrainLogFile);
         }
-        // 如果没有指定，不设置 train_log_file，让适配器根据 taskId 自动生成到 /app/data/log/train/{taskId}.log
 
         // 添加用户ID到配置中
         if (userId != null && !userId.isEmpty()) {
@@ -1878,6 +1875,31 @@ public class AITrainingServlet extends BaseServlet {
                 return;
             }
 
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMddHHmmss");
+            String timestamp = sdf.format(new Date());
+            String uuidPart = UUID.randomUUID().toString().substring(0, 8);
+            String taskId = "task_" + timestamp + "_" + uuidPart;
+            config.put("task_id", taskId);
+            String trackId = config.getStr("track_id");
+            if (trackId == null || trackId.isEmpty()) {
+                trackId = YoloTrainerAdapter.generateTrackId();
+                config.put("track_id", trackId);
+            }
+
+            // 保存trainer引用，用于异步执行
+            final TrainerInterface finalTrainer = trainer;
+            final String finalModelName = modelName;
+            final String finalTaskId = taskId;
+
+            asyncTaskExecutor.submit(() -> {
+                try {
+                    finalTrainer.evaluate(config);
+                    log.info("异步预测完成：taskId={}, model={}", finalTaskId, finalModelName);
+                } catch (Exception e) {
+                    log.error("异步预测失败：taskId={}", finalTaskId, e);
+                }
+            });
+
             // 根据trainer类型调用对应的evaluate方法
             String result = trainer.evaluate(config);
             responsePrint(resp, result);
@@ -2272,7 +2294,7 @@ public class AITrainingServlet extends BaseServlet {
         }
 
         try {
-            TrainingTaskRepository repository = yoloTrainer.getRepository();
+            TrainingTaskRepository repository = new TrainingTaskRepository(MysqlAdapter.getInstance());
 
             // 获取任务列表
             List<Map<String, Object>> tasks = new ArrayList<>();

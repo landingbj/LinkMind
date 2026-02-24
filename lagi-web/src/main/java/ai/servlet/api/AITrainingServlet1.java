@@ -100,8 +100,8 @@ public class AITrainingServlet1 extends RestfulServlet {
 
 
     @Post("evaluate")
-    public String evaluate(@Body("config") JSONObject config) {
-        config.set("the_train_type", "evaluate");
+    public String evaluate(@Body JSONObject config) {
+        config.set("the_train_type", "valuate");
         if (trainerService != null) {
             trainerService.startEvaluationTask(config);
             return "评估任务已提交";

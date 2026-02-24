@@ -1,6 +1,7 @@
 package ai.finetune;
 
 import ai.common.utils.ObservableList;
+import ai.config.pojo.DiscriminativeModelsConfig;
 import ai.database.impl.MysqlAdapter;
 import ai.finetune.config.ModelConfigManager;
 import ai.finetune.utils.PathConvertUtil;
@@ -57,6 +58,8 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
     // 模型配置管理器（单例模式）
     private static volatile ModelConfigManager modelConfigManager = null;
 
+    private DiscriminativeModelsConfig.DockerConfig dockerConfig = null;
+
     /**
      * 默认构造函数
      */
@@ -94,8 +97,7 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
                         discriminativeConfig.getYolo();
 
                 if (yoloConfig != null && yoloConfig.getDocker() != null) {
-                    ai.config.pojo.DiscriminativeModelsConfig.DockerConfig dockerConfig =
-                            yoloConfig.getDocker();
+                    dockerConfig = yoloConfig.getDocker();
 
                     // 加载Docker配置
                     if (cn.hutool.core.util.StrUtil.isNotBlank(dockerConfig.getImage())) {
@@ -279,6 +281,23 @@ public class YoloTrainerAdapter extends DockerTrainerAbstract implements Trainer
             if (!config.containsKey("the_train_type")) {
                 config.put("the_train_type", "valuate");
             }
+            // 如果没有指定推理日志文件路径，自动生成到指定目录
+            if (!config.containsKey("train_log_file") || config.getStr("train_log_file") == null || config.getStr("train_log_file").isEmpty()) {
+                // 从volumeMount中解析容器内路径，或使用默认值
+                String containerDataPath = "/data";
+                String volumeMount = dockerConfig.getVolumeMount();
+                if (volumeMount != null && volumeMount.contains(":")) {
+                    String[] parts = volumeMount.split(":");
+                    if (parts.length >= 2) {
+                        containerDataPath = parts[1];
+                    }
+                }
+                String predictLogFile = containerDataPath + "/log/evaluate/" + taskId + ".log";
+                config.put("train_log_file", predictLogFile);
+            }
+
+
+
             config.put("task_id", taskId);
 
             // 保存评估任务到数据库

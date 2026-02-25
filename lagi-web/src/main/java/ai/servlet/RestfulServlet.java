@@ -253,8 +253,7 @@ public class RestfulServlet extends BaseServlet {
     }
 
     private Object convertQuery(String pStr, Class<?> type) {
-        // 允许空值转换
-        if (pStr == null) {
+        if (pStr == null || pStr.isEmpty()) {
             return null;
         }
 

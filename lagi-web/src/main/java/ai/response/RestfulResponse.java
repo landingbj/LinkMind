@@ -59,7 +59,7 @@ public class RestfulResponse <T> implements Serializable{
 
 	public static <T>RestfulResponse<T> sucecced(T data) {
 		RestfulResponse<T> response = new RestfulResponse<>();
-		response.setCode(0);
+		response.setCode(200);
 		response.setData(data);
 		response.setMessage("success");
 		return response;

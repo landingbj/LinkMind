@@ -18,13 +18,16 @@
 package ai.servlet;
 
 import java.io.*;
+import java.time.LocalDateTime;
 import java.util.*;
 
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import ai.utils.LocalDateTimeGsonAdapter;
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
 import org.apache.commons.fileupload.FileItem;
 import org.apache.commons.fileupload.disk.DiskFileItemFactory;
@@ -32,7 +35,10 @@ import org.apache.commons.fileupload.servlet.ServletFileUpload;
 
 public abstract class BaseServlet extends HttpServlet {
     private static final long serialVersionUID = 1L;
-    protected Gson gson = new Gson();
+    protected Gson gson = new GsonBuilder()
+            .setDateFormat("yyyy-MM-dd HH:mm:ss")  // 设置日期格式
+            .registerTypeAdapter(LocalDateTime.class, new LocalDateTimeGsonAdapter())
+            .create();
 
     protected <T> T queryToObj(HttpServletRequest req, Class<T> classOfT) throws IOException {
         Map<String, String> query = getQueryData(req);

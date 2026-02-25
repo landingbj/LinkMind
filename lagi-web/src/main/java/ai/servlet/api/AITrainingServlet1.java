@@ -163,7 +163,7 @@ public class AITrainingServlet1 extends RestfulServlet {
         }
         throw new RRException("为找到对应的服务");
     }
-    @Get("detail")
+    @Post("detail")
     public Map<String, Object> detail(@Body JSONObject object) {
         String taskId = object.get("task_id") != null ? object.get("task_id").toString() : null;
         if (StrUtil.isBlank(taskId)) {
@@ -186,12 +186,11 @@ public class AITrainingServlet1 extends RestfulServlet {
                     templateInfo.put("fields", templateFields);
             }
             result.put("template",  templateInfo);
-            result.put("task", taskDetail);
-
         } else {
             log.warn("模板信息中 template_id 为空，taskId={}, tempId={}", taskId, tempId);
         }
-        return taskDetail;
+        result.put("task", taskDetail);
+        return result;
     }
 
 

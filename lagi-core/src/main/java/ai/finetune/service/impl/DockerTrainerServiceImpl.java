@@ -340,7 +340,7 @@ public class DockerTrainerServiceImpl implements TrainerService {
                 log.info("执行转换命令: {}", cmd);
                 String result = DockerTrainerUtil.executeRemoteCommand(
                         docker.getHost(), docker.getPort(), docker.getUsername(), docker.getPassword(), cmd, null, (line)->{
-                            Pattern pattern = Pattern.compile("exported_path=([^\\s\\n]+)");
+                            Pattern pattern = Pattern.compile("saved as '([^\\s\\n]+)'");
                             Matcher matcher = pattern.matcher(line);
                             if (matcher.find()) {
                                 String exportedPath = matcher.group(1);

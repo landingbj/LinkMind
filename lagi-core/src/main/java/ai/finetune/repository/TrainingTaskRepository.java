@@ -121,8 +121,15 @@ public class TrainingTaskRepository {
             if (StrUtil.isNotBlank(config.getStr("user_id"))) {
                 taskDTO.setUserId(config.getStr("user_id"));
             }
-            if (config.getInt("template_id") != null) {
-                taskDTO.setTemplateId(config.getInt("template_id"));
+
+            if (config.getStr("template_id") != null) {
+                TrainingTaskRepository repository = new TrainingTaskRepository(MysqlAdapter.getInstance());
+
+                List<Map<String, Object>> templateFields = repository.getTemplateFieldsByTemplateId(config.getStr("template_id"));
+                if (templateFields != null && templateFields.size()>0){
+                    Integer template_int_id = ((Number) templateFields.get(0).get("id")).intValue();
+                    taskDTO.setTemplateId(template_int_id);
+                }
             }
 
             saveTask(taskDTO);
@@ -645,7 +652,7 @@ public class TrainingTaskRepository {
 
             for (Map<String, Object> task : tasks) {
                 Map<String, Object> taskMap = new HashMap<>();
-                
+
                 // 如果是 export 类型，使用特殊处理
                 if ("export".equals(taskType)) {
                     // 导出任务特定字段处理
@@ -1238,7 +1245,7 @@ public class TrainingTaskRepository {
 
             int result = mysqlAdapter.executeUpdate(sql, params.toArray());
             log.info("任务信息已更新: taskId={}, affectedRows={}", taskId, result);
-            
+
             // 如果更新了 train_dir 且任务状态是终态，触发自动入库
             if (result > 0 && updateData.containsKey("train_dir")) {
                 try {
@@ -1248,13 +1255,13 @@ public class TrainingTaskRepository {
                     if (taskRows != null && !taskRows.isEmpty()) {
                         String status = (String) taskRows.get(0).get("status");
                         String taskType = (String) taskRows.get(0).get("task_type");
-                        
+
                         // 如果是训练任务且状态是终态，触发自动入库
                         boolean isTrainTask = "train".equalsIgnoreCase(taskType);
                         boolean isDoneStatus = "completed".equalsIgnoreCase(status)
                                 || "exited".equalsIgnoreCase(status)
                                 || "finished".equalsIgnoreCase(status);
-                        
+
                         if (isTrainTask && isDoneStatus) {
                             // 检查是否已处理过
                             String checkModelSql = "SELECT id FROM models WHERE description LIKE ? AND is_deleted = 0 LIMIT 1";
@@ -1274,7 +1281,7 @@ public class TrainingTaskRepository {
                     log.debug("检查任务状态失败（不影响更新）: taskId={}", taskId, e);
                 }
             }
-            
+
             return result > 0;
         } catch (Exception e) {
             log.error("根据任务ID更新任务信息失败: taskId={}", taskId, e);

@@ -2,6 +2,8 @@ package ai.servlet.api;
 
 import ai.common.exception.RRException;
 import ai.config.ContextLoader;
+import ai.database.impl.MysqlAdapter;
+import ai.finetune.repository.TrainingTaskRepository;
 import ai.finetune.service.TrainerService;
 import ai.servlet.RestfulServlet;
 import ai.servlet.annotation.Body;
@@ -13,6 +15,10 @@ import cn.hutool.json.JSONObject;
 import lombok.extern.slf4j.Slf4j;
 
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.*;
 
 /**
@@ -157,7 +163,36 @@ public class AITrainingServlet1 extends RestfulServlet {
         }
         throw new RRException("为找到对应的服务");
     }
+    @Get("detail")
+    public Map<String, Object> detail(@Body JSONObject object) {
+        String taskId = object.get("task_id") != null ? object.get("task_id").toString() : null;
+        if (StrUtil.isBlank(taskId)) {
+            throw new RRException("task_id不能为空");
+        }
+        TrainingTaskRepository repository = new TrainingTaskRepository(MysqlAdapter.getInstance());
+        Map<String, Object> taskDetail = repository.getTaskDetailByTaskId(taskId);
+        if (taskDetail == null) {
+            throw new RRException("未找到对应的训练任务");
+        }
+        Map<String, Object> result = new HashMap<>();
+        Integer tempId = (Integer) taskDetail.get("template_id");
+        // 构建返回数据
+        if (tempId != null && tempId > 0) {
+            Map<String, Object> templateInfo = repository.getTemplateInfoById(tempId);
+            if (templateInfo != null) {
+                //这里的templateId是template_info表中的template_id
+                String templateId = (String) templateInfo.get("template_id");
+                    List<Map<String, Object>> templateFields = repository.getTemplateFieldsByTemplateId(templateId);
+                    templateInfo.put("fields", templateFields);
+            }
+            result.put("template",  templateInfo);
+            result.put("task", taskDetail);
 
+        } else {
+            log.warn("模板信息中 template_id 为空，taskId={}, tempId={}", taskId, tempId);
+        }
+        return taskDetail;
+    }
 
 
 }

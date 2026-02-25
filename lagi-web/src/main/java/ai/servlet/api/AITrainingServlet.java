@@ -881,29 +881,7 @@ public class AITrainingServlet extends BaseServlet {
 
             // 从数据库查询任务详情
             // 安全获取 TrainingTaskRepository，处理 yoloTrainer 为 null 的情况
-            TrainingTaskRepository repository = null;
-            if (yoloTrainer != null) {
-                repository = yoloTrainer.getRepository();
-            } else if (deeplabAdapter != null) {
-                repository = deeplabAdapter.getRepository();
-            } else if (!trainerMap.isEmpty()) {
-                // 尝试从 trainerMap 中获取任意一个可用的训练器的 repository
-                for (TrainerInterface trainer : trainerMap.values()) {
-                    if (trainer instanceof ai.finetune.YoloK8sAdapter) {
-                        repository = ((ai.finetune.YoloK8sAdapter) trainer).getRepository();
-                        break;
-                    } else if (trainer instanceof ai.finetune.DeeplabK8sAdapter) {
-                        repository = ((ai.finetune.DeeplabK8sAdapter) trainer).getRepository();
-                        break;
-                    } else if (trainer instanceof ai.finetune.TrackNetV3K8sAdapter) {
-                        repository = ((ai.finetune.TrackNetV3K8sAdapter) trainer).getRepository();
-                        break;
-                    } else if (trainer instanceof ai.finetune.TrackNetV3Adapter) {
-                        repository = ((ai.finetune.TrackNetV3Adapter) trainer).getRepository();
-                        break;
-                    }
-                }
-            }
+            TrainingTaskRepository repository = new TrainingTaskRepository(MysqlAdapter.getInstance());
 
             if (repository == null) {
                 resp.setStatus(503);

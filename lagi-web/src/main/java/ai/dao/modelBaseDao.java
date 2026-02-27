@@ -7,6 +7,8 @@ import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import lombok.extern.slf4j.Slf4j;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 @Slf4j
@@ -15,6 +17,7 @@ public class modelBaseDao {
     private final MysqlAdapter mysqlAdapter;
     private final TrainingTaskRepository trainingTaskRepository;
     private final ModelDatasetManager modelDatasetManager;
+    private static final DateTimeFormatter DATE_TIME_FORMATTER =  DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     public modelBaseDao() {
         this.mysqlAdapter = MysqlAdapter.getInstance();
@@ -423,5 +426,54 @@ public class modelBaseDao {
         );
 
         return modelId;
+    }
+    /**
+     * 更新任务状态
+     */
+    public boolean updateTaskStatus(String taskId, String status, String message) {
+        String sql = "UPDATE ai_training_tasks SET status = ?, error_message = ?, updated_at = ? WHERE task_id = ?";
+        try {
+            // 先查旧状态 + 任务类型，避免重复触发
+            String oldStatus = null;
+            String taskType = null;
+            try {
+                List<Map<String, Object>> taskRows = mysqlAdapter.select(
+                        "SELECT status, task_type FROM ai_training_tasks WHERE task_id = ? AND is_deleted = 0 LIMIT 1",
+                        taskId
+                );
+                if (taskRows != null && !taskRows.isEmpty()) {
+                    oldStatus = (String) taskRows.get(0).get("status");
+                    taskType = (String) taskRows.get(0).get("task_type");
+                }
+            } catch (Exception e) {
+                log.debug("查询旧状态失败（不影响更新）: taskId={}", taskId, e);
+            }
+
+            int result = mysqlAdapter.executeUpdate(sql, status, message, LocalDateTime.now().format(DATE_TIME_FORMATTER), taskId);
+            log.info("任务状态已更新: taskId={}, status={}", taskId, status);
+
+            // 训练完成后自动入库（Docker 轮询常见终态为 exited/finished）
+            // 仅对 train 任务触发，且仅在从非终态切到终态时触发一次
+            boolean isTrainTask = "train".equalsIgnoreCase(taskType);
+            boolean isDoneStatus = "completed".equalsIgnoreCase(status)
+                    || "exited".equalsIgnoreCase(status)
+                    || "finished".equalsIgnoreCase(status);
+            boolean wasDoneStatus = "completed".equalsIgnoreCase(oldStatus)
+                    || "exited".equalsIgnoreCase(oldStatus)
+                    || "finished".equalsIgnoreCase(oldStatus);
+            if (result > 0 && isTrainTask && isDoneStatus && !wasDoneStatus) {
+                try {
+                    log.info("检测到训练任务进入终态，触发训练后自动入库: taskId={}, oldStatus={}, newStatus={}", taskId, oldStatus, status);
+                    ai.finetune.utils.TrainingPostProcessor postProcessor = new ai.finetune.utils.TrainingPostProcessor();
+                    postProcessor.processTrainingCompletion(taskId);
+                } catch (Exception e) {
+                    log.warn("训练后自动入库处理失败: taskId={}", taskId, e);
+                }
+            }
+            return result > 0;
+        } catch (Exception e) {
+            log.error("更新任务状态失败: taskId={}, status={}", taskId, status, e);
+            return false;
+        }
     }
 }

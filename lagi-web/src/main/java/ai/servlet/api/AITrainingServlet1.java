@@ -11,12 +11,14 @@ import ai.servlet.annotation.Param;
 import ai.servlet.annotation.Post;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONUtil;
 import lombok.extern.slf4j.Slf4j;
 
 
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.*;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * AI 模型训练任务管理 Servlet（通用版）
@@ -31,8 +33,8 @@ import java.util.concurrent.*;
 @Slf4j
 public class AITrainingServlet1 extends RestfulServlet {
 
-    private final TrainerService trainerService = ContextLoader.getBean(TrainerService.class);
-    private final modelBaseDao modelDao = new modelBaseDao();
+    private static final TrainerService trainerService = ContextLoader.getBean(TrainerService.class);
+    private static final modelBaseDao modelDao = new modelBaseDao();
 
     @Post("start")
     public String start(@Body JSONObject config) {
@@ -270,4 +272,62 @@ public class AITrainingServlet1 extends RestfulServlet {
             throw new RRException("服务器内部错误: " + e.getMessage());
         }
     }
+
+    /**
+     * 批量获取训练任务状态
+     * 支持通过逗号拼接的容器ID或训练任务ID查询，并对ID进行去重
+     *
+     * @param containerIds 逗号拼接的容器ID，例如: "id1,id2,id3"
+     * @param taskIds 逗号拼接的训练任务ID，例如: "id1,id2,id3"
+     * @return 包含训练任务状态信息的Map列表
+     */
+    public static List<Map<String, Object>> batchGetTaskStatus(String containerIds, String taskIds) {
+        if (trainerService != null) {
+            // 合并并去重 containerIds 和 taskIds
+            Set<String> uniqueIds = Stream.concat(
+                            Optional.ofNullable(containerIds).stream().flatMap(s -> Arrays.stream(s.split(","))),
+                            Optional.ofNullable(taskIds).stream().flatMap(s -> Arrays.stream(s.split(",")))
+                    )
+                    .map(String::trim)
+                    .filter(id -> !id.isEmpty())
+                    .collect(Collectors.toSet());
+
+            List<Map<String, Object>> result = new ArrayList<>();
+            for (String id : uniqueIds) {
+                try {
+                    String statusOutput = trainerService.getTaskStatus(id);
+                    String[] parts = statusOutput != null ? statusOutput.split(";") : new String[]{"unknown"};
+                    String resultStatus = parts[0].trim();
+                    String exitCode = parts.length > 1 ? parts[1].trim() : "";
+
+                    JSONObject statusJson = JSONUtil.createObj()
+                        .put("status", resultStatus)
+                        .put("output", statusOutput)
+                        .put("containerStatus",
+                            !exitCode.isEmpty() && exitCode.matches("\\d+") ?
+                            (Integer.parseInt(exitCode) > 0 ? "failed" : resultStatus) : resultStatus);
+
+                    if (!"error".equals(resultStatus)) {
+                        String containerStatus = Optional.ofNullable(statusJson.getStr("containerStatus"))
+                                .orElse(Optional.ofNullable(statusOutput).filter(o -> !o.isEmpty()).map(o -> o.trim().replace("\n", "")).orElse(resultStatus));
+                        if (containerStatus != null && !containerStatus.isEmpty()) {
+                            String finalStatus = "SuccessCriteriaMet".equals(containerStatus) ? "completed" : containerStatus;
+                            modelDao.updateTaskStatus(id, finalStatus, null);
+                        }
+                    } else {
+                        String errorMsg = statusJson.getStr("message", "获取状态失败");
+                        log.warn("获取状态失败: id={}, error={}", id, errorMsg);
+                    }
+
+                    result.add(statusJson.toBean(Map.class));
+                } catch (Exception e) {
+                    log.error("处理ID {} 时发生异常", id, e);
+                    throw new RRException("处理ID " + id + " 时发生异常: " + e.getMessage());
+                }
+            }
+            return result;
+        }
+        throw new RRException("未找到对应的服务");
+    }
+
 }

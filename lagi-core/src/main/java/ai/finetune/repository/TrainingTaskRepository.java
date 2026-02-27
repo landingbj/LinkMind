@@ -37,7 +37,6 @@ public class TrainingTaskRepository {
     public TrainingTaskRepository(MysqlAdapter mysqlAdapter) {
         this.mysqlAdapter = mysqlAdapter;
         this.modelConfigManager = new ModelConfigManager(mysqlAdapter);
-        this.modelConfigManager.loadConfigsFromDatabase();
     }
 
     /**
@@ -968,7 +967,7 @@ public class TrainingTaskRepository {
             String taskIds = String.join(",", taskIdsToUpdate);
 
             // 使用反射调用AITrainingServlet.batchGetTaskStatus方法
-            Class<?> servletClass = Class.forName("ai.servlet.api.AITrainingServlet");
+            Class<?> servletClass = Class.forName("ai.servlet.api.AITrainingServlet1");
             java.lang.reflect.Method method = servletClass.getMethod("batchGetTaskStatus", String.class, String.class);
             Object resultObj = method.invoke(null, null, taskIds);
 

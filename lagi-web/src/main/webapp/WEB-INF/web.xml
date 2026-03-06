@@ -398,6 +398,79 @@
         <url-pattern>/intent/*</url-pattern>
     </servlet-mapping>
 
+    <!-- Mock Servlet配置 - 判别式推理服务资源管理接口 -->
+    <servlet>
+        <servlet-name>LiveResourceMockServlet</servlet-name>
+        <servlet-class>ai.servlet.mock_new_apis.LiveResourceMockServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>LiveResourceMockServlet</servlet-name>
+        <url-pattern>/api/v1/resource/scheduling/live/*</url-pattern>
+    </servlet-mapping>
+
+    <servlet>
+        <servlet-name>VodResourceMockServlet</servlet-name>
+        <servlet-class>ai.servlet.mock_new_apis.VodResourceMockServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>VodResourceMockServlet</servlet-name>
+        <url-pattern>/api/v1/resource/scheduling/vod/*</url-pattern>
+    </servlet-mapping>
+
+    <servlet>
+        <servlet-name>TaskPriorityMockServlet</servlet-name>
+        <servlet-class>ai.servlet.mock_new_apis.TaskPriorityMockServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>TaskPriorityMockServlet</servlet-name>
+        <url-pattern>/api/v1/resource/scheduling/priority/*</url-pattern>
+    </servlet-mapping>
+
+    <servlet>
+        <servlet-name>TaskIoMockServlet</servlet-name>
+        <servlet-class>ai.servlet.mock_new_apis.TaskIoMockServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>TaskIoMockServlet</servlet-name>
+        <url-pattern>/api/v1/resource/scheduling/io/*</url-pattern>
+    </servlet-mapping>
+
+    <servlet>
+        <servlet-name>DatacenterMockServlet</servlet-name>
+        <servlet-class>ai.servlet.mock_new_apis.DatacenterMockServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>DatacenterMockServlet</servlet-name>
+        <url-pattern>/api/v1/resource/scheduling/datacenter/*</url-pattern>
+    </servlet-mapping>
+
+    <servlet>
+        <servlet-name>SchedulingStrategyMockServlet</servlet-name>
+        <servlet-class>ai.servlet.mock_new_apis.SchedulingStrategyMockServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>SchedulingStrategyMockServlet</servlet-name>
+        <url-pattern>/api/v1/resource/scheduling/strategy/*</url-pattern>
+    </servlet-mapping>
+
+    <servlet>
+        <servlet-name>ConcurrencyConflictMockServlet</servlet-name>
+        <servlet-class>ai.servlet.mock_new_apis.ConcurrencyConflictMockServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>ConcurrencyConflictMockServlet</servlet-name>
+        <url-pattern>/api/v1/resource/scheduling/concurrency/*</url-pattern>
+    </servlet-mapping>
+
+    <servlet>
+        <servlet-name>TenantIsolationMockServlet</servlet-name>
+        <servlet-class>ai.servlet.mock_new_apis.TenantIsolationMockServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>TenantIsolationMockServlet</servlet-name>
+        <url-pattern>/api/v1/resource/scheduling/tenant/*</url-pattern>
+    </servlet-mapping>
+
     <servlet>
         <servlet-name>workflow</servlet-name>
         <servlet-class>ai.servlet.api.WorkflowApiServlet</servlet-class>

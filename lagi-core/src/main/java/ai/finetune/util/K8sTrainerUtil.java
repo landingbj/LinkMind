@@ -3,12 +3,14 @@ package ai.finetune.util;
 import io.kubernetes.client.custom.Quantity;
 import io.kubernetes.client.openapi.ApiClient;
 import io.kubernetes.client.openapi.ApiException;
+import io.kubernetes.client.openapi.Configuration;
 import io.kubernetes.client.openapi.apis.BatchV1Api;
 import io.kubernetes.client.openapi.apis.CoreV1Api;
 import io.kubernetes.client.openapi.models.*;
 import io.kubernetes.client.util.ClientBuilder;
 import io.kubernetes.client.util.KubeConfig;
 import io.kubernetes.client.util.Yaml;
+import io.kubernetes.client.util.credentials.AccessTokenAuthentication;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.net.ssl.HostnameVerifier;
@@ -20,11 +22,13 @@ import javax.net.ssl.X509TrustManager;
 import java.io.FileReader;
 import java.io.IOException;
 import java.io.StringReader;
+import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.security.cert.X509Certificate;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.UUID;
+import java.io.File;
 
 /**
  * Kubernetes 训练工具类
@@ -33,6 +37,39 @@ import java.util.UUID;
 @Slf4j
 public class K8sTrainerUtil {
 
+//    /**
+//     * 初始化 Kubernetes 客户端（基于 kubeconfig）
+//     *
+//     * @param kubeConfigPath kubeconfig 文件路径，如果为 null 则使用默认路径 ~/.kube/config
+//     * @throws IOException IO 异常
+//     */
+//    public static void initK8sClient(String kubeConfigPath) throws IOException {
+//        // 禁用 SSL 主机名验证（解决证书 SAN 不匹配问题）
+//        disableSSLHostnameVerification();
+//
+//        // 1. 确定 kubeconfig 路径
+//        String configPath;
+//        if (kubeConfigPath != null && !kubeConfigPath.trim().isEmpty()) {
+//            configPath = kubeConfigPath;
+//        } else {
+//            // 默认使用 ~/.kube/config
+//            configPath = Paths.get(System.getProperty("user.home"), ".kube", "config").toString();
+//        }
+//
+//        log.info("加载 kubeconfig 文件: {}", configPath);
+//
+//        // 2. 加载 kubeconfig 并构建 ApiClient
+//        KubeConfig kubeConfig = KubeConfig.loadKubeConfig(new FileReader(configPath));
+//        ApiClient apiClient = ClientBuilder.kubeconfig(kubeConfig).build();
+//
+//        // 3. 禁用 SSL 验证（解决证书验证问题）
+//        apiClient.setVerifyingSsl(false);
+//
+//        // 4. 设置全局默认客户端（方便后续 API 调用）
+//        io.kubernetes.client.openapi.Configuration.setDefaultApiClient(apiClient);
+//
+//        log.info("Kubernetes 客户端初始化成功（已禁用 SSL 主机名验证）");
+//    }
     /**
      * 初始化 Kubernetes 客户端（基于 kubeconfig）
      *
@@ -42,31 +79,52 @@ public class K8sTrainerUtil {
     public static void initK8sClient(String kubeConfigPath) throws IOException {
         // 禁用 SSL 主机名验证（解决证书 SAN 不匹配问题）
         disableSSLHostnameVerification();
-        
-        // 1. 确定 kubeconfig 路径
-        String configPath;
-        if (kubeConfigPath != null && !kubeConfigPath.trim().isEmpty()) {
-            configPath = kubeConfigPath;
+
+        ApiClient apiClient = null;
+        // 1. 第一步：检测 Pod 内 SA 令牌文件是否存在
+        String saTokenPath = "/var/run/secrets/kubernetes.io/serviceaccount/token";
+        File saTokenFile = new File(saTokenPath);
+        if (saTokenFile.exists()) {
+            String apiServer = System.getenv("KUBERNETES_SERVICE_HOST");
+            String apiPort = System.getenv("KUBERNETES_SERVICE_PORT");
+            if (apiServer == null || apiPort == null) {
+                throw new IOException("K8s 环境变量未找到");
+            }
+
+            String token = new String(Files.readAllBytes(Paths.get(saTokenPath)));
+            String basePath = "https://" + apiServer + ":" + apiPort;
+
+            apiClient = ClientBuilder.standard()
+                    .setBasePath(basePath)
+                    .setVerifyingSsl(false)
+                    .setAuthentication(new AccessTokenAuthentication(token))
+                    .build();
+
+            Configuration.setDefaultApiClient(apiClient);
         } else {
-            // 默认使用 ~/.kube/config
-            configPath = Paths.get(System.getProperty("user.home"), ".kube", "config").toString();
+            // 1. 确定 kubeconfig 路径
+            String configPath;
+            if (kubeConfigPath != null && !kubeConfigPath.trim().isEmpty()) {
+                configPath = kubeConfigPath;
+            } else {
+                // 默认使用 ~/.kube/config
+                configPath = Paths.get(System.getProperty("user.home"), ".kube", "config").toString();
+            }
+
+            log.info("加载 kubeconfig 文件: {}", configPath);
+
+            // 2. 加载 kubeconfig 并构建 ApiClient
+            KubeConfig kubeConfig = KubeConfig.loadKubeConfig(new FileReader(configPath));
+            apiClient = ClientBuilder.kubeconfig(kubeConfig).build();
+            // 3. 禁用 SSL 验证（解决证书验证问题）
+            apiClient.setVerifyingSsl(false);
         }
-        
-        log.info("加载 kubeconfig 文件: {}", configPath);
-        
-        // 2. 加载 kubeconfig 并构建 ApiClient
-        KubeConfig kubeConfig = KubeConfig.loadKubeConfig(new FileReader(configPath));
-        ApiClient apiClient = ClientBuilder.kubeconfig(kubeConfig).build();
-        
-        // 3. 禁用 SSL 验证（解决证书验证问题）
-        apiClient.setVerifyingSsl(false);
-        
+
         // 4. 设置全局默认客户端（方便后续 API 调用）
-        io.kubernetes.client.openapi.Configuration.setDefaultApiClient(apiClient);
-        
+        Configuration.setDefaultApiClient(apiClient);
         log.info("Kubernetes 客户端初始化成功（已禁用 SSL 主机名验证）");
     }
-    
+
     /**
      * 禁用 SSL 主机名验证
      * 用于解决 Kubernetes 证书的 SAN 不包含实际连接 IP 地址的问题
@@ -75,7 +133,7 @@ public class K8sTrainerUtil {
         try {
             // 设置系统属性禁用主机名验证（适用于 Java 11+）
             System.setProperty("jdk.internal.httpclient.disableHostnameVerification", "true");
-            
+
             // 创建一个信任所有证书的 TrustManager
             TrustManager[] trustAllCerts = new TrustManager[]{
                     new X509TrustManager() {
@@ -90,22 +148,22 @@ public class K8sTrainerUtil {
                         }
                     }
             };
-            
+
             // 创建一个接受所有主机名的 HostnameVerifier
             HostnameVerifier allHostsValid = new HostnameVerifier() {
                 public boolean verify(String hostname, SSLSession session) {
                     return true;
                 }
             };
-            
+
             // 安装信任所有证书的 TrustManager
             SSLContext sc = SSLContext.getInstance("TLS");
             sc.init(null, trustAllCerts, new java.security.SecureRandom());
             SSLContext.setDefault(sc);
-            
+
             // 设置全局的 HostnameVerifier
             HttpsURLConnection.setDefaultHostnameVerifier(allHostsValid);
-            
+
             log.debug("已禁用 SSL 主机名验证");
         } catch (Exception e) {
             log.warn("禁用 SSL 主机名验证失败，可能会遇到证书验证问题: {}", e.getMessage());
@@ -122,13 +180,13 @@ public class K8sTrainerUtil {
      */
     public static V1Pod createPodFromYaml(String yamlFilePath, String namespace) throws IOException, ApiException {
         log.info("从 YAML 文件创建 Pod: {}, namespace: {}", yamlFilePath, namespace);
-        
+
         // 1. 加载 YAML 文件并解析为 V1Pod 对象
         V1Pod pod = Yaml.loadAs(new FileReader(yamlFilePath), V1Pod.class);
-        
+
         // 2. 初始化 CoreV1Api（处理 Pod 等核心资源）
         CoreV1Api coreV1Api = new CoreV1Api();
-        
+
         // 3. 创建 Pod（如果 Pod 已存在，会抛出 409 异常）
         try {
             V1Pod createdPod = coreV1Api.createNamespacedPod(
@@ -158,13 +216,13 @@ public class K8sTrainerUtil {
      */
     public static V1Pod createPodFromYamlString(String yamlContent, String namespace) throws IOException, ApiException {
         log.info("从 YAML 字符串创建 Pod, namespace: {}", namespace);
-        
+
         // 1. 从字符串加载 YAML 并解析为 V1Pod 对象
         V1Pod pod = Yaml.loadAs(new StringReader(yamlContent), V1Pod.class);
-        
+
         // 2. 初始化 CoreV1Api
         CoreV1Api coreV1Api = new CoreV1Api();
-        
+
         // 3. 创建 Pod
         try {
             V1Pod createdPod = coreV1Api.createNamespacedPod(
@@ -194,13 +252,13 @@ public class K8sTrainerUtil {
      */
     public static V1Job createJobFromYaml(String yamlFilePath, String namespace) throws IOException, ApiException {
         log.info("从 YAML 文件创建 Job: {}, namespace: {}", yamlFilePath, namespace);
-        
+
         // 1. 加载 YAML 文件并解析为 V1Job 对象
         V1Job job = Yaml.loadAs(new FileReader(yamlFilePath), V1Job.class);
-        
+
         // 2. 初始化 BatchV1Api（处理 Job 等批处理资源）
         BatchV1Api batchV1Api = new BatchV1Api();
-        
+
         // 3. 创建 Job
         try {
             V1Job createdJob = batchV1Api.createNamespacedJob(
@@ -230,13 +288,13 @@ public class K8sTrainerUtil {
      */
     public static V1Job createJobFromYamlString(String yamlContent, String namespace) throws IOException, ApiException {
         log.info("从 YAML 字符串创建 Job, namespace: {}", namespace);
-        
+
         // 1. 从字符串加载 YAML 并解析为 V1Job 对象
         V1Job job = Yaml.loadAs(new StringReader(yamlContent), V1Job.class);
-        
+
         // 2. 初始化 BatchV1Api
         BatchV1Api batchV1Api = new BatchV1Api();
-        
+
         // 3. 创建 Job
         try {
             V1Job createdJob = batchV1Api.createNamespacedJob(
@@ -265,13 +323,13 @@ public class K8sTrainerUtil {
      */
     public static String getPodStatus(String podName, String namespace) throws ApiException {
         log.info("查询 Pod 状态: {}, namespace: {}", podName, namespace);
-        
+
         CoreV1Api coreV1Api = new CoreV1Api();
         try {
             V1Pod pod = coreV1Api.readNamespacedPod(podName, namespace).execute();
             V1PodStatus status = pod.getStatus();
             String phase = status.getPhase() != null ? status.getPhase() : "Unknown";
-            
+
             // 获取退出码（如果容器已退出）
             Integer exitCode = null;
             if (status.getContainerStatuses() != null && !status.getContainerStatuses().isEmpty()) {
@@ -280,7 +338,7 @@ public class K8sTrainerUtil {
                     exitCode = terminated.getExitCode();
                 }
             }
-            
+
             String result = phase;
             if (exitCode != null) {
                 result += ";" + exitCode;
@@ -306,7 +364,7 @@ public class K8sTrainerUtil {
      */
     public static String getPodLogs(String podName, String namespace, Integer lastLines) throws ApiException {
         log.info("查询 Pod 日志: {}, namespace: {}, 显示最后{}行", podName, namespace, lastLines);
-        
+
         CoreV1Api coreV1Api = new CoreV1Api();
         try {
             String logContent;
@@ -321,7 +379,7 @@ public class K8sTrainerUtil {
                         namespace
                 ).execute();
             }
-            
+
             return logContent;
         } catch (ApiException e) {
             if (e.getCode() == 404) {
@@ -342,7 +400,7 @@ public class K8sTrainerUtil {
      */
     public static String deletePod(String podName, String namespace) throws ApiException {
         log.info("删除 Pod: {}, namespace: {}", podName, namespace);
-        
+
         CoreV1Api coreV1Api = new CoreV1Api();
         try {
             coreV1Api.deleteNamespacedPod(
@@ -370,7 +428,7 @@ public class K8sTrainerUtil {
      */
     public static String deleteJob(String jobName, String namespace) throws ApiException {
         log.info("删除 Job: {}, namespace: {}", jobName, namespace);
-        
+
         BatchV1Api batchV1Api = new BatchV1Api();
         try {
             batchV1Api.deleteNamespacedJob(
@@ -398,7 +456,7 @@ public class K8sTrainerUtil {
      */
     public static String getJobStatus(String jobName, String namespace) throws ApiException {
         log.info("查询 Job 状态: {}, namespace: {}", jobName, namespace);
-        
+
         BatchV1Api batchV1Api = new BatchV1Api();
         CoreV1Api coreV1Api = new CoreV1Api();
         try {
@@ -406,10 +464,10 @@ public class K8sTrainerUtil {
             if (job == null) {
                 return "NotFound;0";
             }
-            
+
             V1JobStatus jobStatus = job.getStatus();
             String phase = "Unknown";
-            
+
             // 从 Job 条件中获取状态
             if (jobStatus != null && jobStatus.getConditions() != null && !jobStatus.getConditions().isEmpty()) {
                 for (V1JobCondition condition : jobStatus.getConditions()) {
@@ -419,7 +477,7 @@ public class K8sTrainerUtil {
                     }
                 }
             }
-            
+
             // 如果没有条件，根据 active/succeeded/failed 判断
             if ("Unknown".equals(phase) && jobStatus != null) {
                 if (jobStatus.getActive() != null && jobStatus.getActive() > 0) {
@@ -430,7 +488,7 @@ public class K8sTrainerUtil {
                     phase = "Failed";
                 }
             }
-            
+
             // 尝试获取 Pod 的退出码
             Integer exitCode = null;
             try {
@@ -438,11 +496,11 @@ public class K8sTrainerUtil {
                 V1PodList podList = coreV1Api.listNamespacedPod(namespace)
                         .labelSelector("job-name=" + jobName)
                         .execute();
-                
+
                 if (podList.getItems() != null && !podList.getItems().isEmpty()) {
                     V1Pod pod = podList.getItems().get(0);
                     V1PodStatus podStatus = pod.getStatus();
-                    if (podStatus != null && podStatus.getContainerStatuses() != null 
+                    if (podStatus != null && podStatus.getContainerStatuses() != null
                             && !podStatus.getContainerStatuses().isEmpty()) {
                         V1ContainerStateTerminated terminated = podStatus.getContainerStatuses().get(0)
                                 .getState().getTerminated();
@@ -454,7 +512,7 @@ public class K8sTrainerUtil {
             } catch (Exception e) {
                 log.debug("获取 Pod 退出码失败（可能 Pod 还未创建）: {}", e.getMessage());
             }
-            
+
             String result = phase;
             if (exitCode != null) {
                 result += ";" + exitCode;
@@ -480,19 +538,19 @@ public class K8sTrainerUtil {
      */
     public static String getJobLogs(String jobName, String namespace, Integer lastLines) throws ApiException {
         log.info("查询 Job 日志: {}, namespace: {}, 显示最后{}行", jobName, namespace, lastLines);
-        
+
         CoreV1Api coreV1Api = new CoreV1Api();
         try {
             // 查找 Job 关联的 Pod（通过 job-name label）
             V1PodList podList = coreV1Api.listNamespacedPod(namespace)
                     .labelSelector("job-name=" + jobName)
                     .execute();
-            
+
             if (podList.getItems() == null || podList.getItems().isEmpty()) {
                 log.warn("Job 关联的 Pod 不存在: {}", jobName);
                 return "Pod not found for job: " + jobName;
             }
-            
+
             // 优先获取 Running 状态的 Pod，否则使用第一个
             V1Pod targetPod = podList.getItems().stream()
                     .filter(pod -> {
@@ -501,7 +559,7 @@ public class K8sTrainerUtil {
                     })
                     .findFirst()
                     .orElse(podList.getItems().get(0));
-            
+
             String podName = targetPod.getMetadata().getName();
             String logContent;
             if (lastLines != null && lastLines > 0) {
@@ -515,7 +573,7 @@ public class K8sTrainerUtil {
                         namespace
                 ).execute();
             }
-            
+
             return logContent;
         } catch (ApiException e) {
             if (e.getCode() == 404) {
@@ -535,22 +593,22 @@ public class K8sTrainerUtil {
      */
     public static String listTrainingPods(String namespace) throws ApiException {
         log.info("列出运行中的训练 Pod, namespace: {}", namespace);
-        
+
         CoreV1Api coreV1Api = new CoreV1Api();
         try {
             V1PodList podList = coreV1Api.listNamespacedPod(namespace).execute();
-            
+
             StringBuilder result = new StringBuilder();
             result.append("NAME\tSTATUS\tAGE\n");
             for (V1Pod pod : podList.getItems()) {
                 String name = pod.getMetadata().getName();
                 String phase = pod.getStatus().getPhase() != null ? pod.getStatus().getPhase() : "Unknown";
-                String creationTime = pod.getMetadata().getCreationTimestamp() != null 
-                        ? pod.getMetadata().getCreationTimestamp().toString() 
+                String creationTime = pod.getMetadata().getCreationTimestamp() != null
+                        ? pod.getMetadata().getCreationTimestamp().toString()
                         : "Unknown";
                 result.append(name).append("\t").append(phase).append("\t").append(creationTime).append("\n");
             }
-            
+
             return result.toString();
         } catch (ApiException e) {
             log.error("列出 Pod 失败: {}", e.getMessage());
@@ -566,11 +624,11 @@ public class K8sTrainerUtil {
      */
     public static String listTrainingJobs(String namespace) throws ApiException {
         log.info("列出运行中的训练 Job, namespace: {}", namespace);
-        
+
         BatchV1Api batchV1Api = new BatchV1Api();
         try {
             V1JobList jobList = batchV1Api.listNamespacedJob(namespace).execute();
-            
+
             StringBuilder result = new StringBuilder();
             result.append("NAME\tSTATUS\tAGE\n");
             for (V1Job job : jobList.getItems()) {
@@ -586,12 +644,12 @@ public class K8sTrainerUtil {
                         status = "Failed";
                     }
                 }
-                String creationTime = job.getMetadata().getCreationTimestamp() != null 
-                        ? job.getMetadata().getCreationTimestamp().toString() 
+                String creationTime = job.getMetadata().getCreationTimestamp() != null
+                        ? job.getMetadata().getCreationTimestamp().toString()
                         : "Unknown";
                 result.append(name).append("\t").append(status).append("\t").append(creationTime).append("\n");
             }
-            
+
             return result.toString();
         } catch (ApiException e) {
             log.error("列出 Job 失败: {}", e.getMessage());
@@ -620,24 +678,24 @@ public class K8sTrainerUtil {
         SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMddHHmmss");
         String timestamp = sdf.format(new Date());
         String uuidPart = UUID.randomUUID().toString().substring(0, 8);
-        
+
         // 将下划线替换为连字符，并转换为小写
         String name = (prefix + "-" + timestamp + "-" + uuidPart).toLowerCase();
-        
+
         // 确保名称符合 Kubernetes 规范：移除所有不符合规范的字符
         // 只保留小写字母、数字和连字符
         name = name.replaceAll("[^a-z0-9-]", "");
-        
+
         // 确保以字母或数字开头和结尾（移除开头和结尾的连字符）
         name = name.replaceAll("^-+", "").replaceAll("-+$", "");
-        
+
         // 如果名称为空或过长（Kubernetes 限制为 63 个字符），生成一个备用名称
         if (name.isEmpty() || name.length() > 63) {
             name = "k8s-" + timestamp + "-" + uuidPart.toLowerCase();
             name = name.replaceAll("[^a-z0-9-]", "");
             name = name.replaceAll("^-+", "").replaceAll("-+$", "");
         }
-        
+
         return name;
     }
 
@@ -650,19 +708,19 @@ public class K8sTrainerUtil {
      */
     public static V1Pod getPodByJobName(String jobName, String namespace) throws ApiException {
         log.info("根据 Job 名称查找 Pod: {}, namespace: {}", jobName, namespace);
-        
+
         CoreV1Api coreV1Api = new CoreV1Api();
         try {
             // 查找 Job 关联的 Pod（通过 job-name label）
             V1PodList podList = coreV1Api.listNamespacedPod(namespace)
                     .labelSelector("job-name=" + jobName)
                     .execute();
-            
+
             if (podList.getItems() == null || podList.getItems().isEmpty()) {
                 log.warn("Job 关联的 Pod 不存在: {}", jobName);
                 return null;
             }
-            
+
             // 优先获取 Running 状态的 Pod，否则使用第一个
             V1Pod targetPod = podList.getItems().stream()
                     .filter(pod -> {
@@ -671,7 +729,7 @@ public class K8sTrainerUtil {
                     })
                     .findFirst()
                     .orElse(podList.getItems().get(0));
-            
+
             return targetPod;
         } catch (ApiException e) {
             if (e.getCode() == 404) {
@@ -691,47 +749,47 @@ public class K8sTrainerUtil {
      */
     public static java.util.Map<String, Object> getPodMetrics(String podName, String namespace) {
         log.info("获取 Pod 指标: {}, namespace: {}", podName, namespace);
-        
+
         try {
             ApiClient apiClient = io.kubernetes.client.openapi.Configuration.getDefaultApiClient();
             if (apiClient == null) {
                 log.warn("Kubernetes API 客户端未初始化");
                 return null;
             }
-            
+
             String basePath = apiClient.getBasePath();
             if (basePath == null || basePath.isEmpty()) {
                 log.warn("API 基础路径为空");
                 return null;
             }
-            
+
             // 尝试 v1beta1 API
             String url = basePath + "/apis/metrics.k8s.io/v1beta1/namespaces/" + namespace + "/pods/" + podName;
-            
+
             okhttp3.OkHttpClient httpClient = apiClient.getHttpClient();
             if (httpClient == null) {
                 log.warn("HTTP 客户端未初始化");
                 return null;
             }
-            
+
             okhttp3.Request request = new okhttp3.Request.Builder()
                     .url(url)
                     .get()
                     .addHeader("Accept", "application/json")
                     .build();
-            
+
             okhttp3.Response response = httpClient.newCall(request).execute();
             try {
                 if (response.isSuccessful() && response.body() != null) {
                     String responseBody = response.body().string();
                     cn.hutool.json.JSONObject metrics = cn.hutool.json.JSONUtil.parseObj(responseBody);
-                    
+
                     if (metrics != null) {
                         cn.hutool.json.JSONArray containers = metrics.getJSONArray("containers");
                         if (containers != null && containers.size() > 0) {
                             cn.hutool.json.JSONObject container = containers.getJSONObject(0);
                             cn.hutool.json.JSONObject usage = container.getJSONObject("usage");
-                            
+
                             if (usage != null) {
                                 java.util.Map<String, Object> result = new java.util.HashMap<>();
                                 result.put("cpu", usage.getStr("cpu"));
@@ -761,7 +819,7 @@ public class K8sTrainerUtil {
         } catch (Exception e) {
             log.debug("获取 Pod 指标失败（Metrics API 可能不可用）: {}", e.getMessage());
         }
-        
+
         return null;
     }
 
@@ -774,7 +832,7 @@ public class K8sTrainerUtil {
         java.util.Map<String, java.util.Map<String, Quantity>> result = new java.util.HashMap<>();
         java.util.Map<String, Quantity> requests = new java.util.HashMap<>();
         java.util.Map<String, Quantity> limits = new java.util.HashMap<>();
-        
+
         if (pod != null && pod.getSpec() != null && pod.getSpec().getContainers() != null) {
             for (V1Container container : pod.getSpec().getContainers()) {
                 V1ResourceRequirements resources = container.getResources();
@@ -788,7 +846,7 @@ public class K8sTrainerUtil {
                 }
             }
         }
-        
+
         result.put("requests", requests);
         result.put("limits", limits);
         return result;

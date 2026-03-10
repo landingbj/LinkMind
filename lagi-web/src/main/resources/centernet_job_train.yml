@@ -1,0 +1,54 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: centernet-v1
+  labels:
+    app: centernet
+spec:
+  template:
+    metadata:
+      labels:
+        app: centernet
+    spec:
+      restartPolicy: Never  # OnFailure: 错误重启，Never: 不重启
+      tolerations:
+        - key: "node-role.kubernetes.io/master"
+          operator: "Exists"
+          effect: "NoSchedule"
+      containers:
+        - name: centernet
+          image: 192.168.200.26/trainer_images/centernet:v1
+          command: ["python"]
+          args:
+             - "${args}"
+          resources:
+            limits:
+              cpu: "4"
+              memory: "16Gi"
+              nvidia.com/gpu: "1"
+            requests:
+              cpu: "4"
+              memory: "16Gi"
+              nvidia.com/gpu: "1"
+          env:
+            - name: CUDA_VISIBLE_DEVICES
+              value: "0"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: TZ
+              value: "Asia/Shanghai"
+          volumeMounts:
+            - name: data-volume
+              mountPath: /data/wangshuanglong
+            - name: cache-volume
+              mountPath: /root/.cache/torch
+          workingDir: /app
+      volumes:
+        - name: data-volume
+          hostPath:
+            path: /data/wangshuanglong
+            type: DirectoryOrCreate
+        - name: cache-volume
+          hostPath:
+            path: /data/wangshuanglong/cache
+            type: DirectoryOrCreate

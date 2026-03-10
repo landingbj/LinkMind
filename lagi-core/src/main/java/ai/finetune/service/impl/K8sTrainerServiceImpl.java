@@ -59,15 +59,15 @@ public class K8sTrainerServiceImpl implements TrainerService {
         if (k8s == null) {
             throw new RuntimeException("K8s 配置不存在");
         }
-        
+
         namespace = k8s.getNamespace() != null ? k8s.getNamespace() : "default";
-        
+
         // 获取额外的挂载路径配置（参考 DockerTrainerServiceImpl 46-69 行）
         this.volumes = modelPlatformConfig.getVolumes();
-        
+
         // 获取额外的环境变量配置
         this.envs = modelPlatformConfig.getEnvs();
-        
+
         // 初始化 K8s 客户端
         try {
             String kubeConfigPath = k8s.getKubeConfigPath();
@@ -76,7 +76,7 @@ public class K8sTrainerServiceImpl implements TrainerService {
             log.error("初始化 K8s 客户端失败", e);
             throw new RuntimeException("初始化 K8s 客户端失败: " + e.getMessage(), e);
         }
-        
+
         // 初始化 DAO
         MysqlAdapter mysqlAdapter = MysqlAdapter.getInstance();
         this.taskRepository = new TrainingTaskRepository(mysqlAdapter);
@@ -96,8 +96,12 @@ public class K8sTrainerServiceImpl implements TrainerService {
             if ("unparsed".equalsIgnoreCase(modelMapper.getParseType())) {
                 String configstr = config.toString();
                 yamlContent =  StrUtil.format(yamlContent, configstr);
-                System.out.println("yamlContent: " + yamlContent);
+            } else if ("centernet_parsed".equalsIgnoreCase(modelMapper.getParseType())) {
+                List<String> argsList = new ArrayList<>();
+                config.forEach((k, v) -> { if (v != null) { argsList.add(k); argsList.add(v.toString()); } });
+                yamlContent = yamlContent.replace("${args}", "[ " + String.join(", ", argsList.stream().map(s -> "\"" + s + "\"").toArray(String[]::new)) + " ]");
             }
+            System.out.println("yamlContent: " + yamlContent);
         }
         try {
             resource = Yaml.loadAs(yamlContent, V1Job.class);
@@ -112,7 +116,7 @@ public class K8sTrainerServiceImpl implements TrainerService {
 
         V1Job job;
         V1PodSpec podSpec;
-        
+
         if (resource instanceof V1Job) {
             // 已经是 Job
             job = (V1Job) resource;
@@ -138,7 +142,7 @@ public class K8sTrainerServiceImpl implements TrainerService {
             if (podSpec == null) {
                 podSpec = new V1PodSpec();
             }
-            
+
             // 创建 Job
             job = new V1Job();
             V1JobSpec jobSpec = new V1JobSpec();
@@ -155,7 +159,7 @@ public class K8sTrainerServiceImpl implements TrainerService {
         } else {
             throw new IOException("不支持的资源类型: ");
         }
-        
+
         // 获取容器列表
         List<V1Container> containers = podSpec.getContainers();
         if (containers.isEmpty()) {
@@ -163,14 +167,14 @@ public class K8sTrainerServiceImpl implements TrainerService {
             podSpec.setContainers(containers);
         }
         V1Container mainContainer = containers.get(0);
-        
+
         // 添加额外的环境变量
         List<V1EnvVar> containerEnvs = mainContainer.getEnv();
         if (containerEnvs == null) {
             containerEnvs = new ArrayList<>();
             mainContainer.setEnv(containerEnvs);
         }
-        
+
         if (envs != null && !envs.isEmpty()) {
             for (List<String> env : envs) {
                 if (env.size() == 2) {
@@ -188,13 +192,13 @@ public class K8sTrainerServiceImpl implements TrainerService {
             podVolumes = new ArrayList<>();
             podSpec.setVolumes(podVolumes);
         }
-        
+
         List<V1VolumeMount> volumeMounts = mainContainer.getVolumeMounts();
         if (volumeMounts == null) {
             volumeMounts = new ArrayList<>();
             mainContainer.setVolumeMounts(volumeMounts);
         }
-        
+
         if (volumes != null && !volumes.isEmpty()) {
             for (int i = 0; i < volumes.size(); i++) {
                 List<String> volume = volumes.get(i);
@@ -202,7 +206,7 @@ public class K8sTrainerServiceImpl implements TrainerService {
                     String hostPath = volume.get(0);
                     String containerPath = volume.get(1);
                     String volumeName = "extra-volume-" + i;
-                    
+
                     V1Volume v1Volume = new V1Volume();
                     v1Volume.setName(volumeName);
                     V1HostPathVolumeSource hostPathSource = new V1HostPathVolumeSource();
@@ -210,7 +214,7 @@ public class K8sTrainerServiceImpl implements TrainerService {
                     hostPathSource.setType("DirectoryOrCreate");
                     v1Volume.setHostPath(hostPathSource);
                     podVolumes.add(v1Volume);
-                    
+
                     V1VolumeMount volumeMount = new V1VolumeMount();
                     volumeMount.setName(volumeName);
                     volumeMount.setMountPath(containerPath);
@@ -303,7 +307,7 @@ public class K8sTrainerServiceImpl implements TrainerService {
         if (k8s4Model == null) {
             throw new RuntimeException("未匹配到模型");
         }
-        
+
         String k8sTrainPath = k8s4Model.getK8sTrainPath();
         if(StrUtil.isBlank(k8sTrainPath)) {
             throw new RuntimeException("模型未配置 K8s 训练 YAML 路径");
@@ -314,7 +318,7 @@ public class K8sTrainerServiceImpl implements TrainerService {
 
         config.set("_resource_name", taskId);
         config.set("_status", "starting");
-        
+
         // 保存任务到数据库
         final String finalTaskId = taskId;
         final String finalTrackId = trackId;
@@ -330,7 +334,7 @@ public class K8sTrainerServiceImpl implements TrainerService {
             try {
                 // 加载并增强 YAML（添加 volumes 和 envs）
                 V1Job job = loadJobFromYamlAndEnhance(k8s4Model, k8sTrainPath, config);
-                
+
                 // 更新 Job 名称
                 V1ObjectMeta metadata = job.getMetadata();
                 if (metadata == null) {
@@ -339,15 +343,15 @@ public class K8sTrainerServiceImpl implements TrainerService {
                 }
                 metadata.setName(finalTaskId);
                 metadata.setNamespace(namespace);
-                
+
                 // 创建 Job
                 V1Job createdJob = K8sTrainerUtil.createJobFromYamlString(
                         Yaml.dump(job), namespace);
-                
+
                 // 成功时更新状态为运行中
                 taskRepository.updateTaskStatus(finalTaskId, "running", "训练任务正在运行...");
                 taskRepository.addTrainingLog(finalTaskId, "INFO", "Job 创建成功，开始训练");
-                
+
                 return "Job created: " + Objects.requireNonNull(createdJob.getMetadata()).getName();
             } catch (IOException | ApiException e) {
                 // 失败时更新状态为失败
@@ -364,16 +368,16 @@ public class K8sTrainerServiceImpl implements TrainerService {
         if (StrUtil.isBlank(taskId)) {
             throw new RuntimeException("任务ID不能为空");
         }
-        
+
         try {
             String result = K8sTrainerUtil.deleteJob(taskId, namespace);
-            
+
             // 成功时更新状态为已停止
             java.time.LocalDateTime now = java.time.LocalDateTime.now();
             String endTime = now.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
             taskRepository.updateTaskStopStatus(taskId, endTime);
             taskRepository.addTrainingLog(taskId, "INFO", "Job 已停止: " + taskId);
-            
+
             return result;
         } catch (ApiException e) {
             // 失败时记录日志
@@ -388,13 +392,13 @@ public class K8sTrainerServiceImpl implements TrainerService {
         if(config == null) {
             throw new RuntimeException("无有效评估参数");
         }
-        
+
         String taskId = config.getStr("task_id");
         if (StrUtil.isBlank(taskId)) {
             taskId = K8sTrainerUtil.generateResourceName("k8s_evaluate");
             config.set("task_id", taskId);
         }
-        
+
         final String finalTaskId = taskId;
         config.set("_status", "running");
 
@@ -425,7 +429,7 @@ public class K8sTrainerServiceImpl implements TrainerService {
             try {
                 // 加载并增强 YAML
                 V1Job job = loadJobFromYamlAndEnhance(k8s4Model, k8sEvaluatePath, config);
-                
+
                 V1ObjectMeta metadata = job.getMetadata();
                 if (metadata == null) {
                     metadata = new V1ObjectMeta();
@@ -433,14 +437,14 @@ public class K8sTrainerServiceImpl implements TrainerService {
                 }
                 metadata.setName(finalTaskId1);
                 metadata.setNamespace(namespace);
-                
+
                 V1Job createdJob = K8sTrainerUtil.createJobFromYamlString(
                         Yaml.dump(job), namespace);
-                
+
                 // 成功时更新状态为完成
                 taskRepository.updateTaskStatus(finalTaskId, "completed", "评估任务完成");
                 taskRepository.addTrainingLog(finalTaskId, "INFO", "评估任务完成");
-                
+
                 return "Job created: " + createdJob.getMetadata().getName();
             } catch (IOException | ApiException e) {
                 // 失败时更新状态为失败
@@ -457,13 +461,13 @@ public class K8sTrainerServiceImpl implements TrainerService {
         if(config == null) {
             throw new RuntimeException("无有效预测参数");
         }
-        
+
         String taskId = config.getStr("task_id");
         if (StrUtil.isBlank(taskId)) {
             taskId = K8sTrainerUtil.generateResourceName("k8s_predict");
             config.set("task_id", taskId);
         }
-        
+
         final String finalTaskId = taskId;
         config.set("_status", "running");
 
@@ -493,7 +497,7 @@ public class K8sTrainerServiceImpl implements TrainerService {
             try {
                 // 加载并增强 YAML
                 V1Job job = loadJobFromYamlAndEnhance(k8s4Model, k8sPredictPath, config);
-                
+
                 V1ObjectMeta metadata = job.getMetadata();
                 if (metadata == null) {
                     metadata = new V1ObjectMeta();
@@ -501,15 +505,15 @@ public class K8sTrainerServiceImpl implements TrainerService {
                 }
                 metadata.setName(finalTaskId);
                 metadata.setNamespace(namespace);
-                
+
                 V1Job createdJob = K8sTrainerUtil.createJobFromYamlString(
                         Yaml.dump(job), namespace);
-                
+
                 // 成功时更新状态为完成
                 taskRepository.updateTaskStatus(finalTaskId, "completed", "预测任务完成");
                 taskRepository.updateTaskProgress(finalTaskId, 0, "100%");
                 taskRepository.addTrainingLog(finalTaskId, "INFO", "预测任务完成");
-                
+
                 return "Job created: " + createdJob.getMetadata().getName();
             } catch (IOException | ApiException e) {
                 // 失败时更新状态为失败
@@ -526,13 +530,13 @@ public class K8sTrainerServiceImpl implements TrainerService {
         if(config == null) {
             throw new RuntimeException("无有效转换参数");
         }
-        
+
         String taskId = config.getStr("task_id");
         if (StrUtil.isBlank(taskId)) {
             taskId = K8sTrainerUtil.generateResourceName("k8s_convert");
             config.set("task_id", taskId);
         }
-        
+
         final String finalTaskId = taskId;
         config.set("_status", "running");
 
@@ -562,7 +566,7 @@ public class K8sTrainerServiceImpl implements TrainerService {
                 log.info("执行转换任务: taskId={}, config={}", finalTaskId, config);
                 // 加载并增强 YAML
                 V1Job job = loadJobFromYamlAndEnhance(k8s4Model, k8sConvertPath, config);
-                
+
                 V1ObjectMeta metadata = job.getMetadata();
                 if (metadata == null) {
                     metadata = new V1ObjectMeta();
@@ -570,18 +574,18 @@ public class K8sTrainerServiceImpl implements TrainerService {
                 }
                 metadata.setName(finalTaskId);
                 metadata.setNamespace(namespace);
-                
+
                 V1Job createdJob = K8sTrainerUtil.createJobFromYamlString(
                         Yaml.dump(job), namespace);
-                
+
                 // 监听 Job 日志，提取输出路径
                 // 注意：这里需要异步监听日志，实际实现可能需要使用 Watch API
                 // 简化处理：在后续的日志查询中处理
-                
+
                 // 成功时更新状态为完成
                 taskRepository.updateTaskStatus(finalTaskId, "completed", "模型转换完成");
                 taskRepository.addTrainingLog(finalTaskId, "INFO", "模型转换完成");
-                
+
                 return "Job created: " + createdJob.getMetadata().getName();
             } catch (IOException | ApiException e) {
                 // 失败时更新状态为失败
@@ -683,9 +687,9 @@ public class K8sTrainerServiceImpl implements TrainerService {
         if (StrUtil.isBlank(taskId)) {
             throw new RuntimeException("任务ID不能为空");
         }
-        
+
         log.info("查询资源使用情况: taskId={}", taskId);
-        
+
         try {
             // 1. 根据 taskId 获取关联的 Pod
             V1Pod pod = K8sTrainerUtil.getPodByJobName(taskId, namespace);
@@ -693,36 +697,36 @@ public class K8sTrainerServiceImpl implements TrainerService {
                 log.warn("未找到任务关联的 Pod: taskId={}", taskId);
                 return createEmptyResourceInfo();
             }
-            
+
             String podName = Objects.requireNonNull(pod.getMetadata()).getName();
-            
+
             // 2. 获取 Pod 的资源请求和限制
             Map<String, Map<String, Quantity>> resourceRequirements =
                     K8sTrainerUtil.getPodResourceRequirements(pod);
             Map<String, Quantity> requests = resourceRequirements.get("requests");
             Map<String, Quantity> limits = resourceRequirements.get("limits");
-            
+
             // 3. 从 Metrics API 获取实际使用量
             Map<String, Object> metrics = K8sTrainerUtil.getPodMetrics(podName, namespace);
             if (metrics == null) {
                 log.debug("无法从 Metrics API 获取实际使用量，将显示资源限制/请求信息（使用量为 0）");
             }
-            
+
             // 4. 构建返回结果
             JSONObject result = new JSONObject();
-            
+
             // CPU 信息
             result.set("cpu", buildCpuInfo(metrics, requests, limits));
-            
+
             // 内存信息
             result.set("memory", buildMemoryInfo(metrics, requests, limits));
-            
+
             // GPU 信息
             result.set("gpu", buildGpuInfo(pod, podName, namespace));
-            
+
             // GPU 显存信息
             result.set("gpuMemory", buildGpuMemoryInfo(pod, podName, namespace, requests, limits));
-            
+
             return result;
         } catch (ApiException e) {
             log.error("查询资源使用情况失败: taskId={}", taskId, e);
@@ -732,15 +736,15 @@ public class K8sTrainerServiceImpl implements TrainerService {
             return createEmptyResourceInfo();
         }
     }
-    
+
     /**
      * 构建 CPU 信息
      */
-    private JSONObject buildCpuInfo(java.util.Map<String, Object> metrics, 
+    private JSONObject buildCpuInfo(java.util.Map<String, Object> metrics,
                                    java.util.Map<String, Quantity> requests,
                                    java.util.Map<String, Quantity> limits) {
         JSONObject cpu = new JSONObject();
-        
+
         // 解析 CPU 使用量
         double cpuUsageCores = 0.0;
         boolean hasActualUsage = false;
@@ -749,14 +753,14 @@ public class K8sTrainerServiceImpl implements TrainerService {
             cpuUsageCores = parseCpuQuantity(cpuStr);
             hasActualUsage = true;
         }
-        
+
         // 解析 CPU 限制
         double cpuLimitCores = 0.0;
         Quantity cpuLimit = limits != null ? limits.get("cpu") : null;
         if (cpuLimit != null) {
             cpuLimitCores = parseCpuQuantity(cpuLimit.toSuffixedString());
         }
-        
+
         // 如果没有 limit，尝试使用 request
         if (cpuLimitCores == 0.0 && requests != null) {
             Quantity cpuRequest = requests.get("cpu");
@@ -764,23 +768,23 @@ public class K8sTrainerServiceImpl implements TrainerService {
                 cpuLimitCores = parseCpuQuantity(cpuRequest.toSuffixedString());
             }
         }
-        
+
         // 计算百分比（CPU 可以超过 100%，因为可能使用多个核心）
         // 如果没有实际使用量数据，百分比为 0
         double percent = 0.0;
         if (hasActualUsage && cpuLimitCores > 0) {
             percent = (cpuUsageCores / cpuLimitCores) * 100.0;
         }
-        
+
         // 格式化：如 "198.07%"
         String usageStr = String.format("%.2f%%", percent);
-        
+
         cpu.set("usage", usageStr);
         cpu.set("percent", percent);
-        
+
         return cpu;
     }
-    
+
     /**
      * 构建内存信息
      */
@@ -788,7 +792,7 @@ public class K8sTrainerServiceImpl implements TrainerService {
                                       java.util.Map<String, Quantity> requests,
                                       java.util.Map<String, Quantity> limits) {
         JSONObject memory = new JSONObject();
-        
+
         // 解析内存使用量
         long memoryUsageBytes = 0L;
         boolean hasActualUsage = false;
@@ -797,14 +801,14 @@ public class K8sTrainerServiceImpl implements TrainerService {
             memoryUsageBytes = parseMemoryQuantity(memoryStr);
             hasActualUsage = true;
         }
-        
+
         // 解析内存限制
         long memoryLimitBytes = 0L;
         Quantity memoryLimit = limits != null ? limits.get("memory") : null;
         if (memoryLimit != null) {
             memoryLimitBytes = parseMemoryQuantity(memoryLimit.toSuffixedString());
         }
-        
+
         // 如果没有 limit，尝试使用 request
         if (memoryLimitBytes == 0L && requests != null) {
             Quantity memoryRequest = requests.get("memory");
@@ -812,40 +816,40 @@ public class K8sTrainerServiceImpl implements TrainerService {
                 memoryLimitBytes = parseMemoryQuantity(memoryRequest.toSuffixedString());
             }
         }
-        
+
         // 格式化内存值（GiB）
         String usedStr = formatBytesToGiB(memoryUsageBytes);
         String totalStr = formatBytesToGiB(memoryLimitBytes);
-        
+
         // 计算百分比（如果没有实际使用量数据，百分比为 0）
         double percent = 0.0;
         if (hasActualUsage && memoryLimitBytes > 0) {
             percent = (memoryUsageBytes * 100.0) / memoryLimitBytes;
         }
-        
+
         memory.set("usage", usedStr + " / " + totalStr);
         memory.set("used", usedStr);
         memory.set("percent", percent);
         memory.set("total", totalStr);
-        
+
         return memory;
     }
-    
+
     /**
      * 构建 GPU 信息
      */
     private JSONObject buildGpuInfo(V1Pod pod, String podName, String namespace) {
         JSONObject gpu = new JSONObject();
-        
+
         // 默认值
         double gpuUsagePercent = 0.0;
         double powerDraw = 0.0;
         double temperature = 0.0;
-        
+
         // 尝试从 Pod 环境变量或 annotations 获取 GPU 信息
         // 或者通过 exec 到 Pod 中执行 nvidia-smi（需要 Pod 支持）
         // 这里先返回默认值，实际实现可能需要通过 sidecar 或其他方式获取
-        
+
         // 检查 Pod 是否有 GPU 资源请求
         boolean hasGpu = false;
         if (pod.getSpec() != null) {
@@ -864,7 +868,7 @@ public class K8sTrainerServiceImpl implements TrainerService {
                 }
             }
         }
-        
+
         if (!hasGpu) {
             gpu.set("usage", "0.0%");
             gpu.set("percent", 0);
@@ -872,21 +876,21 @@ public class K8sTrainerServiceImpl implements TrainerService {
             gpu.set("temperature", 0);
             return gpu;
         }
-        
+
         // TODO: 实际获取 GPU 使用率、功耗和温度
         // 可以通过以下方式：
         // 1. 在 Pod 中执行 nvidia-smi 命令
         // 2. 使用 GPU 监控工具（如 DCGM）
         // 3. 从节点 metrics 获取
-        
+
         gpu.set("usage", String.format("%.1f%%", gpuUsagePercent));
         gpu.set("percent", gpuUsagePercent);
         gpu.set("powerDraw", powerDraw);
         gpu.set("temperature", (int) temperature);
-        
+
         return gpu;
     }
-    
+
     /**
      * 构建 GPU 显存信息
      */
@@ -894,14 +898,14 @@ public class K8sTrainerServiceImpl implements TrainerService {
                                          java.util.Map<String, Quantity> requests,
                                          java.util.Map<String, Quantity> limits) {
         JSONObject gpuMemory = new JSONObject();
-        
+
         // 默认值
         long gpuMemoryUsedMB = 0L;
         long gpuMemoryTotalMB = 0L;
-        
+
         // 尝试从 Pod 环境变量或 annotations 获取 GPU 显存信息
         // 或者通过 exec 到 Pod 中执行 nvidia-smi（需要 Pod 支持）
-        
+
         // 检查 Pod 是否有 GPU 资源
         boolean hasGpu = false;
         if (pod.getSpec() != null) {
@@ -932,7 +936,7 @@ public class K8sTrainerServiceImpl implements TrainerService {
                 }
             }
         }
-        
+
         if (!hasGpu) {
             gpuMemory.set("usage", "0.0 MiB / 0.0 MiB");
             gpuMemory.set("used", "0 MiB");
@@ -942,12 +946,12 @@ public class K8sTrainerServiceImpl implements TrainerService {
             gpuMemory.set("usedMB", 0);
             return gpuMemory;
         }
-        
+
         // TODO: 实际获取 GPU 显存使用量
         // 可以通过以下方式：
         // 1. 在 Pod 中执行 nvidia-smi --query-gpu=memory.used,memory.total --format=csv
         // 2. 使用 GPU 监控工具
-        
+
         // 示例值（实际应从 nvidia-smi 获取）
         if (gpuMemoryTotalMB == 0) {
             gpuMemoryTotalMB = 16376; // 16GB
@@ -956,45 +960,45 @@ public class K8sTrainerServiceImpl implements TrainerService {
         gpuMemoryUsedMB = (long) (gpuMemoryTotalMB * 0.2245);
 
         double percent = gpuMemoryTotalMB > 0 ? (gpuMemoryUsedMB * 100.0) / gpuMemoryTotalMB : 0.0;
-        
+
         String usedStr = formatMBToMiB(gpuMemoryUsedMB);
         String totalStr = formatMBToMiB(gpuMemoryTotalMB);
-        
+
         gpuMemory.set("usage", usedStr + " / " + totalStr);
         gpuMemory.set("used", usedStr);
         gpuMemory.set("percent", percent);
         gpuMemory.set("total", totalStr);
         gpuMemory.set("totalMB", gpuMemoryTotalMB);
         gpuMemory.set("usedMB", gpuMemoryUsedMB);
-        
+
         return gpuMemory;
     }
-    
+
     /**
      * 创建空的资源信息（当无法获取时返回）
      */
     private JSONObject createEmptyResourceInfo() {
         JSONObject result = new JSONObject();
-        
+
         JSONObject cpu = new JSONObject();
         cpu.set("usage", "0%");
         cpu.set("percent", 0.0);
         result.set("cpu", cpu);
-        
+
         JSONObject memory = new JSONObject();
         memory.set("usage", "0 GiB / 0 GiB");
         memory.set("used", "0 GiB");
         memory.set("percent", 0.0);
         memory.set("total", "0 GiB");
         result.set("memory", memory);
-        
+
         JSONObject gpu = new JSONObject();
         gpu.set("usage", "0.0%");
         gpu.set("percent", 0);
         gpu.set("powerDraw", 0.0);
         gpu.set("temperature", 0);
         result.set("gpu", gpu);
-        
+
         JSONObject gpuMemory = new JSONObject();
         gpuMemory.set("usage", "0.0 MiB / 0.0 MiB");
         gpuMemory.set("used", "0 MiB");
@@ -1003,10 +1007,10 @@ public class K8sTrainerServiceImpl implements TrainerService {
         gpuMemory.set("totalMB", 0);
         gpuMemory.set("usedMB", 0);
         result.set("gpuMemory", gpuMemory);
-        
+
         return result;
     }
-    
+
     /**
      * 解析 CPU 数量（支持 "100m", "1", "1.5" 等格式）
      */
@@ -1030,7 +1034,7 @@ public class K8sTrainerServiceImpl implements TrainerService {
             return 0.0;
         }
     }
-    
+
     /**
      * 解析内存数量（支持 "512Mi", "1Gi", "1024M" 等格式）
      */
@@ -1041,7 +1045,7 @@ public class K8sTrainerServiceImpl implements TrainerService {
         try {
             memoryStr = memoryStr.trim().toUpperCase();
             double value = Double.parseDouble(memoryStr.replaceAll("[^0-9.]", ""));
-            
+
             if (memoryStr.endsWith("KI") || memoryStr.endsWith("K")) {
                 return (long) (value * 1024);
             } else if (memoryStr.endsWith("MI") || memoryStr.endsWith("M")) {
@@ -1059,7 +1063,7 @@ public class K8sTrainerServiceImpl implements TrainerService {
             return 0L;
         }
     }
-    
+
     /**
      * 格式化字节数为 GiB 格式（保留3位小数）
      */
@@ -1067,7 +1071,7 @@ public class K8sTrainerServiceImpl implements TrainerService {
         double gib = bytes / (1024.0 * 1024.0 * 1024.0);
         return String.format("%.3fGiB", gib);
     }
-    
+
     /**
      * 格式化 MB 为 MiB 格式
      */

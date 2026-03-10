@@ -419,7 +419,7 @@ public class TrainingTaskRepository {
             }
 
             int result = mysqlAdapter.executeUpdate(sql, status, message, getCurrentTime(), taskId);
-            log.info("任务状态已更新: taskId={}, status={}", taskId, status);
+            log.info("任务状态已更新: taskId={}, status={} message={}", taskId, status , message);
 
             // 训练完成后自动入库（Docker 轮询常见终态为 exited/finished）
             // 仅对 train 任务触发，且仅在从非终态切到终态时触发一次

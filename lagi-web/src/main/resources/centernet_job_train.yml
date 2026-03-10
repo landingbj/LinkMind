@@ -5,6 +5,10 @@ metadata:
   labels:
     app: centernet
 spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 86400
+  completions: 1
+  parallelism: 1
   template:
     metadata:
       labels:
@@ -19,17 +23,16 @@ spec:
         - name: centernet
           image: 192.168.200.26/trainer_images/centernet:v1
           command: ["python"]
-          args:
-             - "${args}"
-          resources:
-            limits:
-              cpu: "4"
-              memory: "16Gi"
-              nvidia.com/gpu: "1"
-            requests:
-              cpu: "4"
-              memory: "16Gi"
-              nvidia.com/gpu: "1"
+          args: ${args}
+#          resources:
+#            limits:
+#              cpu: "4"
+#              memory: "16Gi"
+#              nvidia.com/gpu: "1"
+#            requests:
+#              cpu: "4"
+#              memory: "16Gi"
+#              nvidia.com/gpu: "1"
           env:
             - name: CUDA_VISIBLE_DEVICES
               value: "0"
@@ -38,16 +41,10 @@ spec:
             - name: TZ
               value: "Asia/Shanghai"
           volumeMounts:
-            - name: data-volume
-              mountPath: /data/wangshuanglong
             - name: cache-volume
               mountPath: /root/.cache/torch
           workingDir: /app
       volumes:
-        - name: data-volume
-          hostPath:
-            path: /data/wangshuanglong
-            type: DirectoryOrCreate
         - name: cache-volume
           hostPath:
             path: /data/wangshuanglong/cache

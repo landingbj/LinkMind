@@ -3,7 +3,7 @@ kind: Job
 metadata:
   name: k8strain-20260205145954-0f7fde00
 spec:
-  backoffLimit: 1
+  backoffLimit: 0
   activeDeadlineSeconds: 86400
   completions: 1
   parallelism: 1

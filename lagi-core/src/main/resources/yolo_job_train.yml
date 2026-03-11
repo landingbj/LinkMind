@@ -1,0 +1,38 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k8strain-20260205145954-0f7fde00
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 86400
+  completions: 1
+  parallelism: 1
+  template:
+    spec:
+      containers:
+        - name: yolo-trainer
+          image: 192.168.200.26/trainer_images/yolo_trainer:v2
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CONFIG
+              value: '{}'
+          resources:
+            limits:
+              nvidia.com/gpu: 1   # 请求 1 个 GPU
+              memory: 8Gi         # 限制内存为 8Gi
+            requests:
+              nvidia.com/gpu: 1   # 请求 1 个 GPU
+              memory: 8Gi         # 请求内存为 8Gi
+          volumeMounts:
+            - name: data-volume
+              mountPath: /data/wangshuanglong
+      volumes:
+        - name: data-volume
+          hostPath:
+            path: /data/wangshuanglong
+            type: DirectoryOrCreate
+      tolerations:
+        - key: "nvidia.com/gpu"        # 对应节点污点的key
+          operator: "Exists"           # 容忍任意存在的key
+          effect: "NoSchedule"         # 容忍对应的 NoSchedule 效果
+      restartPolicy: Never

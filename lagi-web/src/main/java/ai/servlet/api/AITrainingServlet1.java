@@ -222,9 +222,13 @@ public class AITrainingServlet1 extends RestfulServlet {
         }
     }
     @Post("deleteModel")
-    public String deleteModel(@Param("id") Long modelId) {
+    public String deleteModel(@Param("id") Long modelId,@Body("id") JSONObject jsonObject ) {
         if (modelId == null) {
-            throw new RRException("模型ID不能为空");
+            Object idObj = jsonObject.get("id");
+            if (idObj == null){
+                throw new RRException("模型ID不能为空");
+            }
+            modelId = ((Integer) idObj).longValue();
         }
 
         try {

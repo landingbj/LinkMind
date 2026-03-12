@@ -153,7 +153,10 @@ public class modelBaseDao {
 
             // 构建返回结果
             Map<String, Object> data = new HashMap<>();
+            data.put("page", page);
+            data.put("pageSize", pageSize);
             data.put("total", total);
+
             data.put("statusCount", statusCount);
             data.put("list", list);
             return data;

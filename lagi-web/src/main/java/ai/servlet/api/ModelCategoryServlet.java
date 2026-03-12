@@ -385,6 +385,8 @@ public class ModelCategoryServlet extends BaseServlet {
             List<Map<String, Object>> list = getModelCategoryList(page, pageSize, parentId, status, categoryName);
 
             Map<String, Object> data = new HashMap<>();
+            data.put("page", page);
+            data.put("page_size", pageSize);
             data.put("total", total);
             data.put("statusCount", statusCount);
             data.put("list", list);
@@ -412,6 +414,7 @@ public class ModelCategoryServlet extends BaseServlet {
      * @return 总条数
      */
     private long getModelCategoryTotal(Long parentId, String status, String categoryName) {
+        long total = 0;
         StringBuilder whereSql = new StringBuilder(" WHERE is_deleted = 0");
         List<Object> params = new java.util.ArrayList<>();
 
@@ -431,10 +434,26 @@ public class ModelCategoryServlet extends BaseServlet {
         String countSql = "SELECT COUNT(*) AS cnt FROM model_category" + whereSql;
         try {
             List<Map<String, Object>> countResult = getMysqlAdapter().select(countSql, params.toArray());
-            if (countResult != null && !countResult.isEmpty() && countResult.get(0).get("cnt") != null) {
-                return ((Number) countResult.get(0).get("cnt")).longValue();
+            if (countResult != null && !countResult.isEmpty()) {
+                Object cntObj = countResult.get(0).get("cnt");
+                if (cntObj != null) {
+                    if (cntObj instanceof Number) {
+                        total = ((Number) cntObj).longValue();
+                    } else {
+                        try {
+                            total = Long.parseLong(cntObj.toString().trim());
+                        } catch (NumberFormatException e) {
+                            log.warn("模型分类总数字段cnt转换失败，值为: {}", cntObj);
+                        }
+                    }
+                } else {
+                    log.warn("模型分类总数查询结果中cnt字段为空");
+                }
+            } else {
+                log.warn("模型分类总数查询结果集为空");
             }
-            return 0;
+            // 统一返回total（有数据则是实际值，无数据则是0）
+            return total;
         } catch (Exception e) {
             log.error("查询模型分类总数失败: parentId={}, status={}, categoryName={}, error={}", parentId, status, categoryName, e.getMessage(), e);
             return 0;

@@ -3,8 +3,6 @@ package ai.utils;
 import ai.common.pojo.WordRule;
 import ai.common.pojo.WordRules;
 import ai.common.utils.LRUCache;
-import ai.config.ContextLoader;
-import ai.config.pojo.FilterConfig;
 import ai.openai.pojo.ChatCompletionChoice;
 import ai.openai.pojo.ChatCompletionResult;
 import ai.openai.pojo.ChatMessage;
@@ -23,7 +21,6 @@ import java.util.regex.Pattern;
 public class SensitiveWordUtil {
     private static final Map<String, WordRule> ruleMap = new HashMap<>();
     private static final Map<String, Pattern> patternCache = new HashMap<>();
-    private static final List<FilterConfig> filterConfigs = ContextLoader.configuration.getFilters();
     private static int filterWindowLength = -1;
 
     private static final LRUCache<String, String> filterSlidingWindow = new LRUCache<>(10000, 30, TimeUnit.MINUTES);
@@ -32,13 +29,10 @@ public class SensitiveWordUtil {
     static {
         WordRules wordRules = JsonFileLoadUtil.readWordLRulesList("/sensitive_word.json", WordRules.class);
         pushWordRule(wordRules);
-        if (filterConfigs != null) {
-            for (FilterConfig filter : filterConfigs) {
-                if (filter.getName().equals("sensitive")) {
-                    filterWindowLength = filter.getFilterWindowLength();
-                }
-            }
-        }
+    }
+
+    public static void setFilterWindowLength(int length) {
+        filterWindowLength = length;
     }
 
     public static void pushWordRule(WordRules wordRules) {
@@ -170,5 +164,6 @@ public class SensitiveWordUtil {
         patternCache.clear();
         filterSlidingWindow.clear();
         blockMap.clear();
+        filterWindowLength = -1;
     }
 }

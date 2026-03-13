@@ -31,6 +31,9 @@ public class LagiGlobal {
             return config;
         }
         ContextLoader.loadContext();
+        if (ContextLoader.configuration == null) {
+            throw new IllegalStateException("failed to load lagi configuration, please check lagi.yml and startup logs");
+        }
         config = ContextLoader.configuration.transformToConfiguration();
         setLandingApikey(config);
         setDefaultCategory(config);

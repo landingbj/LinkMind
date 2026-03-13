@@ -40,5 +40,6 @@ public class Backend {
     private Boolean dependingOnTheContext;
     private String filter;
     private Integer concurrency;
+    private String protocol;
     protected Boolean function;
 }

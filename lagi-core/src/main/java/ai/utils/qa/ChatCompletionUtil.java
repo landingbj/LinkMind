@@ -59,17 +59,30 @@ public class ChatCompletionUtil {
 
     public static ChatCompletionRequest cloneChatCompletionRequest(ChatCompletionRequest request) {
         ChatCompletionRequest cloned = new ChatCompletionRequest();
+        cloned.setSessionId(request.getSessionId());
         cloned.setModel(request.getModel());
         cloned.setTemperature(request.getTemperature());
         cloned.setMax_tokens(request.getMax_tokens());
         cloned.setCategory(request.getCategory());
+        cloned.setStream(request.getStream());
         cloned.setTools(request.getTools());
+        cloned.setTool_choice(request.getTool_choice());
+        cloned.setParallel_tool_calls(request.getParallel_tool_calls());
+        cloned.setPresence_penalty(request.getPresence_penalty());
+        cloned.setFrequency_penalty(request.getFrequency_penalty());
+        cloned.setTop_p(request.getTop_p());
+        cloned.setResponse_format(request.getResponse_format());
+        cloned.setStream_options(request.getStream_options());
+        cloned.setLogprobs(request.getLogprobs());
         if (request.getMessages() != null) {
             List<ChatMessage> clonedMessages = new ArrayList<>();
             for (ChatMessage message : request.getMessages()) {
                 ChatMessage clonedMessage = new ChatMessage();
                 clonedMessage.setContent(message.getContent());
                 clonedMessage.setRole(message.getRole());
+                clonedMessage.setReasoning_content(message.getReasoning_content());
+                clonedMessage.setTool_call_id(message.getTool_call_id());
+                clonedMessage.setTool_calls(message.getTool_calls());
                 clonedMessages.add(clonedMessage);
             }
             cloned.setMessages(clonedMessages);

@@ -7,7 +7,7 @@ models:
     type: Alibaba
     enable: true
     model:  qwen-turbo,
-            qwen-plus,qwen-max,qwen-max-1201,qwen-max-longcontext,
+            qwen-plus,qwen-max,qwen-max-1201,qwen-max-longcontext,qwen3.5-plus,
             asr,
             vision,
             ocr
@@ -86,7 +86,7 @@ functions:
   embedding:
     - backend: qwen
       type: Qwen
-      api_key: you-api-key
+      api_key: sk-f4f5565da70f49228a8f3fc2d231a543
 
   chat:
     route: best((landing&qwen),(kimi|chatgpt))
@@ -96,25 +96,23 @@ functions:
         model: cascade
         enable: true
         stream: true
+        protocol: completion
         priority: 350
 
       - backend: kimi
         model: moonshot-v1-8k
         enable: false
         stream: true
+        protocol: completion
         priority: 150
 
       - backend: chatgpt
         model: gpt-3.5-turbo
         enable: false
         stream: true
+        protocol: completion
         priority: 120
 
-      - backend: qwen
-        model: qwen-turbo
-        enable: true
-        stream: true
-        priority: 300
 
   translate:
     - backend: ernie

@@ -2,6 +2,12 @@ package ai.config;
 
 import ai.common.pojo.*;
 import ai.config.pojo.*;
+import ai.llm.adapter.impl.GPTAzureAdapter;
+import ai.llm.adapter.impl.OpenAIStandardAdapter;
+import ai.llm.adapter.impl.QwenAdapter;
+import ai.llm.responses.QwenResponseProtocolUtil;
+import ai.llm.responses.ResponseProtocolConstants;
+import ai.llm.responses.ResponseProtocolUtil;
 import ai.manager.*;
 import ai.medusa.utils.PromptCacheConfig;
 import ai.ocr.OcrConfig;
@@ -9,6 +15,7 @@ import ai.router.Routers;
 import ai.utils.*;
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.bean.copier.CopyOptions;
+import cn.hutool.core.util.StrUtil;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
@@ -46,6 +53,7 @@ public class GlobalConfigurations extends AbstractConfiguration {
     @Override
     public void init() {
         loadFromPropertiesFromYaml();
+        validateChatBackends();
         EmbeddingManager.getInstance().register(functions.getEmbedding());
         BigdataManager.getInstance().register(stores.getBigdata());
         OSSManager.getInstance().register(stores.getOss());
@@ -147,6 +155,91 @@ public class GlobalConfigurations extends AbstractConfiguration {
         } catch (Exception ignored) {}
     }
 
+    private void validateChatBackends() {
+        if (functions == null || functions.getChat() == null || functions.getChat().getBackends() == null) {
+            return;
+        }
+        for (Backend chatBackend : functions.getChat().getBackends()) {
+            if (chatBackend == null || !Boolean.TRUE.equals(chatBackend.getEnable())) {
+                continue;
+            }
+            chatBackend.setProtocol(ResponseProtocolUtil.normalize(chatBackend.getProtocol()));
+            boolean responseProtocol = ResponseProtocolConstants.RESPONSE.equals(chatBackend.getProtocol());
+            if (StrUtil.isBlank(chatBackend.getModel())) {
+                if (responseProtocol) {
+                    throw new IllegalStateException("functions.chat.backends.model is required for response backend " + chatBackend.getBackend());
+                }
+                continue;
+            }
+            Backend effectiveConfig = buildEffectiveChatConfig(chatBackend);
+            if (!responseProtocol) {
+                continue;
+            }
+            if (!ResponseProtocolUtil.supportsResponses(effectiveConfig.getDriver())) {
+                throw new IllegalStateException("backend " + chatBackend.getBackend() + " model " + chatBackend.getModel()
+                        + " does not support response protocol");
+            }
+            if (StrUtil.equals(effectiveConfig.getDriver(), OpenAIStandardAdapter.class.getName())
+                    && !canResolveResponsesApiAddress(effectiveConfig.getApiAddress())) {
+                throw new IllegalStateException("backend " + chatBackend.getBackend() + " model " + chatBackend.getModel()
+                        + " must configure api_address ending with /chat/completions or /responses");
+            }
+            if (StrUtil.equals(effectiveConfig.getDriver(), GPTAzureAdapter.class.getName())
+                    && (StrUtil.isBlank(effectiveConfig.getEndpoint()) || StrUtil.isBlank(effectiveConfig.getDeployment()))) {
+                throw new IllegalStateException("backend " + chatBackend.getBackend() + " model " + chatBackend.getModel()
+                        + " must configure endpoint and deployment for response protocol");
+            }
+            if (StrUtil.equals(effectiveConfig.getDriver(), QwenAdapter.class.getName())
+                    && !QwenResponseProtocolUtil.supportsResponsesModel(chatBackend.getModel())) {
+                throw new IllegalStateException("backend " + chatBackend.getBackend() + " model " + chatBackend.getModel()
+                        + " does not support qwen response protocol");
+            }
+            if (StrUtil.equals(effectiveConfig.getDriver(), QwenAdapter.class.getName())
+                    && !QwenResponseProtocolUtil.canResolveResponsesApiAddress(effectiveConfig.getApiAddress())) {
+                throw new IllegalStateException("backend " + chatBackend.getBackend() + " model " + chatBackend.getModel()
+                        + " must configure qwen api_address ending with /compatible-mode/v1, /chat/completions or /responses");
+            }
+        }
+    }
+
+    private Backend buildEffectiveChatConfig(Backend chatBackend) {
+        Backend modelConfig = findChatModelConfig(chatBackend);
+        Backend effectiveConfig = new Backend();
+        BeanUtil.copyProperties(modelConfig, effectiveConfig, CopyOptions.create(null, true));
+        BeanUtil.copyProperties(chatBackend, effectiveConfig, CopyOptions.create(null, true));
+        effectiveConfig.setProtocol(ResponseProtocolUtil.normalize(effectiveConfig.getProtocol()));
+        return effectiveConfig;
+    }
+
+    private Backend findChatModelConfig(Backend chatBackend) {
+        return Optional.ofNullable(models)
+                .orElse(Collections.emptyList())
+                .stream()
+                .filter(Objects::nonNull)
+                .filter(model -> Boolean.TRUE.equals(model.getEnable()))
+                .filter(model -> StrUtil.equals(model.getName(), chatBackend.getBackend()))
+                .filter(model -> containsModel(model.getModel(), chatBackend.getModel()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException(
+                        "no model config matches backend " + chatBackend.getBackend() + " model " + chatBackend.getModel()));
+    }
+
+    private boolean containsModel(String modelList, String model) {
+        if (StrUtil.isBlank(modelList) || StrUtil.isBlank(model)) {
+            return false;
+        }
+        return Arrays.stream(modelList.split(","))
+                .map(String::trim)
+                .anyMatch(model::equals);
+    }
+
+    private boolean canResolveResponsesApiAddress(String apiAddress) {
+        if (StrUtil.isBlank(apiAddress)) {
+            return false;
+        }
+        return apiAddress.endsWith("/chat/completions") || apiAddress.endsWith("/responses");
+    }
+
 
 
     private void registerFilter() {
@@ -185,6 +278,7 @@ public class GlobalConfigurations extends AbstractConfiguration {
         if (filter.getGroups() == null || filter.getGroups().isEmpty()) {
             return;
         }
+        SensitiveWordUtil.setFilterWindowLength(filter.getFilterWindowLength());
         
         List<WordRule> rules = filter.getGroups().stream()
                                 .flatMap(group-> {
@@ -235,8 +329,22 @@ public class GlobalConfigurations extends AbstractConfiguration {
     @Override
     public Configuration transformToConfiguration() {
         List<Backend> chatBackends = functions.getChat().getBackends().stream().map(backendMatch -> {
-            Optional<Backend> any = models.stream().filter(backend -> backend.getEnable() && backendMatch.getEnable() && backendMatch.getBackend().equals(backend.getName())).findAny();
-            Backend backend = any.orElse(null);
+            Backend backend = Optional.ofNullable(models).orElse(Collections.emptyList()).stream()
+                    .filter(model -> Boolean.TRUE.equals(model.getEnable()) && Boolean.TRUE.equals(backendMatch.getEnable()))
+                    .filter(model -> backendMatch.getBackend().equals(model.getName()))
+                    .filter(model -> StrUtil.isBlank(backendMatch.getModel()) || containsModel(model.getModel(), backendMatch.getModel()))
+                    .findFirst()
+                    .map(model -> {
+                        Backend copy = new Backend();
+                        BeanUtil.copyProperties(model, copy, CopyOptions.create(null, true));
+                        BeanUtil.copyProperties(backendMatch, copy, CopyOptions.create(null, true));
+                        if (StrUtil.isNotBlank(backendMatch.getModel())) {
+                            copy.setModel(backendMatch.getModel());
+                        }
+                        copy.setProtocol(ResponseProtocolUtil.normalize(copy.getProtocol()));
+                        return copy;
+                    })
+                    .orElse(null);
             if(backend != null) {
                 backend.setPriority(backendMatch.getPriority());
             }

@@ -16,6 +16,7 @@ public class AlibabaAdapter extends CommonAdapter implements IWrapper {
         modelDriverMap.put("qwen-max", "ai.llm.adapter.impl.QwenAdapter");
         modelDriverMap.put("qwen-max-1201", "ai.llm.adapter.impl.QwenAdapter");
         modelDriverMap.put("qwen-max-longcontext", "ai.llm.adapter.impl.QwenAdapter");
+        modelDriverMap.put("qwen3.5-plus", "ai.llm.adapter.impl.QwenAdapter");
 
         modelDriverMap.put("asr", "ai.audio.adapter.impl.AlibabaAudioAdapter");
 

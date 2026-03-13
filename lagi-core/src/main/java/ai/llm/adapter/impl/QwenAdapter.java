@@ -5,6 +5,13 @@ import ai.common.ModelService;
 import ai.common.exception.RRException;
 import ai.llm.adapter.ILlmAdapter;
 import ai.common.utils.MappingIterable;
+import ai.llm.pojo.LlmApiResponse;
+import ai.llm.responses.OpenAiResponsesApiUtil;
+import ai.llm.responses.QwenResponseProtocolUtil;
+import ai.llm.responses.QwenResponsesChatCompletionConverter;
+import ai.llm.responses.ResponseProtocolUtil;
+import ai.llm.responses.ResponseSessionContext;
+import ai.llm.responses.ResponseSessionManager;
 import ai.llm.utils.convert.QwenConvert;
 import ai.openai.pojo.*;
 import ai.utils.qa.ChatCompletionUtil;
@@ -25,17 +32,37 @@ import io.reactivex.Observable;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 @Slf4j
-@LLM(modelNames = {"qwen-turbo","qwen-plus","qwen-max","qwen-max-1201","qwen-max-longcontext"})
+@LLM(modelNames = {"qwen-turbo","qwen-plus","qwen-max","qwen-max-1201","qwen-max-longcontext",
+        "qwen-flash","qwen3.5-plus","qwen3.5-flash","qwen3-max","qwen3-coder-plus","qwen3-coder-flash"})
 public class QwenAdapter extends ModelService implements ILlmAdapter {
+    private static final int HTTP_TIMEOUT = 30;
+    private static final ResponseSessionManager SESSION_MANAGER = ResponseSessionManager.getInstance();
 
 
     @Override
     public ChatCompletionResult completions(ChatCompletionRequest chatCompletionRequest) {
+        setDefaultField(chatCompletionRequest);
+        if (ResponseProtocolUtil.isResponseProtocol(this)) {
+            ResponseSessionContext sessionContext = SESSION_MANAGER.prepare(chatCompletionRequest, this);
+            LlmApiResponse response = OpenAiResponsesApiUtil.createResponse(getApiKey(), getResponsesApiAddress(), HTTP_TIMEOUT,
+                    QwenResponsesChatCompletionConverter.toRequest(chatCompletionRequest, sessionContext,
+                            Optional.ofNullable(chatCompletionRequest.getModel()).orElse(getModel())),
+                    QwenConvert::convertByHttpResponse, defaultHeaders());
+            if(response.getCode() != 200) {
+                log.error("qwen responses api error {}", response.getMsg());
+                throw new RRException(response.getCode(), response.getMsg());
+            }
+            SESSION_MANAGER.onSuccess(sessionContext, response.getData() == null ? null : response.getData().getId());
+            return response.getData();
+        }
         Generation gen = new Generation();
         GenerationParam param = convertRequest(chatCompletionRequest);
         GenerationResult result;
@@ -51,6 +78,26 @@ public class QwenAdapter extends ModelService implements ILlmAdapter {
 
     @Override
     public Observable<ChatCompletionResult> streamCompletions(ChatCompletionRequest chatCompletionRequest) {
+        setDefaultField(chatCompletionRequest);
+        if (ResponseProtocolUtil.isResponseProtocol(this)) {
+            ResponseSessionContext sessionContext = SESSION_MANAGER.prepare(chatCompletionRequest, this);
+            LlmApiResponse response = OpenAiResponsesApiUtil.streamResponse(getApiKey(), getResponsesApiAddress(), HTTP_TIMEOUT,
+                    QwenResponsesChatCompletionConverter.toRequest(chatCompletionRequest, sessionContext,
+                            Optional.ofNullable(chatCompletionRequest.getModel()).orElse(getModel())),
+                    QwenConvert::convertByHttpResponse, defaultHeaders());
+            if(response.getCode() != 200) {
+                log.error("qwen responses stream api error {}", response.getMsg());
+                throw new RRException(response.getCode(), response.getMsg());
+            }
+            AtomicReference<String> responseId = new AtomicReference<>();
+            return response.getStreamData()
+                    .doOnNext(chunk -> {
+                        if (chunk != null && chunk.getId() != null) {
+                            responseId.set(chunk.getId());
+                        }
+                    })
+                    .doOnComplete(() -> SESSION_MANAGER.onSuccess(sessionContext, responseId.get()));
+        }
         Generation gen = new Generation();
         GenerationParam param = convertRequest(chatCompletionRequest);
         Flowable<GenerationResult> result = null;
@@ -146,6 +193,17 @@ public class QwenAdapter extends ModelService implements ILlmAdapter {
         choices.add(choice);
         result.setChoices(choices);
         return result;
+    }
+
+    private String getResponsesApiAddress() {
+        return QwenResponseProtocolUtil.resolveResponsesApiAddress(getApiAddress());
+    }
+
+    private Map<String, String> defaultHeaders() {
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Content-Type", "application/json");
+        headers.put("Authorization", "Bearer " + getApiKey());
+        return headers;
     }
 
 }

@@ -2,6 +2,7 @@ package ai.common;
 
 
 import ai.llm.pojo.EnhanceChatCompletionRequest;
+import ai.llm.responses.ResponseProtocolConstants;
 import ai.openai.pojo.ChatCompletionRequest;
 import lombok.Data;
 @Data
@@ -28,6 +29,7 @@ public class ModelService implements ModelVerify{
     protected Boolean enable;
     protected String router;
     protected Integer concurrency;
+    protected String protocol = ResponseProtocolConstants.COMPLETION;
     protected Boolean function;
     @Override
     public boolean verify() {

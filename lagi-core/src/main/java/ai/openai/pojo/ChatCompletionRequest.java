@@ -11,6 +11,7 @@ public class ChatCompletionRequest {
     private String model;
     private double temperature;
     private Integer max_tokens;
+    private Integer max_completion_tokens;
     private String category;
     private List<ChatMessage> messages;
     private Boolean stream;
@@ -23,4 +24,5 @@ public class ChatCompletionRequest {
     private ResponseFormat response_format;
     private Map<String, Object> stream_options;
     private Boolean logprobs;
+    private Boolean store;
 }

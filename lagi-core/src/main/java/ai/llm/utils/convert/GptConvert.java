@@ -3,8 +3,10 @@ package ai.llm.utils.convert;
 import ai.llm.utils.LLMErrorConstants;
 import ai.openai.pojo.ChatCompletionResult;
 import com.google.gson.Gson;
+import lombok.extern.slf4j.Slf4j;
 import okhttp3.Response;
 
+@Slf4j
 public class GptConvert {
 
     private static final Gson gson = new Gson();
@@ -48,13 +50,15 @@ public class GptConvert {
     }
 
     public static ChatCompletionResult convertSteamLine2ChatCompletionResult(String body) {
+        // 打印日志：
+        log.info("Received stream line: {}", body);
         if (body.equals("[DONE]")) {
             return null;
         }
         ChatCompletionResult result = gson.fromJson(body, ChatCompletionResult.class);
         result.getChoices().forEach(choice -> {
             choice.setMessage(choice.getDelta());
-            choice.setDelta(null);
+//            choice.setDelta(null);
         });
         return result;
     }

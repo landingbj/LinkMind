@@ -24,9 +24,11 @@ public class ContextLoader {
         mapper.setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
         try {
             InputStreamReader reader = new InputStreamReader(inputStream, StandardCharsets.UTF_8);
-            configuration = mapper.readValue(reader, GlobalConfigurations.class);
-            configuration.init();
-        } catch (IOException e) {
+            GlobalConfigurations loadedConfiguration = mapper.readValue(reader, GlobalConfigurations.class);
+            loadedConfiguration.init();
+            configuration = loadedConfiguration;
+        } catch (Exception e) {
+            configuration = null;
             log.error("从 InputStream 加载配置失败", e);
             throw new RuntimeException("加载配置失败", e);
         }
@@ -34,6 +36,9 @@ public class ContextLoader {
 
     public static void loadContextByResource(String yamlName) {
         InputStream resourceAsStream = ContextLoader.class.getResourceAsStream("/" + yamlName);
+        if (resourceAsStream == null) {
+            throw new RuntimeException("classpath resource not found: " + yamlName);
+        }
         loadContextByInputStream(resourceAsStream);
     }
 
@@ -50,10 +55,12 @@ public class ContextLoader {
             ObjectMapper mapper = new YAMLMapper();
             mapper.setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
             try {
-                configuration = mapper.readValue(reader, GlobalConfigurations.class);
-                configuration.init();
+                GlobalConfigurations loadedConfiguration = mapper.readValue(reader, GlobalConfigurations.class);
+                loadedConfiguration.init();
+                configuration = loadedConfiguration;
                 reader.close();
-            } catch (IOException e) {
+            } catch (Exception e) {
+                configuration = null;
                 reader.close();
                 log.error("加载配置文件失败: {}", filePath, e);
                 throw new RuntimeException("加载配置文件失败: " + filePath, e);

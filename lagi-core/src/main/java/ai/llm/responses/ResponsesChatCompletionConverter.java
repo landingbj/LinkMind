@@ -10,8 +10,8 @@ import lombok.extern.slf4j.Slf4j;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.stream.Collectors;
 
-@Slf4j
 public final class ResponsesChatCompletionConverter {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -23,6 +23,7 @@ public final class ResponsesChatCompletionConverter {
                                                   String modelName) {
         ResponseCreateRequest responseRequest = new ResponseCreateRequest();
         responseRequest.setModel(modelName);
+        responseRequest.setInstructions(extractInstructions(sessionContext));
         responseRequest.setInput(toInputItems(sessionContext.getInputMessages()));
         responseRequest.setPrevious_response_id(sessionContext.getPreviousResponseId());
         responseRequest.setStream(Boolean.TRUE.equals(request.getStream()));
@@ -45,7 +46,6 @@ public final class ResponsesChatCompletionConverter {
 
     public static ChatCompletionResult convertStreamEvent(String body) {
         //记录日志
-        log.info("Received stream event: {}", body);
         if (StrUtil.isBlank(body) || "[DONE]".equals(body)) {
             return null;
         }
@@ -140,6 +140,9 @@ public final class ResponsesChatCompletionConverter {
             return items;
         }
         for (ChatMessage message : messages) {
+            if ("system".equals(message.getRole())) {
+                continue;
+            }
             if ("tool".equals(message.getRole()) && StrUtil.isNotBlank(message.getTool_call_id())) {
                 ResponseInputItem item = new ResponseInputItem();
                 item.setType("function_call_output");
@@ -167,6 +170,21 @@ public final class ResponsesChatCompletionConverter {
             items.add(createMessageItem(message.getRole(), message.getContent()));
         }
         return items;
+    }
+
+    private static String extractInstructions(ResponseSessionContext sessionContext) {
+        List<ChatMessage> messages = sessionContext.getNormalizedMessages();
+        if (messages == null || messages.isEmpty()) {
+            messages = sessionContext.getInputMessages();
+        }
+        if (messages == null || messages.isEmpty()) {
+            return null;
+        }
+        String instructions = messages.stream()
+                .filter(message -> message != null && "system".equals(message.getRole()) && StrUtil.isNotBlank(message.getContent()))
+                .map(ChatMessage::getContent)
+                .collect(Collectors.joining("\n\n"));
+        return StrUtil.isBlank(instructions) ? null : instructions;
     }
 
     private static ResponseInputItem createMessageItem(String role, String content) {

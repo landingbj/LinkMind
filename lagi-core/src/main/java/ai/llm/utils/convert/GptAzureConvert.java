@@ -11,7 +11,6 @@ import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
 
-@Slf4j
 public class GptAzureConvert {
     private static final Logger logger = LoggerFactory.getLogger(GptAzureConvert.class);
     private static final String PROXY_URL = "proxy.digimeta.com.cn";

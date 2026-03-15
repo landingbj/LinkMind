@@ -96,4 +96,22 @@ class ResponsesChatCompletionConverterTest {
         assertEquals("output_text", responseRequest.getInput().get(0).getContent().get(0).getType());
         assertEquals("我是助手历史消息", responseRequest.getInput().get(0).getContent().get(0).getText());
     }
+
+    @Test
+    void shouldMoveSystemPromptToInstructions() {
+        ChatCompletionRequest request = new ChatCompletionRequest();
+        request.setModel("gpt-5.4");
+
+        ResponseSessionContext context = new ResponseSessionContext();
+        context.setNormalizedMessages(java.util.Arrays.asList(
+                ChatMessage.builder().role("system").content("你是一个有用的助理").build(),
+                ChatMessage.builder().role("user").content("你好").build()
+        ));
+        context.setInputMessages(context.getNormalizedMessages());
+
+        ResponseCreateRequest responseRequest = ResponsesChatCompletionConverter.toRequest(request, context, "gpt-5.4");
+        assertEquals("你是一个有用的助理", responseRequest.getInstructions());
+        assertEquals(1, responseRequest.getInput().size());
+        assertEquals("user", responseRequest.getInput().get(0).getRole());
+    }
 }

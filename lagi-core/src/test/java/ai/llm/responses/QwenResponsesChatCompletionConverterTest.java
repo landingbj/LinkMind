@@ -26,15 +26,17 @@ class QwenResponsesChatCompletionConverterTest {
         request.setModel("qwen-plus");
 
         ResponseSessionContext context = new ResponseSessionContext();
-        context.setInputMessages(Arrays.asList(
+        context.setNormalizedMessages(Arrays.asList(
                 ChatMessage.builder().role("system").content("你是一个助手").build(),
                 ChatMessage.builder().role("assistant").content("历史回答").build()
         ));
+        context.setInputMessages(context.getNormalizedMessages());
 
         QwenResponseCreateRequest responseRequest = QwenResponsesChatCompletionConverter.toRequest(request, context, "qwen-plus");
+        assertEquals("你是一个助手", responseRequest.getInstructions());
         List<QwenResponseInputItem> input = (List<QwenResponseInputItem>) responseRequest.getInput();
-        assertEquals("你是一个助手", input.get(0).getContent());
-        assertEquals("历史回答", input.get(1).getContent());
+        assertEquals(1, input.size());
+        assertEquals("历史回答", input.get(0).getContent());
     }
 
     @Test

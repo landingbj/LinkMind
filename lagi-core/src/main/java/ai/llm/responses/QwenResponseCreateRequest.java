@@ -7,6 +7,7 @@ import java.util.List;
 @Data
 public class QwenResponseCreateRequest {
     private String model;
+    private String instructions;
     private Object input;
     private String previous_response_id;
     private Boolean stream;

@@ -7,6 +7,7 @@ import java.util.List;
 @Data
 public class ResponseCreateRequest {
     private String model;
+    private String instructions;
     private List<ResponseInputItem> input;
     private String previous_response_id;
     private Boolean stream;

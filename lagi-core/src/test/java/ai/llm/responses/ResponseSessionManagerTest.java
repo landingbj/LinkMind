@@ -22,7 +22,7 @@ class ResponseSessionManagerTest {
         assertNull(firstContext.getPreviousResponseId());
         assertEquals(1, firstContext.getInputMessages().size());
 
-        sessionManager.onSuccess(firstContext, "resp_1");
+        sessionManager.onSuccess(firstContext, "resp_1", message("assistant", "world"));
 
         ChatCompletionRequest secondRequest = new ChatCompletionRequest();
         secondRequest.setSessionId("session-a");
@@ -34,9 +34,8 @@ class ResponseSessionManagerTest {
 
         ResponseSessionContext secondContext = sessionManager.prepare(secondRequest, service);
         assertEquals("resp_1", secondContext.getPreviousResponseId());
-        assertEquals(2, secondContext.getInputMessages().size());
-        assertEquals("world", secondContext.getInputMessages().get(0).getContent());
-        assertEquals("follow up", secondContext.getInputMessages().get(1).getContent());
+        assertEquals(1, secondContext.getInputMessages().size());
+        assertEquals("follow up", secondContext.getInputMessages().get(0).getContent());
     }
 
     @Test

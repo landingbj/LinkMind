@@ -52,16 +52,26 @@ public class ResponseSessionManager {
     }
 
     public void onSuccess(ResponseSessionContext context, String responseId) {
-        if (context == null || !context.isStateful() || StrUtil.isBlank(context.getSessionId()) || StrUtil.isBlank(responseId)) {
+        onSuccess(context, responseId, null);
+    }
+
+    public void onSuccess(ResponseSessionContext context, String responseId, ChatMessage responseMessage) {
+        if (context == null  || StrUtil.isBlank(responseId)) {
             return;
         }
+        List<ChatMessage> messages = normalizeMessages(context.getNormalizedMessages());
+        ChatMessage normalizedResponse = normalizeMessage(responseMessage);
+        if (normalizedResponse != null) {
+            messages.add(normalizedResponse);
+        }
+        context.setNormalizedMessages(messages);
         ResponseSessionState state = new ResponseSessionState();
         state.setPreviousResponseId(responseId);
-        state.setMessages(normalizeMessages(context.getNormalizedMessages()));
+        state.setMessages(messages);
         state.setBackend(context.getBackend());
         state.setModel(context.getModel());
         state.setProtocol(context.getProtocol());
-        sessionCache.put(context.getSessionId(), state);
+        sessionCache.put(responseId, state);
     }
 
     private boolean isReusable(ResponseSessionState state, ResponseSessionContext context) {
@@ -90,29 +100,39 @@ public class ResponseSessionManager {
             return normalized;
         }
         for (ChatMessage message : messages) {
-            ChatMessage copy = new ChatMessage();
-            copy.setRole(message.getRole());
-            copy.setContent(message.getContent());
-            copy.setReasoning_content(message.getReasoning_content());
-            copy.setTool_call_id(message.getTool_call_id());
-            if (message.getTool_calls() != null) {
-                List<ToolCall> calls = new ArrayList<>();
-                for (ToolCall toolCall : message.getTool_calls()) {
-                    ToolCall callCopy = new ToolCall();
-                    callCopy.setId(toolCall.getId());
-                    callCopy.setType(toolCall.getType());
-                    if (toolCall.getFunction() != null) {
-                        ToolCallFunction function = new ToolCallFunction();
-                        function.setName(toolCall.getFunction().getName());
-                        function.setArguments(toolCall.getFunction().getArguments());
-                        callCopy.setFunction(function);
-                    }
-                    calls.add(callCopy);
-                }
-                copy.setTool_calls(calls);
+            ChatMessage copy = normalizeMessage(message);
+            if (copy != null) {
+                normalized.add(copy);
             }
-            normalized.add(copy);
         }
         return normalized;
+    }
+
+    private ChatMessage normalizeMessage(ChatMessage message) {
+        if (message == null) {
+            return null;
+        }
+        ChatMessage copy = new ChatMessage();
+        copy.setRole(message.getRole());
+        copy.setContent(message.getContent());
+        copy.setReasoning_content(message.getReasoning_content());
+        copy.setTool_call_id(message.getTool_call_id());
+        if (message.getTool_calls() != null) {
+            List<ToolCall> calls = new ArrayList<>();
+            for (ToolCall toolCall : message.getTool_calls()) {
+                ToolCall callCopy = new ToolCall();
+                callCopy.setId(toolCall.getId());
+                callCopy.setType(toolCall.getType());
+                if (toolCall.getFunction() != null) {
+                    ToolCallFunction function = new ToolCallFunction();
+                    function.setName(toolCall.getFunction().getName());
+                    function.setArguments(toolCall.getFunction().getArguments());
+                    callCopy.setFunction(function);
+                }
+                calls.add(callCopy);
+            }
+            copy.setTool_calls(calls);
+        }
+        return copy;
     }
 }

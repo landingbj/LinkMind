@@ -14,6 +14,7 @@ import ai.llm.utils.OpenAiApiUtil;
 import ai.llm.utils.convert.GptAzureConvert;
 import ai.openai.pojo.ChatCompletionRequest;
 import ai.openai.pojo.ChatCompletionResult;
+import ai.openai.pojo.ChatMessage;
 import cn.hutool.core.util.StrUtil;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -59,7 +60,9 @@ public class GPTAzureAdapter extends ModelService implements ILlmAdapter {
                 logger.error("open ai azure responses api error {}", response.getMsg());
                 throw new RRException(response.getCode(), response.getMsg());
             }
-            SESSION_MANAGER.onSuccess(sessionContext, response.getData() == null ? null : response.getData().getId());
+            SESSION_MANAGER.onSuccess(sessionContext,
+                    response.getData() == null ? null : response.getData().getId(),
+                    extractAssistantMessage(response.getData()));
             return response.getData();
         }
         Map<String, String> headers = new HashMap<>();
@@ -93,13 +96,15 @@ public class GPTAzureAdapter extends ModelService implements ILlmAdapter {
                 throw new RRException(code, response.getMsg());
             }
             AtomicReference<String> responseId = new AtomicReference<>();
+            AtomicReference<ChatMessage> assistantMessage = new AtomicReference<>(ChatMessage.builder().role("assistant").content("").build());
             return response.getStreamData()
                     .doOnNext(chunk -> {
                         if (chunk != null && chunk.getId() != null) {
                             responseId.set(chunk.getId());
                         }
+                        mergeAssistantMessage(assistantMessage.get(), chunk);
                     })
-                    .doOnComplete(() -> SESSION_MANAGER.onSuccess(sessionContext, responseId.get()));
+                    .doOnComplete(() -> SESSION_MANAGER.onSuccess(sessionContext, responseId.get(), assistantMessage.get()));
         }
         String apiUrl = getApiAddress();
         String apiKey = getApiKey();
@@ -143,6 +148,35 @@ public class GPTAzureAdapter extends ModelService implements ILlmAdapter {
             return mapper.writeValueAsString(payload);
         } catch (JsonProcessingException e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    private ChatMessage extractAssistantMessage(ChatCompletionResult result) {
+        if (result == null || result.getChoices() == null || result.getChoices().isEmpty()) {
+            return null;
+        }
+        return result.getChoices().get(0).getMessage();
+    }
+
+    private void mergeAssistantMessage(ChatMessage aggregate, ChatCompletionResult chunk) {
+        if (aggregate == null || chunk == null || chunk.getChoices() == null || chunk.getChoices().isEmpty()) {
+            return;
+        }
+        ChatMessage message = chunk.getChoices().get(0).getMessage();
+        if (message == null) {
+            return;
+        }
+        if (message.getRole() != null) {
+            aggregate.setRole(message.getRole());
+        }
+        if (message.getContent() != null) {
+            aggregate.setContent((aggregate.getContent() == null ? "" : aggregate.getContent()) + message.getContent());
+        }
+        if (message.getReasoning_content() != null) {
+            aggregate.setReasoning_content(message.getReasoning_content());
+        }
+        if (message.getTool_calls() != null && !message.getTool_calls().isEmpty()) {
+            aggregate.setTool_calls(message.getTool_calls());
         }
     }
 }

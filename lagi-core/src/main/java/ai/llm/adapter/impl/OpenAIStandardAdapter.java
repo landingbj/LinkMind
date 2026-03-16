@@ -14,6 +14,7 @@ import ai.llm.utils.OpenAiApiUtil;
 import ai.llm.utils.convert.GptConvert;
 import ai.openai.pojo.ChatCompletionRequest;
 import ai.openai.pojo.ChatCompletionResult;
+import ai.openai.pojo.ChatMessage;
 import cn.hutool.core.util.StrUtil;
 import io.reactivex.Observable;
 import org.slf4j.Logger;
@@ -42,7 +43,9 @@ public class OpenAIStandardAdapter extends ModelService implements ILlmAdapter {
                 logger.error("openai responses api : code{}  error  {}", response.getCode(), response.getMsg());
                 throw new RRException(response.getCode(), response.getMsg());
             }
-            SESSION_MANAGER.onSuccess(sessionContext, response.getData() == null ? null : response.getData().getId());
+            SESSION_MANAGER.onSuccess(sessionContext,
+                    response.getData() == null ? null : response.getData().getId(),
+                    extractAssistantMessage(response.getData()));
             return response.getData();
         }
         LlmApiResponse completions = OpenAiApiUtil.completions(apiKey, getApiAddress(), HTTP_TIMEOUT, chatCompletionRequest,
@@ -69,13 +72,15 @@ public class OpenAIStandardAdapter extends ModelService implements ILlmAdapter {
                 throw new RRException(response.getCode(), response.getMsg());
             }
             AtomicReference<String> responseId = new AtomicReference<>();
+            AtomicReference<ChatMessage> assistantMessage = new AtomicReference<>(ChatMessage.builder().role("assistant").content("").build());
             return response.getStreamData()
                     .doOnNext(chunk -> {
                         if (chunk != null && chunk.getId() != null) {
                             responseId.set(chunk.getId());
                         }
+                        mergeAssistantMessage(assistantMessage.get(), chunk);
                     })
-                    .doOnComplete(() -> SESSION_MANAGER.onSuccess(sessionContext, responseId.get()));
+                    .doOnComplete(() -> SESSION_MANAGER.onSuccess(sessionContext, responseId.get(), assistantMessage.get()));
         }
         LlmApiResponse completions = OpenAiApiUtil.streamCompletions(apiKey, getApiAddress(), HTTP_TIMEOUT, chatCompletionRequest,
                 GptConvert::convertSteamLine2ChatCompletionResult, GptConvert::convertByResponse);
@@ -104,5 +109,34 @@ public class OpenAIStandardAdapter extends ModelService implements ILlmAdapter {
         headers.put("Content-Type", "application/json");
         headers.put("Authorization", "Bearer " + apiKey);
         return headers;
+    }
+
+    private ChatMessage extractAssistantMessage(ChatCompletionResult result) {
+        if (result == null || result.getChoices() == null || result.getChoices().isEmpty()) {
+            return null;
+        }
+        return result.getChoices().get(0).getMessage();
+    }
+
+    private void mergeAssistantMessage(ChatMessage aggregate, ChatCompletionResult chunk) {
+        if (aggregate == null || chunk == null || chunk.getChoices() == null || chunk.getChoices().isEmpty()) {
+            return;
+        }
+        ChatMessage message = chunk.getChoices().get(0).getMessage();
+        if (message == null) {
+            return;
+        }
+        if (message.getRole() != null) {
+            aggregate.setRole(message.getRole());
+        }
+        if (message.getContent() != null) {
+            aggregate.setContent((aggregate.getContent() == null ? "" : aggregate.getContent()) + message.getContent());
+        }
+        if (message.getReasoning_content() != null) {
+            aggregate.setReasoning_content(message.getReasoning_content());
+        }
+        if (message.getTool_calls() != null && !message.getTool_calls().isEmpty()) {
+            aggregate.setTool_calls(message.getTool_calls());
+        }
     }
 }

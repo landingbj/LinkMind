@@ -94,6 +94,7 @@ public class CompletionUtil {
             int lastIndex = chatMessages.size() - 1;
             for (int i = chatMessages.size() - 2; i >= 0; i--) {
                 ChatMessage chatMessage = chatMessages.get(i);
+                if (chatMessage.getContent() == null) continue;
                 length += chatMessage.getContent().length();
                 if (length > userMaxLength) {
                     break;

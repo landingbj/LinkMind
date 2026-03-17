@@ -73,6 +73,23 @@ class QwenResponsesChatCompletionConverterTest {
         assertNotNull(responseRequest.getTools().get(0).getParameters());
     }
 
+    @Test
+    void shouldUseStringForTextOnlyUserArrayContent() {
+        ChatCompletionRequest request = new ChatCompletionRequest();
+        request.setModel("qwen-plus");
+
+        ResponseSessionContext context = new ResponseSessionContext();
+        context.setInputMessages(Collections.singletonList(ChatMessage.builder()
+                .role("user")
+                .content("[{\"type\":\"text\",\"text\":\"第一段\"},{\"type\":\"text\",\"text\":\"第二段\"}]")
+                .build()));
+
+        QwenResponseCreateRequest responseRequest = QwenResponsesChatCompletionConverter.toRequest(request, context, "qwen-plus");
+        List<QwenResponseInputItem> input = (List<QwenResponseInputItem>) responseRequest.getInput();
+        assertInstanceOf(String.class, input.get(0).getContent());
+        assertEquals("第一段\n第二段", input.get(0).getContent());
+    }
+
     private Tool createTool() {
         Tool tool = new Tool();
         tool.setType("function");

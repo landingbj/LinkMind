@@ -104,20 +104,29 @@ public final class QwenResponsesChatCompletionConverter {
         try {
             List<MultiModalContent> multimodalContents = MAPPER.readValue(content, new TypeReference<List<MultiModalContent>>() {});
             List<QwenResponseInputContent> responseContents = new ArrayList<>();
+            List<String> textParts = new ArrayList<>();
+            boolean hasImage = false;
             for (MultiModalContent multimodalContent : multimodalContents) {
                 QwenResponseInputContent inputContent = new QwenResponseInputContent();
                 if ("text".equals(multimodalContent.getType())) {
                     inputContent.setType("text");
                     inputContent.setText(multimodalContent.getText());
+                    textParts.add(multimodalContent.getText());
                 } else if ("image_url".equals(multimodalContent.getType()) && multimodalContent.getImageUrl() != null) {
                     inputContent.setType("image_url");
                     inputContent.setImageUrl(multimodalContent.getImageUrl());
+                    hasImage = true;
                 } else {
                     continue;
                 }
                 responseContents.add(inputContent);
             }
             if (!responseContents.isEmpty()) {
+                if (!hasImage) {
+                    return textParts.stream()
+                            .filter(StrUtil::isNotBlank)
+                            .collect(Collectors.joining("\n"));
+                }
                 return responseContents;
             }
         } catch (Exception ignored) {

@@ -34,41 +34,56 @@ public final class QwenResponsesChatCompletionConverter {
         return responseRequest;
     }
 
-    private static List<QwenResponseInputItem> toInputItems(List<ChatMessage> messages) {
-        List<QwenResponseInputItem> items = new ArrayList<>();
-        if (messages == null) {
+    private static List<ChatMessage> toInputItems(List<ChatMessage> messages) {
+        List<ChatMessage> items = new ArrayList<>();
+        if (messages == null || messages.isEmpty()) {
             return items;
         }
+
+        List<ChatMessage> toolMessagesBuffer = new ArrayList<>();
+
         for (ChatMessage message : messages) {
-            if ("system".equals(message.getRole())) {
-                continue;
-            }
-            if ("tool".equals(message.getRole()) && StrUtil.isNotBlank(message.getTool_call_id())) {
-                QwenResponseInputItem item = new QwenResponseInputItem();
-                item.setType("function_call_output");
-                item.setCall_id(message.getTool_call_id());
-                item.setOutput(message.getContent());
-                items.add(item);
-                continue;
-            }
-            if (message.getTool_calls() != null && !message.getTool_calls().isEmpty()) {
-                if (StrUtil.isNotBlank(message.getContent())) {
-                    items.add(createMessageItem(message.getRole(), message.getContent()));
-                }
-                for (ToolCall toolCall : message.getTool_calls()) {
-                    QwenResponseInputItem item = new QwenResponseInputItem();
-                    item.setType("function_call");
-                    item.setCall_id(toolCall.getId());
-                    if (toolCall.getFunction() != null) {
-                        item.setName(toolCall.getFunction().getName());
-                        item.setArguments(toolCall.getFunction().getArguments());
+            if ("tool".equals(message.getRole())) {
+                toolMessagesBuffer.add(message);
+            } else {
+                if (!toolMessagesBuffer.isEmpty()) {
+                    StringBuilder mergedContent = new StringBuilder();
+                    for (int i = 0; i < toolMessagesBuffer.size(); i++) {
+                        if (i > 0) {
+                            mergedContent.append("\n");
+                        }
+                        String content = toolMessagesBuffer.get(i).getContent();
+                        if (content != null) {
+                            mergedContent.append(content);
+                        }
                     }
-                    items.add(item);
+                    ChatMessage mergedToolMessage = new ChatMessage();
+                    mergedToolMessage.setRole("user");
+                    mergedToolMessage.setContent(mergedContent.toString());
+                    items.add(mergedToolMessage);
+                    toolMessagesBuffer.clear();
                 }
-                continue;
+                items.add(message);
             }
-            items.add(createMessageItem(message.getRole(), message.getContent()));
         }
+
+        if (!toolMessagesBuffer.isEmpty()) {
+            StringBuilder mergedContent = new StringBuilder();
+            for (int i = 0; i < toolMessagesBuffer.size(); i++) {
+                if (i > 0) {
+                    mergedContent.append("\n");
+                }
+                String content = toolMessagesBuffer.get(i).getContent();
+                if (content != null) {
+                    mergedContent.append(content);
+                }
+            }
+            ChatMessage mergedToolMessage = new ChatMessage();
+            mergedToolMessage.setRole("user");
+            mergedToolMessage.setContent(mergedContent.toString());
+            items.add(mergedToolMessage);
+        }
+
         return items;
     }
 
@@ -101,36 +116,36 @@ public final class QwenResponsesChatCompletionConverter {
         if (StrUtil.isBlank(content)) {
             return "";
         }
-        try {
-            List<MultiModalContent> multimodalContents = MAPPER.readValue(content, new TypeReference<List<MultiModalContent>>() {});
-            List<QwenResponseInputContent> responseContents = new ArrayList<>();
-            List<String> textParts = new ArrayList<>();
-            boolean hasImage = false;
-            for (MultiModalContent multimodalContent : multimodalContents) {
-                QwenResponseInputContent inputContent = new QwenResponseInputContent();
-                if ("text".equals(multimodalContent.getType())) {
-                    inputContent.setType("text");
-                    inputContent.setText(multimodalContent.getText());
-                    textParts.add(multimodalContent.getText());
-                } else if ("image_url".equals(multimodalContent.getType()) && multimodalContent.getImageUrl() != null) {
-                    inputContent.setType("image_url");
-                    inputContent.setImageUrl(multimodalContent.getImageUrl());
-                    hasImage = true;
-                } else {
-                    continue;
-                }
-                responseContents.add(inputContent);
-            }
-            if (!responseContents.isEmpty()) {
-                if (!hasImage) {
-                    return textParts.stream()
-                            .filter(StrUtil::isNotBlank)
-                            .collect(Collectors.joining("\n"));
-                }
-                return responseContents;
-            }
-        } catch (Exception ignored) {
-        }
+//        try {
+//            List<MultiModalContent> multimodalContents = MAPPER.readValue(content, new TypeReference<List<MultiModalContent>>() {});
+//            List<QwenResponseInputContent> responseContents = new ArrayList<>();
+//            List<String> textParts = new ArrayList<>();
+//            boolean hasImage = false;
+//            for (MultiModalContent multimodalContent : multimodalContents) {
+//                QwenResponseInputContent inputContent = new QwenResponseInputContent();
+//                if ("text".equals(multimodalContent.getType())) {
+//                    inputContent.setType("text");
+//                    inputContent.setText(multimodalContent.getText());
+//                    textParts.add(multimodalContent.getText());
+//                } else if ("image_url".equals(multimodalContent.getType()) && multimodalContent.getImageUrl() != null) {
+//                    inputContent.setType("image_url");
+//                    inputContent.setImageUrl(multimodalContent.getImageUrl());
+//                    hasImage = true;
+//                } else {
+//                    continue;
+//                }
+//                responseContents.add(inputContent);
+//            }
+//            if (!responseContents.isEmpty()) {
+//                if (!hasImage) {
+//                    return textParts.stream()
+//                            .filter(StrUtil::isNotBlank)
+//                            .collect(Collectors.joining("\n"));
+//                }
+//                return responseContents;
+//            }
+//        } catch (Exception ignored) {
+//        }
         return content;
     }
 

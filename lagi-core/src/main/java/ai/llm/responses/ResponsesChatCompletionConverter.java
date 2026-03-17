@@ -99,7 +99,7 @@ public final class ResponsesChatCompletionConverter {
         choice.setIndex(0);
         choice.setMessage(message);
         choice.setDelta(message);
-        choice.setFinish_reason(toolCalls.isEmpty() ? "stop" : "tool_calls");
+        choice.setFinish_reason("stop");
         result.setChoices(Collections.singletonList(choice));
         result.setUsage(toUsage(root.path("usage")));
         return result;

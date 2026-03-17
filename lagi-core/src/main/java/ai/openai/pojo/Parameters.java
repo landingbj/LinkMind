@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonAnySetter;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -12,7 +13,7 @@ import java.util.Map;
 public class Parameters {
     private String type;
     private Map<String, Property> properties;
-    private List<String> required;
+    private List<String> required = new ArrayList<>();;
     private Object additionalProperties = false;
     @JsonIgnore
     private final Map<String, Object> schemaExtensions = new LinkedHashMap<>();

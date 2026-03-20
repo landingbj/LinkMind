@@ -13,7 +13,21 @@ public class UploadConfig {
 
     private DatasetConfig dataset;
 
+    private ModelConfig model;
+
     private CommonUploadConfig common;
+
+    @Data
+    @AllArgsConstructor
+    @NoArgsConstructor
+    @Builder
+    @ToString
+    public static class ModelConfig {
+        private StorageConfig storage;
+        private FileUploadConfig file_upload;
+        private UrlDownloadConfig url_download;
+        private StorageTypeConfig storage_type;
+    }
 
     @Data
     @AllArgsConstructor

@@ -1,12 +1,18 @@
 package ai.dao;
 
+import ai.config.ContextLoader;
+import ai.config.UploadConfig;
 import ai.database.impl.MysqlAdapter;
 import ai.finetune.repository.TrainingTaskRepository;
 import ai.finetune.utils.ModelDatasetManager;
+import ai.utils.UrlDownloadZipUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import lombok.extern.slf4j.Slf4j;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -14,6 +20,7 @@ import java.util.*;
 @Slf4j
 public class modelBaseDao {
 
+    private static final UploadConfig uploadConfig = ContextLoader.getBean(UploadConfig.class);
     private final MysqlAdapter mysqlAdapter;
     private final TrainingTaskRepository trainingTaskRepository;
     private final ModelDatasetManager modelDatasetManager;
@@ -397,8 +404,50 @@ public class modelBaseDao {
             status = "active";
         }
 
+        String modelDir = model.getStr("model_dir");
+        if (StrUtil.isNotBlank(modelDir) && (modelDir.startsWith("http://") || modelDir.startsWith("https://"))) {
+            String originalUrl = modelDir;
+            String tempFileName = "model_" + System.currentTimeMillis() + getFileSuffix(originalUrl);
+            File tempFile = new File(uploadConfig.getModel().getStorage().getContainer_temp_path(), tempFileName);
+            if (tempFile.getParentFile() != null && !tempFile.getParentFile().exists()) {
+                tempFile.getParentFile().mkdirs();
+            }
+            try {
+                UrlDownloadZipUtil.downloadFileFromUrl(
+                        modelDir,
+                        tempFile,
+                        uploadConfig.getModel().getUrl_download().getTimeout(),
+                        uploadConfig.getModel().getUrl_download().getRetry_count(),
+                        uploadConfig.getModel().getUrl_download().isClean_failed_temp_file()
+                );
+
+                // 如果下载的是 zip：解压到模型正式存储目录，并回填解压后的目录路径
+                if (tempFile.getName().toLowerCase().endsWith(".zip")) {
+                    File baseDir = new File(uploadConfig.getModel().getStorage().getContainer_base_path());
+                    File extractDir = UrlDownloadZipUtil.unzipFileToUniqueDirAndDeleteZip(tempFile, baseDir, modelName);
+                    if (extractDir == null) {
+                        throw new RuntimeException("模型ZIP解压失败");
+                    }
+                    modelDir = extractDir.getAbsolutePath();
+                    log.info("模型URL下载并解压成功: url={}, localDir={}", originalUrl, modelDir);
+                } else {
+                    // 非 zip：移动到模型正式存储目录，回填文件路径
+                    File targetFile = new File(uploadConfig.getModel().getStorage().getContainer_base_path(), tempFileName);
+                    if (targetFile.getParentFile() != null && !targetFile.getParentFile().exists()) {
+                        targetFile.getParentFile().mkdirs();
+                    }
+                    Files.move(tempFile.toPath(), targetFile.toPath());
+                    modelDir = targetFile.getAbsolutePath();
+                    log.info("模型URL下载成功: url={}, localPath={}", originalUrl, modelDir);
+                }
+            } catch (Exception e) {
+                log.error("模型URL下载失败: url={}", originalUrl, e);
+                throw new RuntimeException("模型URL下载失败: " + e.getMessage());
+            }
+        }
+
         Long modelId = modelDatasetManager.saveModelWithDetails(
-            modelName, path, version,
+            modelName, path, version,modelDir,
             model.getLong("dataset_id", null),
             model.getStr("model_type"), model.getStr("framework"),
             model.getLong("file_size", null),
@@ -429,6 +478,16 @@ public class modelBaseDao {
         );
 
         return modelId;
+    }
+
+    /**
+     * 获取URL路径后缀
+     */
+    private String getFileSuffix(String fileName) {
+        if (fileName == null || !fileName.contains(".")) {
+            return ".dat";
+        }
+        return fileName.substring(fileName.lastIndexOf("."));
     }
     /**
      * 更新任务状态

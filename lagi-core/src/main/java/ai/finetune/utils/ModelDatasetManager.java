@@ -74,7 +74,7 @@ public class ModelDatasetManager {
                          Long fileSize, String fileType, String description, String userId) {
         // 为了向后兼容，保留此方法签名，但 introductionId 参数已废弃（不再使用）
         // model_introduction 表已合并到 models 表，所有简介字段已直接包含在 models 表中
-        return saveModelWithDetails(name, path, version, datasetId, modelType, framework,
+        return saveModelWithDetails(name, path, version, null, datasetId, modelType, framework,
                                    fileSize, fileType, description, userId, null, null, null,
                                    null, null, null, null, null, null, null, null, null, null,
                                    null, null, null, null, null, null, null, "active");
@@ -84,7 +84,7 @@ public class ModelDatasetManager {
      * 保存模型到数据库（完整版本，包含所有简介字段）
      * @param status 模型状态，默认为 'active'。训练后自动入库的模型应设置为 'archived'
      */
-    public Long saveModelWithDetails(String name, String path, String version, Long datasetId,
+    public Long saveModelWithDetails(String name, String path, String version, String modelDir, Long datasetId,
                                      String modelType, String framework, Long fileSize, String fileType,
                                      String description, String userId,
                                      String title, String detailContent, Long categoryId,
@@ -102,17 +102,17 @@ public class ModelDatasetManager {
         try {
             // 使用Java时间确保时区正确（东八区）
             String currentTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-            String sql = "INSERT INTO models (name, path, version, dataset_id, " +
+            String sql = "INSERT INTO models (name, path, version, model_dir, dataset_id, " +
                         "model_type, framework, file_size, file_type, description, user_id, " +
                         "title, detail_content, category_id, model_type_id, framework_id, " +
                         "algorithm, input_shape, output_shape, total_params, trainable_params, " +
                         "non_trainable_params, accuracy, `precision`, `recall`, f1_score, " +
                         "tags, view_count, author, doc_link, icon_link, " +
                         "status, created_at, updated_at, is_deleted) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)";
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)";
             
             int result = mysqlAdapter.executeUpdate(sql, 
-                    name, path, version, datasetId,
+                    name, path, version, modelDir, datasetId,
                     modelType, framework, fileSize, fileType, description, userId,
                     title, detailContent, categoryId, modelTypeId, frameworkId,
                     algorithm, inputShape, outputShape, totalParams, trainableParams,
@@ -427,7 +427,7 @@ public class ModelDatasetManager {
             
             // 保存新模型（包含所有简介字段）
             // 训练后自动入库的模型状态设置为 'archived'（已归档）
-            Long newModelId = saveModelWithDetails(name, newModelPath, newVersion, datasetId,
+            Long newModelId = saveModelWithDetails(name, newModelPath, newVersion, newModelPath, datasetId,
                                                   modelType, framework, fileSize, fileType,
                                                   description, userId,
                                                   title, detailContent, categoryId,

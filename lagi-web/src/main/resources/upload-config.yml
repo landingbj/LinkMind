@@ -35,6 +35,28 @@ dataset:
     url_download: 2
     file_upload: 3
 
+model:
+  storage:
+    host_mount_path: "/data"
+    container_base_path: "/data/models"
+    container_temp_path: "/data/temp_upload"
+    host_temp_mount_path: "/data/temp_upload"
+
+  file_upload:
+    chunk_size: 104857600
+    chunk_file_prefix: "model_chunk_"
+    max_file_size: -1
+
+  url_download:
+    timeout: 300000
+    retry_count: 3
+    clean_failed_temp_file: true
+
+  storage_type:
+    absolute_path: 1
+    url_download: 2
+    file_upload: 3
+
 common:
   # 默认存储类型
   host_upload_path: "/data/wangshuanglong"

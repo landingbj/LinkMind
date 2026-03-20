@@ -3294,6 +3294,7 @@ public class AITrainingServlet extends BaseServlet {
 
             Long modelId = manager.saveModelWithDetails(
                 modelName, path, version,
+                jsonNode.get("model_dir") != null ? jsonNode.getStr("model_dir") : null,
                 jsonNode.get("dataset_id") != null ? jsonNode.getLong("dataset_id") : null,
                 jsonNode.getStr("model_type"), jsonNode.getStr("framework"),
                 jsonNode.get("file_size") != null ? jsonNode.getLong("file_size") : null,

@@ -5,6 +5,7 @@ import ai.config.ContextLoader;
 import ai.config.UploadConfig;
 import ai.database.impl.MysqlAdapter;
 import ai.servlet.BaseServlet;
+import ai.utils.UrlDownloadZipUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -14,12 +15,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.fileupload.FileItem;
 import org.apache.commons.fileupload.disk.DiskFileItemFactory;
 import org.apache.commons.fileupload.servlet.ServletFileUpload;
-import org.apache.hc.client5.http.classic.methods.HttpGet;
-import org.apache.hc.client5.http.config.RequestConfig;
-import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
-import org.apache.hc.client5.http.impl.classic.CloseableHttpResponse;
-import org.apache.hc.client5.http.impl.classic.HttpClients;
-import org.apache.hc.core5.util.Timeout;
 
 
 import javax.servlet.ServletException;
@@ -32,8 +27,6 @@ import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
 
 @Slf4j
 public class DatasetServlet extends BaseServlet {
@@ -664,57 +657,7 @@ public class DatasetServlet extends BaseServlet {
      * @return 解压的文件/目录数量
      */
     private int unzipFile(File zipFile, File targetDir) throws IOException {
-        int count = 0;
-        try (FileInputStream fis = new FileInputStream(zipFile);
-             ZipInputStream zis = new ZipInputStream(fis)) {
-            
-            ZipEntry zipEntry;
-            byte[] buffer = new byte[8192];
-            
-            while ((zipEntry = zis.getNextEntry()) != null) {
-                String entryName = zipEntry.getName();
-                log.debug("处理ZIP条目：{}", entryName);
-                
-                Path targetPath = targetDir.toPath().resolve(entryName).normalize();
-                
-                // 安全检查：确保解压的文件在目标目录内
-                Path targetDirPath = targetDir.toPath().normalize();
-                if (!targetPath.startsWith(targetDirPath)) {
-                    log.warn("跳过不安全的ZIP条目: {}", entryName);
-                    zis.closeEntry();
-                    continue;
-                }
-                
-                if (zipEntry.isDirectory()) {
-                    Files.createDirectories(targetPath);
-                    log.debug("创建目录：{}", targetPath);
-                    count++;
-                } else {
-                    // 确保父目录存在
-                    Files.createDirectories(targetPath.getParent());
-                    
-                    try (FileOutputStream fos = new FileOutputStream(targetPath.toFile())) {
-                        long totalBytes = 0;
-                        int bytesRead;
-                        while ((bytesRead = zis.read(buffer)) != -1) {
-                            fos.write(buffer, 0, bytesRead);
-                            totalBytes += bytesRead;
-                        }
-                        log.debug("解压文件：{}，大小：{} 字节", targetPath, totalBytes);
-                        count++;
-                    } catch (IOException e) {
-                        log.error("解压文件失败：{}", targetPath, e);
-                        throw e;
-                    }
-                }
-                zis.closeEntry();
-            }
-        } catch (IOException e) {
-            log.error("解压ZIP文件时发生IO异常：{}", zipFile.getAbsolutePath(), e);
-            throw e;
-        }
-        
-        return count;
+        return UrlDownloadZipUtil.unzipFile(zipFile, targetDir);
     }
     
     /**
@@ -764,44 +707,13 @@ public class DatasetServlet extends BaseServlet {
      * 从URL下载文件
      */
     private void downloadFileFromUrl(String url, File targetFile) throws Exception {
-        RequestConfig requestConfig = RequestConfig.custom()
-                .setConnectTimeout(Timeout.ofMilliseconds(uploadConfig.getDataset().getUrl_download().getTimeout()))
-                .setResponseTimeout(Timeout.ofMilliseconds(uploadConfig.getDataset().getUrl_download().getTimeout()))
-                .build();
-
-        try (CloseableHttpClient httpClient = HttpClients.custom()
-                .setDefaultRequestConfig(requestConfig)
-                .build()) {
-            HttpGet httpGet = new HttpGet(url);
-            int retryCount = 0;
-            while (retryCount < uploadConfig.getDataset().getUrl_download().getRetry_count()) {
-                try (CloseableHttpResponse response = httpClient.execute(httpGet)) {
-                    if (response.getCode() == 200) {
-                        // 写入文件
-                        try (OutputStream out = new FileOutputStream(targetFile)) {
-                            response.getEntity().writeTo(out);
-                        }
-                        return;
-                    } else {
-                        retryCount++;
-                        log.warn("URL下载失败，状态码：{}，重试次数：{}", response.getCode(), retryCount);
-                        Thread.sleep(1000); // 重试间隔1秒
-                    }
-                } catch (Exception e) {
-                    retryCount++;
-                    log.warn("URL下载异常，重试次数：{}", retryCount, e);
-                    Thread.sleep(1000);
-                }
-            }
-            throw new RuntimeException("URL下载失败，已重试" + uploadConfig.getDataset().getUrl_download().getRetry_count() + "次");
-        } finally {
-            // 下载失败清理临时文件
-            if (uploadConfig.getDataset().getUrl_download().isClean_failed_temp_file() && !targetFile.exists()) {
-                if (targetFile.exists()) {
-                    targetFile.delete();
-                }
-            }
-        }
+        UrlDownloadZipUtil.downloadFileFromUrl(
+                url,
+                targetFile,
+                uploadConfig.getDataset().getUrl_download().getTimeout(),
+                uploadConfig.getDataset().getUrl_download().getRetry_count(),
+                uploadConfig.getDataset().getUrl_download().isClean_failed_temp_file()
+        );
     }
 
     /**

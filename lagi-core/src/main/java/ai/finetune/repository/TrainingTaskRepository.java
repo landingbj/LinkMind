@@ -1032,7 +1032,7 @@ public class TrainingTaskRepository {
             List<Map<String, Object>> statusCounts = mysqlAdapter.select(statusCountSql);
 
             for (Map<String, Object> statusCount : statusCounts) {
-                String status = (String) statusCount.get("status");
+                String status = statusCount.get("status") != null ? ((String) statusCount.get("status")).toLowerCase() : null;
                 Object countObj = statusCount.get("count");
                 int count = 0;
                 if (countObj instanceof Long) {

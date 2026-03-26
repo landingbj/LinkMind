@@ -3,6 +3,7 @@ package ai.servlet.api;
 import ai.common.exception.RRException;
 import ai.config.ContextLoader;
 import ai.dao.modelBaseDao;
+import ai.dto.TrainTaskUpdateDTO;
 import ai.finetune.service.TrainerService;
 import ai.servlet.RestfulServlet;
 import ai.servlet.annotation.Body;
@@ -333,5 +334,25 @@ public class AITrainingServlet1 extends RestfulServlet {
         }
         throw new RRException("未找到对应的服务");
     }
+    @Post("updateData")
+    public String updateData(@Body JSONObject jsonBody) {
+        try {
+            String taskId = jsonBody.getStr("task_id");
+            if (taskId == null || taskId.isEmpty()) {
+                throw new RRException("taskId不能为空");
+            }
+            TrainTaskUpdateDTO updateDTO = JSONUtil.toBean(jsonBody, TrainTaskUpdateDTO.class);
+            boolean modelId = modelDao.updateData(taskId,updateDTO);
+            if (modelId) {
+                return "训练任务更新成功";
+            } else {
+                throw new RRException("训练任务更新失败");
+            }
+        } catch (Exception e) {
+            log.error("训练任务更新失败", e);
+            throw new RRException("服务器内部错误: " + e.getMessage());
+        }
+    }
+
 
 }

@@ -3,6 +3,7 @@ package ai.dao;
 import ai.config.ContextLoader;
 import ai.config.UploadConfig;
 import ai.database.impl.MysqlAdapter;
+import ai.dto.TrainTaskUpdateDTO;
 import ai.finetune.repository.TrainingTaskRepository;
 import ai.finetune.utils.ModelDatasetManager;
 import ai.utils.UrlDownloadZipUtil;
@@ -30,6 +31,11 @@ public class modelBaseDao {
         this.mysqlAdapter = MysqlAdapter.getInstance();
         this.trainingTaskRepository = new TrainingTaskRepository(mysqlAdapter);
         this.modelDatasetManager = new ModelDatasetManager();
+    }
+
+    public boolean updateData(String taskId, TrainTaskUpdateDTO updateData) {
+        Map<String, Object> updateMap = cn.hutool.json.JSONUtil.parseObj(updateData).toBean(Map.class);;
+        return trainingTaskRepository.updateTaskByTaskId(taskId, updateMap);
     }
 
     /**

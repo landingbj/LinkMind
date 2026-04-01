@@ -118,6 +118,65 @@
                     <encoding>UTF-8</encoding>
                 </configuration>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.6.1</version>
+                <executions>
+                    <execution>
+                        <id>unpack-dependencies</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>unpack-dependencies</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/classes</outputDirectory>
+                            <!-- 剔除所有你指定的许可证相关文件 -->
+                            <excludes>
+                                <!-- 通用许可证文件 -->
+                                <exclude>**/LICENSE</exclude>
+                                <exclude>**/LICENSE.*</exclude>
+                                <exclude>**/COPYING</exclude>
+                                <exclude>**/COPYING.*</exclude>
+                                <exclude>**/NOTICE</exclude>
+                                <exclude>**/NOTICE.*</exclude>
+                                <exclude>**/license*</exclude>
+                                <exclude>**/License*</exclude>
+                                <!-- META-INF 下的许可证 -->
+                                <exclude>**/META-INF/LICENSE*</exclude>
+                                <exclude>**/META-INF/COPYING*</exclude>
+                                <exclude>**/META-INF/NOTICE*</exclude>
+                                <exclude>**/META-INF/DEPENDENCIES</exclude>
+                                <!-- 精准屏蔽你要求的许可证类型文件 -->
+                                <exclude>**/*GPL*.*</exclude>
+                                <exclude>**/*LGPL*.*</exclude>
+                                <exclude>**/*EPL*.*</exclude>
+                                <exclude>**/*CDDL*.*</exclude>
+                                <exclude>**/*BSD*.*</exclude>
+                            </excludes>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- 打包时二次过滤，确保无残留 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.3.0</version>
+                <configuration>
+                    <excludes>
+                        <exclude>**/LICENSE*</exclude>
+                        <exclude>**/COPYING*</exclude>
+                        <exclude>**/NOTICE*</exclude>
+                        <exclude>**/*GPL*</exclude>
+                        <exclude>**/*LGPL*</exclude>
+                        <exclude>**/*EPL*</exclude>
+                        <exclude>**/*CDDL*</exclude>
+                        <exclude>**/*BSD*</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 </project>

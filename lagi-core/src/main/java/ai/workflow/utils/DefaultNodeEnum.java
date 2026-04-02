@@ -16,7 +16,7 @@ public enum DefaultNodeEnum {
     EndNode("end", new EndNodeExecutor()),
     KnowledgeNode("knowledge-base", new KnowledgeNodeExecutor()),
     IntentNode("intent-recognition", new IntentNodeExecutor()),
-    GroovyScriptNode("program", new GroovyScriptNodeExecutor()),
+//    GroovyScriptNode("program", new GroovyScriptNodeExecutor()),
     ApiCallNode("api", new ApiCallNodeExecutor()),
     ASRNode("asr", new ASRNodeExecutor()),
     Image2TextNode("image2text", new Image2TextNodeExecutor()),

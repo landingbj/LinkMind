@@ -16,7 +16,6 @@ import org.apache.poi.hssf.usermodel.HSSFWorkbook;
 import org.apache.poi.poifs.filesystem.POIFSFileSystem;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -651,32 +650,6 @@ public class ExcelSqlUtil {
                 e.printStackTrace();
             }
         }
-    }
-
-    @Test
-    public void text(){
-        String demand = "高三三班学生各科成绩都大于60分的人有那些，总分分别是多少。";
-        String sql1 = WorkflowsToSql(demand);
-//        System.out.println("生成的sql是:\n"+sql1);
-        String sql = toSql(sql1,demand);
-//        System.out.println("生成的sql是:\n"+sql);
-        String out = toText(sql,demand, sql1);
-        System.out.println(out);
-    }
-
-    @Test
-    public void text1(){
-        SqliteAdapter mysqlAdapter = new SqliteAdapter();
-        List<Map<String, Object>> list = new ArrayList<>();
-        //SELECT id, table_name, description FROM table_info
-        list = mysqlAdapter.sqlToValue("SELECT id, table_name, description FROM table_info");
-        System.out.println(list);
-    }
-
-    @Test
-    public void text2(){
-
-        System.out.println(isConnect());
     }
 
 

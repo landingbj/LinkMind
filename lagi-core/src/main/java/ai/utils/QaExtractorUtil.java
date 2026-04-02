@@ -6,7 +6,6 @@ import ai.vector.pojo.UpsertRecord;
 import com.ibm.icu.text.CharsetDetector;
 import com.ibm.icu.text.CharsetMatch;
 import org.apache.commons.io.IOUtils;
-import org.junit.Test;
 
 import java.io.BufferedInputStream;
 import java.io.IOException;

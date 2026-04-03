@@ -19,7 +19,7 @@
         <async-supported>true</async-supported>
         <init-param>
             <param-name>cors.allowOrigin</param-name>
-            <param-value>*</param-value>
+            <param-value>http://10.186.201.17:31801,http://10.186.201.17:801,http://10.186.201.17:30081,http://localhost:8080</param-value>
         </init-param>
         <init-param>
             <param-name>cors.supportedMethods</param-name>
@@ -626,5 +626,9 @@
         <servlet-name>ModelDependencyServlet</servlet-name>
         <url-pattern>/api/model/dependency/*</url-pattern>
     </servlet-mapping>
+    <error-page>
+        <error-code>404</error-code>
+        <location>/404.html</location> <!-- 以/开头，相对于应用根目录 -->
+    </error-page>
 
 </web-app>

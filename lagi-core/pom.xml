@@ -664,6 +664,20 @@
             <version>${jsch.version}</version>
         </dependency>
 
+        <!-- JGit for Git operations -->
+        <dependency>
+            <groupId>org.eclipse.jgit</groupId>
+            <artifactId>org.eclipse.jgit</artifactId>
+            <version>6.10.1.202505221210-r</version>
+            <scope>compile</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.eclipse.jgit</groupId>
+            <artifactId>org.eclipse.jgit.lfs</artifactId>
+            <version>6.10.1.202505221210-r</version>
+        </dependency>
+
     </dependencies>
 
     <build>

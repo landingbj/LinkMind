@@ -194,21 +194,6 @@
 
        http://www.apache.org/licenses/LICENSE-2.0
 
-    This project uses javaparser-core (version 3.25.5).
-    In accordance with its official dual-licensing terms, we have chosen
-    to use this component under the Apache License 2.0.
-    Copyright Notice: Copyright (C) 2014-JavaParser Team
-
-    2. logback-core / logback-classic (version 1.5.32)
-    In accordance with its official dual-licensing terms, this project has chosen
-    to use this component exclusively under the Eclipse Public License 1.0 (EPL-1.0),
-    excluding the LGPL-2.1 license.
-    Copyright Notice: Copyright (C) 2000-2026 QOS.ch Sarl
-
-    Declaration: The above components are used solely as dependency libraries in this project.
-    No source code has been modified. We strictly comply with the terms of the selected
-    open-source license, and our business code is not required to be open-sourced.
-
    Unless required by applicable law or agreed to in writing, software
    distributed under the License is distributed on an "AS IS" BASIS,
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.

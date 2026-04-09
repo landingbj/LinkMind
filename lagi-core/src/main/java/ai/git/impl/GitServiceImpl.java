@@ -1,7 +1,6 @@
 package ai.git.impl;
 
 import ai.git.GitService;
-import ai.git.config.GitConfigLoader;
 import org.eclipse.jgit.api.*;
 import org.eclipse.jgit.api.ResetCommand;
 import org.eclipse.jgit.api.Status;

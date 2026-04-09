@@ -21,7 +21,6 @@
         <pdfbox.version>2.0.27</pdfbox.version>
         <poi-ooxml.version>5.4.1</poi-ooxml.version>
         <commonmark.version>0.17.1</commonmark.version>
-        <logback.version>1.5.19</logback.version>
         <junit-jupiter.version>5.10.2</junit-jupiter.version>
         <jsch.version>0.2.17</jsch.version>
         <maven-compiler-plugin.version>3.8.1</maven-compiler-plugin.version>
@@ -116,61 +115,6 @@
                     <source>11</source>
                     <target>11</target>
                     <encoding>UTF-8</encoding>
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-shade-plugin</artifactId>
-                <version>3.4.1</version>
-                <executions>
-                    <execution>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>shade</goal>
-                        </goals>
-                        <configuration>
-                            <filters>
-                                <filter>
-                                    <artifact>*:*</artifact>
-                                    <excludes>
-                                        <!-- 所有许可证文件 -->
-                                        <exclude>**/LICENSE*</exclude>
-                                        <exclude>**/COPYING*</exclude>
-                                        <exclude>**/NOTICE*</exclude>
-                                        <exclude>**/META-INF/LICENSE*</exclude>
-                                        <exclude>**/META-INF/COPYING*</exclude>
-                                        <exclude>**/META-INF/NOTICE*</exclude>
-                                        <!-- 所有违规证书 -->
-                                        <exclude>**/*GPL*</exclude>
-                                        <exclude>**/*LGPL*</exclude>
-                                        <exclude>**/*BSD*</exclude>
-                                        <exclude>**/*EPL*</exclude>
-                                        <exclude>**/*CDDL*</exclude>
-                                    </excludes>
-                                </filter>
-                            </filters>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-
-
-            <!-- 打包时二次过滤，确保无残留 -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-jar-plugin</artifactId>
-                <version>3.3.0</version>
-                <configuration>
-                    <excludes>
-                        <exclude>**/LICENSE*</exclude>
-                        <exclude>**/COPYING*</exclude>
-                        <exclude>**/NOTICE*</exclude>
-                        <exclude>**/*GPL*</exclude>
-                        <exclude>**/*LGPL*</exclude>
-                        <exclude>**/*EPL*</exclude>
-                        <exclude>**/*CDDL*</exclude>
-                        <exclude>**/*BSD*</exclude>
-                    </excludes>
                 </configuration>
             </plugin>
         </plugins>

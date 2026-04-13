@@ -1,5 +1,6 @@
 package ai.git.impl;
 
+import ai.common.exception.RRException;
 import ai.git.GitService;
 import org.eclipse.jgit.api.*;
 import org.eclipse.jgit.api.ResetCommand;
@@ -17,12 +18,21 @@ import java.util.Map;
 
 public class GitServiceImpl implements GitService {
 
+    private File getRepoDir(String repoPath) {
+        File repoDir = new File(repoPath);
+        if (!repoDir.exists() || !new File(repoDir, ".git").exists()) {
+            throw new RuntimeException("Invalid Git repository: " + repoPath);
+        }
+        return repoDir;
+    }
+
     @Override
     public void init(String repoPath) {
         try {
             Git.init().setDirectory(new File(repoPath)).call();
         } catch (Exception e) {
-            throw new RuntimeException("Failed to initialize Git repository", e);
+            Throwable cause = e.getCause();
+            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
         }
     }
 
@@ -31,67 +41,74 @@ public class GitServiceImpl implements GitService {
         try {
             Git.cloneRepository().setURI(repoUrl).setDirectory(new File(targetPath)).call();
         } catch (Exception e) {
-            throw new RuntimeException("Failed to clone repository", e);
+            Throwable cause = e.getCause();
+            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
         }
     }
 
     @Override
     public void add(String repoPath, List<String> files) {
-        try (Git git = Git.open(new File(repoPath))) {
+        try (Git git = Git.open(getRepoDir(repoPath))) {
             git.add().addFilepattern(".").call();
         } catch (Exception e) {
-            throw new RuntimeException("Failed to add files", e);
+            Throwable cause = e.getCause();
+            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
         }
     }
 
     @Override
     public void commit(String repoPath, String message) {
-        try (Git git = Git.open(new File(repoPath))) {
+        try (Git git = Git.open(getRepoDir(repoPath))) {
             git.commit().setMessage(message).call();
         } catch (Exception e) {
-            throw new RuntimeException("Failed to commit", e);
+            Throwable cause = e.getCause();
+            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
         }
     }
 
     @Override
     public void push(String repoPath, String remote, String branch) {
-        try (Git git = Git.open(new File(repoPath))) {
+        try (Git git = Git.open(getRepoDir(repoPath))) {
             git.push().setRemote(remote)
                     .setRefSpecs(new RefSpec("refs/heads/" + branch + ":refs/heads/" + branch))
                     .call();
         } catch (Exception e) {
-            throw new RuntimeException("Failed to push", e);
+            Throwable cause = e.getCause();
+            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
         }
     }
 
     @Override
     public void pull(String repoPath, String remote, String branch) {
-        try (Git git = Git.open(new File(repoPath))) {
+        try (Git git = Git.open(getRepoDir(repoPath))) {
             git.pull().setRemote(remote).call();
         } catch (Exception e) {
-            throw new RuntimeException("Failed to pull", e);
+            Throwable cause = e.getCause();
+            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
         }
     }
 
     @Override
     public List<String> getBranches(String repoPath) {
         List<String> branches = new ArrayList<>();
-        try (Git git = Git.open(new File(repoPath))) {
+        try (Git git = Git.open(getRepoDir(repoPath))) {
             git.branchList().call().forEach(ref -> {
                 branches.add(ref.getName().substring(11));
             });
         } catch (Exception e) {
-            throw new RuntimeException("Failed to get branches", e);
+            Throwable cause = e.getCause();
+            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
         }
         return branches;
     }
 
     @Override
     public void checkout(String repoPath, String branch) {
-        try (Git git = Git.open(new File(repoPath))) {
+        try (Git git = Git.open(getRepoDir(repoPath))) {
             git.checkout().setName(branch).call();
         } catch (Exception e) {
-            throw new RuntimeException("Failed to checkout branch", e);
+            Throwable cause = e.getCause();
+            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
         }
     }
 
@@ -160,7 +177,7 @@ public class GitServiceImpl implements GitService {
     @Override
     public List<Map<String, Object>> getFileHistory(String repoPath, String filePath) {
         List<Map<String, Object>> history = new ArrayList<>();
-        try (Git git = Git.open(new File(repoPath))) {
+        try (Git git = Git.open(getRepoDir(repoPath))) {
             git.log().addPath(filePath).call().forEach(commit -> {
                 Map<String, Object> commitInfo = new HashMap<>();
                 commitInfo.put("commitHash", commit.getName());
@@ -171,7 +188,8 @@ public class GitServiceImpl implements GitService {
                 history.add(commitInfo);
             });
         } catch (Exception e) {
-            throw new RuntimeException("Failed to get file history", e);
+            Throwable cause = e.getCause();
+            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
         }
         return history;
     }
@@ -186,7 +204,7 @@ public class GitServiceImpl implements GitService {
     @Override
     public List<Map<String, Object>> getCommitLog(String repoPath, int limit) {
         List<Map<String, Object>> log = new ArrayList<>();
-        try (Git git = Git.open(new File(repoPath))) {
+        try (Git git = Git.open(getRepoDir(repoPath))) {
             git.log().setMaxCount(limit).call().forEach(commit -> {
                 Map<String, Object> commitInfo = new HashMap<>();
                 commitInfo.put("commitHash", commit.getName());
@@ -196,93 +214,102 @@ public class GitServiceImpl implements GitService {
                 log.add(commitInfo);
             });
         } catch (Exception e) {
-            throw new RuntimeException("Failed to get commit log", e);
+            Throwable cause = e.getCause();
+            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
         }
         return log;
     }
 
     @Override
     public void createBranch(String repoPath, String branchName) {
-        try (Git git = Git.open(new File(repoPath))) {
+        try (Git git = Git.open(getRepoDir(repoPath))) {
             git.branchCreate().setName(branchName).call();
         } catch (Exception e) {
-            throw new RuntimeException("Failed to create branch", e);
+            Throwable cause = e.getCause();
+            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
         }
     }
 
     @Override
     public void deleteBranch(String repoPath, String branchName) {
-        try (Git git = Git.open(new File(repoPath))) {
+        try (Git git = Git.open(getRepoDir(repoPath))) {
             git.branchDelete().setBranchNames(branchName).setForce(true).call();
         } catch (Exception e) {
-            throw new RuntimeException("Failed to delete branch", e);
+            Throwable cause = e.getCause();
+            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
         }
     }
 
     @Override
     public void mergeBranch(String repoPath, String branchName) {
-        try (Git git = Git.open(new File(repoPath))) {
+        try (Git git = Git.open(getRepoDir(repoPath))) {
             git.merge().include(git.getRepository().resolve(branchName)).call();
         } catch (Exception e) {
-            throw new RuntimeException("Failed to merge branch", e);
+            Throwable cause = e.getCause();
+            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
         }
     }
 
     @Override
     public void createTag(String repoPath, String tagName, String message) {
-        try (Git git = Git.open(new File(repoPath))) {
+        try (Git git = Git.open(getRepoDir(repoPath))) {
             git.tag().setName(tagName).setMessage(message).call();
         } catch (Exception e) {
-            throw new RuntimeException("Failed to create tag", e);
+            Throwable cause = e.getCause();
+            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
         }
     }
 
     @Override
     public List<String> getTags(String repoPath) {
         List<String> tags = new ArrayList<>();
-        try (Git git = Git.open(new File(repoPath))) {
+        try (Git git = Git.open(getRepoDir(repoPath))) {
             git.tagList().call().forEach(ref -> {
                 tags.add(ref.getName().substring(10));
             });
         } catch (Exception e) {
-            throw new RuntimeException("Failed to get tags", e);
+            Throwable cause = e.getCause();
+            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
         }
         return tags;
     }
 
     @Override
     public void deleteTag(String repoPath, String tagName) {
-        try (Git git = Git.open(new File(repoPath))) {
+        try (Git git = Git.open(getRepoDir(repoPath))) {
             git.tagDelete().setTags(tagName).call();
         } catch (Exception e) {
-            throw new RuntimeException("Failed to delete tag", e);
+            Throwable cause = e.getCause();
+            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
         }
     }
 
     @Override
     public void addRemote(String repoPath, String name, String url) {
-        try (Git git = Git.open(new File(repoPath))) {
+        try (Git git = Git.open(getRepoDir(repoPath))) {
             git.remoteAdd().setName(name).setUri(new URIish(url)).call();
         } catch (Exception e) {
-            throw new RuntimeException("Failed to add remote", e);
+            Throwable cause = e.getCause();
+            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
         }
     }
 
     @Override
     public void deleteRemote(String repoPath, String name) {
-        try (Git git = Git.open(new File(repoPath))) {
+        try (Git git = Git.open(getRepoDir(repoPath))) {
             RemoteRemoveCommand removeCmd = git.remoteRemove();
             removeCmd.setName(name);
             removeCmd.call();
         } catch (Exception e) {
-            throw new RuntimeException("Failed to delete remote", e);
+            Throwable cause = e.getCause();
+            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
         }
     }
 
     @Override
     public List<Map<String, Object>> getRemotes(String repoPath) {
         List<Map<String, Object>> remotes = new ArrayList<>();
-        try (Git git = Git.open(new File(repoPath))) {
+        try (Git git = Git.open(getRepoDir(repoPath))) {
             git.remoteList().call().forEach(remote -> {
                 Map<String, Object> remoteInfo = new HashMap<>();
                 remoteInfo.put("name", remote.getName());
@@ -290,7 +317,8 @@ public class GitServiceImpl implements GitService {
                 remotes.add(remoteInfo);
             });
         } catch (Exception e) {
-            throw new RuntimeException("Failed to get remotes", e);
+            Throwable cause = e.getCause();
+            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
         }
         return remotes;
     }
@@ -298,20 +326,21 @@ public class GitServiceImpl implements GitService {
     @Override
     public Map<String, Object> getStatus(String repoPath) {
         Map<String, Object> status = new HashMap<>();
-        try (Git git = Git.open(new File(repoPath))) {
+        try (Git git = Git.open(getRepoDir(repoPath))) {
             Status gitStatus = git.status().call();
             status.put("modified", gitStatus.getModified());
             status.put("untracked", gitStatus.getUntracked());
             status.put("staged", gitStatus.getAdded());
         } catch (Exception e) {
-            throw new RuntimeException("Failed to get status", e);
+            Throwable cause = e.getCause();
+            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
         }
         return status;
     }
 
     @Override
     public void reset(String repoPath, String commitHash, String mode) {
-        try (Git git = Git.open(new File(repoPath))) {
+        try (Git git = Git.open(getRepoDir(repoPath))) {
             ResetCommand resetCommand = git.reset();
             switch (mode) {
                 case "soft":
@@ -325,16 +354,18 @@ public class GitServiceImpl implements GitService {
             }
             resetCommand.setRef(commitHash).call();
         } catch (Exception e) {
-            throw new RuntimeException("Failed to reset", e);
+            Throwable cause = e.getCause();
+            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
         }
     }
 
     @Override
     public void checkoutFile(String repoPath, String filePath) {
-        try (Git git = Git.open(new File(repoPath))) {
+        try (Git git = Git.open(getRepoDir(repoPath))) {
             git.checkout().addPath(filePath).call();
         } catch (Exception e) {
-            throw new RuntimeException("Failed to checkout file", e);
+            Throwable cause = e.getCause();
+            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
         }
     }
 }

@@ -1,14 +1,13 @@
 package ai.git.impl;
 
-import ai.common.exception.RRException;
 import ai.git.GitService;
 import org.eclipse.jgit.api.*;
-import org.eclipse.jgit.api.ResetCommand;
-import org.eclipse.jgit.api.Status;
 import org.eclipse.jgit.api.ResetCommand.ResetType;
 import org.eclipse.jgit.transport.RefSpec;
 import org.eclipse.jgit.transport.URIish;
+import org.eclipse.jgit.transport.CredentialsProvider;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
+import org.eclipse.jgit.lib.Repository;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -31,8 +30,7 @@ public class GitServiceImpl implements GitService {
         try {
             Git.init().setDirectory(new File(repoPath)).call();
         } catch (Exception e) {
-            Throwable cause = e.getCause();
-            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
+            throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
         }
     }
 
@@ -41,50 +39,121 @@ public class GitServiceImpl implements GitService {
         try {
             Git.cloneRepository().setURI(repoUrl).setDirectory(new File(targetPath)).call();
         } catch (Exception e) {
-            Throwable cause = e.getCause();
-            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
+            throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
         }
     }
 
     @Override
     public void add(String repoPath, List<String> files) {
         try (Git git = Git.open(getRepoDir(repoPath))) {
-            git.add().addFilepattern(".").call();
+            // 确保 LFS 已初始化
+            Repository repo = git.getRepository();
+            org.eclipse.jgit.lib.StoredConfig config = repo.getConfig();
+            
+            // 配置使用 JGit 内置 LFS 实现
+            config.setBoolean("filter", "lfs", "required", true);
+            
+            // 配置 LFS 服务器 URL（如果未配置）
+            String lfsUrl = config.getString("lfs", null, "url");
+            if (lfsUrl == null || lfsUrl.isEmpty()) {
+                // 从远程仓库 URL 构建 LFS URL
+                String remoteUrl = config.getString("remote", "origin", "url");
+                if (remoteUrl != null) {
+                    lfsUrl = remoteUrl.replace(".git", "/info/lfs");
+                    config.setString("lfs", null, "url", lfsUrl);
+                }
+            }
+            
+            config.save();
+            
+            // 统一仓库路径格式
+            String normalizedRepoPath = repoPath.replace("\\", "/").replace("//", "/");
+            
+            files.forEach(file -> {
+                try {
+                    // 统一文件路径格式
+                    String normalizedFile = file.replace("\\", "/").replace("//", "/");
+                    
+                    // 计算相对路径
+                    String relativePath;
+                    if (normalizedFile.startsWith(normalizedRepoPath)) {
+                        relativePath = normalizedFile.substring(normalizedRepoPath.length());
+                        // 移除开头的斜杠
+                        if (relativePath.startsWith("/")) {
+                            relativePath = relativePath.substring(1);
+                        }
+                    } else {
+                        // 如果路径不包含仓库路径，尝试从文件名开始
+                        File fileObj = new File(file);
+                        relativePath = fileObj.getName();
+                    }
+                    
+                    // 确保使用正斜杠
+                    relativePath = relativePath.replace("\\", "/");
+                    
+                    // 执行添加操作
+                    git.add().addFilepattern(relativePath).call();
+                } catch (Exception e) {
+                    throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
+                }
+            });
         } catch (Exception e) {
-            Throwable cause = e.getCause();
-            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
+            throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
         }
     }
 
     @Override
     public void commit(String repoPath, String message) {
         try (Git git = Git.open(getRepoDir(repoPath))) {
-            git.commit().setMessage(message).call();
+            // 确保提交所有更改，包括新添加的文件
+            git.commit().setMessage(message).setAll(true).call();
         } catch (Exception e) {
-            Throwable cause = e.getCause();
-            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
+            throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
         }
+    }
+
+    private CredentialsProvider getCredentialsProvider(String repoPath) {
+        try {
+            ai.git.config.GitConfigLoader configLoader = new ai.git.config.GitConfigLoader("git-lfs.yml");
+            ai.git.config.GitCredential credential = configLoader.getCredential(repoPath);
+            if (credential != null && credential.getUsername() != null && credential.getPassword() != null) {
+                return new UsernamePasswordCredentialsProvider(credential.getUsername(), credential.getPassword());
+            }
+        } catch (Exception e) {
+            // 忽略配置加载错误，使用无认证方式
+        }
+        return null;
     }
 
     @Override
     public void push(String repoPath, String remote, String branch) {
         try (Git git = Git.open(getRepoDir(repoPath))) {
-            git.push().setRemote(remote)
-                    .setRefSpecs(new RefSpec("refs/heads/" + branch + ":refs/heads/" + branch))
-                    .call();
+            CredentialsProvider credentialsProvider = getCredentialsProvider(repoPath);
+            PushCommand pushCommand = git.push().setRemote(remote).setRefSpecs(new RefSpec("refs/heads/" + branch + ":refs/heads/" + branch));
+            if (credentialsProvider != null) pushCommand.setCredentialsProvider(credentialsProvider);
+            pushCommand.call();
         } catch (Exception e) {
-            Throwable cause = e.getCause();
-            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
+            throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
         }
     }
 
     @Override
     public void pull(String repoPath, String remote, String branch) {
         try (Git git = Git.open(getRepoDir(repoPath))) {
-            git.pull().setRemote(remote).call();
+            // 确保 LFS 已初始化并配置为使用内置实现
+            Repository repo = git.getRepository();
+            org.eclipse.jgit.lib.StoredConfig config = repo.getConfig();
+            
+            // 配置使用 JGit 内置 LFS 实现
+            config.setBoolean("filter", "lfs", "required", true);
+            config.save();
+            
+            CredentialsProvider credentialsProvider = getCredentialsProvider(repoPath);
+            PullCommand pullCommand = git.pull().setRemote(remote);
+            if (credentialsProvider != null) pullCommand.setCredentialsProvider(credentialsProvider);
+            pullCommand.call();
         } catch (Exception e) {
-            Throwable cause = e.getCause();
-            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
+            throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
         }
     }
 
@@ -92,12 +161,9 @@ public class GitServiceImpl implements GitService {
     public List<String> getBranches(String repoPath) {
         List<String> branches = new ArrayList<>();
         try (Git git = Git.open(getRepoDir(repoPath))) {
-            git.branchList().call().forEach(ref -> {
-                branches.add(ref.getName().substring(11));
-            });
+            git.branchList().call().forEach(ref -> branches.add(ref.getName().substring(11)));
         } catch (Exception e) {
-            Throwable cause = e.getCause();
-            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
+            throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
         }
         return branches;
     }
@@ -107,8 +173,7 @@ public class GitServiceImpl implements GitService {
         try (Git git = Git.open(getRepoDir(repoPath))) {
             git.checkout().setName(branch).call();
         } catch (Exception e) {
-            Throwable cause = e.getCause();
-            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
+            throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
         }
     }
 
@@ -120,8 +185,7 @@ public class GitServiceImpl implements GitService {
             File[] dirs = baseDir.listFiles(File::isDirectory);
             if (dirs != null) {
                 for (File dir : dirs) {
-                    File gitDir = new File(dir, ".git");
-                    if (gitDir.exists() && gitDir.isDirectory()) {
+                    if (new File(dir, ".git").exists()) {
                         Map<String, Object> repoInfo = new HashMap<>();
                         repoInfo.put("name", dir.getName());
                         repoInfo.put("path", dir.getAbsolutePath());
@@ -188,8 +252,7 @@ public class GitServiceImpl implements GitService {
                 history.add(commitInfo);
             });
         } catch (Exception e) {
-            Throwable cause = e.getCause();
-            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
+            throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
         }
         return history;
     }
@@ -214,8 +277,7 @@ public class GitServiceImpl implements GitService {
                 log.add(commitInfo);
             });
         } catch (Exception e) {
-            Throwable cause = e.getCause();
-            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
+            throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
         }
         return log;
     }
@@ -225,8 +287,7 @@ public class GitServiceImpl implements GitService {
         try (Git git = Git.open(getRepoDir(repoPath))) {
             git.branchCreate().setName(branchName).call();
         } catch (Exception e) {
-            Throwable cause = e.getCause();
-            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
+            throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
         }
     }
 
@@ -235,8 +296,7 @@ public class GitServiceImpl implements GitService {
         try (Git git = Git.open(getRepoDir(repoPath))) {
             git.branchDelete().setBranchNames(branchName).setForce(true).call();
         } catch (Exception e) {
-            Throwable cause = e.getCause();
-            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
+            throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
         }
     }
 
@@ -245,8 +305,7 @@ public class GitServiceImpl implements GitService {
         try (Git git = Git.open(getRepoDir(repoPath))) {
             git.merge().include(git.getRepository().resolve(branchName)).call();
         } catch (Exception e) {
-            Throwable cause = e.getCause();
-            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
+            throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
         }
     }
 
@@ -255,8 +314,7 @@ public class GitServiceImpl implements GitService {
         try (Git git = Git.open(getRepoDir(repoPath))) {
             git.tag().setName(tagName).setMessage(message).call();
         } catch (Exception e) {
-            Throwable cause = e.getCause();
-            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
+            throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
         }
     }
 
@@ -264,12 +322,9 @@ public class GitServiceImpl implements GitService {
     public List<String> getTags(String repoPath) {
         List<String> tags = new ArrayList<>();
         try (Git git = Git.open(getRepoDir(repoPath))) {
-            git.tagList().call().forEach(ref -> {
-                tags.add(ref.getName().substring(10));
-            });
+            git.tagList().call().forEach(ref -> tags.add(ref.getName().substring(10)));
         } catch (Exception e) {
-            Throwable cause = e.getCause();
-            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
+            throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
         }
         return tags;
     }
@@ -279,8 +334,7 @@ public class GitServiceImpl implements GitService {
         try (Git git = Git.open(getRepoDir(repoPath))) {
             git.tagDelete().setTags(tagName).call();
         } catch (Exception e) {
-            Throwable cause = e.getCause();
-            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
+            throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
         }
     }
 
@@ -289,8 +343,7 @@ public class GitServiceImpl implements GitService {
         try (Git git = Git.open(getRepoDir(repoPath))) {
             git.remoteAdd().setName(name).setUri(new URIish(url)).call();
         } catch (Exception e) {
-            Throwable cause = e.getCause();
-            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
+            throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
         }
     }
 
@@ -301,8 +354,7 @@ public class GitServiceImpl implements GitService {
             removeCmd.setName(name);
             removeCmd.call();
         } catch (Exception e) {
-            Throwable cause = e.getCause();
-            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
+            throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
         }
     }
 
@@ -317,8 +369,7 @@ public class GitServiceImpl implements GitService {
                 remotes.add(remoteInfo);
             });
         } catch (Exception e) {
-            Throwable cause = e.getCause();
-            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
+            throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
         }
         return remotes;
     }
@@ -327,13 +378,12 @@ public class GitServiceImpl implements GitService {
     public Map<String, Object> getStatus(String repoPath) {
         Map<String, Object> status = new HashMap<>();
         try (Git git = Git.open(getRepoDir(repoPath))) {
-            Status gitStatus = git.status().call();
+            org.eclipse.jgit.api.Status gitStatus = git.status().call();
             status.put("modified", gitStatus.getModified());
             status.put("untracked", gitStatus.getUntracked());
             status.put("staged", gitStatus.getAdded());
         } catch (Exception e) {
-            Throwable cause = e.getCause();
-            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
+            throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
         }
         return status;
     }
@@ -342,20 +392,10 @@ public class GitServiceImpl implements GitService {
     public void reset(String repoPath, String commitHash, String mode) {
         try (Git git = Git.open(getRepoDir(repoPath))) {
             ResetCommand resetCommand = git.reset();
-            switch (mode) {
-                case "soft":
-                    resetCommand.setMode(ResetType.SOFT);
-                    break;
-                case "hard":
-                    resetCommand.setMode(ResetType.HARD);
-                    break;
-                default:
-                    resetCommand.setMode(ResetType.MIXED);
-            }
+            resetCommand.setMode("soft".equals(mode) ? ResetType.SOFT : "hard".equals(mode) ? ResetType.HARD : ResetType.MIXED);
             resetCommand.setRef(commitHash).call();
         } catch (Exception e) {
-            Throwable cause = e.getCause();
-            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
+            throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
         }
     }
 
@@ -364,8 +404,7 @@ public class GitServiceImpl implements GitService {
         try (Git git = Git.open(getRepoDir(repoPath))) {
             git.checkout().addPath(filePath).call();
         } catch (Exception e) {
-            Throwable cause = e.getCause();
-            throw new RuntimeException(cause != null ? cause.getMessage() : e.getMessage(), e);
+            throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
         }
     }
 }

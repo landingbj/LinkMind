@@ -2,8 +2,8 @@ package ai.git.config;
 
 import org.yaml.snakeyaml.Yaml;
 
-import java.io.File;
-import java.io.FileReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 
 public class GitConfigLoader {
     private final String configPath;
@@ -23,10 +23,11 @@ public class GitConfigLoader {
 
     private GitAuthConfig loadConfig() {
         try {
-            Yaml yaml = new Yaml();
-            File configFile = new File(configPath);
-            if (configFile.exists()) {
-                return yaml.loadAs(new FileReader(configFile), GitAuthConfig.class);
+            // 从 resources 目录读取配置文件
+            InputStream inputStream = getClass().getClassLoader().getResourceAsStream(configPath);
+            if (inputStream != null) {
+                Yaml yaml = new Yaml();
+                return yaml.loadAs(new InputStreamReader(inputStream), GitAuthConfig.class);
             }
         } catch (Exception e) {
             e.printStackTrace();

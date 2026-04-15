@@ -24,6 +24,15 @@ public class ConfigLoaderListener implements ServletContextListener {
         ServletContext servletContext = sce.getServletContext();
         // 核心修改1：添加全局try-catch，捕获所有异常并记录详细日志
         try {
+            // Windows 环境下配置 sh.exe 路径，解决 JGit LFS filter 执行失败问题
+            if (System.getProperty("os.name").toLowerCase().contains("win")) {
+                java.util.stream.Stream.of(
+                    "C:\\Program Files\\Git\\bin\\sh.exe",
+                    "C:\\Program Files (x86)\\Git\\bin\\sh.exe"
+                ).filter(p -> new java.io.File(p).exists()).findFirst()
+                 .ifPresent(p -> System.setProperty("org.eclipse.jgit.util.CommandSupport.shPath", p));
+            }
+            
             servletContext.log("开始加载应用配置...");
             ContextLoader.loadContext();
             UploadConfig uploadConfig = ContextLoader.loadConfig("upload-config.yml", UploadConfig.class);

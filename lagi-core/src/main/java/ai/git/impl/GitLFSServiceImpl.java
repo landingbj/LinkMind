@@ -37,6 +37,19 @@ public class GitLFSServiceImpl implements GitLFSService {
         return repoDir;
     }
     
+    // 从文件路径向上查找仓库路径
+    private String findRepoPath(String filePath) {
+        var file = new File(filePath);
+        var currentDir = file.getParentFile();
+        while (currentDir != null) {
+            if (new File(currentDir, ".git").exists()) {
+                return currentDir.getAbsolutePath();
+            }
+            currentDir = currentDir.getParentFile();
+        }
+        throw new RuntimeException("Not a Git repository: " + filePath);
+    }
+    
     // 确保 LFS 被正确初始化
     private void ensureLFSInitialized(Repository repo) throws Exception {
         StoredConfig config = repo.getConfig();
@@ -187,6 +200,66 @@ public class GitLFSServiceImpl implements GitLFSService {
             throw new RuntimeException("Failed to pull LFS objects", e);
         }
     }
+    
+    @Override
+    public void pull(String repoPath, String filePath) {
+        logger.info("Pulling LFS object for file: {} in repository: {}", filePath, repoPath);
+        try (Git git = Git.open(getRepoDir(repoPath))) {
+            // 确保 LFS 已初始化
+            ensureLFSInitialized(git.getRepository());
+            
+            // 获取认证信息
+            ai.git.config.GitCredential credential = configLoader.getCredential(repoPath);
+            CredentialsProvider credentialsProvider = null;
+            
+            if (credential != null && credential.getUsername() != null && credential.getPassword() != null) {
+                credentialsProvider = new UsernamePasswordCredentialsProvider(credential.getUsername(), credential.getPassword());
+                logger.info("Using credentials for user: {}", credential.getUsername());
+            }
+            
+            // 首先拉取最新代码
+            PullCommand pullCommand = git.pull();
+            if (credentialsProvider != null) {
+                pullCommand.setCredentialsProvider(credentialsProvider);
+            }
+            pullCommand.call();
+            
+            // 检查文件是否为 LFS 指针文件
+            File file = new File(repoPath, filePath);
+            if (file.exists() && isLFSPointer(file.getAbsolutePath())) {
+                // 如果是 LFS 指针文件，执行 git lfs pull 命令拉取具体文件
+                logger.info("File is LFS pointer, executing git lfs pull for specific file");
+                executeCommand(repoPath, "git", "lfs", "pull", "--include", filePath);
+            }
+            
+            logger.info("LFS object pulled successfully for file: {} in repository: {}", filePath, repoPath);
+        } catch (Exception e) {
+            logger.error("Failed to pull LFS object for file: {} in repository: {}", filePath, repoPath, e);
+            throw new RuntimeException("Failed to pull LFS object", e);
+        }
+    }
+    
+    // 执行外部命令的工具方法
+    private void executeCommand(String workingDir, String... command) throws Exception {
+        ProcessBuilder processBuilder = new ProcessBuilder(command);
+        if (workingDir != null) processBuilder.directory(new File(workingDir));
+        processBuilder.redirectErrorStream(true);
+        
+        Process process = processBuilder.start();
+        
+        // 读取命令输出
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                logger.debug("Command output: {}", line);
+            }
+        }
+        
+        int exitCode = process.waitFor();
+        if (exitCode != 0) {
+            throw new RuntimeException("Command failed with exit code: " + exitCode + ", command: " + String.join(" ", command));
+        }
+    }
 
     @Override
     public boolean isLFSPointer(String filePath) {
@@ -316,5 +389,50 @@ public class GitLFSServiceImpl implements GitLFSService {
             status.put("error", e.getMessage());
         }
         return status;
+    }
+    
+    @Override
+    public InputStream downloadLargeFile(String filePath) {
+        logger.info("Downloading large file: {}", filePath);
+        try {
+            // 构建文件对象
+            var file = new File(filePath);
+            var absoluteFilePath = file.getAbsolutePath();
+            
+            if (!file.exists()) {
+                throw new RuntimeException("File does not exist: " + absoluteFilePath);
+            }
+            
+            // 检查文件是否为 LFS 指针文件
+            if (isLFSPointer(absoluteFilePath)) {
+                logger.info("File is LFS pointer, pulling LFS object");
+                // 找到仓库路径
+                var repoPath = findRepoPath(absoluteFilePath);
+                
+                // 计算相对路径
+                var relativePath = absoluteFilePath.substring(repoPath.length() + 1);
+                
+                // 拉取 LFS 对象
+                try (var git = Git.open(new File(repoPath))) {
+                    // 确保 LFS 已初始化
+                    ensureLFSInitialized(git.getRepository());
+                    
+                    // 执行 git lfs pull 命令拉取具体文件
+                    executeCommand(repoPath, "git", "lfs", "pull", "--include", relativePath);
+                }
+            }
+            
+            // 检查文件是否存在
+            if (!file.exists()) {
+                throw new RuntimeException("File does not exist after pull: " + absoluteFilePath);
+            }
+            
+            // 返回文件输入流
+            logger.info("Large file downloaded successfully: {}", absoluteFilePath);
+            return new FileInputStream(file);
+        } catch (Exception e) {
+            logger.error("Failed to download large file: {}", filePath, e);
+            throw new RuntimeException("Failed to download large file", e);
+        }
     }
 }

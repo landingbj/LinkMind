@@ -10,6 +10,7 @@ import ai.servlet.annotation.Param;
 import ai.servlet.annotation.Post;
 import cn.hutool.json.JSONObject;
 
+import javax.servlet.http.HttpServletResponse;
 import java.util.List;
 import java.util.Map;
 
@@ -330,13 +331,30 @@ public class GitAPIServlet extends RestfulServlet {
     }
 
     @Post("git-lfs-pull")
-    public Map<String, String> pullLFS(@Body JSONObject request) {
-        String repoPath = request.getStr("repoPath");
-        if (repoPath == null) {
-            throw new IllegalArgumentException("repoPath is required");
+    public void pullLFS(@Body JSONObject request, HttpServletResponse response) {
+        var filePath = request.getStr("filePath");
+        if (filePath == null) {
+            throw new IllegalArgumentException("filePath is required");
         }
-        String taskId = asyncTaskManager.submitLFSPull(lfsService, repoPath);
-        return Map.of("taskId", taskId, "status", "PENDING");
+
+        try (var inputStream = lfsService.downloadLargeFile(filePath);
+             var outputStream = response.getOutputStream()) {
+            // 设置响应头
+            var file = new java.io.File(filePath);
+            response.setContentType("application/octet-stream");
+            response.setHeader("Content-Disposition", "attachment; filename=\"" + file.getName() + "\"");
+            response.setContentLengthLong(file.length());
+
+            // 将文件流写入响应
+            inputStream.transferTo(outputStream);
+        } catch (Exception e) {
+            response.setStatus(500);
+            try {
+                response.getWriter().write("Error downloading file: " + e.getMessage());
+            } catch (java.io.IOException ex) {
+                ex.printStackTrace();
+            }
+        }
     }
 
     @Get("git-lfs-versions")
@@ -398,20 +416,63 @@ public class GitAPIServlet extends RestfulServlet {
         String message = request.getStr("message");
         String remote = request.getStr("remote", "origin");
         String branch = request.getStr("branch", "main");
-        
+
         if (repoPath == null || files == null || message == null) {
-            throw new IllegalArgumentException("repoPath, files and message are required");
+            return Map.of( "code","400","message", "failed", "errorMsg", "repoPath, files and message are required");
         }
-        
+
         // 1. 添加文件到暂存区
         gitService.add(repoPath, files);
-        
-        // 2. 提交更改
-        gitService.commit(repoPath, message);
-        
-        // 3. 推送更改（异步）
-        String taskId = asyncTaskManager.submitPush(gitService, repoPath, remote, branch);
-        
-        return Map.of("taskId", taskId, "status", "PENDING");
+
+        // 2. 检查指定路径下的文件是否有变化
+            Map<String, Object> status = gitService.getStatus(repoPath);
+            boolean hasChanges = false;
+
+            // 检查指定路径下的文件是否有变化
+            if (status.containsKey("changed") && status.get("changed") instanceof List) {
+                List<?> changedFiles = (List<?>) status.get("changed");
+                for (Object file : changedFiles) {
+                    String filePath = file.toString();
+                    if (files.stream().anyMatch(f -> filePath.contains(f) || f.contains(filePath))) {
+                        hasChanges = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!hasChanges && status.containsKey("untracked") && status.get("untracked") instanceof List) {
+                List<?> untrackedFiles = (List<?>) status.get("untracked");
+                for (Object file : untrackedFiles) {
+                    String filePath = file.toString();
+                    if (files.stream().anyMatch(f -> filePath.contains(f) || f.contains(filePath))) {
+                        hasChanges = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!hasChanges && status.containsKey("deleted") && status.get("deleted") instanceof List) {
+                List<?> deletedFiles = (List<?>) status.get("deleted");
+                for (Object file : deletedFiles) {
+                    String filePath = file.toString();
+                    if (files.stream().anyMatch(f -> filePath.contains(f) || f.contains(filePath))) {
+                        hasChanges = true;
+                        break;
+                    }
+                }
+            }
+
+        // 3. 只有当有变化时才提交
+        if (hasChanges) {
+            gitService.commit(repoPath, message);
+        }
+
+        // 4. 判断是否有未推送的内容
+        if (gitService.hasUnpushedCommits(repoPath, remote, branch)) {
+            String taskId = asyncTaskManager.submitPush(gitService, repoPath, remote, branch);
+            return Map.of("taskId", taskId, "status", "PENDING");
+        } else {
+            return Map.of( "code","400","message", "failed", "errorMsg", "NO_CHANGES");
+        }
     }
 }

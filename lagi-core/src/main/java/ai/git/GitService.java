@@ -9,6 +9,7 @@ public interface GitService {
     void add(String repoPath, List<String> files);
     void commit(String repoPath, String message);
     void push(String repoPath, String remote, String branch);
+    boolean hasUnpushedCommits(String repoPath, String remote, String branch);
     void pull(String repoPath, String remote, String branch);
     List<String> getBranches(String repoPath);
     void checkout(String repoPath, String branch);

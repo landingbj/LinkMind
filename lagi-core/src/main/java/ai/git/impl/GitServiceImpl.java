@@ -3,13 +3,14 @@ package ai.git.impl;
 import ai.git.GitService;
 import org.eclipse.jgit.api.*;
 import org.eclipse.jgit.api.ResetCommand.ResetType;
-import org.eclipse.jgit.transport.RefSpec;
 import org.eclipse.jgit.transport.URIish;
 import org.eclipse.jgit.transport.CredentialsProvider;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.eclipse.jgit.lib.Repository;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -25,6 +26,28 @@ public class GitServiceImpl implements GitService {
         return repoDir;
     }
 
+    // 执行外部命令的工具方法
+    private void executeCommand(String workingDir, String... command) throws Exception {
+        ProcessBuilder processBuilder = new ProcessBuilder(command);
+        if (workingDir != null) processBuilder.directory(new File(workingDir));
+        processBuilder.redirectErrorStream(true);
+
+        Process process = processBuilder.start();
+
+        // 读取命令输出
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                // 静默处理输出
+            }
+        }
+
+        int exitCode = process.waitFor();
+        if (exitCode != 0) {
+            throw new RuntimeException("Command failed with exit code: " + exitCode + ", command: " + String.join(" ", command));
+        }
+    }
+
     @Override
     public void init(String repoPath) {
         try {
@@ -37,66 +60,96 @@ public class GitServiceImpl implements GitService {
     @Override
     public void clone(String repoUrl, String targetPath) {
         try {
+            try {
+                // 优先使用 命令行 实现
+                executeCommand(null, "git", "clone", repoUrl, targetPath);
+                // 检查并配置 LFS
+                configureLFSIfNeeded(targetPath, repoUrl);
+                return;
+            } catch (Exception e) {
+                //使用 JGit 实现
+                System.out.println("使用命令行实现时报错:"+e);
+            }
             Git.cloneRepository().setURI(repoUrl).setDirectory(new File(targetPath)).call();
+            // 检查并配置 LFS
+            configureLFSIfNeeded(targetPath, repoUrl);
         } catch (Exception e) {
             throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
         }
     }
 
-    @Override
-    public void add(String repoPath, List<String> files) {
-        try (Git git = Git.open(getRepoDir(repoPath))) {
-            // 确保 LFS 已初始化
+    // 检查并配置 LFS
+    private void configureLFSIfNeeded(String repoPath, String repoUrl) throws Exception {
+        try (Git git = Git.open(new File(repoPath))) {
             Repository repo = git.getRepository();
             org.eclipse.jgit.lib.StoredConfig config = repo.getConfig();
-            
-            // 配置使用 JGit 内置 LFS 实现
-            config.setBoolean("filter", "lfs", "required", true);
-            
-            // 配置 LFS 服务器 URL（如果未配置）
-            String lfsUrl = config.getString("lfs", null, "url");
-            if (lfsUrl == null || lfsUrl.isEmpty()) {
-                // 从远程仓库 URL 构建 LFS URL
-                String remoteUrl = config.getString("remote", "origin", "url");
-                if (remoteUrl != null) {
-                    lfsUrl = remoteUrl.replace(".git", "/info/lfs");
-                    config.setString("lfs", null, "url", lfsUrl);
+
+            // 检查 .gitattributes 文件
+            boolean hasLfsAttributes = false;
+            File gitAttributesFile = new File(repo.getWorkTree(), ".gitattributes");
+            if (gitAttributesFile.exists()) {
+                try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader(gitAttributesFile))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if (line.contains("filter=lfs")) {
+                            hasLfsAttributes = true;
+                            break;
+                        }
+                    }
                 }
             }
-            
-            config.save();
-            
-            // 统一仓库路径格式
-            String normalizedRepoPath = repoPath.replace("\\", "/").replace("//", "/");
-            
-            files.forEach(file -> {
-                try {
-                    // 统一文件路径格式
-                    String normalizedFile = file.replace("\\", "/").replace("//", "/");
-                    
-                    // 计算相对路径
-                    String relativePath;
-                    if (normalizedFile.startsWith(normalizedRepoPath)) {
-                        relativePath = normalizedFile.substring(normalizedRepoPath.length());
-                        // 移除开头的斜杠
-                        if (relativePath.startsWith("/")) {
-                            relativePath = relativePath.substring(1);
-                        }
-                    } else {
-                        // 如果路径不包含仓库路径，尝试从文件名开始
-                        File fileObj = new File(file);
-                        relativePath = fileObj.getName();
-                    }
-                    
-                    // 确保使用正斜杠
-                    relativePath = relativePath.replace("\\", "/");
-                    
-                    // 执行添加操作
-                    git.add().addFilepattern(relativePath).call();
-                } catch (Exception e) {
-                    throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
+
+            // 检查 lfs.url 是否已配置
+            String lfsUrl = config.getString("lfs", null, "url");
+
+            // 如果启用了 LFS 但未配置 lfs.url，自动设置
+            if (hasLfsAttributes && (lfsUrl == null || lfsUrl.isEmpty())) {
+                // 从 repoUrl 推导 LFS URL（默认对接 GitLab）
+                String derivedLfsUrl = deriveLfsUrl(repoUrl);
+                if (derivedLfsUrl != null) {
+                    config.setString("lfs", null, "url", derivedLfsUrl);
+                    config.save();
                 }
-            });
+            }
+        }
+    }
+
+    // 从 Git URL 推导 LFS URL
+    private String deriveLfsUrl(String repoUrl) {
+        // 处理 HTTP/HTTPS URL
+        if (repoUrl.startsWith("http://") || repoUrl.startsWith("https://")) {
+            // GitLab 格式：http(s)://gitlab.com/{namespace}/{project}.git
+            // LFS URL：http(s)://gitlab.com/{namespace}/{project}.git/info/lfs
+            return repoUrl.endsWith(".git") ? repoUrl + "/info/lfs" : repoUrl + ".git/info/lfs";
+        }
+        // 处理 SSH URL
+        else if (repoUrl.startsWith("git@")) {
+            // GitLab 格式：git@gitlab.com:{namespace}/{project}.git
+            // 转换为 HTTPS 格式
+            String httpsUrl = repoUrl.replace("git@", "https://").replace(":", "/");
+            return httpsUrl.endsWith(".git") ? httpsUrl + "/info/lfs" : httpsUrl + ".git/info/lfs";
+        }
+        return null;
+    }
+
+    @Override
+    public void add(String repoPath, List<String> files) {
+        try {
+            File repoDir = getRepoDir(repoPath);
+            for (String file : files) {
+                String normalizedFile = file.replace("\\", "/").replace("//", "/");
+                String normalizedRepoPath = repoPath.replace("\\", "/").replace("//", "/");
+
+                String relativePath;
+                if (normalizedFile.startsWith(normalizedRepoPath)) {
+                    relativePath = normalizedFile.substring(normalizedRepoPath.length());
+                    if (relativePath.startsWith("/")) relativePath = relativePath.substring(1);
+                } else {
+                    relativePath = new File(file).getName();
+                }
+
+                executeCommand(repoDir.getAbsolutePath(), "git", "add", relativePath.replace("/", File.separator));
+            }
         } catch (Exception e) {
             throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
         }
@@ -104,12 +157,17 @@ public class GitServiceImpl implements GitService {
 
     @Override
     public void commit(String repoPath, String message) {
-        try (Git git = Git.open(getRepoDir(repoPath))) {
-            // 确保提交所有更改，包括新添加的文件
-            git.commit().setMessage(message).setAll(true).call();
+        try {
+            executeCommand(getRepoDir(repoPath).getAbsolutePath(), "git", "commit", "-m", message, "-a");
         } catch (Exception e) {
             throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
         }
+        //  try (Git git = Git.open(getRepoDir(repoPath))) {
+        //            // 确保提交所有更改，包括新添加的文件
+        //            git.commit().setMessage(message).setAll(true).call();
+        //        } catch (Exception e) {
+        //            throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
+        //        }
     }
 
     private CredentialsProvider getCredentialsProvider(String repoPath) {
@@ -127,13 +185,37 @@ public class GitServiceImpl implements GitService {
 
     @Override
     public void push(String repoPath, String remote, String branch) {
-        try (Git git = Git.open(getRepoDir(repoPath))) {
-            CredentialsProvider credentialsProvider = getCredentialsProvider(repoPath);
-            PushCommand pushCommand = git.push().setRemote(remote).setRefSpecs(new RefSpec("refs/heads/" + branch + ":refs/heads/" + branch));
-            if (credentialsProvider != null) pushCommand.setCredentialsProvider(credentialsProvider);
-            pushCommand.call();
+        try {
+            executeCommand(getRepoDir(repoPath).getAbsolutePath(), "git", "push", remote, branch);
         } catch (Exception e) {
             throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
+        }
+        //        try (Git git = Git.open(getRepoDir(repoPath))) {
+        //            CredentialsProvider credentialsProvider = getCredentialsProvider(repoPath);
+        //            PushCommand pushCommand = git.push().setRemote(remote).setRefSpecs(new RefSpec("refs/heads/" + branch + ":refs/heads/" + branch));
+        //            if (credentialsProvider != null) pushCommand.setCredentialsProvider(credentialsProvider);
+        //            pushCommand.call();
+        //        } catch (Exception e) {
+        //            throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
+        //        }
+    }
+
+    @Override
+    public boolean hasUnpushedCommits(String repoPath, String remote, String branch) {
+        try {
+            String repoDir = getRepoDir(repoPath).getAbsolutePath();
+            ProcessBuilder pb = new ProcessBuilder("git", "log", remote + "/" + branch + ".." + branch, "--oneline");
+            pb.directory(new File(repoDir));
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                return reader.readLine() != null;
+            } finally {
+                process.waitFor();
+            }
+        } catch (Exception e) {
+            return false;
         }
     }
 
@@ -143,11 +225,11 @@ public class GitServiceImpl implements GitService {
             // 确保 LFS 已初始化并配置为使用内置实现
             Repository repo = git.getRepository();
             org.eclipse.jgit.lib.StoredConfig config = repo.getConfig();
-            
+
             // 配置使用 JGit 内置 LFS 实现
             config.setBoolean("filter", "lfs", "required", true);
             config.save();
-            
+
             CredentialsProvider credentialsProvider = getCredentialsProvider(repoPath);
             PullCommand pullCommand = git.pull().setRemote(remote);
             if (credentialsProvider != null) pullCommand.setCredentialsProvider(credentialsProvider);
@@ -204,12 +286,48 @@ public class GitServiceImpl implements GitService {
         if (dir.exists() && dir.isDirectory()) {
             File[] fileList = dir.listFiles();
             if (fileList != null) {
+                // 读取 .gitattributes 文件，获取 LFS 跟踪的文件模式
+                List<String> lfsPatterns = new ArrayList<>();
+                try {
+                    File gitAttributesFile = new File(repoPath, ".gitattributes");
+                    if (gitAttributesFile.exists()) {
+                        try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader(gitAttributesFile))) {
+                            String line;
+                            while ((line = reader.readLine()) != null) {
+                                line = line.trim();
+                                if (!line.isEmpty() && !line.startsWith("#") && line.contains("filter=lfs")) {
+                                    String[] parts = line.split("\\s+");
+                                    if (parts.length > 0) {
+                                        lfsPatterns.add(parts[0]);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    // 忽略解析错误
+                }
+
                 for (File file : fileList) {
                     Map<String, Object> fileInfo = new HashMap<>();
                     fileInfo.put("name", file.getName());
                     fileInfo.put("path", file.getAbsolutePath().substring(repoPath.length()));
                     fileInfo.put("size", file.length());
                     fileInfo.put("isDirectory", file.isDirectory());
+
+                    // 判断文件是否为 LFS 文件
+                    boolean isLfsEnabled = false;
+                    if (!file.isDirectory() && !lfsPatterns.isEmpty()) {
+                        String fileName = file.getName();
+                        for (String pattern : lfsPatterns) {
+                            if (fileName.matches(pattern.replace(".", "\\.").replace("*", ".*"))) {
+                                isLfsEnabled = true;
+                                break;
+                            }
+                        }
+                    }
+                    fileInfo.put("isLfsEnabled", isLfsEnabled);
+
                     files.add(fileInfo);
                 }
             }

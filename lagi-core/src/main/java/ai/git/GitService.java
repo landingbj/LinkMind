@@ -1,5 +1,7 @@
 package ai.git;
 
+import org.eclipse.jgit.api.Status;
+
 import java.util.List;
 import java.util.Map;
 
@@ -28,7 +30,8 @@ public interface GitService {
     void addRemote(String repoPath, String name, String url);
     void deleteRemote(String repoPath, String name);
     List<Map<String, Object>> getRemotes(String repoPath);
-    Map<String, Object> getStatus(String repoPath);
+    Status getStatus(String repoPath);
+    Map<String, Object> getStatus(String repoPath,Object obj);
     void reset(String repoPath, String commitHash, String mode);
     void checkoutFile(String repoPath, String filePath);
 }

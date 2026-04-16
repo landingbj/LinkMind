@@ -9,6 +9,7 @@ import ai.servlet.annotation.Get;
 import ai.servlet.annotation.Param;
 import ai.servlet.annotation.Post;
 import cn.hutool.json.JSONObject;
+import org.eclipse.jgit.api.Status;
 
 import javax.servlet.http.HttpServletResponse;
 import java.util.List;
@@ -270,7 +271,7 @@ public class GitAPIServlet extends RestfulServlet {
         if (repoPath == null) {
             throw new IllegalArgumentException("repoPath is required");
         }
-        return gitService.getStatus(repoPath);
+        return gitService.getStatus(repoPath, null);
     }
 
     // 撤销操作
@@ -425,42 +426,8 @@ public class GitAPIServlet extends RestfulServlet {
         gitService.add(repoPath, files);
 
         // 2. 检查指定路径下的文件是否有变化
-            Map<String, Object> status = gitService.getStatus(repoPath);
-            boolean hasChanges = false;
-
-            // 检查指定路径下的文件是否有变化
-            if (status.containsKey("changed") && status.get("changed") instanceof List) {
-                List<?> changedFiles = (List<?>) status.get("changed");
-                for (Object file : changedFiles) {
-                    String filePath = file.toString();
-                    if (files.stream().anyMatch(f -> filePath.contains(f) || f.contains(filePath))) {
-                        hasChanges = true;
-                        break;
-                    }
-                }
-            }
-
-            if (!hasChanges && status.containsKey("untracked") && status.get("untracked") instanceof List) {
-                List<?> untrackedFiles = (List<?>) status.get("untracked");
-                for (Object file : untrackedFiles) {
-                    String filePath = file.toString();
-                    if (files.stream().anyMatch(f -> filePath.contains(f) || f.contains(filePath))) {
-                        hasChanges = true;
-                        break;
-                    }
-                }
-            }
-
-            if (!hasChanges && status.containsKey("deleted") && status.get("deleted") instanceof List) {
-                List<?> deletedFiles = (List<?>) status.get("deleted");
-                for (Object file : deletedFiles) {
-                    String filePath = file.toString();
-                    if (files.stream().anyMatch(f -> filePath.contains(f) || f.contains(filePath))) {
-                        hasChanges = true;
-                        break;
-                    }
-                }
-            }
+        Status status = gitService.getStatus(repoPath);
+        boolean hasChanges =  status.hasUncommittedChanges();
 
         // 3. 只有当有变化时才提交
         if (hasChanges) {

@@ -3,6 +3,7 @@ package ai.git.impl;
 import ai.git.GitService;
 import org.eclipse.jgit.api.*;
 import org.eclipse.jgit.api.ResetCommand.ResetType;
+import org.eclipse.jgit.lib.IndexDiff;
 import org.eclipse.jgit.transport.URIish;
 import org.eclipse.jgit.transport.CredentialsProvider;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
@@ -11,10 +12,7 @@ import org.eclipse.jgit.lib.Repository;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public class GitServiceImpl implements GitService {
 
@@ -68,7 +66,7 @@ public class GitServiceImpl implements GitService {
                 return;
             } catch (Exception e) {
                 //使用 JGit 实现
-                System.out.println("使用命令行实现时报错:"+e);
+                System.out.println("使用命令行实现时报错:" + e);
             }
             Git.cloneRepository().setURI(repoUrl).setDirectory(new File(targetPath)).call();
             // 检查并配置 LFS
@@ -188,6 +186,7 @@ public class GitServiceImpl implements GitService {
         try {
             executeCommand(getRepoDir(repoPath).getAbsolutePath(), "git", "push", remote, branch);
         } catch (Exception e) {
+            System.out.println(e);
             throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
         }
         //        try (Git git = Git.open(getRepoDir(repoPath))) {
@@ -230,8 +229,22 @@ public class GitServiceImpl implements GitService {
             config.setBoolean("filter", "lfs", "required", true);
             config.save();
 
+            // 检查仓库状态，如果处于合并状态，先尝试完成合并
+            if (repo.getRepositoryState().equals(org.eclipse.jgit.lib.RepositoryState.MERGING_RESOLVED) || 
+                repo.getRepositoryState().equals(org.eclipse.jgit.lib.RepositoryState.MERGING)) {
+                // 仓库处于合并状态，尝试完成合并
+                try {
+                    git.commit().setMessage("Merge remote-tracking branch '" + remote + "/" + branch + "'").call();
+                } catch (Exception e) {
+                    // 如果提交失败，尝试中止合并
+                    git.reset().setMode(ResetType.HARD).call();
+                }
+            }
+
             CredentialsProvider credentialsProvider = getCredentialsProvider(repoPath);
-            PullCommand pullCommand = git.pull().setRemote(remote);
+            PullCommand pullCommand = git.pull()
+                    .setRemote(remote)
+                    .setStrategy(org.eclipse.jgit.merge.MergeStrategy.RECURSIVE);
             if (credentialsProvider != null) pullCommand.setCredentialsProvider(credentialsProvider);
             pullCommand.call();
         } catch (Exception e) {
@@ -493,13 +506,34 @@ public class GitServiceImpl implements GitService {
     }
 
     @Override
-    public Map<String, Object> getStatus(String repoPath) {
+    public Status getStatus(String repoPath) {
+        try {
+            try (Git git = Git.open(getRepoDir(repoPath))) {
+                Status status = git.status().call();
+                return status;
+            } catch (Exception e) {
+                throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
+            }
+        }catch (Exception e){
+            throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
+        }
+    }
+    @Override
+    public Map<String, Object> getStatus(String repoPath, Object filePath) {
         Map<String, Object> status = new HashMap<>();
         try (Git git = Git.open(getRepoDir(repoPath))) {
-            org.eclipse.jgit.api.Status gitStatus = git.status().call();
+            Status gitStatus = git.status().call();
             status.put("modified", gitStatus.getModified());
             status.put("untracked", gitStatus.getUntracked());
             status.put("staged", gitStatus.getAdded());
+            status.put("removed", gitStatus.getRemoved());
+            status.put("conflicting", gitStatus.getConflicting());
+            status.put("ignored", gitStatus.getIgnoredNotInIndex());
+            status.put("uncommittedChanges", gitStatus.hasUncommittedChanges());
+            status.put("clean", gitStatus.isClean());
+            status.put("unpushedCommits", gitStatus.getUncommittedChanges());
+            status.put("unpushedCommitsCount", gitStatus.getUncommittedChanges().size());
+            status.put("unpushedCommitsHash", gitStatus.getUncommittedChanges());
         } catch (Exception e) {
             throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
         }

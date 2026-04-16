@@ -125,6 +125,10 @@ public class GitAPIServlet extends RestfulServlet {
         if (dirPath == null) {
             dirPath = "/";
         }
+        
+        // 异步拉取最新代码
+        asyncTaskManager.submitPull(gitService, repoPath, "origin", "main");
+        
         return gitService.getFiles(repoPath, dirPath);
     }
 
@@ -422,19 +426,22 @@ public class GitAPIServlet extends RestfulServlet {
             return Map.of( "code","400","message", "failed", "errorMsg", "repoPath, files and message are required");
         }
 
-        // 1. 添加文件到暂存区
+        // 1. 先拉取最新代码
+        gitService.pull(repoPath, remote, branch);
+
+        // 2. 添加文件到暂存区
         gitService.add(repoPath, files);
 
-        // 2. 检查指定路径下的文件是否有变化
+        // 3. 检查指定路径下的文件是否有变化
         Status status = gitService.getStatus(repoPath);
         boolean hasChanges =  status.hasUncommittedChanges();
 
-        // 3. 只有当有变化时才提交
+        // 4. 只有当有变化时才提交
         if (hasChanges) {
             gitService.commit(repoPath, message);
         }
-
-        // 4. 判断是否有未推送的内容
+        
+        // 5. 检查是否有未推送的内容
         if (gitService.hasUnpushedCommits(repoPath, remote, branch)) {
             String taskId = asyncTaskManager.submitPush(gitService, repoPath, remote, branch);
             return Map.of("taskId", taskId, "status", "PENDING");

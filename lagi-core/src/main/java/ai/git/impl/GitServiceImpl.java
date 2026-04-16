@@ -324,7 +324,8 @@ public class GitServiceImpl implements GitService {
                 for (File file : fileList) {
                     Map<String, Object> fileInfo = new HashMap<>();
                     fileInfo.put("name", file.getName());
-                    fileInfo.put("path", file.getAbsolutePath().substring(repoPath.length()));
+                    String relativePath = file.getAbsolutePath().substring(repoPath.length()).replaceFirst("^/+", "");
+                    fileInfo.put("path", relativePath);
                     fileInfo.put("size", file.length());
                     fileInfo.put("isDirectory", file.isDirectory());
 

@@ -17,27 +17,72 @@ The current codebase exposes a single middleware layer for chat, RAG, OCR, ASR/T
 
 **Models & Providers**
 
-|  |  |  |  |
-| :--- | :--- | :--- | :--- |
-| <img src="docs/images/logo/model/img_1.png" width="18" align="center" alt="Landing"> Landing | <img src="docs/images/logo/model/img_2.jpeg" width="18" align="center" alt="FastChat / Vicuna"> FastChat / Vicuna | <img src="docs/images/logo/model/img_4.jpeg" width="18" align="center" alt="OpenAI"> OpenAI | <img src="docs/images/logo/model/img_3.jpeg" width="18" align="center" alt="Azure OpenAI"> Azure OpenAI |
-| <img src="docs/images/logo/model/img_12.webp" width="18" align="center" alt="Gemini"> Gemini | <img src="docs/images/logo/model/img_5.png" width="18" align="center" alt="Qwen"> Qwen | <img src="docs/images/logo/model/img_6.png" width="18" align="center" alt="ERNIE"> ERNIE | <img src="docs/images/logo/model/img_7.jpg" width="18" align="center" alt="ChatGLM"> ChatGLM |
-| <img src="docs/images/logo/model/img_8.png" width="18" align="center" alt="Moonshot / Kimi"> Moonshot / Kimi | <img src="docs/images/logo/model/img_9.jpeg" width="18" align="center" alt="Baichuan"> Baichuan | <img src="docs/images/logo/model/img_10.jpeg" width="18" align="center" alt="iFLYTEK Spark"> iFLYTEK Spark | <img src="docs/images/logo/model/img_11.png" width="18" align="center" alt="SenseChat"> SenseChat |
-| <img src="docs/images/logo/model/img_13.png" width="18" align="center" alt="Doubao"> Doubao | <img src="docs/images/logo/model/img_14.jpeg" width="18" align="center" alt="DeepSeek"> DeepSeek | <img src="docs/images/logo/model/img_15.webp" width="18" align="center" alt="Claude"> Claude | <img src="docs/images/logo/model/img_16.jpg" width="18" align="center" alt="MiniMax"> MiniMax |
-| <img src="docs/images/logo/img_4.jpeg" width="18" align="center" alt="Hunyuan"> Hunyuan | `X` Grok | `OR` OpenRouter | `SF` StepFun |
-| `XM` Xiaomi | `OA` OpenAI-compatible |  |  |
+<table>
+  <tr>
+    <td><img src="docs/images/logo/model/img_1.png" width="18" alt="Landing"> Landing</td>
+    <td><img src="docs/images/logo/model/img_2.jpeg" width="18" alt="FastChat / Vicuna"> FastChat / Vicuna</td>
+    <td><img src="docs/images/logo/model/img_4.jpeg" width="18" alt="OpenAI"> OpenAI</td>
+    <td><img src="docs/images/logo/model/img_3.jpeg" width="18" alt="Azure OpenAI"> Azure OpenAI</td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/logo/model/img_12.webp" width="18" alt="Gemini"> Gemini</td>
+    <td><img src="docs/images/logo/model/img_5.png" width="18" alt="Qwen"> Qwen</td>
+    <td><img src="docs/images/logo/model/img_6.png" width="18" alt="ERNIE"> ERNIE</td>
+    <td><img src="docs/images/logo/model/img_7.jpg" width="18" alt="ChatGLM"> ChatGLM</td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/logo/model/img_8.png" width="18" alt="Moonshot / Kimi"> Moonshot / Kimi</td>
+    <td><img src="docs/images/logo/model/img_9.jpeg" width="18" alt="Baichuan"> Baichuan</td>
+    <td><img src="docs/images/logo/model/img_10.jpeg" width="18" alt="iFLYTEK Spark"> iFLYTEK Spark</td>
+    <td><img src="docs/images/logo/model/img_11.png" width="18" alt="SenseChat"> SenseChat</td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/logo/model/img_13.png" width="18" alt="Doubao"> Doubao</td>
+    <td><img src="docs/images/logo/model/img_14.jpeg" width="18" alt="DeepSeek"> DeepSeek</td>
+    <td><img src="docs/images/logo/model/img_15.webp" width="18" alt="Claude"> Claude</td>
+    <td><img src="docs/images/logo/model/img_16.jpg" width="18" alt="MiniMax"> MiniMax</td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/logo/img_4.jpeg" width="18" alt="Hunyuan"> Hunyuan</td>
+    <td><code>X</code> Grok</td>
+    <td><code>OR</code> OpenRouter</td>
+    <td><code>SF</code> StepFun</td>
+  </tr>
+  <tr>
+    <td><code>XM</code> Xiaomi</td>
+    <td><code>OA</code> OpenAI-compatible</td>
+    <td></td>
+    <td></td>
+  </tr>
+</table>
 
 **Agent Runtimes**
 
-|  |  |  |  |
-| :--- | :--- | :--- | :--- |
-| `OC` OpenClaw | `HA` Hermes Agent | `DF` DeerFlow | <img src="docs/images/logo/img_1.png" width="18" align="center" alt="Coze"> Coze |
-| <img src="docs/images/logo/img_2.png" width="18" align="center" alt="Wenxin Agents"> Wenxin Agents | <img src="docs/images/logo/img_3.png" width="18" align="center" alt="Zhipu Agents"> Zhipu Agents | <img src="docs/images/logo/img_4.jpeg" width="18" align="center" alt="Hunyuan Agents"> Hunyuan Agents |  |
+<table>
+  <tr>
+    <td><code>OC</code> OpenClaw</td>
+    <td><code>HA</code> Hermes Agent</td>
+    <td><code>DF</code> DeerFlow</td>
+    <td><img src="docs/images/logo/img_1.png" width="18" alt="Coze"> Coze</td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/logo/img_2.png" width="18" alt="Wenxin Agents"> Wenxin Agents</td>
+    <td><img src="docs/images/logo/img_3.png" width="18" alt="Zhipu Agents"> Zhipu Agents</td>
+    <td><img src="docs/images/logo/img_4.jpeg" width="18" alt="Hunyuan Agents"> Hunyuan Agents</td>
+    <td></td>
+  </tr>
+</table>
 
 **Data & Retrieval**
 
-|  |  |  |  |
-| :--- | :--- | :--- | :--- |
-| <img src="docs/images/logo/img_4.png" width="18" align="center" alt="Chroma"> Chroma | <img src="docs/images/logo/img_5.png" width="18" align="center" alt="Elasticsearch"> Elasticsearch | <img src="docs/images/logo/img_6.png" width="18" align="center" alt="MySQL"> MySQL |  |
+<table>
+  <tr>
+    <td><img src="docs/images/logo/img_4.png" width="18" alt="Chroma"> Chroma</td>
+    <td><img src="docs/images/logo/img_5.png" width="18" alt="Elasticsearch"> Elasticsearch</td>
+    <td><img src="docs/images/logo/img_6.png" width="18" alt="MySQL"> MySQL</td>
+  </tr>
+</table>
+
 
 ## Why LinkMind
 

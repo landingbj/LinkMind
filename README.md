@@ -15,46 +15,29 @@ The current codebase exposes a single middleware layer for chat, RAG, OCR, ASR/T
 
 ### Model And Runtime Ecosystem
 
-<div style="display:flex;flex-wrap:wrap;gap:8px 10px;margin:12px 0 20px;">
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_1.png" width="18" height="18" alt="Landing"><span>Landing</span></span>
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_2.jpeg" width="18" height="18" alt="FastChat / Vicuna"><span>FastChat / Vicuna</span></span>
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_4.jpeg" width="18" height="18" alt="OpenAI"><span>OpenAI</span></span>
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_3.jpeg" width="18" height="18" alt="Azure OpenAI"><span>Azure OpenAI</span></span>
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_12.webp" width="18" height="18" alt="Gemini"><span>Gemini</span></span>
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_5.png" width="18" height="18" alt="Qwen"><span>Qwen</span></span>
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_6.png" width="18" height="18" alt="ERNIE"><span>ERNIE</span></span>
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_7.jpg" width="18" height="18" alt="ChatGLM"><span>ChatGLM</span></span>
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_8.png" width="18" height="18" alt="Moonshot / Kimi"><span>Moonshot / Kimi</span></span>
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_9.jpeg" width="18" height="18" alt="Baichuan"><span>Baichuan</span></span>
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_10.jpeg" width="18" height="18" alt="iFLYTEK Spark"><span>iFLYTEK Spark</span></span>
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_11.png" width="18" height="18" alt="SenseChat"><span>SenseChat</span></span>
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_13.png" width="18" height="18" alt="Doubao"><span>Doubao</span></span>
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_14.jpeg" width="18" height="18" alt="DeepSeek"><span>DeepSeek</span></span>
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_15.webp" width="18" height="18" alt="Claude"><span>Claude</span></span>
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_16.jpg" width="18" height="18" alt="MiniMax"><span>MiniMax</span></span>
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/img_4.jpeg" width="18" height="18" alt="Hunyuan"><span>Hunyuan</span></span>
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:6px;background:#111827;color:#fff;font-size:10px;font-weight:700;">X</span><span>Grok</span></span>
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:6px;background:#0f766e;color:#fff;font-size:10px;font-weight:700;">OR</span><span>OpenRouter</span></span>
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:6px;background:#7c3aed;color:#fff;font-size:10px;font-weight:700;">SF</span><span>StepFun</span></span>
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:6px;background:#ea580c;color:#fff;font-size:10px;font-weight:700;">XM</span><span>Xiaomi</span></span>
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:6px;background:#334155;color:#fff;font-size:10px;font-weight:700;">OA</span><span>OpenAI-compatible</span></span>
-</div>
+**Models & Providers**
 
-<div style="display:flex;flex-wrap:wrap;gap:8px 10px;margin:0 0 20px;">
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:6px;background:#0f172a;color:#fff;font-size:10px;font-weight:700;">OC</span><span>OpenClaw</span></span>
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:6px;background:#6d28d9;color:#fff;font-size:10px;font-weight:700;">HA</span><span>Hermes Agent</span></span>
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:6px;background:#166534;color:#fff;font-size:10px;font-weight:700;">DF</span><span>DeerFlow</span></span>
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/img_1.png" width="18" height="18" alt="Coze"><span>Coze</span></span>
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/img_2.png" width="18" height="18" alt="Wenxin Agents"><span>Wenxin Agents</span></span>
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/img_3.png" width="18" height="18" alt="Zhipu Agents"><span>Zhipu Agents</span></span>
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/img_4.jpeg" width="18" height="18" alt="Hunyuan Agents"><span>Hunyuan Agents</span></span>
-</div>
+|  |  |  |  |
+| :--- | :--- | :--- | :--- |
+| <img src="docs/images/logo/model/img_1.png" width="18" align="center" alt="Landing"> Landing | <img src="docs/images/logo/model/img_2.jpeg" width="18" align="center" alt="FastChat / Vicuna"> FastChat / Vicuna | <img src="docs/images/logo/model/img_4.jpeg" width="18" align="center" alt="OpenAI"> OpenAI | <img src="docs/images/logo/model/img_3.jpeg" width="18" align="center" alt="Azure OpenAI"> Azure OpenAI |
+| <img src="docs/images/logo/model/img_12.webp" width="18" align="center" alt="Gemini"> Gemini | <img src="docs/images/logo/model/img_5.png" width="18" align="center" alt="Qwen"> Qwen | <img src="docs/images/logo/model/img_6.png" width="18" align="center" alt="ERNIE"> ERNIE | <img src="docs/images/logo/model/img_7.jpg" width="18" align="center" alt="ChatGLM"> ChatGLM |
+| <img src="docs/images/logo/model/img_8.png" width="18" align="center" alt="Moonshot / Kimi"> Moonshot / Kimi | <img src="docs/images/logo/model/img_9.jpeg" width="18" align="center" alt="Baichuan"> Baichuan | <img src="docs/images/logo/model/img_10.jpeg" width="18" align="center" alt="iFLYTEK Spark"> iFLYTEK Spark | <img src="docs/images/logo/model/img_11.png" width="18" align="center" alt="SenseChat"> SenseChat |
+| <img src="docs/images/logo/model/img_13.png" width="18" align="center" alt="Doubao"> Doubao | <img src="docs/images/logo/model/img_14.jpeg" width="18" align="center" alt="DeepSeek"> DeepSeek | <img src="docs/images/logo/model/img_15.webp" width="18" align="center" alt="Claude"> Claude | <img src="docs/images/logo/model/img_16.jpg" width="18" align="center" alt="MiniMax"> MiniMax |
+| <img src="docs/images/logo/img_4.jpeg" width="18" align="center" alt="Hunyuan"> Hunyuan | `X` Grok | `OR` OpenRouter | `SF` StepFun |
+| `XM` Xiaomi | `OA` OpenAI-compatible |  |  |
 
-<div style="display:flex;flex-wrap:wrap;gap:8px 10px;margin:0 0 20px;">
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/img_4.png" width="18" height="18" alt="Chroma"><span>Chroma</span></span>
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/img_5.png" width="18" height="18" alt="Elasticsearch"><span>Elasticsearch</span></span>
-  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/img_6.png" width="18" height="18" alt="MySQL"><span>MySQL</span></span>
-</div>
+**Agent Runtimes**
+
+|  |  |  |  |
+| :--- | :--- | :--- | :--- |
+| `OC` OpenClaw | `HA` Hermes Agent | `DF` DeerFlow | <img src="docs/images/logo/img_1.png" width="18" align="center" alt="Coze"> Coze |
+| <img src="docs/images/logo/img_2.png" width="18" align="center" alt="Wenxin Agents"> Wenxin Agents | <img src="docs/images/logo/img_3.png" width="18" align="center" alt="Zhipu Agents"> Zhipu Agents | <img src="docs/images/logo/img_4.jpeg" width="18" align="center" alt="Hunyuan Agents"> Hunyuan Agents |  |
+
+**Data & Retrieval**
+
+|  |  |  |  |
+| :--- | :--- | :--- | :--- |
+| <img src="docs/images/logo/img_4.png" width="18" align="center" alt="Chroma"> Chroma | <img src="docs/images/logo/img_5.png" width="18" align="center" alt="Elasticsearch"> Elasticsearch | <img src="docs/images/logo/img_6.png" width="18" align="center" alt="MySQL"> MySQL |  |
 
 ## Why LinkMind
 

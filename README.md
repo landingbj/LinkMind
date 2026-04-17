@@ -83,14 +83,21 @@ The current codebase exposes a single middleware layer for chat, RAG, OCR, ASR/T
   </tr>
 </table>
 
+All three ecosystems are extensible; the [Extension Guide](docs/extend_en.md) covers writing new model, vector-store, and adapter integrations. For Chroma setup specifics, see the [Annex](docs/annex_en.md).
 
 ## Why LinkMind
 
 - One middleware layer for chat, OCR, ASR/TTS, image generation, image and video understanding, text-to-SQL, embeddings, rerank, and document pipelines.
-- Multi-model routing and failover are configured centrally in `lagi.yml`, so business systems do not need provider-specific rewrites.
+
+- Multi-model routing and failover are configured centrally in `lagi.yml` (see the [Configuration Reference](docs/config_en.md) for all options), so business systems do not need provider-specific rewrites.
+
 - RAG support is built around vector stores and document ingestion, with optional Chroma, Elasticsearch, MySQL, and graph-style augmentation.
+
 - Medusa caching, token statistics endpoints, filters, and runtime governance target real production cost and stability concerns.
+
 - Agent-runtime sync is built in for OpenClaw, Hermes Agent, and DeerFlow, which makes local AI workspace integration easier.
+
+  <img src="docs/images/img_25.png">
 
 ## Get Started In Minutes
 
@@ -136,19 +143,7 @@ Current packaging generates:
 - `lagi-web/target/LinkMind.jar`
 - `lagi-web/target/ROOT.war`
 
-More setup details are in the [Installation Guide](docs/install_en.md).
-
-## Documentation Map
-
-| Goal | English | 中文 |
-| --- | --- | --- |
-| Install and run LinkMind | [Installation Guide](docs/install_en.md) | [安装指南](docs/install_zh.md) |
-| Configure models, routing, RAG, skills, and filters | [Configuration Reference](docs/config_en.md) | [配置参考](docs/config_zh.md) |
-| Call native and OpenAI-compatible APIs | [API Reference](docs/API_en.md) | [API 参考](docs/API_zh.md) |
-| Integrate `lagi-core` or REST APIs into your app | [Integration Guide](docs/guide_en.md) | [开发集成指南](docs/guide_zh.md) |
-| Follow a first-run walkthrough | [Tutorial](docs/tutor_en.md) | [教学演示](docs/tutor_zh.md) |
-| Extend models, vector stores, and adapters | [Extension Guide](docs/extend_en.md) | [扩展开发文档](docs/extend_zh.md) |
-| Chroma setup and packaging appendix | [Annex](docs/annex_en.md) | [附件](docs/annex_zh.md) |
+More setup details are in the [Installation Guide](docs/install_en.md). For a guided first-run walkthrough, try the [Tutorial](docs/tutor_en.md).
 
 ## API Surface
 
@@ -157,7 +152,7 @@ LinkMind exposes two route styles:
 - Native LinkMind routes without extra version prefixes where the server already supports them, such as `/chat/completions`, `/audio/speech2text`, `/audio/text2speech`, `/image/text2image`, `/sql/text2sql`, `/instruction/generate`, `/doc/doc2ext`, and `/ocr/doc2ocr`
 - OpenAI-compatible routes that intentionally keep the standard prefix, such as `/v1/chat/completions`, `/v1/models`, `/v1/embeddings`, `/v1/images/generations`, and `/v1/rerank`
 
-One current exception is the vector administration namespace, which is still mapped in code as `/v1/vector/*`.
+One current exception is the vector administration namespace, which is still mapped in code as `/v1/vector/*`. Full endpoint documentation is in the [API Reference](docs/API_en.md).
 
 ## Agent Runtime Integration
 
@@ -176,6 +171,8 @@ If you want the shortest evaluation path, start with `Agent Server`, verify the 
 - Text-to-SQL, SQL-to-text, instruction generation, MCP access, and worker orchestration
 - Filters for sensitive content, priority words, stopping words, and conversation continuation
 - Skills runtime, MCP server configuration, and token usage observability
+
+To integrate these capabilities into your application via `lagi-core` or REST APIs, see the [Integration Guide](docs/guide_en.md).
 
 ## Build And Packaging Notes
 

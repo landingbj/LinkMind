@@ -1,393 +1,161 @@
-[简体中文](README_zh.md)| English
+[简体中文](README_zh.md) | English
 
-## **Introduction**
+# LinkMind
 
-LinkMind is a solution carefully developed by Beijing Liandong North Technology Co., Ltd. to address the significant gap between the rapid development of open source big model technology and its actual application in enterprises. It is an enterprise-level composite multimodal big model middleware that aims to bridge this gap and enable enterprises to customize and deploy big models in a low-cost and efficient manner by providing a secure and professional platform.
+LinkMind is enterprise-grade multimodal AI middleware for teams that need one stable layer between business systems, private knowledge, model providers, and agent runtimes. It focuses on fast onboarding, low-friction integration, routing and failover, RAG, multimodal APIs, and production governance.
 
-Supports but is not limited to the following models:
+## Online Demo
 
-<div style="display: flex; flex-wrap: wrap; justify-content: flex-start; align-items: center;">
-    <div style="display: flex; align-items: center; margin: 10px;">
-        <img src="docs/images/logo/model/img_1.png" width="20" style="margin: 10px;" height="20">
-        <span style="font-size: 12px;width: 70px; text-align: left;">Landing&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
-        <img src="docs/images/logo/model/img_2.jpeg" width="20" style="margin: 10px;" height="20">
-        <span style="font-size: 12px;width: 70px; text-align: left;">Vicuna&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
-        <img src="docs/images/logo/model/img_4.jpeg" width="20" style="margin: 10px;" height="20">
-        <span style="font-size: 12px;width: 70px; text-align: left;">ChatGPT&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
-        <img src="docs/images/logo/model/img_3.jpeg" width="20" style="margin: 10px;" height="20">
-        <span style="font-size: 12px;width: 70px; text-align: left;">GPTAzure&nbsp;&nbsp;&nbsp;&nbsp;</span>
-        <img src="docs/images/logo/model/img_12.webp" width="20" style="margin: 10px;" height="20">
-        <span style="font-size: 12px;width: 70px; text-align: left;">Gemini&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
-        <img src="docs/images/logo/model/img_5.png" width="20" style="margin: 10px;" height="20">
-        <span style="font-size: 12px;width: 70px; text-align: left;">Qwen&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
-    </div>
-	</br>
- <div style="display: flex; align-items: center; margin: 10px;">
-        <img src="docs/images/logo/model/img_6.png" width="20" style="margin: 10px;" height="20">
-        <span style="font-size: 12px;width: 70px; text-align: left;">Baidu&nbsp;Ernie &nbsp;&nbsp; </span>
-        <img src="docs/images/logo/model/img_7.jpg" width="20" style="margin: 10px;" height="20">
-        <span style="font-size: 12px;width: 70px; text-align: left;">ChatGLM&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
-        <img src="docs/images/logo/model/img_8.png" width="20" style="margin: 10px;" height="20">
-        <span style="font-size: 12px;width: 70px; text-align: left;">Moonshot&nbsp;AI&nbsp;</span>
-        <img src="docs/images/logo/model/img_9.jpeg" width="20" style="margin: 10px;" height="20">
-        <span style="font-size: 12px;width: 70px; text-align:   left;">Baichuan&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
-        <img src="docs/images/logo/model/img_10.jpeg"width="20" style="margin: 10px;" height="20">
-        <span style="font-size: 12px;width: 70px; text-align: left;">IFLYTEK&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
-        <img src="docs/images/logo/model/img_11.png" width="20" style="margin: 10px;" height="20">
-        <span style="font-size: 12px;width: 70px; text-align: left;">SenseChat&nbsp;&nbsp;&nbsp;</span>
-    </div>
-		</br>
-    <div style="display: flex; align-items: center; margin: 10px;">
-        <img src="docs/images/logo/model/img_13.png" width="20" style="margin: 10px;" height="20">
-        <span style="font-size: 12px;width: 70px; text-align: left;">Doubao&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp</span>
-        <img src="docs/images/logo/model/img_14.jpeg" width="20" style="margin: 10px;" height="20">
-        <span style="font-size: 12px;width: 70px; text-align: left;">DeepSeek&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
-        <img src="docs/images/logo/model/img_15.webp" width="20" style="margin: 10px;" height="20">
-        <span style="font-size: 12px;width: 70px; text-align: left;">Claude&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
-        <img src="docs/images/logo/model/img_16.jpg" width="20" style="margin: 10px;" height="20">
-        <span style="font-size: 12px;width: 70px; text-align: left;">MiniMax&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
-    </div>
-	</br>
+- Public demo: [https://lagi.landingbj.com](https://lagi.landingbj.com/)
+- Local console after startup: `http://localhost:8080`
+
+## Introduction
+
+The current codebase exposes a single middleware layer for chat, RAG, OCR, ASR/TTS, image and video workflows, text-to-SQL, embeddings, rerank, MCP access, skills, worker orchestration, and OpenAI-compatible APIs. It also includes runtime sync hooks for OpenClaw, Hermes Agent, and DeerFlow.
+
+### Model And Runtime Ecosystem
+
+<div style="display:flex;flex-wrap:wrap;gap:8px 10px;margin:12px 0 20px;">
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_1.png" width="18" height="18" alt="Landing"><span>Landing</span></span>
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_2.jpeg" width="18" height="18" alt="FastChat / Vicuna"><span>FastChat / Vicuna</span></span>
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_4.jpeg" width="18" height="18" alt="OpenAI"><span>OpenAI</span></span>
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_3.jpeg" width="18" height="18" alt="Azure OpenAI"><span>Azure OpenAI</span></span>
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_12.webp" width="18" height="18" alt="Gemini"><span>Gemini</span></span>
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_5.png" width="18" height="18" alt="Qwen"><span>Qwen</span></span>
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_6.png" width="18" height="18" alt="ERNIE"><span>ERNIE</span></span>
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_7.jpg" width="18" height="18" alt="ChatGLM"><span>ChatGLM</span></span>
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_8.png" width="18" height="18" alt="Moonshot / Kimi"><span>Moonshot / Kimi</span></span>
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_9.jpeg" width="18" height="18" alt="Baichuan"><span>Baichuan</span></span>
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_10.jpeg" width="18" height="18" alt="iFLYTEK Spark"><span>iFLYTEK Spark</span></span>
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_11.png" width="18" height="18" alt="SenseChat"><span>SenseChat</span></span>
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_13.png" width="18" height="18" alt="Doubao"><span>Doubao</span></span>
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_14.jpeg" width="18" height="18" alt="DeepSeek"><span>DeepSeek</span></span>
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_15.webp" width="18" height="18" alt="Claude"><span>Claude</span></span>
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/model/img_16.jpg" width="18" height="18" alt="MiniMax"><span>MiniMax</span></span>
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/img_4.jpeg" width="18" height="18" alt="Hunyuan"><span>Hunyuan</span></span>
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:6px;background:#111827;color:#fff;font-size:10px;font-weight:700;">X</span><span>Grok</span></span>
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:6px;background:#0f766e;color:#fff;font-size:10px;font-weight:700;">OR</span><span>OpenRouter</span></span>
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:6px;background:#7c3aed;color:#fff;font-size:10px;font-weight:700;">SF</span><span>StepFun</span></span>
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:6px;background:#ea580c;color:#fff;font-size:10px;font-weight:700;">XM</span><span>Xiaomi</span></span>
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:6px;background:#334155;color:#fff;font-size:10px;font-weight:700;">OA</span><span>OpenAI-compatible</span></span>
 </div>
 
-
-Supports but is not limited to the following intelligent agent platforms:
-
-<div style="display: flex; flex-wrap: wrap; justify-content: flex-start; align-items: center;">
-    <div style="display: flex; align-items: center; margin: 10px;">
-        <img src="docs/images/logo/img_4.jpeg" alt="Model 2" width="20" style="margin: 10px;" height="20">
-        <span style="font-size: 12px;"> Hunyuan&nbsp;&nbsp;&nbsp;&nbsp; </span>
-        <img src="docs/images/logo/img_1.png" alt="Platform 2" width="20" style="margin: 10px;" height="20">
-        <span style="font-size: 12px;"> Coze &nbsp;&nbsp;&nbsp;&nbsp;</span>
-        <img src="docs/images/logo/img_2.png" alt="Framework 1" width="20" style="margin: 10px;" height="20">
-        <span style="font-size: 12px;">Wenxin &nbsp;&nbsp;&nbsp;&nbsp;</span>
-        <img src="docs/images/logo/img_3.png" alt="Framework 2" width="20" style="margin: 10px;" height="20">
-        <span style="font-size: 12px;">Zhipu &nbsp;&nbsp;&nbsp;&nbsp;</span>
-    </div>
+<div style="display:flex;flex-wrap:wrap;gap:8px 10px;margin:0 0 20px;">
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:6px;background:#0f172a;color:#fff;font-size:10px;font-weight:700;">OC</span><span>OpenClaw</span></span>
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:6px;background:#6d28d9;color:#fff;font-size:10px;font-weight:700;">HA</span><span>Hermes Agent</span></span>
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:6px;background:#166534;color:#fff;font-size:10px;font-weight:700;">DF</span><span>DeerFlow</span></span>
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/img_1.png" width="18" height="18" alt="Coze"><span>Coze</span></span>
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/img_2.png" width="18" height="18" alt="Wenxin Agents"><span>Wenxin Agents</span></span>
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/img_3.png" width="18" height="18" alt="Zhipu Agents"><span>Zhipu Agents</span></span>
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/img_4.jpeg" width="18" height="18" alt="Hunyuan Agents"><span>Hunyuan Agents</span></span>
 </div>
 
-  </br>
-The following database types are supported but not limited to:
-  </br>
-<div style="display: flex; flex-wrap: wrap; justify-content: flex-start;">
-    <div style="display: flex; align-items: center; margin: 10px;">
-        <img src="docs/images/logo/img_4.png" width="20" style="margin: 10px;" height="20">
-        <span style="font-size: 12px;">Chroma&nbsp;&nbsp;&nbsp;</span>
-        <img src="docs/images/logo/img_5.png" width="20" style="margin: 10px;" height="20">
-        <span style="font-size: 12px;">elastic&nbsp;&nbsp;&nbsp;</span>
-        <img src="docs/images/logo/img_6.png" width="20" style="margin: 10px;" height="20">
-        <span style="font-size: 12px;">mysql&nbsp;&nbsp;&nbsp;</span>
-    </div>
+<div style="display:flex;flex-wrap:wrap;gap:8px 10px;margin:0 0 20px;">
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/img_4.png" width="18" height="18" alt="Chroma"><span>Chroma</span></span>
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/img_5.png" width="18" height="18" alt="Elasticsearch"><span>Elasticsearch</span></span>
+  <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #d0d7de;border-radius:999px;"><img src="docs/images/logo/img_6.png" width="18" height="18" alt="MySQL"><span>MySQL</span></span>
 </div>
 
-## Installation and Running
+## Why LinkMind
 
-Prerequisites: **JDK 8** must be installed on your machine. If not installed or for detailed steps on each platform, see the [Installation Guide (JDK installation and configuration)](docs/install_en.md).
+- One middleware layer for chat, OCR, ASR/TTS, image generation, image and video understanding, text-to-SQL, embeddings, rerank, and document pipelines.
+- Multi-model routing and failover are configured centrally in `lagi.yml`, so business systems do not need provider-specific rewrites.
+- RAG support is built around vector stores and document ingestion, with optional Chroma, Elasticsearch, MySQL, and graph-style augmentation.
+- Medusa caching, token statistics endpoints, filters, and runtime governance target real production cost and stability concerns.
+- Agent-runtime sync is built in for OpenClaw, Hermes Agent, and DeerFlow, which makes local AI workspace integration easier.
 
-**Official install script**
+## Get Started In Minutes
 
-Run the command for your platform in a terminal to download and complete installation:
+### 1. Official installer
 
-- **Windows (PowerShell):**
+Prerequisite: install **JDK 8 or later**.
+
+- Windows PowerShell
+
   ```powershell
   iwr -useb https://downloads.landingbj.com/install.ps1 | iex
   ```
-- **macOS / Linux:**
+
+- macOS / Linux
+
   ```bash
   curl -fsSL https://downloads.landingbj.com/install.sh | bash
   ```
 
-**Recommended: Run with JAR**
+The installer supports two runtime choices:
 
-1. Place `LinkMind.jar` in any directory (e.g. `D:\LinkMind` or `~/LinkMind`).
-2. In that directory, run:
-   - **Windows (PowerShell or cmd):**
-     ```powershell
-     java -jar LinkMind.jar
-     ```
-   - **macOS / Linux:**
-     ```bash
-     java -jar LinkMind.jar
-     ```
-3. On first run, `config`, `data`, and the default `lagi.yml` will be generated automatically.
-4. Open **http://localhost:8080** in your browser to use LinkMind.
+| Mode | Use when |
+| --- | --- |
+| `Agent Mate` | You already use OpenClaw, Hermes Agent, or DeerFlow locally and want LinkMind to work as the shared middleware layer |
+| `Agent Server` | You want a standalone LinkMind service first, or you are evaluating the web console and API directly |
 
-For changing the port, specifying config/data directories, and more, see the [Installation Guide](docs/install_en.md).
+### 2. Run the packaged JAR
 
-## Product Features
-This product provides efficient, stable and easy-to-use functions through a series of advanced technologies and optimized designs to meet diverse user needs. The following are the main features:
-
-**More accurate retrieval enhancement (RAG)**
-
-Through refined data management and optimization algorithms, ensure high accuracy of model output.
-
-Support continuous model learning and gradually improve overall performance and response accuracy.
-
-**Faster pre-read cache (Medusa)**
-
-Introducing Medusa technology, effectively reducing user waiting time through pre-read cache mechanism.
-
-Optimize data processing flow to further improve model operation efficiency.
-
-**More efficient model performance improvement**
-
-Adopt advanced performance optimization strategies to significantly improve the computing efficiency and response speed of the model.
-
-Maintain high performance in a variety of application scenarios to meet complex task requirements.
-
-**More stable automatic switching of large models**
-
-Support multi-link backup mechanism to ensure that the system can seamlessly switch to the backup model when a failure occurs.
-
-Provide a stable operating environment to reduce the risk of service interruption caused by technical failures.
-
-**More powerful intent detection (Graph)**
-
-Use knowledge graph technology to accurately identify user intent and provide targeted responses.
-
-Quickly analyze user input to ensure accurate, stable and easy-to-use responses.
-
-**More convenient one-time writing for multiple models**
-
-Supports one-time writing to adapt to multiple models, significantly reducing duplication of work in development.
-
-Reduces development and maintenance difficulties and improves overall development efficiency.
-## Online Demo
-
-To allow users to intuitively experience the powerful functionality and convenience of LinkMind, we offer an online demo. You can visit and experience it through the following link: [https://lagi.landingbj.com](https://lagi.landingbj.com/).
-
-## Quick Start
-
-For developers, we provide a simple way to compile and run the LinkMind application. You can choose to use the Maven command-line tool to package, or run it through mainstream Integrated Development Environments (IDEs) like IntelliJ IDEA. Please make sure you are using JDK version 8 or above.
-
-### Method 1: Using Maven
-
-First, you need to clone the LinkMind project repository and switch to the project directory:
-
-```shell
-git clone https://github.com/landingbj/lagi.git
-cd lagi
+```powershell
+java -jar LinkMind.jar
 ```
 
-Next, modify the [`src/main/resources/lagi.yml`](lagi-web/src/main/resources/lagi.yml) configuration file, replace the large language model API_KEY or SECRET_KEY with your own keys, and set the `enable` field of the model you wish to activate to `true` as needed. Detailed configuration methods can be seen in the [configuration documentation](docs/config_en.md).
+On first run, LinkMind creates `config/`, `data/`, and the default `lagi.yml`. Then open `http://localhost:8080`.
 
-```yaml
-- name: gpt-test
-  type: GPT
-  enable: true
-  priority: 1
-  model: gpt-3.5-turbo-1106
-  api_key: your-apikey
-```
+### 3. Build from source
 
-Then, use the Maven command to package the project. The packaged jar and war files will be generated in the `target` directory:
-
-```shell
+```bash
 mvn clean package -pl lagi-web -am -DskipTests -U
 ```
 
-Finally, you can deploy the generated war package to a Tomcat server, or run the embedded Tomcat jar directly. After starting, access the corresponding port in your browser to view the LinkMind interface.
+Current packaging generates:
 
-### Method 2: Using IDE
+- `lagi-web/target/LinkMind.jar`
+- `lagi-web/target/ROOT.war`
 
-If you prefer to use an IDE for development, you can directly open the LinkMind project with mainstream IDEs like IntelliJ IDEA. After publishing the project as a web project to the Tomcat server, you can view the interface of LinkMind by accessing the respective port through a browser.
+More setup details are in the [Installation Guide](docs/install_en.md).
 
-### Method 3: Docker
+## Documentation Map
 
-- Image Name: landingbj/lagi
+| Goal | English | 中文 |
+| --- | --- | --- |
+| Fast local startup checklist | [QuickStart](QuickStart.md) | [QuickStart](QuickStart.md) |
+| Install and run LinkMind | [Installation Guide](docs/install_en.md) | [安装指南](docs/install_zh.md) |
+| Configure models, routing, RAG, skills, and filters | [Configuration Reference](docs/config_en.md) | [配置参考](docs/config_zh.md) |
+| Call native and OpenAI-compatible APIs | [API Reference](docs/API_en.md) | [API 参考](docs/API_zh.md) |
+| Integrate `lagi-core` or REST APIs into your app | [Integration Guide](docs/guide_en.md) | [开发集成指南](docs/guide_zh.md) |
+| Follow a first-run walkthrough | [Tutorial](docs/tutor_en.md) | [教学演示](docs/tutor_zh.md) |
+| Extend models, vector stores, and adapters | [Extension Guide](docs/extend_en.md) | [扩展开发文档](docs/extend_zh.md) |
+| Chroma setup and packaging appendix | [Annex](docs/annex_en.md) | [附件](docs/annex_zh.md) |
 
-- Pull Command: 
+## API Surface
 
-  ```bash
-  docker pull landingbj/lagi
-  ```
+LinkMind exposes two route styles:
 
-- Start Container Command: 
+- Native LinkMind routes without extra version prefixes where the server already supports them, such as `/chat/completions`, `/audio/speech2text`, `/audio/text2speech`, `/image/text2image`, `/sql/text2sql`, `/instruction/generate`, `/doc/doc2ext`, and `/ocr/doc2ocr`
+- OpenAI-compatible routes that intentionally keep the standard prefix, such as `/v1/chat/completions`, `/v1/models`, `/v1/embeddings`, `/v1/images/generations`, and `/v1/rerank`
 
-  ```bash
-  docker run -d --name lagi-web -p 8080:8080 landingbj/linkmind
-  ```
+One current exception is the vector administration namespace, which is still mapped in code as `/v1/vector/*`.
 
-## Tutorial
+## Agent Runtime Integration
 
-To help you efficiently become familiar with and utilize LinkMind, we have prepared a comprehensive set of  [Tutorial presentations](docs/tutor_en.md). Through this tutorial, whether you are a beginner or an experienced developer, you can quickly get started. The tutorial also covers the setup of the LinkMind basic environmental vector database, guiding you step by step from the download, installation, and configuration of LinkMind, to actual operation, allowing you to easily start learning and quickly master the operational skills of LinkMind.
+- **OpenClaw**: LinkMind can inject itself as an OpenAI-compatible provider and can also load model selections back from OpenClaw into `lagi.yml`.
+- **Hermes Agent**: LinkMind can import and export model settings through `~/.hermes/config.yaml` and `.env`.
+- **DeerFlow**: LinkMind can import and export model settings through DeerFlow `config.yaml` and `.env`.
 
-## API
+If you want the shortest evaluation path, start with `Agent Server`, verify the web console and API, then switch to `Agent Mate` when you are ready to connect LinkMind to your existing agent runtime stack.
 
-The LinkMind project also provides multiple RESTful API interfaces, facilitating users to integrate AI services into their own applications. We have prepared detailed [API documentation](docs/API_en.md) for developers, which you can refer to understand how to use these APIs to enrich your application features.
+## Core Capabilities
 
-## Integration
+- Unified chat routing with `best(...)` and `pass(...)` router rules
+- OpenAI-compatible chat and embedding endpoints
+- RAG with vector search, document extraction, OCR, and knowledge-base updates
+- Multimodal APIs for ASR, TTS, image generation, image OCR, image understanding, image-to-video, video tracking, and video enhancement
+- Text-to-SQL, SQL-to-text, instruction generation, MCP access, and worker orchestration
+- Filters for sensitive content, priority words, stopping words, and conversation continuation
+- Skills runtime, MCP server configuration, and token usage observability
 
-In order to help you better understand and use LinkMind, we provide you with detailed [Guide documentation](docs/guide_en.md). You can refer to this document to understand the structure and content of the project, so that you can quickly invoke relevant features and develop large model applications efficiently. It helps you understand and use a variety of AI features provided in the project. With this guide, you can easily integrate AI features such as text conversation, speech recognition, text-to-speech, and image generation into your applications, achieving a more intelligent and user-friendly interaction experience.
+## Build And Packaging Notes
 
-If you wish to integrate LinkMind into your project, you can refer to our [Integration documentation](https://github.com/landingbj/lagi/blob/main/docs/guide_en.md#quick-integrate-into-your-existing-project). This document will guide you through the process of seamlessly integrating LinkMind into your project. In addition, we provide frequently asked questions and best practices to help you avoid common pitfalls during integration, ensuring a smooth progress of your project. It covers comprehensive guidance from setting up the environment to implementing features. Whether you are a beginner or an experienced developer, you will be able to quickly integrate LinkMind into your project.
+- Root project version: `1.2.3`
+- Modules: `lagi-web`, `lagi-core`, `lagi-extension`
+- Default runtime entry point: `ai.starter.Application`
 
-## OpenClaw Plugins
+## License
 
-### Install from a Published Package
-
-Once the package is published, users can install it with:
-
-```bash
-openclaw plugins install linkmind-context@latest
-```
-
-OpenClaw checks ClawHub first and falls back to npm automatically.
-
-### OpenClaw Configuration
-
-Configure the plugin in your OpenClaw config file and select it as the active context engine:
-
-```json
-{
-  "plugins": {
-    "slots": {
-      "contextEngine": "linkmind-context"
-    },
-    "entries": {
-      "linkmind-context": {
-        "enabled": true,
-        "config": {
-          "apiUrl": "http://localhost:8080/v1",
-          "logLevel": "info"
-        }
-      }
-    }
-  }
-}
-```
-
-### Configuration Reference
-
-| Field | Type | Default | Description |
-| --- | --- | --- | --- |
-| `apiUrl` | `string` | `http://localhost:8080/v1` | Base URL of the LinkMind service |
-| `logLevel` | `string` | `info` | Log Level |
-
-## Extension
-
-If you are not satisfied with the adapted large model for LinkMind, you can also refer to our [Extension documentation](docs/extend_en.md) to extend LinkMind, adapting it to your preferred large model. This document not only covers the methods for adapting and extending functional models and vector databases but also provides expansion examples to help you quickly grasp the methods for extending LinkMind, meeting your specific requirements.
-
-If you find the vector databases currently integrated with LinkMind to be less than satisfactory for your needs, you can also refer to our [Extension documentation](https://github.com/landingbj/lagi/blob/main/docs/extend_en.md#Database-Extension) to expand LinkMind and adapt it to your preferred vector database. This will meet your diverse business requirements, enhance the overall performance and reliability of your system, and provide a more enriching and efficient data management experience.
-
-## Security Filtering
-
-LinkMind (LianZhi) supports custom security filtering rules to control model content and guide conversation direction, with two configuration methods available: [`src/main/resources/lagi.yml`](lagi-web/src/main/resources/lagi.yml) (centralized configuration, recommended); ② Specified JSON file (separate file configuration).
-
-### 1. Sensitive Word Filtering
-Controls sensitive content in model input/output, supporting 3 strategies: `mask` (mask replacement), `erase` (content erasure), `block` (full sentence interception).
-#### Method 1: Configuration in [`src/main/resources/lagi.yml`](lagi-web/src/main/resources/lagi.yml)
-```yaml
-filters:
-  - name: sensitive # Output filtering
-    groups:
-      - level: mask # Mask replacement
-        rules: 'openai,FLG,...' # Replace commas with \\, for regex compatibility
-      - level: erase # Content erasure
-        rules: 'your context,...'
-      - level: block # Full sentence interception
-        rules: 'shit,CNM,...'
-  - name: sensitive_input # Input filtering, same format as above
-    groups:
-      - level: mask # Mask replacement
-        rules: 'openai,FLG,...' # Replace commas with \\, for regex compatibility
-      - level: erase # Content erasure
-        rules: 'your context,...'
-      - level: block # Full sentence interception
-        rules: 'shit,CNM,...'
-```
-
-#### Method 2: JSON File Configuration
-- Input Filtering: [sensitive_input.json](lagi-web/src/main/resources/sensitive_input.json)
-- Output Filtering: [sensitive_word.json](lagi-web/src/main/resources/sensitive_word.json)
-```json
-{
-  "mask": "...", // Default mask character
-  "level": 3, // 1=block/2=mask/3=erase (default)
-  "rules": [
-    {"rule":"OPENAI"}, {"rule":"hello","level":2,"mask":"***"}
-    {"rule":"(?<!\\d)1[3-9]\\d{9}(?!\\d)", "level": 2, "mask": "*", "type": "phone"},
-    {"rule":"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}", "level": 2, "mask": "*", "type": "email"},
-    {"rule":"(?<!\\d)\\d{17}[\\dxX](?!\\d)", "level": 2, "mask": "*", "type": "idcard"},
-    {"rule":"(?<!\\d)1[3-9]\\d{9}(?!\\d)", "level": 2, "mask": "*", "type": "bankcard"},
-    {"rule":"(密码|password|passwd|pwd|secret|token|api_key|apikey)\\s*[=:：]\\s*[\"']?[^\\s\"']+[\"']?", "level": 2, "mask": "*", "type": "password"},
-    {"rule":"sk-[\\da-z]{10,100}", "level": 2, "mask": "*", "type": "api-key"}
-  ]
-}
-```
-
-### 2. Priority Keywords
-Improves RAG retrieval matching weight:
-```yaml
-filters:
-  - name: priority
-    rules: 'car,weather,
-            社*保'
-```
-- JSON: [priority_word.json](lagi-web/src/main/resources/priority_word.json), format: `["car","社*保"]`
-
-### 3. Conversation Stopping Keywords
-#### Stopping Keywords
-Splits and terminates conversation messages after matching:
-- YAML:
-```yaml
-filters:
-  - name: stopping
-    rules: 'bye,
-            开始*'
-```
-- JSON: [stopping_word.json](lagi-web/src/main/resources/stopping_word.json), format: `["bye","开始*"]`
-
-#### Conversation Resumption Keywords
-Marks conversation continuation (YAML configuration only):
-```yaml
-filters:
-  - name: continue
-    rules: 'about,next,资料'
-```
-- JSON: [continue_word.json](lagi-web/src/main/resources/continue_word.json), format: `["bye","开始*"]`
-
-## Rerank and Embedding Models
-
-Download the [AI database](https://downloads.landingbj.com/lagi/ai-sqlite.zip) and the [Embedding model](https://downloads.landingbj.com/lagi/embedding_2048.model), then configure the AI database and embedding model in the configuration file accordingly.
-
-After downloading the AI database, extract it to any directory and configure the data source as follows:
-
-```yaml
-  database:
-    - name: ai
-      jdbc_url: jdbc:sqlite:{ai_sqlite_path}
-      driver: org.sqlite.JDBC
-      username: root
-      password: 123456
-      maximum_pool_size: 160
-      idle_timeout: 0
-      max_lifetime: 2877700
-```
-
-After downloading the embedding model, add the following configuration to enable LinkMind’s embedding model:
-
-```yaml
-  embedding:
-    - backend: landing
-      type: Landing
-      model_path: {embedding_model_path}
-```
-
-The **Rerank** feature only requires the AI database file, while the **Embedding** model requires both.
-
-For API references, see [API Documentation](docs/API_en.md).
-
-## Downloads
-
-We provide pre-packaged applications for direct download and use:
-
-- **Core library**: The core dependency library of LinkMind.
-  - File Name: lagi-core-jar-with-dependencies.jar
-  - Download Link: [Click here to download](https://downloads.landingbj.com/lagi/lib/lagi-core-1.2.0-jar-with-dependencies.jar)
-
-- **Application file**: The full package of LinkMind; you can run it directly after installing JDK.
-  - File Name: LinkMind.jar
-  - Download Link: [Click here to download](https://downloads.landingbj.com/lagi/installer/LinkMind.jar)
-
-Thank you for your attention and support of LinkMind! If you have any questions or suggestions, please feel free to contact us.
+This project is distributed under the [LICENSE](LICENSE).

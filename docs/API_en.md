@@ -1,1058 +1,345 @@
-# API Reference Guide
+# API Guide
 
-## Q&A Interface
+This page focuses on the routes that are actually exposed by the current `web.xml` and servlet implementations.
 
-POST `/chat/completions`
+## Base URL and routing rules
 
-Input a prompt to get responses from the large language model.
+Assume the default local deployment:
 
-### Request Example
-
-```json
-{
-  "model": "gpt-3.5-turbo-1106",
-  "temperature": 0.8,
-  "max_tokens": 500,
-  "category": "xxxx",
-  "messages": [
-    {
-      "role": "user",
-      "content": "Check the number of units transitioning to cloud services at the big data center."
-    }
-  ]
-}
+```text
+http://localhost:8080
 ```
 
-### Request Parameters
+Route rules used in this document:
 
-| Name          | Location | Type     | Required | Description                                                  |
-| ------------- | -------- | -------- | -------- | ------------------------------------------------------------ |
-| body          | body     | object   | No       | None                                                         |
-| » model       | body     | string   | No       | Type of model                                                |
-| » temperature | body     | number   | Yes      | Controls creativity and diversity in text generation (0-1). Lower values yield more deterministic output, while higher values increase randomness and diversity. |
-| » max_tokens  | body     | integer  | Yes      | Maximum number of tokens that can be generated.              |
-| » category    | body     | string   | No       | Data category                                                |
-| » messages    | body     | [object] | Yes      | List of submitted messages                                   |
-| »» role       | body     | string   | No       | `user` for user input or `assistant` for model output        |
-| »» content    | body     | string   | No       | Request content                                              |
+- Prefer the native LinkMind routes without a version prefix when the code exposes them directly.
+- Keep `/v1/...` for OpenAI-compatible endpoints such as `/v1/chat/completions`, `/v1/models`, `/v1/embeddings`, `/v1/images/generations`, and `/v1/rerank`.
+- Keep `/v1/vector/*` because vector administration is still mapped that way in the current servlet config.
+- If API key protection is enabled in your deployment, send the corresponding auth header or request key required by your environment.
 
-### Response Example
+## Most-used endpoints
 
-> Success
+| Capability | Method | Route |
+| --- | --- | --- |
+| Native chat completions | `POST` | `/chat/completions` |
+| OpenAI-compatible chat completions | `POST` | `/v1/chat/completions` |
+| Agent or worker execution | `POST` | `/chat/go` |
+| Speech to text | `POST` | `/audio/speech2text` |
+| Text to speech | `GET` | `/audio/text2speech` |
+| Text to image | `POST` | `/image/text2image` |
+| OpenAI-compatible image generation | `POST` | `/v1/images/generations` |
+| Image OCR | `POST` | `/image/image2ocr` |
+| Document OCR | `POST` | `/ocr/doc2ocr` |
+| Document content extraction | `POST` | `/doc/doc2ext` |
+| Document structuring / markdown conversion | `POST` | `/doc/doc2struct` |
+| Instruction extraction | `POST` | `/instruction/generate` |
+| Text to SQL | `POST` | `/sql/text2sql` |
+| SQL to text | `POST` | `/sql/sql2text` |
+| Embeddings | `POST` | `/embeddings` or `/v1/embeddings` |
+| Rerank | `POST` | `/rerank` or `/v1/rerank` |
+| OpenAI-compatible models list | `GET` | `/v1/models` |
+| Vector admin | `GET` / `POST` | `/v1/vector/*` |
 
-```json
-{
-  "id": "chatcmpl-W9Hp9zbUjE572UKvPZvybz",
-  "object": "chat.completion",
-  "created": 1709287530,
-  "choices": [
-    {
-      "index": 0,
-      "message": {
-        "role": "assistant",
-        "content": "A knowledge graph is a structured way of representing and organizing human knowledge. It illustrates knowledge points (facts, concepts, relationships, etc.) and their interconnections graphically, enabling better understanding and utilization by humans or machines."
-      },
-      "finish_reason": "stop"
-    }
-  ],
-  "usage": {
-    "prompt_tokens": 0,
-    "completion_tokens": 0,
-    "total_tokens": 0
-  }
-}
-```
+## 1. Chat completions
 
-### Response Codes
+Native route:
 
-| Status Code | Meaning | Description |
-| ----------- | ------- | ----------- |
-| 200         | OK      | Success     |
-
-### Response Structure
-
-Status Code **200**
-
-| Name                 | Type     | Required | Description                                               |
-| -------------------- | -------- | -------- | --------------------------------------------------------- |
-| » id                 | string   | true     | Unique identifier                                         |
-| » object             | string   | true     | Type of object                                            |
-| » created            | integer  | true     | Unix timestamp of chat completion (in seconds)            |
-| » choices            | [object] | true     | List of choices                                           |
-| »» index             | integer  | false    | Object index                                              |
-| »» message           | object   | false    | Returned message                                          |
-| »»» role             | string   | true     | `user` for user input or `assistant` for model output     |
-| »»» content          | string   | true     | Content generated by the model                            |
-| »»» context          | string   | false    | Contextual information retrieved from the vector database |
-| »» finish_reason     | string   | false    | Reason for stopping generation                            |
-| » usage              | object   | true     | Statistics on usage of the completion                     |
-| »» prompt_tokens     | integer  | true     | Number of tokens in the prompt                            |
-| »» completion_tokens | integer  | true     | Number of tokens generated                                |
-| »» total_tokens      | integer  | true     | Total number of tokens used in the request                |
-
-## Intelligent Agent Invocation Interface
-
-POST `/chat/go`
-
-Input a prompt to get responses from an intelligent agent.
-
-### Request Example
-
-```json
-{
-  "router": "pass",
-  "agentId": "weather_agent",
-  "temperature": 0.8,
-  "max_tokens": 500,
-  "messages": [
-    {
-      "role": "user",
-      "content": "What's the weather like in Wuhan today?"
-    }
-  ]
-}
-```
-
-### Request Parameters
-
-| Name          | Location | Type     | Required | Description                                                  |
-| ------------- | -------- | -------- | -------- | ------------------------------------------------------------ |
-| body          | body     | object   | No       | None                                                         |
-| » router      | body     | string   | Yes      | Routing rule; value is derived from the router configuration. For more details, see [Routing Configuration](https://chatgpt.com/c/config.md#Routing-Configuration). The interface will invoke agents based on the rule. |
-| » agentId     | body     | string   | No       | Specifies the agent name configured in the intelligent agent setup when routing rules match. |
-| » temperature | body     | number   | Yes      | Controls creativity and diversity in text generation (0-1). Lower values yield more deterministic output, while higher values increase randomness and diversity. |
-| » max_tokens  | body     | integer  | Yes      | Maximum number of tokens that can be generated.              |
-| » messages    | body     | [object] | Yes      | List of submitted messages                                   |
-| »» role       | body     | string   | No       | `user` for user input or `assistant` for intelligent agent output |
-| »» content    | body     | string   | No       | Request content                                              |
-
-### Response Example
-
-> Success
-
-```json
-{
-  "source": "weather_agent",
-  "created": 0,
-  "choices": [
-    {
-      "index": 0,
-      "message": {
-        "content": "Today's weather in Wuhan is sunny, with a temperature of 7°C, humidity at 59%, wind speed up to 3 m/s, and a northward direction. Last updated: 2024-12-16 18:01:56."
+```bash
+curl http://localhost:8080/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen-plus",
+    "temperature": 0.7,
+    "max_tokens": 512,
+    "category": "default",
+    "stream": false,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Summarize what LinkMind is used for."
       }
-    }
-  ]
-}
+    ]
+  }'
 ```
 
-### Response Codes
+OpenAI-compatible route:
 
-| Status Code | Meaning | Description |
-| ----------- | ------- | ----------- |
-| 200         | OK      | Success     |
-
-### Response Structure
-
-Status Code **200**
-
-| Name                 | Type     | Required | Description                                               |
-| -------------------- | -------- | -------- | --------------------------------------------------------- |
-| » id                 | string   | true     | Unique identifier                                         |
-| » object             | string   | true     | Type of object                                            |
-| » created            | integer  | true     | Unix timestamp of chat completion (in seconds)            |
-| » source             | string   | true     | Name of the invoked agent                                 |
-| » imageList          | array    | true     | List of image-related data                                |
-| » filepath           | array    | true     | List of file paths                                        |
-| » choices            | [object] | true     | List of choices                                           |
-| »» index             | integer  | false    | Object index                                              |
-| »» message           | object   | false    | Returned message                                          |
-| »»» role             | string   | true     | `user` for user input or `assistant` for model output     |
-| »»» content          | string   | true     | Content generated by the model                            |
-| »»» context          | string   | false    | Contextual information retrieved from the vector database |
-| »» finish_reason     | string   | false    | Reason for stopping generation                            |
-| » usage              | object   | true     | Statistics on usage of the completion                     |
-| »» prompt_tokens     | integer  | true     | Number of tokens in the prompt                            |
-| »» completion_tokens | integer  | true     | Number of tokens generated                                |
-| »» total_tokens      | integer  | true     | Total number of tokens used in the request                |
-
-## Speech Recognition
-
-POST `/audio/speech2text`
-
-The speech recognition interface returns the transcribed text.
-
-### Request Parameters
-
-The request body contains binary audio data. The `Content-Type` in the HTTPS request header must be set to `application/octet-stream`.
-
-| Name         | Location | Type           | Required | Description |
-| ------------ | -------- | -------------- | -------- | ----------- |
-| Content-Type | header   | string         | No       | None        |
-| body         | body     | string(binary) | No       | None        |
-
-### Response Example
-
-> Success
-
-```json
-{
-  "result": "What would you do in such a situation?",
-  "status": 20000000
-}
+```bash
+curl http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen-plus",
+    "stream": true,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Write a short welcome message."
+      }
+    ]
+  }'
 ```
 
-### Response Codes
+Useful request fields from the current request object:
 
-| Status Code | Meaning | Description |
-| ----------- | ------- | ----------- |
-| 200         | OK      | Success     |
+| Field | Notes |
+| --- | --- |
+| `model` | Model ID configured in `functions.chat.backends` |
+| `messages` | Standard chat message list |
+| `stream` | `true` for SSE streaming |
+| `temperature` | Sampling temperature |
+| `max_tokens` | Response token limit |
+| `category` | RAG category for knowledge retrieval |
+| `tools`, `tool_choice`, `parallel_tool_calls` | Tool-calling compatible fields |
+| `response_format` | Structured output request |
+| `session_id` | Accepted as an alias for `sessionId` |
 
-### Response Structure
+## 2. Agent and worker execution
 
-Status Code **200**
+`/chat/go` is the entry point for invoking workers or routed agents.
 
-| Name     | Type    | Required | Description               |
-| -------- | ------- | -------- | ------------------------- |
-| » result | string  | true     | Speech recognition result |
-| » status | integer | true     | Service status code       |
-
-## Text-to-Speech
-
-GET `/audio/text2speech`
-
-Input text to receive an audio file for playback.
-
-### Request Parameters
-
-| Name | Location | Type   | Required | Description            |
-| ---- | -------- | ------ | -------- | ---------------------- |
-| text | query    | string | Yes      | Text to be synthesized |
-
-### Response Result
-
-- Successful Response
-  - HTTPS headers will include a `Content-Type` field with the value `audio/mpeg`, indicating successful synthesis. The response body contains the binary audio data.
-- Failed Response
-  - HTTP headers will either omit the `Content-Type` field or include `Content-Type: application/json`, indicating synthesis failure. The response body will contain error information.
-
-### Response Codes
-
-| Status Code | Meaning | Description |
-| ----------- | ------- | ----------- |
-| 200         | OK      | Success     |
-
-------
-
-## Image Generation
-
-POST `/image/text2image`
-
-Input an image generation prompt to receive the generated image.
-
-### Request Example
-
-```json
-{
-  "prompt": "a pig"
-}
+```bash
+curl http://localhost:8080/chat/go \
+  -H "Content-Type: application/json" \
+  -d '{
+    "worker": "appointedWorker",
+    "agentId": "weather",
+    "stream": false,
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is the weather in Beijing today?"
+      }
+    ]
+  }'
 ```
 
-### Request Parameters
+Common fields:
 
-| Name     | Location | Type   | Required | Description                      |
-| -------- | -------- | ------ | -------- | -------------------------------- |
-| body     | body     | object | No       | None                             |
-| » prompt | body     | string | Yes      | Instruction for image generation |
+- `worker`: worker name configured under `skills.workers`
+- `agentId`: target agent name when the worker route expects one
+- `messages`: conversation payload
+- `stream`: whether to stream the answer
 
-### Response Example
+## 3. Audio APIs
 
-> Success
+### Speech to text
 
-```json
-{
-  "created": 1709288374,
-  "data": [
-    {
-      "url": "http://example.com/generated-image.png"
-    }
-  ]
-}
+`POST /audio/speech2text`
+
+Send raw audio bytes in the request body. Optional request parameters are parsed into `AudioRequestParam`, including `model`, `format`, `sample_rate`, `vocabulary_id`, and `customization_id`.
+
+```bash
+curl -X POST "http://localhost:8080/audio/speech2text?model=asr&format=wav" \
+  -H "Content-Type: application/octet-stream" \
+  --data-binary "@demo.wav"
 ```
 
-### Response Codes
+### Text to speech
 
-| Status Code | Meaning | Description |
-| ----------- | ------- | ----------- |
-| 200         | OK      | Success     |
+`GET /audio/text2speech`
 
-### Response Structure
+Important query fields in the current implementation include `text`, `model`, `format`, `sample_rate`, `voice`, `volume`, `speech_rate`, `pitch_rate`, `emotion`, and `source`.
 
-Status Code **200**
-
-| Name      | Type     | Required | Description                      |
-| --------- | -------- | -------- | -------------------------------- |
-| » created | integer  | true     | Unix timestamp of image creation |
-| » data    | [object] | true     | List of generated image data     |
-| »» url    | string   | false    | URL of the generated image       |
-
-## Upload Custom Training Files
-
-POST `/training/upload`
-
-Upload custom training files in `txt`, `word`, or `pdf`  or `excel` or `csv` or `jpeg`、 or `png`、 or `jpg`、 or `webp`、 or `ppt`、 or `pptx` pptxformats.
-
-### Request Example
-
-```yaml
-fileToUpload: file://D:/Knowledge_Graph.pdf
+```bash
+curl "http://localhost:8080/audio/text2speech?model=landing-tts&text=Hello%20LinkMind"
 ```
 
-### Request Parameters
+When synthesis succeeds, the response body is audio data with `Content-Type: audio/mpeg`.
 
-| Name           | Location | Type           | Required | Description                 |
-| -------------- | -------- | -------------- | -------- | --------------------------- |
-| category       | query    | string         | Yes      | Specifies the data category |
-| body           | body     | object         | No       | None                        |
-| » fileToUpload | body     | string(binary) | Yes      | File to be uploaded         |
+## 4. Image APIs
 
-### Response Example
+### Text to image
 
-> Success
+Native:
 
-```json
-{
-  "result": true
-}
+```bash
+curl http://localhost:8080/image/text2image \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "tti",
+    "prompt": "A clean product illustration of an AI control tower",
+    "size": "1024x1024"
+  }'
 ```
 
-### Response Codes
+OpenAI-compatible:
 
-| Status Code | Meaning | Description |
-| ----------- | ------- | ----------- |
-| 200         | OK      | Success     |
-
-### Response Structure
-
-Status Code **200**
-
-| Name     | Type    | Required | Description           |
-| -------- | ------- | -------- | --------------------- |
-| » result | boolean | true     | Status of file upload |
-
-## Custom Q&A Pair Data
-
-POST `/training/pairing`
-
-Submit custom Q&A pair data in JSON format.
-
-### Request Example
-
-Both the `instruction` and `output` fields support either objects or lists of objects. Examples are as follows:
-
-```json
-{
-  "category": "default",
-  "data": {
-    "instruction": "What are the steps to reapply for a medical practitioner's license?",
-    "output": "The process includes five steps: application, acceptance, decision, certificate issuance, and delivery.",
-    "image": "[{\"path\": \"https://example.com/image.png\"}]"
-  }
-}
+```bash
+curl http://localhost:8080/v1/images/generations \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "tti",
+    "prompt": "A clean product illustration of an AI control tower",
+    "size": "1024x1024"
+  }'
 ```
 
-### Request Parameters
+### Image OCR
 
-| Name           | Location | Type               | Required | Description                 |
-| -------------- | -------- | ------------------ | -------- | --------------------------- |
-| body           | body     | object             | No       | None                        |
-| » category     | body     | string             | Yes      | Specifies the data category |
-| » data         | body     | [object] or object | Yes      | Q&A pair data               |
-| »» instruction | body     | [object] or object | Yes      | Question(s)                 |
-| »» output      | body     | [object] or object | Yes      | Answer(s)                   |
-| »» image       | body     | [object] or object | No       | Associated image(s)         |
+`POST /image/image2ocr`
 
-### Response Example
+Upload one or more image files as `multipart/form-data`.
 
-> Success
-
-```json
-{
-  "status": "success"
-}
+```bash
+curl http://localhost:8080/image/image2ocr \
+  -F "file=@page.png"
 ```
 
-### Response Codes
+## 5. Document APIs
 
-| Status Code | Meaning | Description |
-| ----------- | ------- | ----------- |
-| 200         | OK      | Success     |
+### Document OCR
 
-### Response Structure
+`POST /ocr/doc2ocr`
 
-Status Code **200**
+The current implementation accepts uploaded files and an optional `lang` form field. PDFs are processed one at a time.
 
-| Name     | Type   | Required | Description             |
-| -------- | ------ | -------- | ----------------------- |
-| » status | string | true     | Status of the operation |
-
-## Vector Database Query
-
-If there is a discrepancy between the model's response and your expectations, you can use the `POST /v1/vector/query` interface to review your answer.
-
-### Request Example
-
-```json
-{
-  "text": "Where can I store my luggage?",
-  "n": 6,
-  "where": {},
-  "category": "default"
-}
+```bash
+curl http://localhost:8080/ocr/doc2ocr \
+  -F "file=@contract.pdf" \
+  -F "lang=chn,eng"
 ```
 
-| Name     | Location | Type               | Required | Description                 |
-| -------- | -------- | ------------------ | -------- | --------------------------- |
-| text     | body     | string             | Yes      | The query                   |
-| n        | body     | integer            | Yes      | Number of responses         |
-| where    | body     | [object] or object | Yes      | Conditions                  |
-| category | body     | string             | Yes      | Specifies the data category |
+### Extract document content
 
-### Response Example
+`POST /doc/doc2ext`
 
-```json
-{
-  "data": [
-    {
-      "document": "Where can I store my luggage?\n",
-      "id": "a5a74ace0f7d4339b52feb8900c6dc77",
-      "metadata": {
-        "category": "default",
-        "level": "user"
-      },
-      "distance": 0.041246016
-    },
-    {
-      "document": "Where is luggage storage available?\n",
-      "id": "16061c3e59344544987806ed457285a2",
-      "metadata": {
-        "category": "default",
-        "level": "user"
-      },
-      "distance": 0.22894014
-    }
-  ],
-  "status": "success"
-}
+```bash
+curl http://localhost:8080/doc/doc2ext \
+  -F "file=@manual.pdf"
 ```
 
-### Response Structure
+### Convert document to structured markdown
 
-| Name        | Type     | Required | Description                     |
-| ----------- | -------- | -------- | ------------------------------- |
-| data        | [object] | true     | List of results                 |
-| status      | string   | true     | Status of the service           |
-| » document  | string   | true     | Retrieved question              |
-| » id        | string   | true     | Data identifier                 |
-| » distance  | float    | true     | Vector distance                 |
-| » metadata  | [object] | true     | Metadata of the uploaded object |
-| »» category | string   | true     | Data category                   |
-| »» level    | string   | true     | Upload role                     |
+`POST /doc/doc2struct`
 
-## Q&A Deletion
-
-If some Q&A pairs are irrelevant or of low quality, you can use the `POST /v1/vector/deleteById` interface to remove them from the dataset to avoid negative impact on model training.
-
-### Request Example
-
-```json
-{
-  "category": "default",
-  "ids": [
-    "a4ac6c2511e94a54b454f1daaa270ee5"
-  ]
-}
+```bash
+curl http://localhost:8080/doc/doc2struct \
+  -F "file=@manual.pdf"
 ```
 
-| Name     | Location | Type   | Required | Description             |
-| -------- | -------- | ------ | -------- | ----------------------- |
-| category | body     | string | Yes      | Specifies data category |
-| ids      | body     | List   | Yes      | List of data IDs        |
+### Generate instructions from files
 
-### Response Example
+`POST /instruction/generate`
 
-```json
-{
-  "status": "success"
-}
+```bash
+curl http://localhost:8080/instruction/generate \
+  -F "file=@faq.docx"
 ```
 
-### Response Structure
+## 6. SQL APIs
 
-| Name   | Type   | Required | Description             |
-| ------ | ------ | -------- | ----------------------- |
-| status | string | true     | Status of the operation |
+### Text to SQL
 
-## Image Description
+`POST /sql/text2sql`
 
-POST `/image/image2text`
-
-Upload an image to receive a description of its content.
-
-### Request Example
-
-```yaml
-file: file://D:/Test/Images/sample.jpg
-```
-
-### Request Parameters
-
-| Name   | Location | Type           | Required | Description         |
-| ------ | -------- | -------------- | -------- | ------------------- |
-| body   | body     | object         | No       | None                |
-| » file | body     | string(binary) | Yes      | Uploaded image file |
-
-### Response Example
-
-> Success
-
-```json
-{
-  "classification": "forklift, fuel pump",
-  "caption": "A row of bicycles parked by the roadside.",
-  "samUrl": "http://example.com/segmented-image.png",
-  "status": "success"
-}
-```
-
-### Response Codes
-
-| Status Code | Meaning | Description |
-| ----------- | ------- | ----------- |
-| 200         | OK      | Success     |
-
-### Response Structure
-
-| Name             | Type   | Required | Description                 |
-| ---------------- | ------ | -------- | --------------------------- |
-| » status         | string | true     | Status of the request       |
-| » classification | string | true     | Recognized image categories |
-| » caption        | string | true     | Description of the image    |
-| » samUrl         | string | true     | Segmentation result URL     |
-
-## Video Tracking
-
-POST `/video/video2tracking`
-
-Upload a video to perform video tracking.
-
-### Request Example
-
-```yaml
-file: file://D:/Test/Videos/sample.mp4
-```
-
-### Request Parameters
-
-| Name   | Location | Type           | Required | Description         |
-| ------ | -------- | -------------- | -------- | ------------------- |
-| body   | body     | object         | No       | None                |
-| » file | body     | string(binary) | Yes      | Uploaded video file |
-
-### Response Example
-
-> Success
-
-```json
-{
-  "data": "static/video/tracked-video.mp4",
-  "status": "success"
-}
-```
-
-### Response Codes
-
-| Status Code | Meaning | Description |
-| ----------- | ------- | ----------- |
-| 200         | OK      | Success     |
-
-### Response Structure
-
-| Name     | Type   | Required | Description              |
-| -------- | ------ | -------- | ------------------------ |
-| » status | string | true     | Status of the operation  |
-| » data   | string | true     | URL of the tracked video |
-
-## Image Enhancement
-
-POST `/image/image2enhance`
-
-Upload an image to enhance its clarity.
-
-### Request Example
-
-```yaml
-file: file://D:/Test/Images/sample.jpg
-```
-
-### Request Parameters
-
-| Name   | Location | Type           | Required | Description         |
-| ------ | -------- | -------------- | -------- | ------------------- |
-| body   | body     | object         | No       | None                |
-| » file | body     | string(binary) | Yes      | Uploaded image file |
-
-### Response Example
-
-> Success
-
-```json
-{
-  "status": "success",
-  "enhanceImageUrl": "http://example.com/enhanced-image.png"
-}
-```
-
-### Response Codes
-
-| Status Code | Meaning | Description |
-| ----------- | ------- | ----------- |
-| 200         | OK      | Success     |
-
-### Response Structure
-
-| Name              | Type   | Required | Description               |
-| ----------------- | ------ | -------- | ------------------------- |
-| » status          | string | true     | Status of the operation   |
-| » enhanceImageUrl | string | true     | URL of the enhanced image |
-
-## Image-to-Video Generation
-
-POST `/image/image2video`
-
-Upload an image to generate a short video based on it.
-
-### Request Example
-
-```yaml
-file: file://D:/Test/Images/sample.jpg
-```
-
-### Request Parameters
-
-| Name   | Location | Type           | Required | Description         |
-| ------ | -------- | -------------- | -------- | ------------------- |
-| body   | body     | object         | No       | None                |
-| » file | body     | string(binary) | Yes      | Uploaded image file |
-
-### Response Example
-
-> Success
-
-```json
-{
-  "svdVideoUrl": "static/img/svd/generated-video.mp4",
-  "status": "success"
-}
-```
-
-### Response Codes
-
-| Status Code | Meaning | Description |
-| ----------- | ------- | ----------- |
-| 200         | OK      | Success     |
-
-### Response Structure
-
-| Name          | Type   | Required | Description                |
-| ------------- | ------ | -------- | -------------------------- |
-| » svdVideoUrl | string | true     | URL of the generated video |
-| » status      | string | true     | Status of the operation    |
-
-## Video Enhancement
-
-POST `/video/video2enhance`
-
-Upload a video to improve its quality via frame interpolation.
-
-### Request Example
-
-```yaml
-file: file://D:/Test/Videos/sample.mp4
-```
-
-### Request Parameters
-
-| Name   | Location | Type           | Required | Description         |
-| ------ | -------- | -------------- | -------- | ------------------- |
-| body   | body     | object         | No       | None                |
-| » file | body     | string(binary) | Yes      | Uploaded video file |
-
-### Response Example
-
-> Success
-
-```json
-{
-  "data": "static/video/enhanced-video.mp4",
-  "status": "success"
-}
-```
-
-### Response Codes
-
-| Status Code | Meaning | Description |
-| ----------- | ------- | ----------- |
-| 200         | OK      | Success     |
-
-### Response Structure
-
-| Name     | Type   | Required | Description               |
-| -------- | ------ | -------- | ------------------------- |
-| » status | string | true     | Status of the operation   |
-| » data   | string | true     | URL of the enhanced video |
-
-## Optical Character Recognition (OCR)
-
-POST `/image/image2ocr`
-
-Upload an image to recognize and extract the text it contains.
-
-### Request Example
-
-```yaml
-file: file://D:/Test/Images/sample.jpg
-```
-
-### Request Parameters
-
-| Name   | Location | Type           | Required | Description         |
-| ------ | -------- | -------------- | -------- | ------------------- |
-| body   | body     | object         | No       | None                |
-| » file | body     | string(binary) | Yes      | Uploaded image file |
-
-### Response Example
-
-> Success
-
-```json
-{
-  "data": ["The development of OCR technology has significantly improved information processing efficiency, making it easier to store, retrieve, and analyze data."],
-  "status": "success"
-}
-```
-
-### Response Codes
-
-| Status Code | Meaning | Description |
-| ----------- | ------- | ----------- |
-| 200         | OK      | Success     |
-
-### Response Structure
-
-| Name     | Type   | Required | Description              |
-| -------- | ------ | -------- | ------------------------ |
-| » status | string | true     | Status of the operation  |
-| » data   | List   | true     | Array of recognized text |
-
-## Text-to-SQL Generation
-
-POST `/sql/text2sql`
-
-Choose a table and input a query to generate an executable SQL statement.
-
-### Request Example
-
-```json
-{
-  "demand": "Find information about the Jinglun Hotel for me.",
-  "tables": "ai.hotel_agreement",
-  "storage": "mysql"
-}
-```
-
-### Request Parameters
-
-| Name      | Location | Type   | Required | Description                                                  |
-| --------- | -------- | ------ | -------- | ------------------------------------------------------------ |
-| body      | body     | object | No       | None                                                         |
-| » demand  | body     | string | Yes      | User query                                                   |
-| » tables  | body     | string | Yes      | Selected tables, separated by commas (e.g., `database_name.table_name,another_database.table`) |
-| » storage | body     | string | Yes      | Database configuration name                                  |
-
-### Response Example
-
-> Success
-
-```json
-{
-  "data": {
-    "sql": "SELECT * FROM hotel_agreement WHERE hotel_name LIKE '%Jinglun Hotel%';",
-    "demand": "Find information about the Jinglun Hotel for me.",
-    "tables": "ai.hotel_agreement",
+```bash
+curl http://localhost:8080/sql/text2sql \
+  -H "Content-Type: application/json" \
+  -d '{
+    "demand": "Count orders created this week",
+    "tables": "orders",
     "storage": "mysql"
-  },
-  "status": "success"
-}
+  }'
 ```
 
-### Response Codes
+### SQL to text
 
-| Status Code | Meaning | Description |
-| ----------- | ------- | ----------- |
-| 200         | OK      | Success     |
+`POST /sql/sql2text`
 
-### Response Structure
-
-Status Code **200**
-
-| Name       | Type   | Required | Description                                                  |
-| ---------- | ------ | -------- | ------------------------------------------------------------ |
-| » status   | string | true     | Status of the operation                                      |
-| » data     | object | true     | Response content                                             |
-| »» sql     | string | true     | Generated SQL query                                          |
-| »» demand  | string | true     | User query                                                   |
-| »» tables  | string | true     | Selected tables, separated by commas (e.g., `database_name.table_name,another_database.table`) |
-| »» storage | string | true     | Database configuration name                                  |
-
-## SQL-to-Text Explanation
-
-POST `/sql/sql2text`
-
-Input an SQL query to receive a natural language explanation of its functionality.
-
-### Request Example
-
-```json
-{
-  "sql": "SELECT * FROM hotel_agreement WHERE hotel_name LIKE '%Jinglun Hotel%';",
-  "demand": "Find information about the Jinglun Hotel for me.",
-  "tables": "ai.hotel_agreement",
-  "storage": "mysql"
-}
+```bash
+curl http://localhost:8080/sql/sql2text \
+  -H "Content-Type: application/json" \
+  -d '{
+    "demand": "Explain the result in plain English",
+    "sql": "SELECT COUNT(*) FROM orders",
+    "tables": "orders",
+    "storage": "mysql"
+  }'
 ```
 
-### Request Parameters
+## 7. Embeddings and rerank
 
-| Name      | Location | Type   | Required | Description                                                  |
-| --------- | -------- | ------ | -------- | ------------------------------------------------------------ |
-| body      | body     | object | No       | None                                                         |
-| » sql     | body     | string | Yes      | SQL query                                                    |
-| » demand  | body     | string | Yes      | User query                                                   |
-| » tables  | body     | string | Yes      | Selected tables, separated by commas (e.g., `database_name.table_name,another_database.table`) |
-| » storage | body     | string | Yes      | Database configuration name                                  |
+### Embeddings
 
-### Response Example
+Both routes are available:
 
-> Success
+- `POST /embeddings`
+- `POST /v1/embeddings`
 
-```json
-{
-  "data": "Hello, the information about Jinglun Hotel you requested is as follows:\n\n- **City**: Beijing\n- **Agreement Price**: ¥650 per room (specific prices may vary depending on room type and date)\n- **Distance to HQ**: 10.3 km\n- **Address**: No. 3 Jianguomenwai Avenue, Chaoyang District, Beijing\n- **Contact Info**: +86-10-65002266 (Room Reservation Department)\n- **Source**: Attachment 3: 2024 China Telecom Headquarters and Nationwide Chain Agreement Hotel List\n- **Hotel Name**: Jinglun Hotel\n- **Star Rating**: Four-star\n- **Room Type**: Standard Room\n\nIf you have further questions, feel free to ask.",
-  "list": [
-    {
-      "city": "Beijing",
-      "unavailable_dates": "",
-      "agreement_price": "650, 600",
-      "distance_from_group": "10.3",
-      "hotel_address": "No. 3 Jianguomenwai Avenue, Chaoyang District, Beijing",
-      "contact_info": "+86-10-65002266 (Room Reservation Department)",
-      "data_source": "Attachment 3: 2024 China Telecom Headquarters and Nationwide Chain Agreement Hotel List",
-      "hotel_name": "Jinglun Hotel",
-      "tier": "Tier 1: Within ¥600/day - Recommended for single occupancy (including breakfast)",
-      "province": "Beijing",
-      "applicable_brand": "",
-      "star_rating": "Four-star",
-      "id": 10,
-      "remarks": "",
-      "room_type": "Standard Room"
-    }
-  ],
-  "status": "success"
-}
+```bash
+curl http://localhost:8080/embeddings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "text-embedding",
+    "input": ["LinkMind", "RAG middleware"]
+  }'
 ```
 
-### Response Codes
+### Rerank
 
-| Status Code | Meaning | Description |
-| ----------- | ------- | ----------- |
-| 200         | OK      | Success     |
+Both routes are available:
 
-### Response Structure
+- `POST /rerank`
+- `POST /v1/rerank`
 
-Status Code **200**
-
-| Name     | Type   | Required | Description          |
-| -------- | ------ | -------- | -------------------- |
-| » status | string | true     | Status of the result |
-| » data   | string | true     | Textual explanation  |
-| » list   | object | true     | Queried table data   |
-
-## Instruction Set Generation
-
-POST `/instruction/generate`
-
-Upload a PDF file to extract a set of instructions that can be used for training.
-
-### Body Request Parameters
-
-```yaml
-fileToUpload: file://E:/files/Knowledge_Graph.pdf
+```bash
+curl http://localhost:8080/rerank \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "rerank-model",
+    "query": "enterprise knowledge base",
+    "documents": [
+      "Internal FAQ",
+      "Model integration guide",
+      "Random meeting notes"
+    ]
+  }'
 ```
 
-### Request Parameters
+## 8. Vector administration
 
-| Name         | Location | Type | Required | Description   |
-| ------------ | -------- | ---- | -------- | ------------- |
-| fileToUpload | body     | File | Yes      | Uploaded file |
+Vector management currently stays under `/v1/vector/*`.
 
-### Response Example
+Common routes in the current servlet:
 
-> Success
+| Method | Route | Purpose |
+| --- | --- | --- |
+| `POST` | `/v1/vector/upsert` | Add or update documents |
+| `POST` | `/v1/vector/query` | Vector query |
+| `POST` | `/v1/vector/get` | Fetch by IDs or conditions |
+| `POST` | `/v1/vector/search` | Search by conversation context |
+| `POST` | `/v1/vector/searchByMetadata` | Search with metadata filter |
+| `POST` | `/v1/vector/deleteById` | Delete by IDs |
+| `POST` | `/v1/vector/deleteByMetadata` | Delete by metadata |
+| `POST` | `/v1/vector/deleteCollection` | Drop a category / collection |
+| `GET` | `/v1/vector/listCollections` | List collections |
+| `POST` | `/v1/vector/updateTextBlockSize` | Update RAG chunk size settings |
+| `GET` | `/v1/vector/getTextBlockSize` | Read RAG chunk size settings |
+| `POST` | `/v1/vector/resetBlockSize` | Reset chunk size settings |
 
-```json
-{
-  "data": [
-    {
-      "instruction": "What is the usual method for constructing a knowledge graph?",
-      "input": "",
-      "output": "The construction of knowledge graphs typically follows a bottom-up approach."
-    },
-    {
-      "instruction": "How can knowledge graphs be utilized in the financial sector for business analysis and decision-making, and what are their advantages in data monetization?",
-      "input": "",
-      "output": "In the financial sector, knowledge graphs enable business analysis and decision-making through several applications: they help build customer profiles by analyzing multidimensional data on user behaviors and preferences, facilitate targeted marketing by identifying potential customers, and improve risk control by detecting abnormal patterns like credit card fraud or fund misappropriation.\n\nFor data monetization, knowledge graphs enhance the value of data by organizing and analyzing multidimensional datasets, converting them into actionable insights and services. They also improve operational efficiency by transforming expert knowledge into reusable knowledge bases, thus supporting the shift from cost centers to profit centers."
-    },
-    {
-      "instruction": "What are the specific risk control applications of knowledge graphs in the financial sector?",
-      "input": "",
-      "output": "Risk control applications of knowledge graphs in the financial sector include credit risk assessment, fraud detection, transaction monitoring, and risk alerts. By mapping relationships between entities, knowledge graphs improve accuracy and efficiency in identifying potential risk points."
-    }
-  ],
-  "status": "success"
-}
-```
+Example upsert:
 
-### Response Codes
-
-| Status Code | Meaning | Description |
-| ----------- | ------- | ----------- |
-| success     | OK      | Success     |
-
-### Response Structure
-
-Status Code **200**
-
-| Name        | Type   | Required | Description    |
-| ----------- | ------ | -------- | -------------- |
-| instruction | string | true     | Extracted task |
-| input       | string | true     | Task input     |
-| output      | string | true     | Task output    |
-
-## Rerank
-
-POST `/rerank`
-
-Input a query string and an array of strings to be re-ranked.
-
-### Body Request Parameters
-
-```json
-{
-  "query": "Artificial intelligence machine learning algorithms",
-  "documents": [
-    "Research on deep learning neural network algorithms",
-    "Principles of traditional database system design",
-    "Implementation of machine learning classification algorithms",
-    "Frontend user interface development technology",
-    "Artificial intelligence natural language processing"
-  ]
-}
-```
-
-### Request Parameters
-
-| Name      | Location | Type     | Required | Description                          |
-| --------- | -------- | -------- | -------- | ------------------------------------ |
-| query     | body     | string   | Yes      | The query text                       |
-| documents | body     | [string] | Yes      | The array of strings to be re-ranked |
-
-### Response Example
-
-```json
-{
-  "id": "b41b9dec-22b5-42fc-b2df-174b71702192",
-  "results": [
-    {
-      "index": 0,
-      "document": {
-        "text": "Implementation of machine learning classification algorithms"
-      }
-    },
-    {
-      "index": 1,
-      "document": {
-        "text": "Research on deep learning neural network algorithms"
-      }
-    },
-    {
-      "index": 2,
-      "document": {
-        "text": "Principles of traditional database system design"
-      }
-    },
-    {
-      "index": 3,
-      "document": {
-        "text": "Frontend user interface development technology"
-      }
-    },
-    {
-      "index": 4,
-      "document": {
-        "text": "Artificial intelligence natural language processing"
-      }
-    }
-  ]
-}
-```
-
-## Embedding
-
-POST `/v1/embeddings`
-
-Input text and return the corresponding embedding result.
-
-### Body Request Parameters
-
-```json
-{
-  "input": [
-    "Artificial intelligence refers to the intelligence exhibited by machines created by humans."
-  ]
-}
-```
-
-### Body Request Parameters
-
-| Name    | Location | Type     | Required | Description   |
-| ------- | -------- | -------- | -------- | ------------- |
-| body    | body     | object   | No       |               |
-| » input | body     | [string] | Yes      | List of texts |
-| » model | body     | string   | Yes      | Model name    |
-
-### Response Example
-
-```json
-{
+```bash
+curl http://localhost:8080/v1/vector/upsert \
+  -H "Content-Type: application/json" \
+  -d '{
+    "category": "product-docs",
+    "isContextLinked": true,
     "data": [
-        [
-            -146.10352,
-            559.4121,
-            1342.8379,
-            -543.29297     
-        ]
-    ],
-    "status": "success"
-}
+      {
+        "id": "intro-001",
+        "document": "LinkMind provides unified AI middleware capabilities.",
+        "metadata": {
+          "source": "README",
+          "lang": "en"
+        }
+      }
+    ]
+  }'
 ```
 
+## 9. Compatibility notes
+
+- `GET /v1/models` exists for OpenAI-compatible clients, but the current servlet returns a minimal compatibility-style list rather than a full provider inventory.
+- `/chat/isRAG` and `/chat/isMedusa` are present in the servlet for runtime toggling and inspection, but they are operational helpers rather than the main public integration surface.
+- `/v1/openclaw/context/*` exists for OpenClaw-related context APIs and should be treated as a specialized integration route.

@@ -44,13 +44,12 @@ The current codebase exposes a single middleware layer for chat, RAG, OCR, ASR/T
   </tr>
   <tr>
     <td><img src="docs/images/logo/img_4.jpeg" width="18" alt="Hunyuan"> Hunyuan</td>
-    <td><code>X</code> Grok</td>
-    <td><code>OR</code> OpenRouter</td>
-    <td><code>SF</code> StepFun</td>
+    <td><img src="docs/images/logo/model/img_17.png" width="18" alt="Grok"> Grok</td>
+    <td><img src="docs/images/logo/model/img_18.webp" width="18" alt="OpenRouter"> OpenRouter</td>
+    <td><img src="docs/images/logo/model/img_19.png" width="18" alt="StepFun"> StepFun</td>
   </tr>
   <tr>
-    <td><code>XM</code> Xiaomi</td>
-    <td><code>OA</code> OpenAI-compatible</td>
+    <td><img src="docs/images/logo/model/img_20.png" width="18" alt="Xiaomi"> Xiaomi</td>
     <td></td>
     <td></td>
   </tr>
@@ -60,9 +59,9 @@ The current codebase exposes a single middleware layer for chat, RAG, OCR, ASR/T
 
 <table>
   <tr>
-    <td><code>OC</code> OpenClaw</td>
-    <td><code>HA</code> Hermes Agent</td>
-    <td><code>DF</code> DeerFlow</td>
+    <td><img src="docs/images/logo/img_21.jpg" width="18" alt="OpenClaw"> OpenClaw</td>
+    <td><img src="docs/images/logo/img_22.png" width="18" alt="Hermes Agent"> Hermes Agent</td>
+    <td><img src="docs/images/logo/img_23.jpg" width="18" alt="DeerFlow"> DeerFlow</td>
     <td><img src="docs/images/logo/img_1.png" width="18" alt="Coze"> Coze</td>
   </tr>
   <tr>
@@ -72,6 +71,7 @@ The current codebase exposes a single middleware layer for chat, RAG, OCR, ASR/T
     <td></td>
   </tr>
 </table>
+
 
 **Data & Retrieval**
 

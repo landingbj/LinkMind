@@ -114,7 +114,6 @@ mvn clean package -pl lagi-web -am -DskipTests -U
 
 | 目标 | English | 中文 |
 | --- | --- | --- |
-| 快速启动检查单 | [QuickStart](QuickStart.md) | [QuickStart](QuickStart.md) |
 | 安装与运行 | [Installation Guide](docs/install_en.md) | [安装指南](docs/install_zh.md) |
 | 配置模型、路由、RAG、Skills 与过滤器 | [Configuration Reference](docs/config_en.md) | [配置参考](docs/config_zh.md) |
 | 调用原生接口与 OpenAI 兼容接口 | [API Reference](docs/API_en.md) | [API 参考](docs/API_zh.md) |

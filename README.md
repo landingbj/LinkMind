@@ -114,7 +114,6 @@ More setup details are in the [Installation Guide](docs/install_en.md).
 
 | Goal | English | 中文 |
 | --- | --- | --- |
-| Fast local startup checklist | [QuickStart](QuickStart.md) | [QuickStart](QuickStart.md) |
 | Install and run LinkMind | [Installation Guide](docs/install_en.md) | [安装指南](docs/install_zh.md) |
 | Configure models, routing, RAG, skills, and filters | [Configuration Reference](docs/config_en.md) | [配置参考](docs/config_zh.md) |
 | Call native and OpenAI-compatible APIs | [API Reference](docs/API_en.md) | [API 参考](docs/API_zh.md) |

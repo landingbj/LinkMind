@@ -378,8 +378,18 @@ public class GitAPIServlet extends RestfulServlet {
         if (repoPath == null || filePath == null || commitHash == null) {
             throw new IllegalArgumentException("repoPath, filePath and commitHash are required");
         }
+        
+        // 执行回滚
         lfsService.rollbackToVersion(repoPath, filePath, commitHash);
-        return "文件回滚成功";
+        
+        // 回滚成功后提交
+        String message = "Rollback file: " + filePath + " to version: " + commitHash;
+        gitService.commit(repoPath, message);
+        
+        // 推送提交
+        gitService.push(repoPath, "origin", "main");
+        
+        return "文件回滚成功并已提交推送";
     }
 
     @Post("git-lfs-rollback/repo")

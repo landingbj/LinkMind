@@ -3,11 +3,16 @@ package ai.git.impl;
 import ai.git.GitService;
 import org.eclipse.jgit.api.*;
 import org.eclipse.jgit.api.ResetCommand.ResetType;
-import org.eclipse.jgit.lib.IndexDiff;
+import org.eclipse.jgit.lib.ObjectId;
+import org.eclipse.jgit.lib.ObjectLoader;
+import org.eclipse.jgit.revwalk.RevCommit;
+import org.eclipse.jgit.revwalk.RevTree;
+import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.transport.URIish;
 import org.eclipse.jgit.transport.CredentialsProvider;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.eclipse.jgit.lib.Repository;
+import org.eclipse.jgit.treewalk.TreeWalk;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -26,6 +31,13 @@ public class GitServiceImpl implements GitService {
 
     // 执行外部命令的工具方法
     private void executeCommand(String workingDir, String... command) throws Exception {
+        // 如果是 Git 命令，先设置 Git 用户名和邮箱
+        if (command != null && command.length > 0 && "git".equals(command[0])) {
+            // 执行配置命令
+            runGitConfig(workingDir, "user.name", "root");
+            runGitConfig(workingDir, "user.email", "root@example.com");
+        }
+
         ProcessBuilder processBuilder = new ProcessBuilder(command);
         if (workingDir != null) processBuilder.directory(new File(workingDir));
         processBuilder.redirectErrorStream(true);
@@ -44,6 +56,14 @@ public class GitServiceImpl implements GitService {
         if (exitCode != 0) {
             throw new RuntimeException("Command failed with exit code: " + exitCode + ", command: " + String.join(" ", command));
         }
+    }
+
+    // 执行 Git 配置命令的辅助方法
+    private void runGitConfig(String workingDir, String key, String value) throws Exception {
+        ProcessBuilder builder = new ProcessBuilder("git", "config", key, value);
+        if (workingDir != null) builder.directory(new File(workingDir));
+        builder.redirectErrorStream(true);
+        builder.start().waitFor();
     }
 
     @Override
@@ -230,7 +250,7 @@ public class GitServiceImpl implements GitService {
             config.save();
 
             // 检查仓库状态，如果处于合并状态，先尝试完成合并
-            if (repo.getRepositoryState().equals(org.eclipse.jgit.lib.RepositoryState.MERGING_RESOLVED) || 
+            if (repo.getRepositoryState().equals(org.eclipse.jgit.lib.RepositoryState.MERGING_RESOLVED) ||
                 repo.getRepositoryState().equals(org.eclipse.jgit.lib.RepositoryState.MERGING)) {
                 // 仓库处于合并状态，尝试完成合并
                 try {
@@ -392,7 +412,67 @@ public class GitServiceImpl implements GitService {
     @Override
     public Map<String, Object> getFileDiff(String repoPath, String filePath, String commitHash) {
         Map<String, Object> result = new HashMap<>();
-        result.put("diff", "- old line\n+ new line");
+        try (Git git = Git.open(getRepoDir(repoPath))) {
+            Repository repo = git.getRepository();
+
+            // 获取指定提交的树
+            ObjectId oldCommitId = repo.resolve(commitHash);
+            if (oldCommitId == null) {
+                result.put("diff", "Commit not found: " + commitHash);
+                return result;
+            }
+
+            // 获取当前工作区的文件内容
+            File workingFile = new File(repoPath, filePath);
+            String currentContent = "";
+            if (workingFile.exists()) {
+                currentContent = new String(java.nio.file.Files.readAllBytes(workingFile.toPath()));
+            }
+
+            // 获取指定提交中的文件内容
+            String oldContent = "";
+            try (RevWalk revWalk = new RevWalk(repo)) {
+                RevCommit oldCommit = revWalk.parseCommit(oldCommitId);
+                RevTree oldTree = oldCommit.getTree();
+                TreeWalk treeWalk = TreeWalk.forPath(repo, filePath, oldTree);
+                if (treeWalk != null) {
+                    ObjectId blobId = treeWalk.getObjectId(0);
+                    ObjectLoader loader = repo.open(blobId);
+                    oldContent = new String(loader.getBytes());
+                }
+            }
+
+            // 生成差异
+            StringBuilder diff = new StringBuilder();
+            String[] oldLines = oldContent.split("\n");
+            String[] newLines = currentContent.split("\n");
+
+            int i = 0, j = 0;
+            while (i < oldLines.length || j < newLines.length) {
+                if (i < oldLines.length && j < newLines.length) {
+                    if (!oldLines[i].equals(newLines[j])) {
+                        diff.append("- ").append(oldLines[i]).append("\n");
+                        diff.append("+ ").append(newLines[j]).append("\n");
+                        i++;
+                        j++;
+                    } else {
+                        diff.append("  ").append(oldLines[i]).append("\n");
+                        i++;
+                        j++;
+                    }
+                } else if (i < oldLines.length) {
+                    diff.append("- ").append(oldLines[i]).append("\n");
+                    i++;
+                } else {
+                    diff.append("+ ").append(newLines[j]).append("\n");
+                    j++;
+                }
+            }
+
+            result.put("diff", diff.toString());
+        } catch (Exception e) {
+            result.put("diff", "Error generating diff: " + e.getMessage());
+        }
         return result;
     }
 

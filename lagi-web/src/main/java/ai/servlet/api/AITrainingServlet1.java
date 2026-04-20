@@ -246,7 +246,18 @@ public class AITrainingServlet1 extends RestfulServlet {
     }
     @Post("updateModel")
     public String updateModel(@Param("id") Long modelId, @Body("model") JSONObject model) {
-        // 验证必填参数 id
+        if (modelId == null) {
+            Object idObj = model.get("id");
+            if (idObj instanceof Number) {
+                modelId = ((Number) idObj).longValue();
+            } else if (idObj != null) {
+                try {
+                    modelId = Long.parseLong(idObj.toString());
+                } catch (NumberFormatException e) {
+                    throw new RRException("模型ID格式不正确");
+                }
+            }
+        }
         if (modelId == null) {
             throw new RRException("模型ID不能为空");
         }

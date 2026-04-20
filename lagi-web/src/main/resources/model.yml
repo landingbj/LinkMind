@@ -28,6 +28,12 @@ models:
     model: gpt-3.5-turbo,gpt-4-1106-preview
     driver: ai.llm.adapter.impl.GPTAdapter
     api_key: your-api-key # https://platform.openai.com/
+    # Multi-key pool: uncomment below and remove api_key above to enable
+    # api_keys:
+    #   - sk-key-1
+    #   - sk-key-2
+    #   - sk-key-3
+    # key_route: polling  # polling or failover
 
   # ChatGPT-Azure is a version of the ChatGPT model integrated into Microsoft Azure's suite of AI services.
   - name: chatgpt-azure

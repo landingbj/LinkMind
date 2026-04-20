@@ -6,6 +6,9 @@ import ai.llm.responses.ResponseProtocolConstants;
 import ai.openai.pojo.ChatCompletionRequest;
 import lombok.Data;
 
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+
 @Data
 public class ModelService implements ModelVerify {
     protected String appId;
@@ -31,10 +34,32 @@ public class ModelService implements ModelVerify {
     protected Integer concurrency;
     protected String protocol = ResponseProtocolConstants.COMPLETION;
     protected Boolean function;
+    protected List<String> apiKeys;
+    protected String keyRoute;
+    private transient final AtomicInteger keyCounter = new AtomicInteger(-1);
 
     @Override
     public boolean verify() {
+        if (apiKeys != null && !apiKeys.isEmpty()) {
+            return apiKeys.stream().anyMatch(k -> k != null && !k.startsWith("you"));
+        }
         return getApiKey() != null && !getApiKey().startsWith("you");
+    }
+
+    public String selectNextKey() {
+        if (apiKeys == null || apiKeys.isEmpty()) {
+            return apiKey;
+        }
+        int current, next;
+        do {
+            current = keyCounter.get();
+            next = (current + 1) % apiKeys.size();
+        } while (!keyCounter.compareAndSet(current, next));
+        return apiKeys.get(next);
+    }
+
+    public boolean hasKeyPool() {
+        return apiKeys != null && apiKeys.size() > 1 && keyRoute != null;
     }
 
     protected void setDefaultField(ChatCompletionRequest request) {

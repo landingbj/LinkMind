@@ -1,6 +1,7 @@
 package ai.llm.adapter.impl;
 
 import ai.common.ModelService;
+import ai.common.exception.RRException;
 import ai.llm.adapter.ILlmAdapter;
 import ai.llm.hook.HookService;
 import ai.llm.pojo.EnhanceChatCompletionRequest;
@@ -12,6 +13,8 @@ import cn.hutool.core.bean.BeanUtil;
 import io.reactivex.Observable;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+
+import java.util.List;
 
 
 
@@ -68,27 +71,24 @@ public class ProxyLlmAdapter extends ModelService implements ILlmAdapter {
             }
         }
         if(!(request instanceof EnhanceChatCompletionRequest)) {
-            ChatCompletionResult completions = llmAdapter.completions(request);
+            ChatCompletionResult completions = delegateCompletions(request);
             return applyAfterHookOnce(request, context, completions);
         }
         if(this.priorityLock == null) {
-            ChatCompletionResult completions = llmAdapter.completions(request);
+            ChatCompletionResult completions = delegateCompletions(request);
             return applyAfterHookOnce(request, context, completions);
         }
         Integer priority = ((EnhanceChatCompletionRequest) request).getPriority();
         if(priority == null) {
-            ChatCompletionResult completions = llmAdapter.completions(request);
+            ChatCompletionResult completions = delegateCompletions(request);
             return applyAfterHookOnce(request, context, completions);
         }
         try {
-//            log.info("locking priority {}", priority);
             this.priorityLock.lock(priority);
-//            log.info("get lock priority {}", priority);
             ((EnhanceChatCompletionRequest) request).setPriority(null);
-            ChatCompletionResult completions = llmAdapter.completions(request);
+            ChatCompletionResult completions = delegateCompletions(request);
             return applyAfterHookOnce(request, context, completions);
         } finally {
-//            log.info("Unlocking priority {}", priority);
             this.priorityLock.unlock(priority);
         }
     }
@@ -110,33 +110,30 @@ public class ProxyLlmAdapter extends ModelService implements ILlmAdapter {
             }
         }
         if(!(chatCompletionRequest instanceof EnhanceChatCompletionRequest)) {
-            Observable<ChatCompletionResult> chatCompletionResultObservable = llmAdapter.streamCompletions(chatCompletionRequest);
+            Observable<ChatCompletionResult> chatCompletionResultObservable = delegateStreamCompletions(chatCompletionRequest);
             context.setStreamResult(chatCompletionResultObservable);
             return applyStreamHookOnce(chatCompletionRequest, context);
         }
         if(this.priorityLock == null) {
-            Observable<ChatCompletionResult> chatCompletionResultObservable = llmAdapter.streamCompletions(chatCompletionRequest);
+            Observable<ChatCompletionResult> chatCompletionResultObservable = delegateStreamCompletions(chatCompletionRequest);
             context.setStreamResult(chatCompletionResultObservable);
             return applyStreamHookOnce(chatCompletionRequest, context);
         }
         Integer priority = ((EnhanceChatCompletionRequest) chatCompletionRequest).getPriority();
         if(priority == null) {
-            Observable<ChatCompletionResult> chatCompletionResultObservable = llmAdapter.streamCompletions(chatCompletionRequest);
+            Observable<ChatCompletionResult> chatCompletionResultObservable = delegateStreamCompletions(chatCompletionRequest);
             context.setStreamResult(chatCompletionResultObservable);
             return applyStreamHookOnce(chatCompletionRequest, context);
         }
         Observable<ChatCompletionResult> completions = null;
         try {
-//            log.info("stream locking priority {}", priority);
             this.priorityLock.lock(priority);
-//            log.info("stream get lock priority {}", priority);
             ((EnhanceChatCompletionRequest) chatCompletionRequest).setPriority(null);
-            completions = llmAdapter.streamCompletions(chatCompletionRequest);
+            completions = delegateStreamCompletions(chatCompletionRequest);
             context.setStreamResult(completions);
             completions = applyStreamHookOnce(chatCompletionRequest, context);
             if(completions != null) {
                 return completions.doFinally(() -> {
-//                    log.info("stream Unlocking priority {}", priority);
                     this.priorityLock.unlock(priority);
                 });
             } else {
@@ -147,5 +144,51 @@ public class ProxyLlmAdapter extends ModelService implements ILlmAdapter {
                 this.priorityLock.unlock(priority);
             }
         }
+    }
+
+    private ChatCompletionResult delegateCompletions(ChatCompletionRequest request) {
+        ModelService inner = (ModelService) llmAdapter;
+        if (!inner.hasKeyPool()) {
+            return llmAdapter.completions(request);
+        }
+        if ("polling".equals(inner.getKeyRoute())) {
+            inner.setApiKey(inner.selectNextKey());
+            return llmAdapter.completions(request);
+        }
+        List<String> keys = inner.getApiKeys();
+        RRException lastError = null;
+        for (int i = 0; i < keys.size(); i++) {
+            inner.setApiKey(keys.get(i));
+            try {
+                return llmAdapter.completions(request);
+            } catch (RRException e) {
+                lastError = e;
+                log.warn("API key [{}] failed, trying next ({}/{})", i, i + 1, keys.size());
+            }
+        }
+        throw lastError;
+    }
+
+    private Observable<ChatCompletionResult> delegateStreamCompletions(ChatCompletionRequest request) {
+        ModelService inner = (ModelService) llmAdapter;
+        if (!inner.hasKeyPool()) {
+            return llmAdapter.streamCompletions(request);
+        }
+        if ("polling".equals(inner.getKeyRoute())) {
+            inner.setApiKey(inner.selectNextKey());
+            return llmAdapter.streamCompletions(request);
+        }
+        List<String> keys = inner.getApiKeys();
+        RRException lastError = null;
+        for (int i = 0; i < keys.size(); i++) {
+            inner.setApiKey(keys.get(i));
+            try {
+                return llmAdapter.streamCompletions(request);
+            } catch (RRException e) {
+                lastError = e;
+                log.warn("Stream API key [{}] failed, trying next ({}/{})", i, i + 1, keys.size());
+            }
+        }
+        throw lastError;
     }
 }

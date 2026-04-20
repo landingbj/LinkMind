@@ -42,4 +42,6 @@ public class Backend {
     private Integer concurrency;
     private String protocol = "completion";
     protected Boolean function;
+    private List<String> apiKeys;
+    private String keyRoute;
 }

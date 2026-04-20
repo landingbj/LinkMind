@@ -152,13 +152,16 @@ public class ProxyLlmAdapter extends ModelService implements ILlmAdapter {
             return llmAdapter.completions(request);
         }
         if ("polling".equals(inner.getKeyRoute())) {
-            inner.setApiKey(inner.selectNextKey());
+            String selectedKey = inner.selectNextKey();
+            log.info("Key pool polling selected: {}...{}", selectedKey.substring(0, Math.min(8, selectedKey.length())), selectedKey.substring(Math.max(0, selectedKey.length() - 4)));
+            inner.setApiKey(selectedKey);
             return llmAdapter.completions(request);
         }
         List<String> keys = inner.getApiKeys();
         RRException lastError = null;
         for (int i = 0; i < keys.size(); i++) {
             inner.setApiKey(keys.get(i));
+            log.info("Key pool failover trying key ({}/{})", i + 1, keys.size());
             try {
                 return llmAdapter.completions(request);
             } catch (RRException e) {
@@ -175,13 +178,16 @@ public class ProxyLlmAdapter extends ModelService implements ILlmAdapter {
             return llmAdapter.streamCompletions(request);
         }
         if ("polling".equals(inner.getKeyRoute())) {
-            inner.setApiKey(inner.selectNextKey());
+            String selectedKey = inner.selectNextKey();
+            log.info("Key pool polling selected: {}...{}", selectedKey.substring(0, Math.min(8, selectedKey.length())), selectedKey.substring(Math.max(0, selectedKey.length() - 4)));
+            inner.setApiKey(selectedKey);
             return llmAdapter.streamCompletions(request);
         }
         List<String> keys = inner.getApiKeys();
         RRException lastError = null;
         for (int i = 0; i < keys.size(); i++) {
             inner.setApiKey(keys.get(i));
+            log.info("Key pool failover trying key ({}/{})", i + 1, keys.size());
             try {
                 return llmAdapter.streamCompletions(request);
             } catch (RRException e) {

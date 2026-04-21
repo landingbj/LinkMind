@@ -1,12 +1,14 @@
 package ai.common;
 
 
+import ai.common.utils.LRUCache;
 import ai.llm.pojo.EnhanceChatCompletionRequest;
 import ai.llm.responses.ResponseProtocolConstants;
 import ai.openai.pojo.ChatCompletionRequest;
 import lombok.Data;
 
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Data
@@ -37,6 +39,7 @@ public class ModelService implements ModelVerify {
     protected List<String> apiKeys;
     protected String keyRoute;
     private transient final AtomicInteger keyCounter = new AtomicInteger(-1);
+    private transient final LRUCache<String, String> ipKeyCache = new LRUCache<>(1000, 30, TimeUnit.DAYS);
 
     @Override
     public boolean verify() {
@@ -46,20 +49,34 @@ public class ModelService implements ModelVerify {
         return getApiKey() != null && !getApiKey().startsWith("you");
     }
 
-    public String selectNextKey() {
+    public String selectNextKey(ChatCompletionRequest request) {
         if (apiKeys == null || apiKeys.isEmpty()) {
             return apiKey;
+        }
+        String ip = extractIp(request);
+        if (ip != null && !ip.isEmpty()) {
+            String cached = ipKeyCache.get(ip);
+            if (cached != null) {
+                return cached;
+            }
         }
         int current, next;
         do {
             current = keyCounter.get();
             next = (current + 1) % apiKeys.size();
         } while (!keyCounter.compareAndSet(current, next));
-        return apiKeys.get(next);
+        String selected = apiKeys.get(next);
+        if (ip != null && !ip.isEmpty()) {
+            ipKeyCache.put(ip, selected);
+        }
+        return selected;
     }
 
-    public boolean hasKeyPool() {
-        return apiKeys != null && apiKeys.size() > 1 && keyRoute != null;
+    private String extractIp(ChatCompletionRequest request) {
+        if (request instanceof EnhanceChatCompletionRequest) {
+            return ((EnhanceChatCompletionRequest) request).getIp();
+        }
+        return null;
     }
 
     protected void setDefaultField(ChatCompletionRequest request) {

@@ -67,6 +67,7 @@ public class ApiKeyServlet extends BaseServlet {
             result.put("data", data);
             result.put("localApiKeyEditable", apiKeyService.isLocalApiKeyEditable());
         } catch (Exception e) {
+            log.error("Failed to list API keys: {}", e.getMessage(), e);
             result.put("status", "failed");
             result.put("msg", e.getMessage());
         }
@@ -88,6 +89,7 @@ public class ApiKeyServlet extends BaseServlet {
                 result.put("data", data);
             }
         } catch (Exception e) {
+            log.error("Failed to get API key: {}", e.getMessage(), e);
             result.put("status", "failed");
             result.put("msg", e.getMessage());
         }
@@ -103,6 +105,7 @@ public class ApiKeyServlet extends BaseServlet {
             result.put("data", data);
             result.put("localApiKeyEditable", apiKeyService.isLocalApiKeyEditable());
         } catch (Exception e) {
+            log.error("Failed to list providers: {}", e.getMessage(), e);
             result.put("status", "failed");
             result.put("msg", e.getMessage());
         }
@@ -145,6 +148,7 @@ public class ApiKeyServlet extends BaseServlet {
             result.put("status", "success");
             result.put("msg", "delete success");
         } catch (Exception e) {
+            log.error("Failed to delete API key: {}", e.getMessage(), e);
             result.put("status", "failed");
             result.put("msg", e.getMessage());
         }
@@ -164,6 +168,7 @@ public class ApiKeyServlet extends BaseServlet {
             result.put("status", "success");
             result.put("msg", "toggle success");
         } catch (Exception e) {
+            log.error("Failed to toggle API key: {}", e.getMessage(), e);
             result.put("status", "failed");
             result.put("msg", e.getMessage());
         }

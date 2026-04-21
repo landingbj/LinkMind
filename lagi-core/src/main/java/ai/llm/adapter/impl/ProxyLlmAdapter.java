@@ -9,13 +9,13 @@ import ai.llm.pojo.ModelContext;
 import ai.llm.utils.PriorityLock;
 import ai.openai.pojo.ChatCompletionRequest;
 import ai.openai.pojo.ChatCompletionResult;
+import ai.router.utils.RouteGlobal;
 import cn.hutool.core.bean.BeanUtil;
 import io.reactivex.Observable;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.List;
-
 
 
 @Slf4j
@@ -30,10 +30,10 @@ public class ProxyLlmAdapter extends ModelService implements ILlmAdapter {
 
     public ProxyLlmAdapter(ILlmAdapter llmAdapter) {
         this.llmAdapter = llmAdapter;
-        if(llmAdapter instanceof ModelService) {
+        if (llmAdapter instanceof ModelService) {
             ModelService modelService = (ModelService) llmAdapter;
             BeanUtil.copyProperties(modelService, this);
-            if(modelService.getConcurrency() != null) {
+            if (modelService.getConcurrency() != null) {
                 this.priorityLock = new PriorityLock(modelService.getConcurrency());
             }
         }
@@ -41,7 +41,7 @@ public class ProxyLlmAdapter extends ModelService implements ILlmAdapter {
 
 
     private Observable<ChatCompletionResult> applyStreamHookOnce(ChatCompletionRequest request, ModelContext context) {
-        if(Boolean.TRUE.equals(request.getEnableAfter())) {
+        if (Boolean.TRUE.equals(request.getEnableAfter())) {
             request.setEnableAfter(null);
             return hookService != null ? hookService.streamApply(context) : context.getStreamResult();
         }
@@ -49,7 +49,7 @@ public class ProxyLlmAdapter extends ModelService implements ILlmAdapter {
     }
 
     private ChatCompletionResult applyAfterHookOnce(ChatCompletionRequest request, ModelContext context, ChatCompletionResult completions) {
-        if(Boolean.TRUE.equals(request.getEnableAfter())) {
+        if (Boolean.TRUE.equals(request.getEnableAfter())) {
             request.setEnableAfter(null);
             context.setResult(completions);
             return hookService != null ? hookService.AfterModel(context) : completions;
@@ -61,7 +61,7 @@ public class ProxyLlmAdapter extends ModelService implements ILlmAdapter {
     public ChatCompletionResult completions(ChatCompletionRequest request) {
         // Prevent stack overflow caused by calling large models within the hook function
         ModelContext context = ModelContext.builder().request(request).adapter(this.llmAdapter).build();
-        if(Boolean.TRUE.equals(request.getEnableHook())) {
+        if (Boolean.TRUE.equals(request.getEnableHook())) {
             request.setEnableHook(null);
             if (hookService != null) {
                 ChatCompletionRequest afterHook = hookService.beforeModel(context);
@@ -70,16 +70,16 @@ public class ProxyLlmAdapter extends ModelService implements ILlmAdapter {
                 }
             }
         }
-        if(!(request instanceof EnhanceChatCompletionRequest)) {
+        if (!(request instanceof EnhanceChatCompletionRequest)) {
             ChatCompletionResult completions = delegateCompletions(request);
             return applyAfterHookOnce(request, context, completions);
         }
-        if(this.priorityLock == null) {
+        if (this.priorityLock == null) {
             ChatCompletionResult completions = delegateCompletions(request);
             return applyAfterHookOnce(request, context, completions);
         }
         Integer priority = ((EnhanceChatCompletionRequest) request).getPriority();
-        if(priority == null) {
+        if (priority == null) {
             ChatCompletionResult completions = delegateCompletions(request);
             return applyAfterHookOnce(request, context, completions);
         }
@@ -94,13 +94,11 @@ public class ProxyLlmAdapter extends ModelService implements ILlmAdapter {
     }
 
 
-
-
     @Override
     public Observable<ChatCompletionResult> streamCompletions(ChatCompletionRequest chatCompletionRequest) {
         // Prevent stack overflow caused by calling large models within the hook function
         ModelContext context = ModelContext.builder().request(chatCompletionRequest).adapter(this.llmAdapter).build();
-        if(Boolean.TRUE.equals(chatCompletionRequest.getEnableHook())) {
+        if (Boolean.TRUE.equals(chatCompletionRequest.getEnableHook())) {
             chatCompletionRequest.setEnableHook(null);
             if (hookService != null) {
                 ChatCompletionRequest afterHook = hookService.beforeModel(context);
@@ -109,18 +107,18 @@ public class ProxyLlmAdapter extends ModelService implements ILlmAdapter {
                 }
             }
         }
-        if(!(chatCompletionRequest instanceof EnhanceChatCompletionRequest)) {
+        if (!(chatCompletionRequest instanceof EnhanceChatCompletionRequest)) {
             Observable<ChatCompletionResult> chatCompletionResultObservable = delegateStreamCompletions(chatCompletionRequest);
             context.setStreamResult(chatCompletionResultObservable);
             return applyStreamHookOnce(chatCompletionRequest, context);
         }
-        if(this.priorityLock == null) {
+        if (this.priorityLock == null) {
             Observable<ChatCompletionResult> chatCompletionResultObservable = delegateStreamCompletions(chatCompletionRequest);
             context.setStreamResult(chatCompletionResultObservable);
             return applyStreamHookOnce(chatCompletionRequest, context);
         }
         Integer priority = ((EnhanceChatCompletionRequest) chatCompletionRequest).getPriority();
-        if(priority == null) {
+        if (priority == null) {
             Observable<ChatCompletionResult> chatCompletionResultObservable = delegateStreamCompletions(chatCompletionRequest);
             context.setStreamResult(chatCompletionResultObservable);
             return applyStreamHookOnce(chatCompletionRequest, context);
@@ -132,7 +130,7 @@ public class ProxyLlmAdapter extends ModelService implements ILlmAdapter {
             completions = delegateStreamCompletions(chatCompletionRequest);
             context.setStreamResult(completions);
             completions = applyStreamHookOnce(chatCompletionRequest, context);
-            if(completions != null) {
+            if (completions != null) {
                 return completions.doFinally(() -> {
                     this.priorityLock.unlock(priority);
                 });
@@ -140,7 +138,7 @@ public class ProxyLlmAdapter extends ModelService implements ILlmAdapter {
                 return null;
             }
         } finally {
-            if(completions == null) {
+            if (completions == null) {
                 this.priorityLock.unlock(priority);
             }
         }
@@ -148,25 +146,25 @@ public class ProxyLlmAdapter extends ModelService implements ILlmAdapter {
 
     private ChatCompletionResult delegateCompletions(ChatCompletionRequest request) {
         ModelService inner = (ModelService) llmAdapter;
-        if (!inner.hasKeyPool()) {
+        List<String> keys = inner.getApiKeys();
+        RRException lastError = new RRException("No available API key in the key pool");
+        if (keys == null || keys.isEmpty()) {
             return llmAdapter.completions(request);
-        }
-        if ("polling".equals(inner.getKeyRoute())) {
-            String selectedKey = inner.selectNextKey();
+        } else if (RouteGlobal.POLLING.equals(inner.getKeyRoute())) {
+            String selectedKey = inner.selectNextKey(request);
             log.info("Key pool polling selected: {}...{}", selectedKey.substring(0, Math.min(8, selectedKey.length())), selectedKey.substring(Math.max(0, selectedKey.length() - 4)));
             inner.setApiKey(selectedKey);
             return llmAdapter.completions(request);
-        }
-        List<String> keys = inner.getApiKeys();
-        RRException lastError = null;
-        for (int i = 0; i < keys.size(); i++) {
-            inner.setApiKey(keys.get(i));
-            log.info("Key pool failover trying key ({}/{})", i + 1, keys.size());
-            try {
-                return llmAdapter.completions(request);
-            } catch (RRException e) {
-                lastError = e;
-                log.warn("API key [{}] failed, trying next ({}/{})", i, i + 1, keys.size());
+        } else if (RouteGlobal.FAILOVER.equals(inner.getKeyRoute())) {
+            for (int i = 0; i < keys.size(); i++) {
+                inner.setApiKey(keys.get(i));
+                log.info("Key pool failover trying key ({}/{})", i + 1, keys.size());
+                try {
+                    return llmAdapter.completions(request);
+                } catch (RRException e) {
+                    lastError = e;
+                    log.warn("API key [{}] failed, trying next ({}/{})", i, i + 1, keys.size());
+                }
             }
         }
         throw lastError;
@@ -174,25 +172,25 @@ public class ProxyLlmAdapter extends ModelService implements ILlmAdapter {
 
     private Observable<ChatCompletionResult> delegateStreamCompletions(ChatCompletionRequest request) {
         ModelService inner = (ModelService) llmAdapter;
-        if (!inner.hasKeyPool()) {
+        List<String> keys = inner.getApiKeys();
+        RRException lastError = new RRException("No available API key in the key pool");
+        if (keys == null || keys.isEmpty()) {
             return llmAdapter.streamCompletions(request);
-        }
-        if ("polling".equals(inner.getKeyRoute())) {
-            String selectedKey = inner.selectNextKey();
+        } else if (RouteGlobal.POLLING.equals(inner.getKeyRoute())) {
+            String selectedKey = inner.selectNextKey(request);
             log.info("Key pool polling selected: {}...{}", selectedKey.substring(0, Math.min(8, selectedKey.length())), selectedKey.substring(Math.max(0, selectedKey.length() - 4)));
             inner.setApiKey(selectedKey);
             return llmAdapter.streamCompletions(request);
-        }
-        List<String> keys = inner.getApiKeys();
-        RRException lastError = null;
-        for (int i = 0; i < keys.size(); i++) {
-            inner.setApiKey(keys.get(i));
-            log.info("Key pool failover trying key ({}/{})", i + 1, keys.size());
-            try {
-                return llmAdapter.streamCompletions(request);
-            } catch (RRException e) {
-                lastError = e;
-                log.warn("Stream API key [{}] failed, trying next ({}/{})", i, i + 1, keys.size());
+        } else if (RouteGlobal.FAILOVER.equals(inner.getKeyRoute())) {
+            for (int i = 0; i < keys.size(); i++) {
+                inner.setApiKey(keys.get(i));
+                log.info("Key pool failover trying key ({}/{})", i + 1, keys.size());
+                try {
+                    return llmAdapter.streamCompletions(request);
+                } catch (RRException e) {
+                    lastError = e;
+                    log.warn("Stream API key [{}] failed, trying next ({}/{})", i, i + 1, keys.size());
+                }
             }
         }
         throw lastError;

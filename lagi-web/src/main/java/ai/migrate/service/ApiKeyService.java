@@ -9,6 +9,7 @@ import ai.utils.AiGlobal;
 import ai.utils.OkHttpUtil;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+import lombok.extern.slf4j.Slf4j;
 import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.Yaml;
 
@@ -23,6 +24,7 @@ import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+@Slf4j
 public class ApiKeyService {
     private static final String OPENAI_COMPATIBLE = "OpenAICompatible";
     private static final String LANDING = "Landing";
@@ -229,7 +231,7 @@ public class ApiKeyService {
                 syncLandingApiKeysToDb(userId.trim());
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("sync api keys to local db failed: {}", e.getMessage(), e);
             localSynced.set(false);
             landingSynced.set(false);
         }
@@ -239,6 +241,10 @@ public class ApiKeyService {
         List<ModelApiKey> localApiKeys = getLocalApiKeys();
         for (ModelApiKey item : localApiKeys) {
             insertIfApiKeyNotExists(item);
+            // Local keys are all read from lagi.yml (api_key / api_keys) -> mark as active.
+            if (!isBlank(item.getApiKey())) {
+                apiKeyDao.setStatusByApiKey(item.getApiKey().trim(), 1);
+            }
         }
     }
 
@@ -247,10 +253,34 @@ public class ApiKeyService {
             throw new IOException("userId is required for Landing");
         }
         List<ModelApiKey> landingApiKeys = getLandingApiKeys(userId);
+        Set<String> configuredKeys = collectConfiguredApiKeys();
         for (ModelApiKey item : landingApiKeys) {
             item.setUserId(userId.trim());
             insertIfApiKeyNotExists(item);
+            String apiKey = item.getApiKey() == null ? "" : item.getApiKey().trim();
+            // If this Landing key is also configured in lagi.yml (api_key / api_keys), mark it active.
+            if (!apiKey.isEmpty() && configuredKeys.contains(apiKey)) {
+                apiKeyDao.setStatusByApiKey(apiKey, 1);
+            }
         }
+    }
+
+    private Set<String> collectConfiguredApiKeys() throws IOException {
+        Map<String, Object> root = loadRootYaml();
+        List<Map<String, Object>> models = getModels(root);
+        Set<String> keys = new HashSet<String>();
+        for (Map<String, Object> model : models) {
+            String singleKey = readApiKeyString(model);
+            if (isApiKeyUsable(singleKey)) {
+                keys.add(singleKey.trim());
+            }
+            for (String k : readApiKeysList(model)) {
+                if (isApiKeyUsable(k)) {
+                    keys.add(k.trim());
+                }
+            }
+        }
+        return keys;
     }
 
     private void insertIfApiKeyNotExists(ModelApiKey source) throws Exception {
@@ -288,22 +318,30 @@ public class ApiKeyService {
                 continue;
             }
             String provider = normalizeProvider(model.get("type") == null ? "" : model.get("type").toString());
-            Object apiKeyObj = model.get("api_key");
-            String apiKey = apiKeyObj == null ? "" : apiKeyObj.toString();
-            if (!isApiKeyUsable(apiKey)) {
-                continue;
-            }
             Object apiAddressObj = model.get("api_address");
             String apiAddress = apiAddressObj == null ? "" : apiAddressObj.toString();
             if (!OPENAI_COMPATIBLE.equalsIgnoreCase(provider)) {
                 apiAddress = "";
             }
-            ModelApiKey row = new ModelApiKey();
-            row.setName(nameObj.toString());
-            row.setProvider(provider);
-            row.setApiKey(apiKey);
-            row.setApiAddress(apiAddress);
-            result.add(row);
+            // Collect usable keys from both api_key and api_keys, de-duplicated per model.
+            Set<String> collected = new LinkedHashSet<String>();
+            String singleKey = readApiKeyString(model);
+            if (isApiKeyUsable(singleKey)) {
+                collected.add(singleKey.trim());
+            }
+            for (String k : readApiKeysList(model)) {
+                if (isApiKeyUsable(k)) {
+                    collected.add(k.trim());
+                }
+            }
+            for (String apiKey : collected) {
+                ModelApiKey row = new ModelApiKey();
+                row.setName(nameObj.toString());
+                row.setProvider(provider);
+                row.setApiKey(apiKey);
+                row.setApiAddress(apiAddress);
+                result.add(row);
+            }
         }
         return result;
     }
@@ -380,7 +418,7 @@ public class ApiKeyService {
                 throw new IOException("Local api key not found");
             }
             if (target.getStatus() != null && target.getStatus() == 1) {
-                resetProviderApiKeyInConfig(target.getProvider());
+                resetProviderApiKeyInConfig(target.getProvider(), target.getApiKey());
             }
             apiKeyDao.deleteByApiKey(target.getApiKey());
         } catch (Exception e) {
@@ -509,7 +547,7 @@ public class ApiKeyService {
                     }
                 }
             } else {
-                resetProviderApiKeyInConfig(LANDING);
+                resetProviderApiKeyInConfig(LANDING, target.getApiKey());
                 if (isLocalApiKeyEditable()) {
                     try {
                         apiKeyDao.setStatusByApiKey(target.getApiKey(), 0);
@@ -542,7 +580,7 @@ public class ApiKeyService {
                 applyProviderApiKeyToConfig(target.getProvider(), target.getApiKey());
             } else {
                 apiKeyDao.setStatusByApiKey(target.getApiKey(), 0);
-                resetProviderApiKeyInConfig(target.getProvider());
+                resetProviderApiKeyInConfig(target.getProvider(), target.getApiKey());
             }
         } catch (IOException e) {
             throw e;
@@ -589,14 +627,18 @@ public class ApiKeyService {
         if (model == null) {
             throw new IOException("Provider not found in models: " + provider);
         }
-        model.put("api_key", apiKey.trim());
-//        if (LANDING.equalsIgnoreCase(provider)) {
-//            model.put("model", getLandingModels());
-//        }
+        String trimmedKey = apiKey.trim();
+        List<String> apiKeys = readApiKeysList(model);
+        String currentApiKey = readApiKeyString(model);
+        // Add to api_keys only if neither api_keys nor api_key already contains it.
+        if (!apiKeys.contains(trimmedKey) && !trimmedKey.equals(currentApiKey)) {
+            apiKeys.add(trimmedKey);
+            model.put("api_keys", apiKeys);
+        }
         writeRootYaml(root);
     }
 
-    private void resetProviderApiKeyInConfig(String provider) throws IOException {
+    private void resetProviderApiKeyInConfig(String provider, String apiKey) throws IOException {
         if (isBlank(provider)) {
             throw new IOException("provider is required");
         }
@@ -605,8 +647,54 @@ public class ApiKeyService {
         if (model == null) {
             throw new IOException("Provider not found in models: " + provider);
         }
-        model.put("api_key", "your-api-key");
+        if (isBlank(apiKey)) {
+            writeRootYaml(root);
+            return;
+        }
+        String trimmedKey = apiKey.trim();
+        // Remove the key from api_keys list (all occurrences).
+        List<String> apiKeys = readApiKeysList(model);
+        apiKeys.removeIf(k -> k != null && trimmedKey.equals(k.trim()));
+        if (apiKeys.isEmpty()) {
+            model.remove("api_keys");
+        } else {
+            model.put("api_keys", apiKeys);
+        }
+        // Reset api_key if it matches the target key.
+        String currentApiKey = readApiKeyString(model);
+        if (trimmedKey.equals(currentApiKey)) {
+            model.put("api_key", "your-api-key");
+        }
         writeRootYaml(root);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> readApiKeysList(Map<String, Object> model) {
+        Object raw = model.get("api_keys");
+        List<String> result = new ArrayList<String>();
+        if (raw instanceof List) {
+            for (Object item : (List<Object>) raw) {
+                if (item != null) {
+                    result.add(item.toString());
+                }
+            }
+        } else if (raw instanceof String) {
+            String str = ((String) raw).trim();
+            if (!str.isEmpty()) {
+                for (String part : str.split(",")) {
+                    String trimmed = part.trim();
+                    if (!trimmed.isEmpty()) {
+                        result.add(trimmed);
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    private String readApiKeyString(Map<String, Object> model) {
+        Object raw = model.get("api_key");
+        return raw == null ? null : raw.toString().trim();
     }
 
     public String getLandingModels() throws IOException {

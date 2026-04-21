@@ -14,4 +14,7 @@ public class RouteGlobal {
     public static String MAPPER_AGENT_LIST = "MAPPER_AGENT_LIST";
     public static String MAPPER_RAG_URL = "MAPPER_RAG_URL";
     public static String MAPPER_AGENT_CONFIG = "MAPPER_AGENT_CONFIG";
+
+    public static final String POLLING = "polling";
+    public static final String FAILOVER = "failover";
 }

@@ -110,9 +110,47 @@ LinkMind 现在采用“主配置 + 按需拆分”的方式：
 | `model` | 当前适配器负责的模型 ID 列表 |
 | `driver` | Java 适配器类 |
 | `api_key` / `app_id` / `secret_key` / `endpoint` / `api_address` | 提供方相关凭证与地址 |
+| `api_keys` | 多 Key 池，支持 YAML 数组或逗号分隔（见下方说明） |
+| `key_route` | Key 池调度策略：`polling`（轮询）或 `failover`（故障转移） |
 | `alias` | 某些提供方可用的模型别名映射 |
 
 默认配置和代码里已经覆盖了 Qwen、DeepSeek、Landing、FastChat/Vicuna、OpenAI、Azure OpenAI、ERNIE、ChatGLM、Kimi、Baichuan、Spark、SenseChat、Gemini、Doubao、Claude 等提供方。
+
+### API Key 池（多 Key 轮询 / 故障转移）
+
+如果你只有一个 Key，继续使用 `api_key` 即可：
+
+```yaml
+api_key: sk-your-single-key
+```
+
+当你拥有多个 Key 时，可以使用 `api_keys` + `key_route` 开启 Key 池：
+
+**写法 1：YAML 数组**
+
+```yaml
+api_keys:
+  - sk-key1
+  - sk-key2
+  - sk-key3
+key_route: polling
+```
+
+**写法 2：逗号分隔**
+
+```yaml
+api_keys: sk-key1,sk-key2,sk-key3
+key_route: polling
+```
+
+两种写法效果完全一致。`key_route` 支持两种策略：
+
+| 策略 | 行为 |
+| --- | --- |
+| `polling` | 每次请求轮询使用下一个 Key（Round-Robin） |
+| `failover` | 优先使用第一个 Key；如果请求失败则自动切换到下一个 |
+
+> **注意**：`api_keys` 和 `api_key` 同时存在时，Key 池优先生效。
 
 另外，代码里还有几类适合接入兼容服务的通用适配器：
 

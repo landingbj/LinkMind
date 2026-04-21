@@ -34,6 +34,9 @@ models:
     model: qwen-plus,qwen-max
     driver: ai.wrapper.impl.AlibabaAdapter
     api_key: your-api-key
+    # 如果有多个 Key，可以改用 Key 池：
+    # api_keys: sk-key1,sk-key2,sk-key3
+    # key_route: polling  # polling（轮询）或 failover（故障转移）
 
 functions:
   chat:

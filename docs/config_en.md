@@ -110,9 +110,47 @@ Common fields:
 | `model` | Comma-separated model IDs handled by the adapter |
 | `driver` | Java adapter class |
 | `api_key` / `app_id` / `secret_key` / `endpoint` / `api_address` | Provider-specific credentials and endpoints |
+| `api_keys` | Multi-key pool; accepts a YAML array or comma-separated string (see below) |
+| `key_route` | Key pool scheduling strategy: `polling` (round-robin) or `failover` |
 | `alias` | Optional model-to-endpoint alias mapping for some providers |
 
 The default config already includes providers such as Qwen, DeepSeek, Landing, FastChat/Vicuna, OpenAI, Azure OpenAI, ERNIE, ChatGLM, Kimi, Baichuan, Spark, SenseChat, Gemini, Doubao, and Claude.
+
+### API Key Pool (multi-key rotation / failover)
+
+If you only have a single key, keep using `api_key`:
+
+```yaml
+api_key: sk-your-single-key
+```
+
+When you have multiple keys, use `api_keys` + `key_route` to enable the key pool:
+
+**Option 1 – YAML array**
+
+```yaml
+api_keys:
+  - sk-key1
+  - sk-key2
+  - sk-key3
+key_route: polling
+```
+
+**Option 2 – comma-separated**
+
+```yaml
+api_keys: sk-key1,sk-key2,sk-key3
+key_route: polling
+```
+
+Both notations are equivalent. `key_route` supports two strategies:
+
+| Strategy | Behavior |
+| --- | --- |
+| `polling` | Round-robin: each request uses the next key in the list |
+| `failover` | Always use the first key; automatically switch to the next one on failure |
+
+> **Note:** When both `api_keys` and `api_key` are present, the key pool takes precedence.
 
 The codebase also contains generic compatibility adapters that are useful for custom providers:
 

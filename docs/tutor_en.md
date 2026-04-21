@@ -34,6 +34,9 @@ models:
     model: qwen-plus,qwen-max
     driver: ai.wrapper.impl.AlibabaAdapter
     api_key: your-api-key
+    # For multiple keys, use a key pool instead:
+    # api_keys: sk-key1,sk-key2,sk-key3
+    # key_route: polling  # polling (round-robin) or failover
 
 functions:
   chat:

@@ -35,6 +35,7 @@ models:
     driver: ai.llm.adapter.impl.OpenAIStandardAdapter
     api_address: https://your-endpoint.example.com/chat/completions
     api_key: your-api-key
+    # 多 Key 池写法：api_keys: sk-key1,sk-key2  key_route: polling
 
 functions:
   chat:
@@ -94,9 +95,9 @@ models:
     model: your-model
     driver: ai.llm.adapter.impl.YourAdapter
     api_key: your-api-key
+    # 多 Key 池写法：api_keys: sk-key1,sk-key2  key_route: polling
 
 functions:
-  chat:
     route: pass(%)
     backends:
       - backend: your-provider

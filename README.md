@@ -101,7 +101,9 @@ Entries are grouped by type and listed alphabetically. These ecosystems are exte
 
 - Agent-runtime sync is built in for OpenClaw, Hermes Agent, and DeerFlow, which makes local AI workspace integration easier.
 
-  <img src="docs/images/img_25.png">
+  <a href="docs/images/img_25.png">
+    <img src="docs/images/img_25.png" alt="LinkMind runtime integration overview">
+  </a>
 
 ## Get Started In Minutes
 

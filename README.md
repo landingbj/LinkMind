@@ -19,59 +19,57 @@ The current codebase exposes a single middleware layer for chat, RAG, OCR, ASR/T
 
 <table>
   <tr>
-    <td><img src="docs/images/logo/model/img_1.png" width="18" alt="Landing"> Landing</td>
-    <td><img src="docs/images/logo/model/img_2.jpeg" width="18" alt="FastChat / Vicuna"> FastChat / Vicuna</td>
-    <td><img src="docs/images/logo/model/img_4.jpeg" width="18" alt="OpenAI"> OpenAI</td>
     <td><img src="docs/images/logo/model/img_3.jpeg" width="18" alt="Azure OpenAI"> Azure OpenAI</td>
+    <td><img src="docs/images/logo/model/img_9.jpeg" width="18" alt="Baichuan"> Baichuan</td>
+    <td><img src="docs/images/logo/model/img_7.jpg" width="18" alt="ChatGLM"> ChatGLM</td>
+    <td><img src="docs/images/logo/model/img_15.webp" width="18" alt="Claude"> Claude</td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/logo/model/img_14.jpeg" width="18" alt="DeepSeek"> DeepSeek</td>
+    <td><img src="docs/images/logo/model/img_13.png" width="18" alt="Doubao"> Doubao</td>
+    <td><img src="docs/images/logo/model/img_6.png" width="18" alt="ERNIE"> ERNIE</td>
+    <td><img src="docs/images/logo/model/img_2.jpeg" width="18" alt="FastChat / Vicuna"> FastChat / Vicuna</td>
   </tr>
   <tr>
     <td><img src="docs/images/logo/model/img_12.webp" width="18" alt="Gemini"> Gemini</td>
-    <td><img src="docs/images/logo/model/img_5.png" width="18" alt="Qwen"> Qwen</td>
-    <td><img src="docs/images/logo/model/img_6.png" width="18" alt="ERNIE"> ERNIE</td>
-    <td><img src="docs/images/logo/model/img_7.jpg" width="18" alt="ChatGLM"> ChatGLM</td>
-  </tr>
-  <tr>
-    <td><img src="docs/images/logo/model/img_8.png" width="18" alt="Moonshot / Kimi"> Moonshot / Kimi</td>
-    <td><img src="docs/images/logo/model/img_9.jpeg" width="18" alt="Baichuan"> Baichuan</td>
-    <td><img src="docs/images/logo/model/img_10.jpeg" width="18" alt="iFLYTEK Spark"> iFLYTEK Spark</td>
-    <td><img src="docs/images/logo/model/img_11.png" width="18" alt="SenseChat"> SenseChat</td>
-  </tr>
-  <tr>
-    <td><img src="docs/images/logo/model/img_13.png" width="18" alt="Doubao"> Doubao</td>
-    <td><img src="docs/images/logo/model/img_14.jpeg" width="18" alt="DeepSeek"> DeepSeek</td>
-    <td><img src="docs/images/logo/model/img_15.webp" width="18" alt="Claude"> Claude</td>
-    <td><img src="docs/images/logo/model/img_16.jpg" width="18" alt="MiniMax"> MiniMax</td>
-  </tr>
-  <tr>
-    <td><img src="docs/images/logo/img_4.jpeg" width="18" alt="Hunyuan"> Hunyuan</td>
     <td><img src="docs/images/logo/model/img_17.png" width="18" alt="Grok"> Grok</td>
-    <td><img src="docs/images/logo/model/img_18.webp" width="18" alt="OpenRouter"> OpenRouter</td>
-    <td><img src="docs/images/logo/model/img_19.png" width="18" alt="StepFun"> StepFun</td>
+    <td><img src="docs/images/logo/img_4.jpeg" width="18" alt="Hunyuan"> Hunyuan</td>
+    <td><img src="docs/images/logo/model/img_10.jpeg" width="18" alt="iFLYTEK Spark"> iFLYTEK Spark</td>
   </tr>
   <tr>
+    <td><img src="docs/images/logo/model/img_16.jpg" width="18" alt="MiniMax"> MiniMax</td>
+    <td><img src="docs/images/logo/model/img_8.png" width="18" alt="Moonshot / Kimi"> Moonshot / Kimi</td>
+    <td><img src="docs/images/logo/model/img_4.jpeg" width="18" alt="OpenAI"> OpenAI</td>
+    <td><img src="docs/images/logo/model/img_18.webp" width="18" alt="OpenRouter"> OpenRouter</td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/logo/model/img_5.png" width="18" alt="Qwen"> Qwen</td>
+    <td><img src="docs/images/logo/model/img_11.png" width="18" alt="SenseChat"> SenseChat</td>
+    <td><img src="docs/images/logo/model/img_19.png" width="18" alt="StepFun"> StepFun</td>
     <td><img src="docs/images/logo/model/img_20.png" width="18" alt="Xiaomi"> Xiaomi</td>
-    <td></td>
-    <td></td>
   </tr>
 </table>
 
-**Agent Runtimes**
+**Local Agent Frameworks**
 
 <table>
   <tr>
-    <td><img src="docs/images/logo/img_21.jpg" width="18" alt="OpenClaw"> OpenClaw</td>
-    <td><img src="docs/images/logo/img_22.png" width="18" alt="Hermes Agent"> Hermes Agent</td>
     <td><img src="docs/images/logo/img_23.jpg" width="18" alt="DeerFlow"> DeerFlow</td>
-    <td><img src="docs/images/logo/img_1.png" width="18" alt="Coze"> Coze</td>
-  </tr>
-  <tr>
-    <td><img src="docs/images/logo/img_2.png" width="18" alt="Wenxin Agents"> Wenxin Agents</td>
-    <td><img src="docs/images/logo/img_3.png" width="18" alt="Zhipu Agents"> Zhipu Agents</td>
-    <td><img src="docs/images/logo/img_4.jpeg" width="18" alt="Hunyuan Agents"> Hunyuan Agents</td>
-    <td></td>
+    <td><img src="docs/images/logo/img_22.png" width="18" alt="Hermes Agent"> Hermes Agent</td>
+    <td><img src="docs/images/logo/img_21.jpg" width="18" alt="OpenClaw"> OpenClaw</td>
   </tr>
 </table>
 
+**Cloud Agent Platforms**
+
+<table>
+  <tr>
+    <td><img src="docs/images/logo/img_1.png" width="18" alt="Coze"> Coze</td>
+    <td><img src="docs/images/logo/img_4.jpeg" width="18" alt="Hunyuan Agents"> Hunyuan Agents</td>
+    <td><img src="docs/images/logo/img_2.png" width="18" alt="Wenxin Agents"> Wenxin Agents</td>
+    <td><img src="docs/images/logo/img_3.png" width="18" alt="Zhipu Agents"> Zhipu Agents</td>
+  </tr>
+</table>
 
 **Data & Retrieval**
 
@@ -79,11 +77,17 @@ The current codebase exposes a single middleware layer for chat, RAG, OCR, ASR/T
   <tr>
     <td><img src="docs/images/logo/img_4.png" width="18" alt="Chroma"> Chroma</td>
     <td><img src="docs/images/logo/img_5.png" width="18" alt="Elasticsearch"> Elasticsearch</td>
+    <td><img src="docs/images/logo/img_26.png" width="18" alt="Milvus"> Milvus</td>
+  </tr>
+  <tr>
     <td><img src="docs/images/logo/img_6.png" width="18" alt="MySQL"> MySQL</td>
+    <td><img src="docs/images/logo/img_27.png" width="18" alt="Pinecone"> Pinecone</td>
+    <td><img src="docs/images/logo/img_28.png" width="18" alt="SQLite"> SQLite</td>
   </tr>
 </table>
 
-All three ecosystems are extensible; the [Extension Guide](docs/extend_en.md) covers writing new model, vector-store, and adapter integrations. For Chroma setup specifics, see the [Annex](docs/annex_en.md).
+
+Entries are grouped by type and listed alphabetically. These ecosystems are extensible; the [Extension Guide](docs/extend_en.md) covers writing new model, vector-store, and adapter integrations. For Chroma setup specifics, see the [Annex](docs/annex_en.md).
 
 ## Why LinkMind
 
@@ -91,7 +95,7 @@ All three ecosystems are extensible; the [Extension Guide](docs/extend_en.md) co
 
 - Multi-model routing and failover are configured centrally in `lagi.yml` (see the [Configuration Reference](docs/config_en.md) for all options), so business systems do not need provider-specific rewrites.
 
-- RAG support is built around vector stores and document ingestion, with optional Chroma, Elasticsearch, MySQL, and graph-style augmentation.
+- RAG support is built around document ingestion plus Chroma, Elasticsearch, Milvus, MySQL, Pinecone, and SQLite-backed retrieval paths, with room for graph-style augmentation.
 
 - Medusa caching, token statistics endpoints, filters, and runtime governance target real production cost and stability concerns.
 
@@ -101,7 +105,9 @@ All three ecosystems are extensible; the [Extension Guide](docs/extend_en.md) co
 
 ## Get Started In Minutes
 
-### 1. Official installer
+The following four methods are parallel options; you can choose any one of them.
+
+### Option 1. Official installer
 
 Prerequisite: install **JDK 8 or later**.
 
@@ -124,7 +130,12 @@ The installer supports two runtime choices:
 | `Agent Mate` | You already use OpenClaw, Hermes Agent, or DeerFlow locally and want LinkMind to work as the shared middleware layer |
 | `Agent Server` | You want a standalone LinkMind service first, or you are evaluating the web console and API directly |
 
-### 2. Run the packaged JAR
+### Option 2. Download and run the packaged JAR
+
+Packaged downloads:
+
+- Application package: `LinkMind.jar` ([Download](https://downloads.landingbj.com/lagi/installer/LinkMind.jar))
+- Core library: `lagi-core-1.2.0-jar-with-dependencies.jar` ([Download](https://downloads.landingbj.com/lagi/lib/lagi-core-1.2.0-jar-with-dependencies.jar))
 
 ```powershell
 java -jar LinkMind.jar
@@ -132,7 +143,18 @@ java -jar LinkMind.jar
 
 On first run, LinkMind creates `config/`, `data/`, and the default `lagi.yml`. Then open `http://localhost:8080`.
 
-### 3. Build from source
+### Option 3. Use the Docker image
+
+Prebuilt image: `landingbj/linkmind`
+
+```bash
+docker pull landingbj/linkmind
+docker run -d -p 8080:8080 landingbj/linkmind
+```
+
+Then open `http://localhost:8080`.
+
+### Option 4. Build from source
 
 ```bash
 mvn clean package -pl lagi-web -am -DskipTests -U

@@ -1,8 +1,8 @@
 # LinkMind 安装指南
 
-本文优先服务第一次接触 LinkMind 的用户，所以安装顺序按“最快跑起来”来写。只想尽快体验时，直接走安装脚本；只有在需要更强控制权时，再使用 JAR 或源码构建方式。
+本文优先服务第一次接触 LinkMind 的用户。下面 4 种方式是并列选项，不是顺序步骤，请按你的部署方式任选其一。
 
-## 一、最快路径：官方安装脚本
+## Option 1：官方安装脚本快速安装
 
 ### 前置条件
 
@@ -60,9 +60,14 @@
 Authorization: Bearer <你的-linkmind-api-key>
 ```
 
-## 二、直接运行 `LinkMind.jar`
+## Option 2：下载并运行 `LinkMind.jar`
 
-当你已经拿到打包好的 JAR 时，最简单的方式就是直接运行它。
+当你希望直接使用现成封包，而不自己编译源码时，选这个方式。
+
+### 预打包下载资源
+
+- 应用文件：`LinkMind.jar`，[点击这里下载](https://downloads.landingbj.com/lagi/installer/LinkMind.jar)
+- 核心库文件：`lagi-core-1.2.0-jar-with-dependencies.jar`，[点击这里下载](https://downloads.landingbj.com/lagi/lib/lagi-core-1.2.0-jar-with-dependencies.jar)
 
 ### 启动命令
 
@@ -92,7 +97,29 @@ Authorization: Bearer <你的-linkmind-api-key>
 
 如果你把 JAR 放在 `D:\LinkMind` 或 `~/LinkMind` 目录下运行，默认生成的配置和数据目录也会落在该目录旁边。
 
-## 三、从源码构建
+## Option 3：使用 Docker 镜像
+
+当你希望通过预构建容器快速启动时，选这个方式。
+
+### 镜像名称
+
+- `landingbj/linkmind`
+
+### 拉取镜像
+
+```bash
+docker pull landingbj/linkmind
+```
+
+### 启动容器
+
+```bash
+docker run -d -p 8080:8080 landingbj/linkmind
+```
+
+启动后访问 `http://localhost:8080`。
+
+## Option 4：从源码编译
 
 当你需要跟随本地最新代码，或同时拿到可执行 JAR 与 WAR 包时，使用源码构建方式。
 
@@ -123,9 +150,9 @@ java -jar lagi-web/target/LinkMind.jar
 
 但对本地体验和日常运行来说，仍然更推荐直接使用内嵌式 JAR。
 
-## 四、常用运行参数
+## JAR 启动时常用运行参数
 
-LinkMind 提供了几组非常实用的启动参数。
+下面这些参数适用于直接启动 `LinkMind.jar`，也适用于源码打包后的 JAR。
 
 ### 修改端口
 
@@ -169,7 +196,7 @@ java -jar LinkMind.jar --runtime-choice=server
 java -jar LinkMind.jar --deer-flow-path=/path/to/deer-flow
 ```
 
-## 五、启动后下一步看什么
+## 启动后下一步看什么
 
 建议按下面顺序继续：
 

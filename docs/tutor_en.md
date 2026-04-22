@@ -4,10 +4,12 @@ This walkthrough is the shortest practical path from zero to a working LinkMind 
 
 ## 1. Start LinkMind
 
-Use one of the flows from the [Installation Guide](install_en.md). The fastest options are:
+Use any one of the four options from the [Installation Guide](install_en.md):
 
-- Run the installer script
-- Or run `java -jar LinkMind.jar`
+- Official installer
+- Packaged JAR
+- Docker image
+- Source build
 
 When the server is ready, open:
 

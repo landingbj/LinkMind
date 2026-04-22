@@ -194,6 +194,10 @@ LinkMind 当前同时暴露两套路由风格：
 如需将上述能力通过 `lagi-core` 或 REST API 集成到业务系统，请参考[开发集成指南](docs/guide_zh.md)。
 
 <table width="100%">
+  <colgroup>
+    <col width="640">
+    <col width="640">
+  </colgroup>
   <tr>
     <td valign="top" width="50%">
       <h2>License</h2>

@@ -395,6 +395,10 @@ public class modelBaseDao {
             model.getStr("version").trim().isEmpty()) {
             throw new IllegalArgumentException("版本号不能为空");
         }
+        if (!model.containsKey("model_dir") || model.getStr("model_dir") == null ||
+            model.getStr("model_dir").trim().isEmpty()) {
+            throw new IllegalArgumentException("模型model_dir不能为空");
+        }
 
         // 构建模型数据
         String modelName = model.getStr("modelName");

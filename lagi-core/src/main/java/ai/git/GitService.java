@@ -34,4 +34,5 @@ public interface GitService {
     Map<String, Object> getStatus(String repoPath,Object obj);
     void reset(String repoPath, String commitHash, String mode);
     void checkoutFile(String repoPath, String filePath);
+    Map<String, Object> pushDirectory(String dirPath, String repoUrl, String branch, String message, boolean force);
 }

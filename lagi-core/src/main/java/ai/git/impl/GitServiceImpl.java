@@ -640,4 +640,56 @@ public class GitServiceImpl implements GitService {
             throw new RuntimeException(e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
         }
     }
+
+    @Override
+    public Map<String, Object> pushDirectory(String dirPath, String repoUrl, String branch, String message, boolean force) {
+        try {
+            File dir = new File(dirPath);
+            
+            // 目录检查
+            if (!dir.exists() || !dir.isDirectory()) return Map.of("code", "400", "message", "failed", "errorMsg", "Directory not found");
+            if (!dir.canRead() || !dir.canWrite()) return Map.of("code", "403", "message", "failed", "errorMsg", "Permission denied");
+
+            // 初始化/配置仓库
+            if (!new File(dir, ".git").exists()) executeCommand(dirPath, "git", "init");
+            executeCommand(dirPath, "git", "config", "user.name", "root");
+            executeCommand(dirPath, "git", "config", "user.email", "root@example.com");
+            executeCommand(dirPath, "git", "remote", "add", "origin", repoUrl);
+
+            // 添加文件
+            executeCommand(dirPath, "git", "add", ".");
+            
+            // 检查变更
+            if (!hasChanges(dirPath)) return Map.of("code", "200", "message", "success", "data", "No changes");
+
+            // 提交
+            executeCommand(dirPath, "git", "checkout", "-B", branch);
+            executeCommand(dirPath, "git", "commit", "-m", message);
+
+            // 推送
+            try {
+                executeCommand(dirPath, "git", "push", "-u", force ? "-f" : "", "origin", branch);
+            } catch (Exception e) {
+                if (force) throw e;
+                return Map.of("code", "409", "message", "failed", "errorMsg", "Push conflict");
+            }
+
+            return Map.of("code", "200", "message", "success", "data", "推送完成");
+
+        } catch (Exception e) {
+            return Map.of("code", "500", "message", "failed", "errorMsg", e.getMessage());
+        }
+    }
+
+    private boolean hasChanges(String dirPath) throws Exception {
+        ProcessBuilder pb = new ProcessBuilder("git", "status", "--porcelain");
+        pb.directory(new File(dirPath));
+        pb.redirectErrorStream(true);
+        Process process = pb.start();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            return reader.readLine() != null;
+        } finally {
+            process.waitFor();
+        }
+    }
 }

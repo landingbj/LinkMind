@@ -459,4 +459,20 @@ public class GitAPIServlet extends RestfulServlet {
             return Map.of( "code","400","message", "failed", "errorMsg", "NO_CHANGES");
         }
     }
+
+    // 将目录内容推送到远程仓库
+    @Post("git-push-dir")
+    public Map<String, Object> pushDirectory(@Body JSONObject request) {
+        String dirPath = request.getStr("dirPath");
+        String repoUrl = request.getStr("repoUrl");
+        String branch = request.getStr("branch", "main");
+        String message = request.getStr("message", "Push directory contents");
+        boolean force = request.getBool("force", false);
+
+        if (dirPath == null || repoUrl == null) {
+            return Map.of("code", "400", "message", "failed", "errorMsg", "dirPath and repoUrl are required");
+        }
+
+        return gitService.pushDirectory(dirPath, repoUrl, branch, message, force);
+    }
 }

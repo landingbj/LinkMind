@@ -1,8 +1,8 @@
 # LinkMind Installation Guide
 
-This guide is intentionally optimized for first-time users. Start with the installer if you want the fastest path. Use the JAR or source build flow only when you need more control.
+This guide is intentionally optimized for first-time users. The four options below are alternatives, not sequential steps. Choose the one that best fits how you want to run LinkMind.
 
-## 1. Fastest Path: Official Installer
+## Option 1. Fastest Path: Official Installer
 
 ### Prerequisites
 
@@ -60,9 +60,14 @@ If you are calling the REST API directly and auth is enabled, copy the LinkMind 
 Authorization: Bearer <your-linkmind-api-key>
 ```
 
-## 2. Run `LinkMind.jar` Directly
+## Option 2. Download And Run `LinkMind.jar` Directly
 
-Use this flow when you already have the packaged JAR.
+Use this flow when you want a ready-to-run package without building from source.
+
+### Packaged downloads
+
+- Application package: `LinkMind.jar` ([Download](https://downloads.landingbj.com/lagi/installer/LinkMind.jar))
+- Core library: `lagi-core-1.2.0-jar-with-dependencies.jar` ([Download](https://downloads.landingbj.com/lagi/lib/lagi-core-1.2.0-jar-with-dependencies.jar))
 
 ### Start
 
@@ -94,7 +99,29 @@ Then open:
 
 If you run the JAR from `D:\LinkMind` or `~/LinkMind`, LinkMind keeps the generated config and data directories next to that JAR by default.
 
-## 3. Build From Source
+## Option 3. Use The Docker Image
+
+Use this flow when you want a prebuilt container image.
+
+### Image
+
+- Image name: `landingbj/linkmind`
+
+### Pull
+
+```bash
+docker pull landingbj/linkmind
+```
+
+### Start the container
+
+```bash
+docker run -d -p 8080:8080 landingbj/linkmind
+```
+
+Then open `http://localhost:8080`.
+
+## Option 4. Build From Source
 
 Use this path when you want the latest local code or need both the executable JAR and the WAR package.
 
@@ -125,9 +152,9 @@ If you prefer a servlet container, deploy:
 
 The embedded JAR remains the recommended default for local evaluation and daily operation.
 
-## 4. Common Runtime Options
+## Common Runtime Options For JAR Launches
 
-LinkMind supports several practical startup flags.
+These flags apply when you start `LinkMind.jar` directly, including builds produced from source.
 
 ### Change the port
 
@@ -171,7 +198,7 @@ Valid values are `mate` and `server`.
 java -jar LinkMind.jar --deer-flow-path=/path/to/deer-flow
 ```
 
-## 5. What To Configure Next
+## What To Configure Next
 
 After the service is running, continue in this order:
 

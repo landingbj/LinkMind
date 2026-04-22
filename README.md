@@ -4,11 +4,6 @@
 
 LinkMind is enterprise-grade multimodal AI middleware for teams that need one stable layer between business systems, private knowledge, model providers, and agent runtimes. It focuses on fast onboarding, low-friction integration, routing and failover, RAG, multimodal APIs, and production governance.
 
-## Online Demo
-
-- Public demo: [https://lagi.landingbj.com](https://lagi.landingbj.com/)
-- Local console after startup: `http://localhost:8080`
-
 ## Introduction
 
 The current codebase exposes a single middleware layer for chat, RAG, OCR, ASR/TTS, image and video workflows, text-to-SQL, embeddings, rerank, MCP access, skills, worker orchestration, and OpenAI-compatible APIs. It also includes runtime sync hooks for OpenClaw, Hermes Agent, and DeerFlow.
@@ -198,6 +193,18 @@ If you want the shortest evaluation path, start with `Agent Server`, verify the 
 
 To integrate these capabilities into your application via `lagi-core` or REST APIs, see the [Integration Guide](docs/guide_en.md).
 
-## License
-
-This project is distributed under the [LICENSE](LICENSE).
+<table>
+  <tr>
+    <td valign="top" width="50%">
+      <h2>License</h2>
+      <p>This project is distributed under the <a href="LICENSE">LICENSE</a>.</p>
+    </td>
+    <td valign="top" width="50%">
+      <h2>Online Demo</h2>
+      <ul>
+        <li>Public demo: <a href="https://linkmind.landingbj.com/">https://linkmind.landingbj.com/</a></li>
+        <li>Local console after startup: <code>http://localhost:8080</code></li>
+      </ul>
+    </td>
+  </tr>
+</table>

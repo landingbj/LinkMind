@@ -4,11 +4,6 @@
 
 LinkMind 是面向企业场景的多模态 AI 中间件，用来把业务系统、私有知识、模型厂商和 Agent 运行时统一接到一层可治理、可扩展、可上线的能力层里。它优先解决的是企业真正落地时最常见的几个问题：上手慢、接入碎、成本高、稳定性差。
 
-## 在线 Demo
-
-- 公网体验地址：[https://lagi.landingbj.com](https://lagi.landingbj.com/)
-- 本地启动后的控制台地址：`http://localhost:8080`
-
 ## 项目简介
 
 当前代码已经覆盖统一聊天入口、RAG、OCR、ASR/TTS、图片与视频能力、文档处理、Text-to-SQL、Embedding、Rerank、MCP、Skills、Worker 编排，以及 OpenAI 兼容接口。同时，项目还内置了 OpenClaw、Hermes Agent、DeerFlow 的配置同步能力，便于接入现有 Agent 工作流。
@@ -198,6 +193,18 @@ LinkMind 当前同时暴露两套路由风格：
 
 如需将上述能力通过 `lagi-core` 或 REST API 集成到业务系统，请参考[开发集成指南](docs/guide_zh.md)。
 
-## License
-
-本项目遵循 [LICENSE](LICENSE)。
+<table>
+  <tr>
+    <td valign="top" width="50%">
+      <h2>License</h2>
+      <p>本项目遵循 <a href="LICENSE">LICENSE</a>。</p>
+    </td>
+    <td valign="top" width="50%">
+      <h2>演示参看</h2>
+      <ul>
+        <li>公网体验地址：<a href="https://linkmind.landingbj.com/">https://linkmind.landingbj.com/</a></li>
+        <li>本地启动后的控制台地址：<code>http://localhost:8080</code></li>
+      </ul>
+    </td>
+  </tr>
+</table>

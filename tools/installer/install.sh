@@ -18,9 +18,9 @@ fi
 
 LINKMIND_DIR="$HOME/LinkMind"
 JAR_NAME="LinkMind.jar"
-DOWNLOADS_HOST="downloads.landingbj.com"
-DOWNLOAD_URL="https://${DOWNLOADS_HOST}/lagi/installer/LinkMind.jar"
-POPULAR_SKILLS_URL="https://${DOWNLOADS_HOST}/lagi/installer/popular_skills.zip"
+DOWNLOADS_HOST="ai.linkmind.top"
+DOWNLOAD_URL="https://${DOWNLOADS_HOST}/installer/LinkMind.jar"
+POPULAR_SKILLS_URL="https://${DOWNLOADS_HOST}/installer/popular_skills.zip"
 #DOWNLOAD_URL="http://localhost:8000/LinkMind.jar"
 JAR_PATH="$LINKMIND_DIR/$JAR_NAME"
 SKILLS_ROOT=""

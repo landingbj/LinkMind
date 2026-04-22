@@ -26,7 +26,7 @@ public class LoadJarUtil {
     };
 
 //    private static final String DOWNLOAD_URL = "http://localhost:8000";
-    private static final String DOWNLOAD_URL = "https://downloads.landingbj.com/lagi/extension";
+    private static final String DOWNLOAD_URL = "https://ai.linkmind.top/extension";
     private static final OkHttpClient HTTP_CLIENT = new OkHttpClient.Builder().build();
 
     public static synchronized URLClassLoader loadAllJarsFromFolder(String jarFolderPath) {

@@ -116,13 +116,13 @@ Prerequisite: install **JDK 8 or later**.
 - Windows PowerShell
 
   ```powershell
-  iwr -useb https://downloads.landingbj.com/install.ps1 | iex
+  iwr -useb https://ai.linkmind.top/install.ps1 | iex
   ```
 
 - macOS / Linux
 
   ```bash
-  curl -fsSL https://downloads.landingbj.com/install.sh | bash
+  curl -fsSL https://ai.linkmind.top/install.sh | bash
   ```
 
 The installer supports two runtime choices:
@@ -136,8 +136,8 @@ The installer supports two runtime choices:
 
 Packaged downloads:
 
-- Application package: `LinkMind.jar` ([Download](https://downloads.landingbj.com/lagi/installer/LinkMind.jar))
-- Core library: `lagi-core-1.2.0-jar-with-dependencies.jar` ([Download](https://downloads.landingbj.com/lagi/lib/lagi-core-1.2.0-jar-with-dependencies.jar))
+- Application package: `LinkMind.jar` ([Download](https://ai.linkmind.top/installer/LinkMind.jar))
+- Core library: `lagi-core-1.2.0-jar-with-dependencies.jar` ([Download](https://ai.linkmind.top/lagi/lib/lagi-core-1.2.0-jar-with-dependencies.jar))
 
 ```powershell
 java -jar LinkMind.jar
@@ -197,12 +197,6 @@ If you want the shortest evaluation path, start with `Agent Server`, verify the 
 - Skills runtime, MCP server configuration, and token usage observability
 
 To integrate these capabilities into your application via `lagi-core` or REST APIs, see the [Integration Guide](docs/guide_en.md).
-
-## Build And Packaging Notes
-
-- Root project version: `1.2.3`
-- Modules: `lagi-web`, `lagi-core`, `lagi-extension`
-- Default runtime entry point: `ai.starter.Application`
 
 ## License
 

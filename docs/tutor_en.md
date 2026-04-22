@@ -6,10 +6,10 @@ This walkthrough is the shortest practical path from zero to a working LinkMind 
 
 Use any one of the four options from the [Installation Guide](install_en.md):
 
-- Official installer
-- Packaged JAR
-- Docker image
-- Source build
+- Official Installer
+- Download Packaged Jar
+- With Docker Image
+- Build from Source
 
 When the server is ready, open:
 
@@ -67,7 +67,7 @@ If you get a normal answer, your first provider configuration is working.
 
 ## 4. Verify The HTTP API
 
-### Native LinkMind route
+### Native LinkMind Route
 
 ```bash
 curl http://localhost:8080/chat/completions \
@@ -81,7 +81,7 @@ curl http://localhost:8080/chat/completions \
   }'
 ```
 
-### OpenAI-compatible route
+### OpenAI-Compatible Route
 
 ```bash
 curl http://localhost:8080/v1/chat/completions \

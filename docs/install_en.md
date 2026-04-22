@@ -2,7 +2,7 @@
 
 This guide is intentionally optimized for first-time users. The four options below are alternatives, not sequential steps. Choose the one that best fits how you want to run LinkMind.
 
-## Option 1. Fastest Path: Official Installer
+## Option 1. Official Installer
 
 ### Prerequisites
 
@@ -25,7 +25,7 @@ Temurin OpenJDK is a good default if you do not already have Java installed.
   curl -fsSL https://downloads.landingbj.com/install.sh | bash
   ```
 
-### Choose a runtime mode
+### Choose a Runtime Mode
 
 During installation, LinkMind will ask you to choose a runtime mode:
 
@@ -36,7 +36,7 @@ During installation, LinkMind will ask you to choose a runtime mode:
 
 If you are only trying LinkMind for the first time, start with `Agent Server`.
 
-### First launch
+### First Launch
 
 After installation, the script can start LinkMind for you immediately. The success flow looks like this:
 
@@ -46,7 +46,7 @@ After installation, the script can start LinkMind for you immediately. The succe
 4. Wait for the server startup message
 5. Open `http://localhost:8080`
 
-### First-time console steps
+### First-Time Console Steps
 
 1. Open the web console
 2. Register or sign in
@@ -60,11 +60,11 @@ If you are calling the REST API directly and auth is enabled, copy the LinkMind 
 Authorization: Bearer <your-linkmind-api-key>
 ```
 
-## Option 2. Download And Run `LinkMind.jar` Directly
+## Option 2. Download Packaged Jar
 
 Use this flow when you want a ready-to-run package without building from source.
 
-### Packaged downloads
+### Packaged Downloads
 
 - Application package: `LinkMind.jar` ([Download](https://downloads.landingbj.com/lagi/installer/LinkMind.jar))
 - Core library: `lagi-core-1.2.0-jar-with-dependencies.jar` ([Download](https://downloads.landingbj.com/lagi/lib/lagi-core-1.2.0-jar-with-dependencies.jar))
@@ -83,7 +83,7 @@ Use this flow when you want a ready-to-run package without building from source.
   java -jar LinkMind.jar
   ```
 
-### What happens on first run
+### What Happens on First Run
 
 LinkMind automatically creates:
 
@@ -95,11 +95,11 @@ Then open:
 
 - `http://localhost:8080`
 
-### Default output locations
+### Default Output Locations
 
 If you run the JAR from `D:\LinkMind` or `~/LinkMind`, LinkMind keeps the generated config and data directories next to that JAR by default.
 
-## Option 3. Use The Docker Image
+## Option 3. With Docker Image
 
 Use this flow when you want a prebuilt container image.
 
@@ -113,7 +113,7 @@ Use this flow when you want a prebuilt container image.
 docker pull landingbj/linkmind
 ```
 
-### Start the container
+### Start the Container
 
 ```bash
 docker run -d -p 8080:8080 landingbj/linkmind
@@ -121,7 +121,7 @@ docker run -d -p 8080:8080 landingbj/linkmind
 
 Then open `http://localhost:8080`.
 
-## Option 4. Build From Source
+## Option 4. Build from Source
 
 Use this path when you want the latest local code or need both the executable JAR and the WAR package.
 
@@ -131,14 +131,14 @@ Use this path when you want the latest local code or need both the executable JA
 mvn clean package -pl lagi-web -am -DskipTests -U
 ```
 
-### Build outputs
+### Build Outputs
 
 The current Maven build produces:
 
 - `lagi-web/target/LinkMind.jar`
 - `lagi-web/target/ROOT.war`
 
-### Run the packaged JAR
+### Run the Packaged JAR
 
 ```bash
 java -jar lagi-web/target/LinkMind.jar
@@ -156,7 +156,7 @@ The embedded JAR remains the recommended default for local evaluation and daily 
 
 These flags apply when you start `LinkMind.jar` directly, including builds produced from source.
 
-### Change the port
+### Change the Port
 
 ```bash
 java -jar LinkMind.jar --port=8090
@@ -164,13 +164,13 @@ java -jar LinkMind.jar --port=8090
 
 Then open `http://localhost:8090`.
 
-### Bind to a specific host
+### Bind to a Specific Host
 
 ```bash
 java -jar LinkMind.jar --host=0.0.0.0
 ```
 
-### Use custom config and data directories
+### Use Custom Config and Data Directories
 
 - Windows
 
@@ -184,7 +184,7 @@ java -jar LinkMind.jar --host=0.0.0.0
   java -jar LinkMind.jar --config=/opt/linkmind/config --data-dir=/var/lib/linkmind/data
   ```
 
-### Preselect the runtime mode
+### Preselect the Runtime Mode
 
 ```bash
 java -jar LinkMind.jar --runtime-choice=server
@@ -192,7 +192,7 @@ java -jar LinkMind.jar --runtime-choice=server
 
 Valid values are `mate` and `server`.
 
-### Point DeerFlow sync at a custom path
+### Point DeerFlow Sync at a Custom Path
 
 ```bash
 java -jar LinkMind.jar --deer-flow-path=/path/to/deer-flow

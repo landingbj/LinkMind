@@ -201,10 +201,7 @@ To integrate these capabilities into your application via `lagi-core` or REST AP
     </td>
     <td valign="top" width="50%">
       <h2>Online Demo</h2>
-      <ul>
-        <li>Public demo: <a href="https://linkmind.landingbj.com/">https://linkmind.landingbj.com/</a></li>
-        <li>Local console after startup: <code>http://localhost:8080</code></li>
-      </ul>
+      <p>Public demo: <a href="https://linkmind.landingbj.com/">https://linkmind.landingbj.com/</a></p>
     </td>
   </tr>
 </table>

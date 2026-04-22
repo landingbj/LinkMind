@@ -201,10 +201,7 @@ LinkMind 当前同时暴露两套路由风格：
     </td>
     <td valign="top" width="50%">
       <h2>演示参看</h2>
-      <ul>
-        <li>公网体验地址：<a href="https://linkmind.landingbj.com/">https://linkmind.landingbj.com/</a></li>
-        <li>本地启动后的控制台地址：<code>http://localhost:8080</code></li>
-      </ul>
+      <p>公网体验地址：<a href="https://linkmind.landingbj.com/">https://linkmind.landingbj.com/</a></p>
     </td>
   </tr>
 </table>

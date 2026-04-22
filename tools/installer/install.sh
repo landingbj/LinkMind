@@ -41,7 +41,7 @@ trap cleanup EXIT
 echo "Downloading $DOWNLOAD_URL ..."
 
 if command -v curl >/dev/null 2>&1; then
-    if ! curl -fL --progress-bar -o "$TEMP_FILE" "$DOWNLOAD_URL"; then
+    if ! curl -kfL --progress-bar -o "$TEMP_FILE" "$DOWNLOAD_URL"; then
         echo "Error: Failed to download $DOWNLOAD_URL"
         exit 1
     fi
@@ -152,7 +152,7 @@ if [ "$runtime_choice" = "server" ]; then
     mkdir -p "$SKILLS_ROOT"
     echo "Downloading $POPULAR_SKILLS_URL ..."
     if command -v curl >/dev/null 2>&1; then
-        if ! curl -fL --progress-bar -o "$POPULAR_SKILLS_ZIP" "$POPULAR_SKILLS_URL"; then
+        if ! curl -kfL --progress-bar -o "$POPULAR_SKILLS_ZIP" "$POPULAR_SKILLS_URL"; then
             echo "Error: Failed to download $POPULAR_SKILLS_URL"
             exit 1
         fi

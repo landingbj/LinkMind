@@ -15,7 +15,7 @@ If you are evaluating quickly, start with the REST API. Move to `lagi-core` only
 
 ## 2. Prepare `lagi-core`
 
-### Option A: Install locally from this repository
+### Option A: Install Locally from This Repository
 
 From the repository root, run:
 
@@ -25,7 +25,7 @@ mvn clean install -pl lagi-core -am -DskipTests
 
 This installs `lagi-core` and the internal supporting artifacts that the project expects into your local Maven repository.
 
-### Option B: Publish to your own artifact repository
+### Option B: Publish to Your Own Artifact Repository
 
 If your team already uses Nexus, Artifactory, or another internal Maven registry, publish `lagi-core` there after the same build.
 
@@ -62,7 +62,7 @@ Complete runnable samples are already in:
 
 - [`lagi-core/src/test/java/ai/example/Demo.java`](../lagi-core/src/test/java/ai/example/Demo.java)
 
-### Text chat
+### Text Chat
 
 ```java
 import ai.llm.service.CompletionsService;
@@ -85,7 +85,7 @@ ChatCompletionResult result = service.completions(request);
 String answer = result.getChoices().get(0).getMessage().getContent();
 ```
 
-### Speech recognition
+### Speech Recognition
 
 ```java
 import ai.audio.service.AudioService;
@@ -99,7 +99,7 @@ param.setFormat("wav");
 AsrResult result = service.asr("D:/audio/demo.wav", param);
 ```
 
-### Text to speech
+### Text to Speech
 
 ```java
 import ai.audio.service.AudioService;
@@ -113,7 +113,7 @@ request.setText("Hello from LinkMind.");
 TTSResult result = service.tts(request);
 ```
 
-### Image generation
+### Image Generation
 
 ```java
 import ai.common.pojo.ImageGenerationRequest;

@@ -2,7 +2,7 @@
 
 This guide describes the extension points that match the current codebase. The fastest path is usually to reuse an existing compatible adapter first, and only write Java code when you truly need a new protocol or storage backend.
 
-## 1. Decide what kind of extension you need
+## 1. Decide What Kind of Extension You Need
 
 Use configuration only when:
 
@@ -16,7 +16,7 @@ Write a new adapter when:
 - the provider needs special signing logic
 - you are adding a new modality or storage backend
 
-## 2. Reuse existing compatibility adapters first
+## 2. Reuse Existing Compatibility Adapters First
 
 The current codebase already contains several general-purpose adapters:
 
@@ -49,9 +49,9 @@ functions:
         priority: 100
 ```
 
-## 3. Add a new LLM adapter
+## 3. Add a New LLM Adapter
 
-### Step 1: implement the adapter
+### Step 1: Implement the Adapter
 
 LLM adapters implement `ai.llm.adapter.ILlmAdapter`:
 
@@ -85,7 +85,7 @@ public class YourAdapter extends ModelService implements ILlmAdapter {
 }
 ```
 
-### Step 2: register it in YAML
+### Step 2: Register It in YAML
 
 ```yaml
 models:
@@ -111,7 +111,7 @@ functions:
 
 The important current detail is that chat backends live under `functions.chat.backends`, not under the older flat `functions.chat` list.
 
-## 4. Add audio or image adapters
+## 4. Add Audio or Image Adapters
 
 ### Audio
 
@@ -146,7 +146,7 @@ functions:
       priority: 10
 ```
 
-### Image generation
+### Image Generation
 
 Image adapters implement `ai.image.adapter.IImageGenerationAdapter`:
 
@@ -158,7 +158,7 @@ public interface IImageGenerationAdapter {
 
 Register the class with `@ImgGen(modelNames = "...")`, then wire it into `functions.text2image`.
 
-## 5. Add a vector store
+## 5. Add a Vector Store
 
 For custom vector backends, implement `ai.vector.VectorStore` or extend `ai.vector.impl.BaseVectorStore`.
 
@@ -183,7 +183,7 @@ stores:
 
 Then point `stores.rag.vector` at that backend name.
 
-## 6. Extend agents, skills, workers, and MCP
+## 6. Extend Agents, Skills, Workers, and MCP
 
 ### Agents
 
@@ -207,7 +207,7 @@ mcps:
       url: https://your-mcp.example.com/sse
 ```
 
-### Skills and workers
+### Skills and Workers
 
 In the current default config, workers and pnps are nested under `skills`:
 
@@ -228,7 +228,7 @@ skills:
 
 If your extension needs routing, define or reuse a router under `routers.items`, then call it from the worker definition.
 
-## 7. Runtime ecosystem integrations
+## 7. Runtime Ecosystem Integrations
 
 The current codebase also includes sync services for:
 
@@ -238,7 +238,7 @@ The current codebase also includes sync services for:
 
 These are runtime integration helpers, not replacements for your LinkMind YAML. Treat them as ecosystem bridges that can import or export configuration where needed.
 
-## 8. Practical extension order
+## 8. Practical Extension Order
 
 For most teams, the safest order is:
 

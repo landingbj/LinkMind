@@ -2,7 +2,7 @@
 
 This page focuses on the routes that are actually exposed by the current `web.xml` and servlet implementations.
 
-## Base URL and routing rules
+## Base URL and Routing Rules
 
 Assume the default local deployment:
 
@@ -17,7 +17,7 @@ Route rules used in this document:
 - Keep `/v1/vector/*` because vector administration is still mapped that way in the current servlet config.
 - If API key protection is enabled in your deployment, send the corresponding auth header or request key required by your environment.
 
-## Most-used endpoints
+## Most-Used Endpoints
 
 | Capability | Method | Route |
 | --- | --- | --- |
@@ -40,7 +40,7 @@ Route rules used in this document:
 | OpenAI-compatible models list | `GET` | `/v1/models` |
 | Vector admin | `GET` / `POST` | `/v1/vector/*` |
 
-## 1. Chat completions
+## 1. Chat Completions
 
 Native route:
 
@@ -93,7 +93,7 @@ Useful request fields from the current request object:
 | `response_format` | Structured output request |
 | `session_id` | Accepted as an alias for `sessionId` |
 
-## 2. Agent and worker execution
+## 2. Agent and Worker Execution
 
 `/chat/go` is the entry point for invoking workers or routed agents.
 
@@ -122,7 +122,7 @@ Common fields:
 
 ## 3. Audio APIs
 
-### Speech to text
+### Speech to Text
 
 `POST /audio/speech2text`
 
@@ -134,7 +134,7 @@ curl -X POST "http://localhost:8080/audio/speech2text?model=asr&format=wav" \
   --data-binary "@demo.wav"
 ```
 
-### Text to speech
+### Text to Speech
 
 `GET /audio/text2speech`
 
@@ -148,7 +148,7 @@ When synthesis succeeds, the response body is audio data with `Content-Type: aud
 
 ## 4. Image APIs
 
-### Text to image
+### Text to Image
 
 Native:
 
@@ -199,7 +199,7 @@ curl http://localhost:8080/ocr/doc2ocr \
   -F "lang=chn,eng"
 ```
 
-### Extract document content
+### Extract Document Content
 
 `POST /doc/doc2ext`
 
@@ -208,7 +208,7 @@ curl http://localhost:8080/doc/doc2ext \
   -F "file=@manual.pdf"
 ```
 
-### Convert document to structured markdown
+### Convert Document to Structured Markdown
 
 `POST /doc/doc2struct`
 
@@ -217,7 +217,7 @@ curl http://localhost:8080/doc/doc2struct \
   -F "file=@manual.pdf"
 ```
 
-### Generate instructions from files
+### Generate Instructions from Files
 
 `POST /instruction/generate`
 
@@ -242,7 +242,7 @@ curl http://localhost:8080/sql/text2sql \
   }'
 ```
 
-### SQL to text
+### SQL to Text
 
 `POST /sql/sql2text`
 
@@ -257,7 +257,7 @@ curl http://localhost:8080/sql/sql2text \
   }'
 ```
 
-## 7. Embeddings and rerank
+## 7. Embeddings and Rerank
 
 ### Embeddings
 
@@ -296,7 +296,7 @@ curl http://localhost:8080/rerank \
   }'
 ```
 
-## 8. Vector administration
+## 8. Vector Administration
 
 Vector management currently stays under `/v1/vector/*`.
 
@@ -338,7 +338,7 @@ curl http://localhost:8080/v1/vector/upsert \
   }'
 ```
 
-## 9. Compatibility notes
+## 9. Compatibility Notes
 
 - `GET /v1/models` exists for OpenAI-compatible clients, but the current servlet returns a minimal compatibility-style list rather than a full provider inventory.
 - `/chat/isRAG` and `/chat/isMedusa` are present in the servlet for runtime toggling and inspection, but they are operational helpers rather than the main public integration surface.

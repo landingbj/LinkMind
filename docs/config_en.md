@@ -2,7 +2,7 @@
 
 This document reflects the current configuration structure in `lagi-web/src/main/resources/lagi.yml` and the included YAML files it references. If a field here conflicts with older screenshots or examples, treat the codebase configuration as the source of truth.
 
-## Start with the smallest working setup
+## Start with the Smallest Working Setup
 
 ```yaml
 system_title: LinkMind
@@ -55,7 +55,7 @@ functions:
         priority: 200
 ```
 
-## How configuration is composed
+## How Configuration Is Composed
 
 LinkMind uses one main file plus optional include files:
 
@@ -70,7 +70,7 @@ LinkMind uses one main file plus optional include files:
 
 If you start LinkMind with `-Dlinkmind.config=/path/to/lagi.yml`, the custom file becomes the main entry point.
 
-## Top-level sections
+## Top-Level Sections
 
 | Section | What it controls |
 | --- | --- |
@@ -160,7 +160,7 @@ The codebase also contains generic compatibility adapters that are useful for cu
 
 ## Stores
 
-### Vector store
+### Vector Store
 
 The current key is `stores.vector`, not `stores.vectors`.
 
@@ -250,7 +250,7 @@ Important differences from older docs:
 - Selection logic lives in `functions.chat.route`.
 - Filter names in `functions.chat.filter` should match entries in `filters.items`.
 
-### Multimodal and task functions
+### Multimodal and Task Functions
 
 The default config exposes the following function blocks:
 
@@ -274,7 +274,7 @@ The default config exposes the following function blocks:
 
 Each block is configured as one or more backends with `backend`, `model`, `enable`, and `priority`.
 
-## Agents, MCP, skills, workers, and filters
+## Agents, MCP, Skills, Workers, and Filters
 
 ### Agents
 
@@ -289,7 +289,7 @@ agents:
       driver: ai.agent.customer.WeatherAgent
 ```
 
-### MCP servers
+### MCP Servers
 
 ```yaml
 mcps:
@@ -299,7 +299,7 @@ mcps:
       url: https://mcp.amap.com/sse?key=your-key
 ```
 
-### Skills and worker automation
+### Skills and Worker Automation
 
 ```yaml
 skills:
@@ -336,7 +336,7 @@ Filters are configured under `filters.items` and are referenced by name from `fu
 - `stopping`
 - `continue`
 
-## Runtime sync integrations
+## Runtime Sync Integrations
 
 The current codebase also contains configuration sync services for:
 

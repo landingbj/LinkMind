@@ -101,13 +101,15 @@ Entries are grouped by type and listed alphabetically. These ecosystems are exte
 
 - Agent-runtime sync is built in for OpenClaw, Hermes Agent, and DeerFlow, which makes local AI workspace integration easier.
 
-  <img src="docs/images/img_25.png">
+  <a href="docs/images/img_25.png">
+    <img src="docs/images/img_25.png" alt="LinkMind runtime integration overview">
+  </a>
 
 ## Get Started In Minutes
 
 The following four methods are parallel options; you can choose any one of them.
 
-### Option 1. Official installer
+### Option 1. Official Installer
 
 Prerequisite: install **JDK 8 or later**.
 
@@ -130,7 +132,7 @@ The installer supports two runtime choices:
 | `Agent Mate` | You already use OpenClaw, Hermes Agent, or DeerFlow locally and want LinkMind to work as the shared middleware layer |
 | `Agent Server` | You want a standalone LinkMind service first, or you are evaluating the web console and API directly |
 
-### Option 2. Download and run the packaged JAR
+### Option 2. Download Packaged Jar
 
 Packaged downloads:
 
@@ -143,7 +145,7 @@ java -jar LinkMind.jar
 
 On first run, LinkMind creates `config/`, `data/`, and the default `lagi.yml`. Then open `http://localhost:8080`.
 
-### Option 3. Use the Docker image
+### Option 3. With Docker Image
 
 Prebuilt image: `landingbj/linkmind`
 
@@ -154,7 +156,7 @@ docker run -d -p 8080:8080 landingbj/linkmind
 
 Then open `http://localhost:8080`.
 
-### Option 4. Build from source
+### Option 4. Build from Source
 
 ```bash
 mvn clean package -pl lagi-web -am -DskipTests -U

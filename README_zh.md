@@ -117,7 +117,7 @@ LinkMind 是面向企业场景的多模态 AI 中间件，用来把业务系统�
 - macOS / Linux
 
   ```bash
-  curl -fsSL https://cdn.linkmind.top/install.sh | bash
+  curl -kfsSL https://cdn.linkmind.top/install.sh | bash
   ```
 
 安装器支持两种运行模式：

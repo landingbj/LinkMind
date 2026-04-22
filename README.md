@@ -117,7 +117,7 @@ Prerequisite: install **JDK 8 or later**.
 - macOS / Linux
 
   ```bash
-  curl -fsSL https://cdn.linkmind.top/install.sh | bash
+  curl -kfsSL https://cdn.linkmind.top/install.sh | bash
   ```
 
 The installer supports two runtime choices:

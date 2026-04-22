@@ -201,7 +201,8 @@ LinkMind 当前同时暴露两套路由风格：
     </td>
     <td valign="top" width="50%">
       <h2>演示参看</h2>
-      <p>公网体验地址：<a href="https://linkmind.landingbj.com/">https://linkmind.landingbj.com/</a></p>
+        公网体验地址：<a href="https://linkmind.landingbj.com/">https://linkmind.landingbj.com/</a>
     </td>
   </tr>
 </table>
+

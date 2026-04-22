@@ -193,20 +193,11 @@ If you want the shortest evaluation path, start with `Agent Server`, verify the 
 
 To integrate these capabilities into your application via `lagi-core` or REST APIs, see the [Integration Guide](docs/guide_en.md).
 
-<table width="100%">
-  <colgroup>
-    <col width="640">
-    <col width="640">
-  </colgroup>
-  <tr>
-    <td valign="top" width="50%">
-      <h2>License</h2>
-      <p>This project is distributed under the <a href="LICENSE">LICENSE</a>.</p>
-    </td>
-    <td valign="top" width="50%">
-      <h2>Online Demo</h2>
-        Public&nbsp;demo:&nbsp;<a href="https://linkmind.landingbj.com/">https://linkmind.landingbj.com/</a>
-    </td>
-  </tr>
-</table>
+## License
+
+This project is distributed under the [LICENSE](LICENSE).
+
+## Online Demo
+
+Public demo: <a href="https://linkmind.landingbj.com/">https://linkmind.landingbj.com/</a>
 

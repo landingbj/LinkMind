@@ -193,20 +193,11 @@ LinkMind 当前同时暴露两套路由风格：
 
 如需将上述能力通过 `lagi-core` 或 REST API 集成到业务系统，请参考[开发集成指南](docs/guide_zh.md)。
 
-<table width="100%">
-  <colgroup>
-    <col width="640">
-    <col width="640">
-  </colgroup>
-  <tr>
-    <td valign="top" width="50%">
-      <h2>License</h2>
-      <p>本项目遵循 <a href="LICENSE">LICENSE</a>。</p>
-    </td>
-    <td valign="top" width="50%">
-      <h2>演示参看</h2>
-        演&#8288;示&#8288;地&#8288;址&#8288;：&nbsp;<a href="https://linkmind.landingbj.com/">https://linkmind.landingbj.com/</a>
-    </td>
-  </tr>
-</table>
+## License
+
+本项目遵循 [LICENSE](LICENSE)。
+
+## 演示参看
+
+演示地址：<a href="https://linkmind.landingbj.com/">https://linkmind.landingbj.com/</a>
 

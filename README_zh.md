@@ -195,11 +195,11 @@ LinkMind 当前同时暴露两套路由风格：
 
 <table>
   <tr>
-    <td valign="top" width="50%">
+    <td valign="top" width="40%">
       <h2>License</h2>
       <p>本项目遵循 <a href="LICENSE">LICENSE</a>。</p>
     </td>
-    <td valign="top" width="50%">
+    <td valign="top" width="60%">
       <h2>演示参看</h2>
         公网体验地址：&nbsp;<a href="https://linkmind.landingbj.com/">https://linkmind.landingbj.com/</a>
     </td>

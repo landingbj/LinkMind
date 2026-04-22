@@ -125,7 +125,7 @@ The installer supports two runtime choices:
 | Mode | Use when |
 | --- | --- |
 | `Agent Mate` | You already use OpenClaw, Hermes Agent, or DeerFlow locally and want LinkMind to work as the shared middleware layer |
-| `Agent Server` | You want a standalone LinkMind service first, or you are evaluating the web console and API directly |
+| <code>Agent&nbsp;Server</code> | You want a standalone LinkMind service first, or you are evaluating the web console and API directly |
 
 ### Option 2. Download Packaged Jar
 
@@ -193,7 +193,7 @@ If you want the shortest evaluation path, start with `Agent Server`, verify the 
 
 To integrate these capabilities into your application via `lagi-core` or REST APIs, see the [Integration Guide](docs/guide_en.md).
 
-<table>
+<table width="100%">
   <tr>
     <td valign="top" width="50%">
       <h2>License</h2>
@@ -201,7 +201,8 @@ To integrate these capabilities into your application via `lagi-core` or REST AP
     </td>
     <td valign="top" width="50%">
       <h2>Online Demo</h2>
-      <p>Public demo: <a href="https://linkmind.landingbj.com/">https://linkmind.landingbj.com/</a></p>
+        Public&nbsp;demo:&nbsp;<a href="https://linkmind.landingbj.com/">https://linkmind.landingbj.com/</a>
     </td>
   </tr>
 </table>
+

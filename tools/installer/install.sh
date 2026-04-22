@@ -18,7 +18,7 @@ fi
 
 LINKMIND_DIR="$HOME/LinkMind"
 JAR_NAME="LinkMind.jar"
-DOWNLOADS_HOST="ai.linkmind.top"
+DOWNLOADS_HOST="cdn.linkmind.top"
 DOWNLOAD_URL="https://${DOWNLOADS_HOST}/installer/LinkMind.jar"
 POPULAR_SKILLS_URL="https://${DOWNLOADS_HOST}/installer/popular_skills.zip"
 #DOWNLOAD_URL="http://localhost:8000/LinkMind.jar"

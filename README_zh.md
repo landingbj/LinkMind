@@ -111,13 +111,13 @@ LinkMind 是面向企业场景的多模态 AI 中间件，用来把业务系统�
 - Windows PowerShell
 
   ```powershell
-  iwr -useb https://ai.linkmind.top/install.ps1 | iex
+  iwr -useb https://cdn.linkmind.top/install.ps1 | iex
   ```
 
 - macOS / Linux
 
   ```bash
-  curl -fsSL https://ai.linkmind.top/install.sh | bash
+  curl -fsSL https://cdn.linkmind.top/install.sh | bash
   ```
 
 安装器支持两种运行模式：
@@ -131,7 +131,7 @@ LinkMind 是面向企业场景的多模态 AI 中间件，用来把业务系统�
 
 预打包资源：
 
-- 应用文件：`LinkMind.jar`，[点击这里下载](https://ai.linkmind.top/installer/LinkMind.jar)
+- 应用文件：`LinkMind.jar`，[点击这里下载](https://cdn.linkmind.top/installer/LinkMind.jar)
 - 核心库文件：`lagi-core-1.2.0-jar-with-dependencies.jar`，[点击这里下载](https://ai.linkmind.top/lagi/lib/lagi-core-1.2.0-jar-with-dependencies.jar)
 
 ```powershell

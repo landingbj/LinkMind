@@ -111,13 +111,13 @@ Prerequisite: install **JDK 8 or later**.
 - Windows PowerShell
 
   ```powershell
-  iwr -useb https://ai.linkmind.top/install.ps1 | iex
+  iwr -useb https://cdn.linkmind.top/install.ps1 | iex
   ```
 
 - macOS / Linux
 
   ```bash
-  curl -fsSL https://ai.linkmind.top/install.sh | bash
+  curl -fsSL https://cdn.linkmind.top/install.sh | bash
   ```
 
 The installer supports two runtime choices:
@@ -131,7 +131,7 @@ The installer supports two runtime choices:
 
 Packaged downloads:
 
-- Application package: `LinkMind.jar` ([Download](https://ai.linkmind.top/installer/LinkMind.jar))
+- Application package: `LinkMind.jar` ([Download](https://cdn.linkmind.top/installer/LinkMind.jar))
 - Core library: `lagi-core-1.2.0-jar-with-dependencies.jar` ([Download](https://ai.linkmind.top/lagi/lib/lagi-core-1.2.0-jar-with-dependencies.jar))
 
 ```powershell

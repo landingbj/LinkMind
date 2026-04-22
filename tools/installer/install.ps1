@@ -25,7 +25,7 @@ function Install-LinkMind {
 
     $linkMindDir = Join-Path $HOME "LinkMind"
     $jarName = "LinkMind.jar"
-    $downloadsHost = "ai.linkmind.top"
+    $downloadsHost = "cdn.linkmind.top"
     $downloadUrl = "https://$downloadsHost/installer/LinkMind.jar"
     $popularSkillsUrl = "https://$downloadsHost/installer/popular_skills.zip"
     # $downloadUrl = "http://localhost:8000/LinkMind.jar"

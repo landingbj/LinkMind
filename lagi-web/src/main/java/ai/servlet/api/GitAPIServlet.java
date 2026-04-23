@@ -125,10 +125,10 @@ public class GitAPIServlet extends RestfulServlet {
         if (dirPath == null) {
             dirPath = "/";
         }
-        
+
         // 异步拉取最新代码
         asyncTaskManager.submitPull(gitService, repoPath, "origin", "main");
-        
+
         return gitService.getFiles(repoPath, dirPath);
     }
 
@@ -378,17 +378,17 @@ public class GitAPIServlet extends RestfulServlet {
         if (repoPath == null || filePath == null || commitHash == null) {
             throw new IllegalArgumentException("repoPath, filePath and commitHash are required");
         }
-        
+
         // 执行回滚
         lfsService.rollbackToVersion(repoPath, filePath, commitHash);
-        
+
         // 回滚成功后提交
         String message = "Rollback file: " + filePath + " to version: " + commitHash;
         gitService.commit(repoPath, message);
-        
+
         // 推送提交
         gitService.push(repoPath, "origin", "main");
-        
+
         return "文件回滚成功并已提交推送";
     }
 
@@ -450,7 +450,7 @@ public class GitAPIServlet extends RestfulServlet {
         if (hasChanges) {
             gitService.commit(repoPath, message);
         }
-        
+
         // 5. 检查是否有未推送的内容
         if (gitService.hasUnpushedCommits(repoPath, remote, branch)) {
             String taskId = asyncTaskManager.submitPush(gitService, repoPath, remote, branch);
@@ -460,7 +460,7 @@ public class GitAPIServlet extends RestfulServlet {
         }
     }
 
-    // 将目录内容推送到远程仓库
+    // 一键推送到远程仓库
     @Post("git-push-dir")
     public Map<String, Object> pushDirectory(@Body JSONObject request) {
         String dirPath = request.getStr("dirPath");

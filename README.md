@@ -159,6 +159,8 @@ Current packaging generates:
 
 More setup details are in the [Installation Guide](docs/install_en.md). For a guided first-run walkthrough, use the [Tutorial](docs/tutor_en.md).
 
+After LinkMind is running, use the [Configuration Guide](docs/config_en.md) to enable providers, routes, filters, RAG, and other runtime settings in `lagi.yml`.
+
 ## API Surface
 
 LinkMind exposes two route styles:

@@ -159,6 +159,8 @@ mvn clean package -pl lagi-web -am -DskipTests -U
 
 更完整的安装说明见 [安装指南](docs/install_zh.md)。如需跟着示例一步步跑通，请参考[教学演示](docs/tutor_zh.md)。
 
+启动 LinkMind 后，可继续查看 [配置指南](docs/config_zh.md)，启用 `lagi.yml` 中的模型、路由、过滤器、RAG 等运行配置。
+
 ## 接口风格
 
 LinkMind 当前同时暴露两套路由风格：

@@ -95,7 +95,9 @@ public class ResponseSessionManager {
         Integer currentConversationStartIndex = boundary.get(0);
         boolean isContinue = Objects.equals(currentConversationStartIndex, conversationStartIndex);
         List<ChatMessage> systemMessages = ChatCompletionUtil.getSystemMessages(chatMessages);
-        List<ChatMessage> newChatMessages = new ArrayList<>(systemMessages);
+        boolean sameSystemMessages = isSameSystemMessages(systemMessages, cachedSession.getSystemMessages());
+        // When reusing previousResponseId, skip system messages if unchanged; otherwise resend them so the cache gets refreshed on success.
+        List<ChatMessage> newChatMessages = sameSystemMessages ? new ArrayList<>() : new ArrayList<>(systemMessages);
         if(isContinue) {
             // send incremental messages
             newChatMessages.addAll(incrementMessages);
@@ -161,12 +163,15 @@ public class ResponseSessionManager {
         if (context == null  || StrUtil.isBlank(responseId)) {
             return;
         };
+        List<ChatMessage> currentSystemMessages = ChatCompletionUtil.getSystemMessages(context.getAllHistoryChatMessage());
         ResponseSessionState responseSessionState = getCachedSession(context.getAllHistoryChatMessage());
         if(responseSessionState != null && context.getPreviousResponseId() != null) {
             responseSessionState.setConversationStartIndex(context.getSplitStartIndex());
             List<ChatMessage> historyChatMessage = new ArrayList<>(context.getAllHistoryChatMessage());
             historyChatMessage.add(responseMessage);
             responseSessionState.setPreviousResponseId(responseId);
+            // Refresh cached system messages so the next turn can decide whether to resend them.
+            responseSessionState.setSystemMessages(currentSystemMessages);
             setCachedSession(historyChatMessage, responseSessionState);
             removeCachedSession(context.getAllHistoryChatMessage(), false);
         } else {
@@ -176,10 +181,21 @@ public class ResponseSessionManager {
             state.setModel(context.getModel());
             state.setProtocol(context.getProtocol());
             state.setConversationStartIndex(context.getSplitStartIndex());
+            state.setSystemMessages(currentSystemMessages);
             List<ChatMessage> normalizeMessages = new ArrayList<>(context.getAllHistoryChatMessage());
             normalizeMessages.add(responseMessage);
             setCachedSession(normalizeMessages, state);
         }
+    }
+
+    private boolean isSameSystemMessages(List<ChatMessage> current, List<ChatMessage> cached) {
+        if (current == null) {
+            current = Collections.emptyList();
+        }
+        if (cached == null) {
+            cached = Collections.emptyList();
+        }
+        return current.equals(cached);
     }
 
     private boolean isReusable(ResponseSessionState state, ResponseSessionContext context) {

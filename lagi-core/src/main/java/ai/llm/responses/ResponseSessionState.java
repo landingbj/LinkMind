@@ -14,4 +14,7 @@ public class ResponseSessionState {
     private String model;
     private String protocol;
     private Integer ConversationStartIndex;
+    // Cached system messages sent along with the previousResponseId.
+    // Used to decide whether the next turn needs to resend system messages.
+    private List<ChatMessage> systemMessages;
 }

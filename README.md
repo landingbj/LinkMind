@@ -81,20 +81,15 @@ The current codebase exposes a single middleware layer for chat, RAG, OCR, ASR/T
   </tr>
 </table>
 
-
 Entries are grouped by type and listed alphabetically. These ecosystems are extensible; the [Extension Guide](docs/extend_en.md) covers writing new model, vector-store, and adapter integrations. For Chroma setup specifics, see the [Annex](docs/annex_en.md).
 
 ## Why LinkMind
 
-- One middleware layer for chat, OCR, ASR/TTS, image generation, image and video understanding, text-to-SQL, embeddings, rerank, and document pipelines.
-
-- Multi-model routing and failover are configured centrally in `lagi.yml` (see the [Configuration Reference](docs/config_en.md) for all options), so business systems do not need provider-specific rewrites.
-
-- RAG support is built around document ingestion plus Chroma, Elasticsearch, Milvus, MySQL, Pinecone, and SQLite-backed retrieval paths, with room for graph-style augmentation.
-
-- Medusa caching, token statistics endpoints, filters, and runtime governance target real production cost and stability concerns.
-
-- Agent-runtime sync is built in for OpenClaw, Hermes Agent, and DeerFlow, which makes local AI workspace integration easier.
+- One middleware layer covers chat, OCR, ASR/TTS, image generation, image and video understanding, text-to-SQL, embeddings, rerank, and document pipelines.
+- Multi-model routing, failover, and orchestration are configured centrally in `lagi.yml`, so business systems do not need provider-specific rewrites.
+- RAG can connect directly to Chroma, Elasticsearch, Milvus, MySQL, Pinecone, SQLite, and graph-style augmentation paths.
+- Medusa cache acceleration, token statistics, filters, and runtime governance are built for real production stability and cost control.
+- OpenClaw, Hermes Agent, and DeerFlow integration hooks make it easier to join existing agent workflows instead of rebuilding them.
 
   <a href="docs/images/img_25.png">
     <img src="docs/images/img_25.png" alt="LinkMind runtime integration overview">
@@ -102,11 +97,11 @@ Entries are grouped by type and listed alphabetically. These ecosystems are exte
 
 ## Get Started In Minutes
 
-The following four methods are parallel options; you can choose any one of them.
+The following four methods are parallel options. Choose any one of them.
 
 ### Option 1. Official Installer
 
-Prerequisite: install **JDK 8 or later**.
+Prerequisite: install **JDK 8 or later** first. If you still need Java setup steps, jump to the [Installation Guide](docs/install_en.md#appendix-install-jdk-8).
 
 - Windows PowerShell
 
@@ -117,7 +112,7 @@ Prerequisite: install **JDK 8 or later**.
 - macOS / Linux
 
   ```bash
-  curl -kfsSL https://cdn.linkmind.top/install.sh | bash
+  curl -fsSL https://cdn.linkmind.top/install.sh | bash
   ```
 
 The installer supports two runtime choices:
@@ -162,7 +157,7 @@ Current packaging generates:
 - `lagi-web/target/LinkMind.jar`
 - `lagi-web/target/ROOT.war`
 
-More setup details are in the [Installation Guide](docs/install_en.md). For a guided first-run walkthrough, try the [Tutorial](docs/tutor_en.md).
+More setup details are in the [Installation Guide](docs/install_en.md). For a guided first-run walkthrough, use the [Tutorial](docs/tutor_en.md).
 
 ## API Surface
 
@@ -181,15 +176,31 @@ One current exception is the vector administration namespace, which is still map
 
 If you want the shortest evaluation path, start with `Agent Server`, verify the web console and API, then switch to `Agent Mate` when you are ready to connect LinkMind to your existing agent runtime stack.
 
-## Core Capabilities
+## Core Features
 
-- Unified chat routing with `best(...)` and `pass(...)` router rules
-- OpenAI-compatible chat and embedding endpoints
-- RAG with vector search, document extraction, OCR, and knowledge-base updates
-- Multimodal APIs for ASR, TTS, image generation, image OCR, image understanding, image-to-video, video tracking, and video enhancement
-- Text-to-SQL, SQL-to-text, instruction generation, MCP access, and worker orchestration
-- Filters for sensitive content, priority words, stopping words, and conversation continuation
-- Skills runtime, MCP server configuration, and token usage observability
+### 1. RAG + Embedding
+
+Turn private files, QA pairs, and structured knowledge into retrievable context through vector stores, embeddings, OCR, and document ingestion pipelines.
+
+### 2. Medusa
+
+Use built-in cache acceleration to shorten repeat response latency and improve runtime efficiency in real production traffic.
+
+### 3. AI Rank
+
+Route, rank, fail over, and orchestrate multiple models centrally through routers such as `best(...)` and `pass(...)` instead of hard-coding provider logic in each app.
+
+### 4. Security Guardrails
+
+Apply sensitive-word filtering, priority keywords, stopping keywords, continuation rules, and related runtime controls to keep output safer and conversations governable.
+
+### 5. Graph
+
+Augment retrieval and intent understanding with graph-style context so the middleware can make more stable decisions for complex enterprise knowledge scenarios.
+
+### 6. OpenClaw Plugin
+
+Connect LinkMind to the OpenClaw ecosystem as a plugin-friendly, OpenAI-compatible context and provider layer instead of wiring each model separately.
 
 To integrate these capabilities into your application via `lagi-core` or REST APIs, see the [Integration Guide](docs/guide_en.md).
 
@@ -205,4 +216,3 @@ To integrate these capabilities into your application via `lagi-core` or REST AP
     </td>
   </tr>
 </table>
-

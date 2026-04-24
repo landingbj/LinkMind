@@ -1,30 +1,30 @@
 # 扩展指南
 
-本文档只保留和当前代码结构一致的扩展方式。大多数情况下，优先复用现成兼容适配器会比直接写 Java 代码更快，也更稳。
+本页说明如何扩展模型适配器、多模态能力、向量存储和运行时集成。更稳妥的做法是优先复用兼容适配器，再在确实需要时编写新的 Java 扩展代码。
 
 ## 1. 先判断你需要哪种扩展
 
-只改配置就够的场景：
+以下情况优先只改配置：
 
-- 你的服务是 OpenAI 兼容接口
-- 你的服务是 Qwen 兼容接口
-- 你只是新增模型 ID、地址或凭证
+- 目标厂商本身兼容 OpenAI 接口
+- 目标厂商本身兼容 Qwen 风格接口
+- 你只是要增加新的模型 ID、端点地址或一组新的凭证
 
-需要写新适配器的场景：
+以下情况才建议编写新适配器：
 
-- 请求或响应协议不是通用兼容格式
-- 提供方有特殊签名逻辑
-- 你要接入新的模态能力或新的向量存储
+- 请求或响应结构与现有适配器差异较大
+- 厂商需要特殊签名逻辑
+- 你要新增新的模态能力或新的存储后端
 
 ## 2. 优先复用现成兼容适配器
 
-当前代码库里已经有几类通用适配器：
+当前代码里已经有几个通用兼容适配器：
 
 - `ai.llm.adapter.impl.OpenAIStandardAdapter`
 - `ai.llm.adapter.impl.OpenRouterAdapter`
 - `ai.llm.adapter.impl.QwenCompatibleAdapter`
 
-很多时候你只需要补一条模型配置，再把它接到 `functions.chat.backends` 里即可。
+很多场景里，你只需要新增一个模型配置，再在 `functions.chat.backends` 中引用它即可。
 
 ```yaml
 models:
@@ -35,7 +35,6 @@ models:
     driver: ai.llm.adapter.impl.OpenAIStandardAdapter
     api_address: https://your-endpoint.example.com/chat/completions
     api_key: your-api-key
-    # 多 Key 池写法：api_keys: sk-key1,sk-key2  key_route: polling
 
 functions:
   chat:
@@ -49,11 +48,57 @@ functions:
         priority: 100
 ```
 
-## 3. 新增大模型适配器
+## 3. 扩展模型与多模态适配器
 
-### 第一步：实现适配器
+## 3.1 先补配置
 
-大模型适配器需要实现 `ai.llm.adapter.ILlmAdapter`：
+当前配置结构依然以 `models` 和 `functions` 为中心。一个最小的自定义模型配置可以写成：
+
+```yaml
+models:
+  - name: your-model-name
+    type: your-model-type
+    enable: true
+    model: model-version
+    driver: ai.llm.adapter.impl.YourAdapter
+    api_key: your-api-key
+    secret_key: your-secret-key
+    api_address: your-api-address
+
+functions:
+  chat:
+    route: pass(%)
+    backends:
+      - backend: your-model-name
+        model: model-version
+        enable: true
+        stream: true
+        priority: 100
+```
+
+当一个逻辑后端同时承载多种模态能力时，可以使用多驱动写法：
+
+```yaml
+models:
+  - name: landing
+    type: Landing
+    enable: true
+    drivers:
+      - model: turing,qa,tree,proxy
+        driver: ai.llm.adapter.impl.LandingAdapter
+      - model: image
+        driver: ai.image.adapter.impl.LandingImageAdapter
+        oss: landing
+      - model: landing-tts,landing-asr
+        driver: ai.audio.adapter.impl.LandingAudioAdapter
+      - model: video
+        driver: ai.video.adapter.impl.LandingVideoAdapter
+    api_key: your-api-key
+```
+
+## 3.2 扩展大语言模型适配器
+
+大语言模型适配器实现 `ai.llm.adapter.ILlmAdapter`：
 
 ```java
 public interface ILlmAdapter {
@@ -62,13 +107,7 @@ public interface ILlmAdapter {
 }
 ```
 
-实际落地时，类通常需要：
-
-- 继承 `ModelService`
-- 实现 `ILlmAdapter`
-- 使用 `@LLM(modelNames = {...})` 注解声明负责的模型
-
-最小骨架如下：
+最小骨架：
 
 ```java
 @LLM(modelNames = {"your-model"})
@@ -85,36 +124,34 @@ public class YourAdapter extends ModelService implements ILlmAdapter {
 }
 ```
 
-### 第二步：在 YAML 里注册
+现有风格示例：
 
-```yaml
-models:
-  - name: your-provider
-    type: YourProvider
-    enable: true
-    model: your-model
-    driver: ai.llm.adapter.impl.YourAdapter
-    api_key: your-api-key
-    # 多 Key 池写法：api_keys: sk-key1,sk-key2  key_route: polling
+```java
+@LLM(modelNames = {"your_model1", "your_model2"})
+public class DoubaoAdapter extends ModelService implements ILlmAdapter {
+    @Override
+    public ChatCompletionResult completions(ChatCompletionRequest request) {
+        ArkService service = ArkService.builder()
+                .apiKey(apiKey)
+                .baseUrl("https://ark.cn-beijing.volces.com/api/v3/")
+                .build();
+        // 组装厂商请求，调用远端接口，再转换回 LinkMind 结果。
+        return new ChatCompletionResult();
+    }
 
-functions:
-    route: pass(%)
-    backends:
-      - backend: your-provider
-        model: your-model
-        enable: true
-        stream: true
-        protocol: completion
-        priority: 100
+    @Override
+    public Observable<ChatCompletionResult> streamCompletions(ChatCompletionRequest request) {
+        return Observable.create(emitter -> {
+            // 流式消费厂商返回，再转换成 LinkMind 的 chunk。
+            emitter.onComplete();
+        });
+    }
+}
 ```
 
-这里有个和旧文档不同的重要点：当前对话后端写在 `functions.chat.backends` 下，不再是旧版的扁平 `functions.chat` 列表。
+## 3.3 扩展语音识别与文字转语音
 
-## 4. 新增音频或图像适配器
-
-### 音频适配器
-
-音频适配器需要实现 `ai.audio.adapter.IAudioAdapter`：
+音频适配器实现 `ai.audio.adapter.IAudioAdapter`：
 
 ```java
 public interface IAudioAdapter {
@@ -123,31 +160,71 @@ public interface IAudioAdapter {
 }
 ```
 
-其中：
+语音识别 / TTS 骨架：
 
-- 语音识别使用 `@ASR(...)`
-- 语音合成使用 `@TTS(...)`
+```java
+@ASR(company = "your-company-name", modelNames = "your-asr-model")
+public class YourAudioAdapter extends ModelService implements IAudioAdapter {
+    @Override
+    public AsrResult asr(File audio, AudioRequestParam param) {
+        return null;
+    }
 
-接入后，再通过配置把它挂到功能块中：
-
-```yaml
-functions:
-  speech2text:
-    - backend: your-audio
-      model: asr
-      enable: true
-      priority: 10
-
-  text2speech:
-    - backend: your-audio
-      model: tts
-      enable: true
-      priority: 10
+    @Override
+    public TTSResult tts(TTSRequestParam param) {
+        return null;
+    }
+}
 ```
 
-### 图像生成适配器
+ASR 示例片段：
 
-图像生成适配器需要实现 `ai.image.adapter.IImageGenerationAdapter`：
+```java
+@ASR(company = "alibaba", modelNames = "asr")
+public class YourAudioAdapter extends ModelService implements IAudioAdapter {
+    @Override
+    public AsrResult asr(File audio, AudioRequestParam param) {
+        AlibabaAsrService asrService = new AlibabaAsrService(
+                getAppKey(),
+                getAccessKeyId(),
+                getAccessKeySecret()
+        );
+        return gson.fromJson(asrService.asr(audio), AsrResult.class);
+    }
+
+    @Override
+    public TTSResult tts(TTSRequestParam param) {
+        return null;
+    }
+}
+```
+
+TTS 示例片段：
+
+```java
+@TTS(company = "alibaba", modelNames = "tts")
+public class YourAudioAdapter extends ModelService implements IAudioAdapter {
+    @Override
+    public AsrResult asr(File audio, AudioRequestParam param) {
+        return null;
+    }
+
+    @Override
+    public TTSResult tts(TTSRequestParam param) {
+        AlibabaTtsService ttsService = new AlibabaTtsService(
+                getAppKey(),
+                getAccessKeyId(),
+                getAccessKeySecret()
+        );
+        Request request = ttsService.getRequest(param);
+        return new TTSResult();
+    }
+}
+```
+
+## 3.4 扩展文生图
+
+图像生成适配器实现 `ai.image.adapter.IImageGenerationAdapter`：
 
 ```java
 public interface IImageGenerationAdapter {
@@ -155,38 +232,287 @@ public interface IImageGenerationAdapter {
 }
 ```
 
-使用 `@ImgGen(modelNames = "...")` 注册后，再通过 `functions.text2image` 绑定即可。
+骨架：
 
-## 5. 新增向量存储
+```java
+@ImgGen(modelNames = "your-image-model")
+public class YourImageAdapter extends ModelService implements IImageGenerationAdapter {
+    @Override
+    public ImageGenerationResult generations(ImageGenerationRequest request) {
+        return null;
+    }
+}
+```
 
-如果你要扩展新的向量后端，可以实现 `ai.vector.VectorStore`，也可以直接继承 `ai.vector.impl.BaseVectorStore`。
+示例片段：
 
-代码库里已经有现成参考实现：
+```java
+@ImgGen(modelNames = "tti")
+public class SparkImageAdapter extends ModelService implements IImageGenerationAdapter {
+    @Override
+    public ImageGenerationResult generations(ImageGenerationRequest request) {
+        String authUrl = getAuthUrl(apiUrl, apiKey, secretKey);
+        SparkGenImgRequest sparkRequest = convert2SparkGenImageRequest(request);
+        String post = doPostJson(authUrl, null, JSONUtil.toJsonStr(sparkRequest));
+        SparkGenImgResponse bean = JSONUtil.toBean(post, SparkGenImgResponse.class);
+        return convert2ImageGenerationResult(bean);
+    }
+}
+```
+
+## 3.5 扩展图片转文字
+
+图像理解适配器实现 `ai.image.adapter.IImage2TextAdapter`：
+
+```java
+public interface IImage2TextAdapter {
+    ImageToTextResponse toText(FileRequest param);
+}
+```
+
+示例片段：
+
+```java
+@Img2Text(modelNames = "Fuyu-8B")
+public class YourVisionAdapter extends ModelService implements IImage2TextAdapter {
+    @Override
+    public ImageToTextResponse toText(FileRequest param) {
+        Image2TextRequest request = convertImage2TextRequest(param);
+        Image2TextResponse response = buildQianfan().image2Text(request);
+        return ImageToTextResponse.success(response.getResult());
+    }
+}
+```
+
+## 3.6 扩展图片增强
+
+图片增强适配器实现 `ai.image.adapter.ImageEnhanceAdapter`：
+
+```java
+public interface ImageEnhanceAdapter {
+    ImageEnhanceResult enhance(ImageEnhanceRequest imageEnhanceRequest);
+}
+```
+
+示例片段：
+
+```java
+@ImgEnhance(modelNames = "enhance")
+public class YourEnhanceAdapter extends ModelService implements ImageEnhanceAdapter {
+    @Override
+    public ImageEnhanceResult enhance(ImageEnhanceRequest request) {
+        String url = "https://aip.baidubce.com/rest/2.0/image-process/v1/image_definition_enhance";
+        return ImageEnhanceResult.builder().type("base64").data("...").build();
+    }
+}
+```
+
+## 3.7 扩展文本生成视频
+
+文本生成视频适配器实现 `ai.video.adapter.Text2VideoAdapter`：
+
+```java
+public interface Text2VideoAdapter {
+    VideoJobResponse toVideo(ImageGenerationRequest request);
+}
+```
+
+示例片段：
+
+```java
+@Text2Video(modelNames = "video")
+public class YourVideoAdapter extends ModelService implements Text2VideoAdapter {
+    @Override
+    public VideoJobResponse toVideo(ImageGenerationRequest request) {
+        ImageGenerationResult generations = generations(request);
+        if (generations != null) {
+            String url = generations.getData().get(0).getUrl();
+            return VideoJobResponse.builder().data(url).build();
+        }
+        return null;
+    }
+}
+```
+
+## 3.8 扩展图片生成视频
+
+图生视频适配器实现 `ai.video.adapter.Image2VideoAdapter`：
+
+```java
+public interface Image2VideoAdapter {
+    VideoJobResponse image2Video(VideoGeneratorRequest videoGeneratorRequest);
+}
+```
+
+示例片段：
+
+```java
+@Img2Video(modelNames = "video")
+public class YourVideoAdapter extends ModelService implements Image2VideoAdapter {
+    @Override
+    public VideoJobResponse image2Video(VideoGeneratorRequest request) {
+        GenerateVideoResponse response = client.generateVideo(convert2GenerateVideoRequest(request));
+        return VideoJobResponse.builder().jobId(response.getBody().getRequestId()).build();
+    }
+}
+```
+
+## 3.9 扩展视频追踪
+
+视频追踪适配器实现 `ai.video.adapter.Video2trackAdapter`：
+
+```java
+public interface Video2trackAdapter {
+    VideoJobResponse track(String videoUrl);
+}
+```
+
+示例片段：
+
+```java
+@VideoTrack(modelNames = "video")
+public class YourTrackingAdapter extends ModelService implements Video2trackAdapter {
+    @Override
+    public VideoJobResponse track(String videoUrl) {
+        String url = universalOSS.upload("mmtracking/" + new File(videoUrl).getName(), new File(videoUrl));
+        return VideoJobResponse.builder().data(url).build();
+    }
+}
+```
+
+## 3.10 扩展视频增强
+
+视频增强适配器实现 `ai.video.adapter.Video2EnhanceAdapter`：
+
+```java
+public interface Video2EnhanceAdapter {
+    VideoJobResponse enhance(VideoEnhanceRequest videoEnhanceRequest);
+}
+```
+
+示例片段：
+
+```java
+@VideoEnhance(modelNames = "vision")
+public class YourVideoEnhanceAdapter extends ModelService implements Video2EnhanceAdapter {
+    @Override
+    public VideoJobResponse enhance(VideoEnhanceRequest request) {
+        EnhanceVideoQualityResponse response = client.enhanceVideoQuality(
+                convert2EnhanceVideoQualityRequest(request)
+        );
+        return wait2Result(response.getBody().getRequestId());
+    }
+}
+```
+
+## 4. 扩展向量库
+
+配置键名使用 `stores.vector`。
+
+配置示例：
+
+```yaml
+stores:
+  vector:
+    - name: chroma
+      driver: ai.vector.impl.ChromaVectorStore
+      default_category: default
+      similarity_top_k: 10
+      similarity_cutoff: 0.5
+      parent_depth: 1
+      child_depth: 1
+      url: http://127.0.0.1:8000
+
+  rag:
+    vector: chroma
+    term: elastic
+    graph: landing
+    enable: true
+    priority: 10
+    default: "Please give prompt more precisely"
+```
+
+自定义向量后端实现 `ai.vector.VectorStore`，或者继承 `ai.vector.impl.BaseVectorStore`。
+
+当前接口包括：
+
+```java
+void upsert(List<UpsertRecord> upsertRecords);
+void upsert(List<UpsertRecord> upsertRecords, String category);
+List<IndexRecord> query(QueryCondition queryCondition);
+List<List<IndexRecord>> query(MultiQueryCondition queryCondition);
+List<IndexRecord> query(QueryCondition queryCondition, String category);
+List<IndexRecord> fetch(List<String> ids);
+List<IndexRecord> fetch(List<String> ids, String category);
+List<IndexRecord> fetch(Map<String, String> where);
+List<IndexRecord> fetch(Map<String, String> where, String category);
+void delete(List<String> ids);
+void delete(List<String> ids, String category);
+void deleteWhere(List<Map<String, String>> whereList);
+void deleteWhere(List<Map<String, String>> whereList, String category);
+void deleteCollection(String category);
+List<VectorCollection> listCollections();
+List<IndexRecord> get(GetEmbedding getEmbedding);
+void add(AddEmbedding addEmbedding);
+void update(UpdateEmbedding updateEmbedding);
+void delete(DeleteEmbedding deleteEmbedding);
+```
+
+仓库里已经有可参考的实现：
 
 - `ai.vector.impl.ChromaVectorStore`
 - `ai.vector.impl.SqliteVectorStore`
 - `lagi-extension/src/main/java/ai/vector/impl/MilvusVectorStore.java`
 - `lagi-extension/src/main/java/ai/vector/impl/PineconeVectorStore.java`
 
-当前注册位置在 `stores.vector`：
+CRUD 示例片段：
 
-```yaml
-stores:
-  vector:
-    - name: milvus
-      driver: ai.vector.impl.MilvusVectorStore
-      default_category: default
-      url: http://localhost:19530
-      token: your-token
+```java
+public void upsert(List<UpsertRecord> upsertRecords, String category) {
+    List<String> documents = new ArrayList<>();
+    List<Map<String, String>> metadatas = new ArrayList<>();
+    List<String> ids = new ArrayList<>();
+    for (UpsertRecord upsertRecord : upsertRecords) {
+        documents.add(upsertRecord.getDocument());
+        metadatas.add(upsertRecord.getMetadata());
+        ids.add(upsertRecord.getId());
+    }
+    List<List<Float>> embeddings = this.embeddingFunction.createEmbedding(documents);
+    Collection collection = getCollection(category);
+    collection.upsert(embeddings, metadatas, documents, ids);
+}
 ```
 
-之后再把 `stores.rag.vector` 指向这个后端名称即可。
+```java
+public List<IndexRecord> query(QueryCondition queryCondition, String category) {
+    List<IndexRecord> result = new ArrayList<>();
+    Collection collection = getCollection(category);
+    Collection.QueryResponse qr = collection.query(
+            Collections.singletonList(queryCondition.getText()),
+            queryCondition.getN(),
+            queryCondition.getWhere(),
+            null,
+            null
+    );
+    // 将厂商结果转换成 IndexRecord 列表。
+    return result;
+}
+```
 
-## 6. 扩展 Agents、Skills、Workers 与 MCP
+```java
+public void deleteWhere(List<Map<String, String>> whereList, String category) {
+    Collection collection = getCollection(category);
+    for (Map<String, String> where : whereList) {
+        collection.deleteWhere(where);
+    }
+}
+```
+
+## 5. 扩展 Agents、Skills、Workers 与 MCP
 
 ### Agents
 
-新增 Agent 可写在 `agents.items` 或 `agent.yml`：
+在 `agents.items` 或 `agent.yml` 里新增：
 
 ```yaml
 agents:
@@ -194,6 +520,7 @@ agents:
   items:
     - name: your-agent
       driver: ai.agent.customer.YourAgent
+      token: your-token
 ```
 
 ### MCP
@@ -208,7 +535,7 @@ mcps:
 
 ### Skills 与 Workers
 
-当前默认配置里，`workers` 和 `pnps` 是挂在 `skills` 下面的：
+当前默认配置里，workers 和 pnps 仍然挂在 `skills` 下：
 
 ```yaml
 skills:
@@ -225,25 +552,25 @@ skills:
       driver: ai.pnps.social.QQPnp
 ```
 
-如果你的扩展依赖路由逻辑，可以在 `routers.items` 中新增或复用规则，再在 Worker 中引用。
+如果你的扩展需要路由规则，请先在 `routers.items` 中定义，再在 worker 配置里引用。
 
-## 7. 运行时生态集成
+## 6. 运行时生态集成
 
-当前代码中还内置了以下配置同步能力：
+当前代码还包含这些运行时同步服务：
 
 - OpenClaw
 - Hermes Agent
 - DeerFlow
 
-它们更像是运行时生态桥接能力，而不是替代 LinkMind 自身 YAML 的配置来源。实际运行时仍然以 LinkMind 本地配置为主。
+它们是运行时生态桥接能力，不替代你自己的 LinkMind YAML 主配置。
 
-## 8. 更稳妥的扩展顺序
+## 7. 更稳妥的扩展顺序
 
-对大多数团队来说，建议按这个顺序推进：
+对大多数团队来说，最稳妥的顺序是：
 
-1. 先尝试只用现成兼容适配器加配置接入。
-2. 如果不够，再新增对应模态的 Java 适配器。
-3. 适配器跑通后，再挂到 `functions.*`。
-4. 如果涉及检索，再补 `stores.vector` 和 `stores.rag`。
+1. 先用现成兼容适配器，只做配置扩展。
+2. 如果配置不够，再写新的 Java 适配器。
+3. 适配器跑通后，再把它接入 `functions.*`。
+4. 如果涉及检索，再去扩展 `stores.vector`。
 
-这样做通常最容易保证实现和文档都保持简单、可维护。
+按这个顺序推进，代码、配置和文档都会更容易维护。

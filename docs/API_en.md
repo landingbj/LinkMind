@@ -1,345 +1,1538 @@
-# API Guide
+---
+title: Default Module
+language_tabs:
+  - shell: Shell
+  - http: HTTP
+  - javascript: JavaScript
+  - ruby: Ruby
+  - python: Python
+  - php: PHP
+  - java: Java
+  - go: Go
+toc_footers: []
+includes: []
+search: true
+code_clipboard: true
+highlight_theme: darkula
+headingLevel: 2
+generator: "@tarslib/widdershins v4.0.30"
 
-This page focuses on the routes that are actually exposed by the current `web.xml` and servlet implementations.
 
-## Base URL and Routing Rules
+---
 
-Assume the default local deployment:
+# Default Module
 
-```text
-http://localhost:8080
+Base URLs:
+
+# Authentication
+
+# Text
+
+## POST Chat Completions
+
+POST /v1/chat/completions
+
+OpenAI-compatible chat completion endpoint for unified text model calls with standard chat responses.
+
+> Body Parameters
+
+```json
+{
+  "model": "qwen-plus",
+  "stream": false,
+  "max_completion_tokens": 256,
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hello, LinkMind."
+    }
+  ]
+}
 ```
 
-Route rules used in this document:
+### Params
 
-- Prefer the native LinkMind routes without a version prefix when the code exposes them directly.
-- Keep `/v1/...` for OpenAI-compatible endpoints such as `/v1/chat/completions`, `/v1/models`, `/v1/embeddings`, `/v1/images/generations`, and `/v1/rerank`.
-- Keep `/v1/vector/*` because vector administration is still mapped that way in the current servlet config.
-- If API key protection is enabled in your deployment, send the corresponding auth header or request key required by your environment.
+| Name                         | Location | Type     | Required | Description                                                  |
+| ---------------------------- | -------- | -------- | -------- | ------------------------------------------------------------ |
+| Content-Type                 | header   | string   | no       | Request body content type.                                   |
+| Authorization                | header   | string   | yes      | Bearer token used to call authenticated endpoints.           |
+| body                         | body     | object   | no       | none                                                         |
+| » model                      | body     | string   | yes      | Model type.                                                  |
+| » messages                   | body     | [object] | yes      | List of submitted messages.                                  |
+| »» role                      | body     | string   | yes      | Message role, such as user or assistant.                     |
+| »» content                   | body     | [object] | yes      | Message content. For user it is the input content; for assistant it is the model output content. |
+| »»» type                     | body     | string   | no       | Content item type.                                           |
+| »»» text                     | body     | string   | no       | Text content.                                                |
+| » stream                     | body     | boolean  | yes      | Whether to use streaming responses.                          |
+| » store                      | body     | boolean  | yes      | Whether to store the result of this call.                    |
+| » max_completion_tokens      | body     | integer  | yes      | Maximum number of output tokens allowed for this generation. |
+| » tools                      | body     | [object] | yes      | Optional tool definition list.                               |
+| »» type                      | body     | string   | yes      | Tool type.                                                   |
+| »» function                  | body     | object   | yes      | Tool function definition.                                    |
+| »»» name                     | body     | string   | yes      | Function name.                                               |
+| »»» description              | body     | string   | yes      | Function description.                                        |
+| »»» parameters               | body     | object   | yes      | Function parameter definition.                               |
+| »»»» type                    | body     | string   | yes      | Field type.                                                  |
+| »»»» required                | body     | [string] | yes      | none                                                         |
+| »»»» properties              | body     | object   | yes      | none                                                         |
+| »»»»» path                   | body     | object   | yes      | none                                                         |
+| »»»»»» description           | body     | string   | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» offset                 | body     | object   | no       | Result offset.                                               |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» limit                  | body     | object   | no       | Maximum number of records to return.                         |
+| »»»»»» description           | body     | string   | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»»» minimum               | body     | integer  | yes      | none                                                         |
+| »»»»» file_path              | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» filePath               | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» file                   | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» oldText                | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» newText                | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» edits                  | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»»» items                 | body     | object   | yes      | none                                                         |
+| »»»»»»» additionalProperties | body     | boolean  | yes      | none                                                         |
+| »»»»»»» type                 | body     | string   | yes      | Field type.                                                  |
+| »»»»»»» required             | body     | [string] | yes      | none                                                         |
+| »»»»»»» properties           | body     | object   | yes      | none                                                         |
+| »»»»»»»» oldText             | body     | object   | yes      | none                                                         |
+| »»»»»»»»» description        | body     | string   | yes      | none                                                         |
+| »»»»»»»»» type               | body     | string   | yes      | Field type.                                                  |
+| »»»»»»»» newText             | body     | object   | yes      | none                                                         |
+| »»»»»»»»» description        | body     | string   | yes      | none                                                         |
+| »»»»»»»»» type               | body     | string   | yes      | Field type.                                                  |
+| »»»»» old_string             | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» old_text               | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» oldString              | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» new_string             | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» new_text               | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» newString              | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» content                | body     | object   | no       | Message content.                                             |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» command                | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» workdir                | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» env                    | body     | object   | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»»» patternProperties     | body     | object   | yes      | none                                                         |
+| »»»»»»» ^(.*)$               | body     | object   | yes      | none                                                         |
+| »»»»»»»» type                | body     | string   | yes      | Field type.                                                  |
+| »»»»» yieldMs                | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» background             | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» timeout                | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»»» minimum               | body     | integer  | yes      | none                                                         |
+| »»»»» pty                    | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» elevated               | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» host                   | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» security               | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» ask                    | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» node                   | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» action                 | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»»» enum                  | body     | [string] | yes      | none                                                         |
+| »»»»» sessionId              | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» data                   | body     | object   | no       | API response data.                                           |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» keys                   | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»»» items                 | body     | object   | yes      | none                                                         |
+| »»»»»»» type                 | body     | string   | yes      | Field type.                                                  |
+| »»»»» hex                    | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»»» items                 | body     | object   | yes      | none                                                         |
+| »»»»»»» type                 | body     | string   | yes      | Field type.                                                  |
+| »»»»» literal                | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» text                   | body     | object   | no       | Input text.                                                  |
+| »»»»»» description           | body     | string   | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» bracketed              | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» eof                    | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» gatewayUrl             | body     | object   | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» gatewayToken           | body     | object   | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» timeoutMs              | body     | object   | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» includeDisabled        | body     | object   | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» job                    | body     | object   | no       | none                                                         |
+| »»»»»» additionalProperties  | body     | boolean  | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»»» properties            | body     | object   | yes      | none                                                         |
+| »»»»» jobId                  | body     | object   | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» id                     | body     | object   | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» patch                  | body     | object   | no       | none                                                         |
+| »»»»»» additionalProperties  | body     | boolean  | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»»» properties            | body     | object   | yes      | none                                                         |
+| »»»»» mode                   | body     | object   | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»»» enum                  | body     | [string] | yes      | none                                                         |
+| »»»»» runMode                | body     | object   | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»»» enum                  | body     | [string] | yes      | none                                                         |
+| »»»»» contextMessages        | body     | object   | no       | none                                                         |
+| »»»»»» minimum               | body     | integer  | yes      | none                                                         |
+| »»»»»» maximum               | body     | integer  | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» kinds                  | body     | object   | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»»» items                 | body     | object   | yes      | none                                                         |
+| »»»»»»» type                 | body     | string   | yes      | Field type.                                                  |
+| »»»»» activeMinutes          | body     | object   | no       | none                                                         |
+| »»»»»» minimum               | body     | integer  | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» messageLimit           | body     | object   | no       | none                                                         |
+| »»»»»» minimum               | body     | integer  | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» sessionKey             | body     | object   | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» includeTools           | body     | object   | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» label                  | body     | object   | no       | none                                                         |
+| »»»»»» minLength             | body     | integer  | no       | none                                                         |
+| »»»»»» maxLength             | body     | integer  | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» agentId                | body     | object   | no       | Target agent identifier.                                     |
+| »»»»»» minLength             | body     | integer  | no       | none                                                         |
+| »»»»»» maxLength             | body     | integer  | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» message                | body     | object   | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» timeoutSeconds         | body     | object   | no       | none                                                         |
+| »»»»»» minimum               | body     | integer  | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» task                   | body     | object   | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» runtime                | body     | object   | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»»» enum                  | body     | [string] | yes      | none                                                         |
+| »»»»» resumeSessionId        | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» model                  | body     | object   | no       | Model name used for the call.                                |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» thinking               | body     | object   | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» cwd                    | body     | object   | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» runTimeoutSeconds      | body     | object   | no       | none                                                         |
+| »»»»»» minimum               | body     | integer  | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» thread                 | body     | object   | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» cleanup                | body     | object   | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»»» enum                  | body     | [string] | yes      | none                                                         |
+| »»»»» sandbox                | body     | object   | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»»» enum                  | body     | [string] | yes      | none                                                         |
+| »»»»» streamTo               | body     | object   | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»»» enum                  | body     | [string] | yes      | none                                                         |
+| »»»»» attachments            | body     | object   | no       | none                                                         |
+| »»»»»» maxItems              | body     | integer  | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»»» items                 | body     | object   | yes      | none                                                         |
+| »»»»»»» type                 | body     | string   | yes      | Field type.                                                  |
+| »»»»»»» required             | body     | [string] | yes      | none                                                         |
+| »»»»»»» properties           | body     | object   | yes      | none                                                         |
+| »»»»»»»» name                | body     | object   | yes      | none                                                         |
+| »»»»»»»»» type               | body     | string   | yes      | Field type.                                                  |
+| »»»»»»»» content             | body     | object   | yes      | Message content.                                             |
+| »»»»»»»»» type               | body     | string   | yes      | Field type.                                                  |
+| »»»»»»»» encoding            | body     | object   | yes      | none                                                         |
+| »»»»»»»»» type               | body     | string   | yes      | Field type.                                                  |
+| »»»»»»»»» enum               | body     | [string] | yes      | none                                                         |
+| »»»»»»»» mimeType            | body     | object   | yes      | none                                                         |
+| »»»»»»»»» type               | body     | string   | yes      | Field type.                                                  |
+| »»»»» attachAs               | body     | object   | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»»» properties            | body     | object   | yes      | none                                                         |
+| »»»»»»» mountPath            | body     | object   | yes      | none                                                         |
+| »»»»»»»» type                | body     | string   | yes      | Field type.                                                  |
+| »»»»» target                 | body     | object   | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» recentMinutes          | body     | object   | no       | none                                                         |
+| »»»»»» minimum               | body     | integer  | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» query                  | body     | object   | no       | Query conditions.                                            |
+| »»»»»» description           | body     | string   | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» count                  | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» minimum               | body     | integer  | yes      | none                                                         |
+| »»»»»» maximum               | body     | integer  | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» region                 | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» safeSearch             | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» url                    | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» extractMode            | body     | object   | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»»» enum                  | body     | [string] | yes      | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» default               | body     | string   | yes      | none                                                         |
+| »»»»» maxChars               | body     | object   | no       | none                                                         |
+| »»»»»» description           | body     | string   | yes      | none                                                         |
+| »»»»»» minimum               | body     | integer  | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» maxResults             | body     | object   | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» minScore               | body     | object   | no       | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» from                   | body     | object   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»»» lines                  | body     | object   | yes      | none                                                         |
+| »»»»»» type                  | body     | string   | yes      | Field type.                                                  |
+| »»»» additionalProperties    | body     | boolean  | no       | none                                                         |
 
-## Most-Used Endpoints
+> Response Examples
 
-| Capability | Method | Route |
-| --- | --- | --- |
-| Native chat completions | `POST` | `/chat/completions` |
-| OpenAI-compatible chat completions | `POST` | `/v1/chat/completions` |
-| Agent or worker execution | `POST` | `/chat/go` |
-| Speech to text | `POST` | `/audio/speech2text` |
-| Text to speech | `GET` | `/audio/text2speech` |
-| Text to image | `POST` | `/image/text2image` |
-| OpenAI-compatible image generation | `POST` | `/v1/images/generations` |
-| Image OCR | `POST` | `/image/image2ocr` |
-| Document OCR | `POST` | `/ocr/doc2ocr` |
-| Document content extraction | `POST` | `/doc/doc2ext` |
-| Document structuring / markdown conversion | `POST` | `/doc/doc2struct` |
-| Instruction extraction | `POST` | `/instruction/generate` |
-| Text to SQL | `POST` | `/sql/text2sql` |
-| SQL to text | `POST` | `/sql/sql2text` |
-| Embeddings | `POST` | `/embeddings` or `/v1/embeddings` |
-| Rerank | `POST` | `/rerank` or `/v1/rerank` |
-| OpenAI-compatible models list | `GET` | `/v1/models` |
-| Vector admin | `GET` / `POST` | `/v1/vector/*` |
+> 200 Response
 
-## 1. Chat Completions
+```json
+{
+  "id": "chatcmpl-example-001",
+  "object": "chat.completion",
+  "created": 1700000000,
+  "model": "qwen-plus",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Hello! How can I help you today?"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 12,
+    "completion_tokens": 10,
+    "total_tokens": 22
+  }
+}
+```
 
-Native route:
+### Responses
 
-```bash
-curl http://localhost:8080/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "qwen-plus",
-    "temperature": 0.7,
-    "max_tokens": 512,
-    "category": "default",
-    "stream": false,
-    "messages": [
-      {
-        "role": "user",
-        "content": "Summarize what LinkMind is used for."
+| HTTP Status Code | Meaning                                                 | Description          | Data schema |
+| ---------------- | ------------------------------------------------------- | -------------------- | ----------- |
+| 200              | [OK](https://tools.ietf.org/html/rfc7231#section-6.3.1) | Successful response. | Inline      |
+
+### Responses Data Schema
+
+HTTP Status Code **200**
+
+| Name                 | Type     | Required | Restrictions | Title | description                                                  |
+| -------------------- | -------- | -------- | ------------ | ----- | ------------------------------------------------------------ |
+| » id                 | string   | true     | none         |       | Unique identifier.                                           |
+| » object             | string   | true     | none         |       | Object type.                                                 |
+| » created            | integer  | true     | none         |       | Unix timestamp (seconds) when the chat completion was created. |
+| » model              | string   | true     | none         |       | Model used.                                                  |
+| » choices            | [object] | true     | none         |       | List of choices.                                             |
+| »» index             | integer  | false    | none         |       | Item index.                                                  |
+| »» message           | object   | false    | none         |       | Returned message.                                            |
+| »»» role             | string   | true     | none         |       | Message role, such as user or assistant.                     |
+| »»» content          | string   | true     | none         |       | Message content. For user it is the input content; for assistant it is the model output content. |
+| »» finish_reason     | string   | false    | none         |       | Reason why the model stopped generating.                     |
+| » usage              | object   | true     | none         |       | Usage statistics for the request.                            |
+| »» prompt_tokens     | integer  | true     | none         |       | Number of tokens in the prompt.                              |
+| »» completion_tokens | integer  | true     | none         |       | Number of generated tokens.                                  |
+| »» total_tokens      | integer  | true     | none         |       | Total number of tokens used in the request.                  |
+
+## POST chat/go
+
+POST /chat/go
+
+Unified Agent / Worker entrypoint for orchestrated chat requests executed by the specified worker.
+
+> Body Parameters
+
+```json
+{
+  "category": "default",
+  "worker": "appointedWorker",
+  "stream": false,
+  "temperature": 0.7,
+  "max_tokens": 256,
+  "messages": [
+    {
+      "role": "user",
+      "content": "Translate \"Hello\" into Chinese."
+    }
+  ]
+}
+```
+
+### Params
+
+| Name          | Location | Type     | Required | Description                                                  |
+| ------------- | -------- | -------- | -------- | ------------------------------------------------------------ |
+| Content-Type  | header   | string   | no       | Request body content type.                                   |
+| Authorization | header   | string   | yes      | Bearer token used to call authenticated endpoints.           |
+| body          | body     | object   | no       | none                                                         |
+| » model       | body     | string   | no       | Model type.                                                  |
+| » temperature | body     | number   | yes      | Sampling temperature.                                        |
+| » max_tokens  | body     | integer  | yes      | Maximum number of tokens that can be generated.              |
+| » category    | body     | string   | no       | Data category.                                               |
+| » messages    | body     | [object] | yes      | List of submitted messages.                                  |
+| »» role       | body     | string   | no       | Message role, such as user or assistant.                     |
+| »» content    | body     | string   | no       | Message content. For user it is the input content; for assistant it is the model output content. |
+| » worker      | body     | string   | no       | Worker name to invoke.                                       |
+| » agentId     | body     | string   | no       | Agent identifier to invoke.                                  |
+| » stream      | body     | boolean  | no       | Whether to use streaming responses.                          |
+
+> Response Examples
+
+> 200 Response
+
+```json
+{
+  "id": "chatcmpl-worker-001",
+  "object": "chat.completion",
+  "created": 1700000000,
+  "model": "qwen-plus",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "LinkMind can help route and execute your request."
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 14,
+    "completion_tokens": 2,
+    "total_tokens": 16
+  }
+}
+```
+
+### Responses
+
+| HTTP Status Code | Meaning                                                 | Description          | Data schema |
+| ---------------- | ------------------------------------------------------- | -------------------- | ----------- |
+| 200              | [OK](https://tools.ietf.org/html/rfc7231#section-6.3.1) | Successful response. | Inline      |
+
+### Responses Data Schema
+
+HTTP Status Code **200**
+
+| Name                 | Type     | Required | Restrictions | Title | description                                                  |
+| -------------------- | -------- | -------- | ------------ | ----- | ------------------------------------------------------------ |
+| » id                 | string   | true     | none         |       | Unique identifier.                                           |
+| » object             | string   | true     | none         |       | Object type.                                                 |
+| » created            | integer  | true     | none         |       | Unix timestamp (seconds) when the chat completion was created. |
+| » model              | string   | true     | none         |       | Model used.                                                  |
+| » choices            | [object] | true     | none         |       | List of choices.                                             |
+| »» index             | integer  | false    | none         |       | Item index.                                                  |
+| »» message           | object   | false    | none         |       | Returned message.                                            |
+| »»» role             | string   | true     | none         |       | Message role, such as user or assistant.                     |
+| »»» content          | string   | true     | none         |       | Message content. For user it is the input content; for assistant it is the model output content. |
+| »» finish_reason     | string   | false    | none         |       | Reason why the model stopped generating.                     |
+| » usage              | object   | true     | none         |       | Usage statistics for the request.                            |
+| »» prompt_tokens     | integer  | true     | none         |       | Number of tokens in the prompt.                              |
+| »» completion_tokens | integer  | true     | none         |       | Number of generated tokens.                                  |
+| »» total_tokens      | integer  | true     | none         |       | Total number of tokens used in the request.                  |
+
+# Audio
+
+## POST Speech to Text
+
+POST /audio/speech2text
+
+Speech-to-text endpoint. Upload audio binary data and receive the transcription result.
+
+> Body Parameters
+
+```yaml
+file://./examples/audio/sample.wav
+
+```
+
+### Params
+
+| Name         | Location | Type           | Required | Description                   |
+| ------------ | -------- | -------------- | -------- | ----------------------------- |
+| model        | query    | string         | no       | Model name used for the call. |
+| format       | query    | string         | no       | Response format.              |
+| Content-Type | header   | string         | no       | Request body content type.    |
+| body         | body     | string(binary) | no       | none                          |
+
+> Response Examples
+
+> 200 Response
+
+```json
+{
+  "result": "Hello LinkMind",
+  "status": 200
+}
+```
+
+### Responses
+
+| HTTP Status Code | Meaning                                                 | Description          | Data schema |
+| ---------------- | ------------------------------------------------------- | -------------------- | ----------- |
+| 200              | [OK](https://tools.ietf.org/html/rfc7231#section-6.3.1) | Successful response. | Inline      |
+
+### Responses Data Schema
+
+HTTP Status Code **200**
+
+| Name     | Type    | Required | Restrictions | Title | description                |
+| -------- | ------- | -------- | ------------ | ----- | -------------------------- |
+| » result | string  | true     | none         |       | Speech recognition result. |
+| » status | integer | true     | none         |       | Service status code.       |
+
+## GET Text to Speech
+
+GET /audio/text2speech
+
+Text-to-speech endpoint. Generates an audio stream based on query parameters.
+
+### Params
+
+| Name   | Location | Type   | Required | Description                   |
+| ------ | -------- | ------ | -------- | ----------------------------- |
+| text   | query    | string | yes      | Text to synthesize.           |
+| model  | query    | string | no       | Model name used for the call. |
+| format | query    | string | no       | Response format.              |
+
+> Response Examples
+
+> 200 Response
+
+### Responses
+
+| HTTP Status Code | Meaning                                                 | Description                           | Data schema |
+| ---------------- | ------------------------------------------------------- | ------------------------------------- | ----------- |
+| 200              | [OK](https://tools.ietf.org/html/rfc7231#section-6.3.1) | Returns binary audio data on success. | Inline      |
+
+### Responses Data Schema
+
+# Images
+
+## POST Image to Text
+
+POST /image/image2text
+
+Image understanding endpoint. Upload an image and receive classification, caption, and segmentation results.
+
+> Body Parameters
+
+```yaml
+model: default
+emotion: default
+text: Please describe the image.
+category: default
+
+```
+
+### Params
+
+| Name   | Location | Type           | Required | Description          |
+| ------ | -------- | -------------- | -------- | -------------------- |
+| body   | body     | object         | no       | none                 |
+| » file | body     | string(binary) | yes      | Uploaded image file. |
+
+> Response Examples
+
+> 200 Response
+
+```json
+{
+  "status": "success",
+  "classification": "cat",
+  "caption": "A cat sitting on a sofa.",
+  "samUrl": "https://example.com/segmented-image.png"
+}
+```
+
+### Responses
+
+| HTTP Status Code | Meaning                                                 | Description          | Data schema |
+| ---------------- | ------------------------------------------------------- | -------------------- | ----------- |
+| 200              | [OK](https://tools.ietf.org/html/rfc7231#section-6.3.1) | Successful response. | Inline      |
+
+### Responses Data Schema
+
+HTTP Status Code **200**
+
+| Name             | Type   | Required | Restrictions | Title | description                             |
+| ---------------- | ------ | -------- | ------------ | ----- | --------------------------------------- |
+| » status         | string | true     | none         |       | Status of the image understanding call. |
+| » classification | string | true     | none         |       | Recognized image category.              |
+| » caption        | string | true     | none         |       | Image recognition result.               |
+| » samUrl         | string | true     | none         |       | Image segmentation result.              |
+
+## POST Text to Image
+
+POST /image/text2image
+
+Text-to-image endpoint. Generates images from a prompt.
+
+> Body Parameters
+
+```json
+{
+  "prompt": "A cat sitting on a sofa."
+}
+```
+
+### Params
+
+| Name         | Location | Type   | Required | Description                  |
+| ------------ | -------- | ------ | -------- | ---------------------------- |
+| Content-Type | header   | string | no       | Request body content type.   |
+| body         | body     | object | no       | none                         |
+| » prompt     | body     | string | yes      | Prompt for image generation. |
+
+> Response Examples
+
+> 200 Response
+
+```json
+{
+  "created": 1700000000,
+  "data": [
+    {
+      "url": "https://example.com/generated-image.png"
+    }
+  ]
+}
+```
+
+### Responses
+
+| HTTP Status Code | Meaning                                                 | Description          | Data schema |
+| ---------------- | ------------------------------------------------------- | -------------------- | ----------- |
+| 200              | [OK](https://tools.ietf.org/html/rfc7231#section-6.3.1) | Successful response. | Inline      |
+
+### Responses Data Schema
+
+HTTP Status Code **200**
+
+| Name      | Type     | Required | Restrictions | Title | description                                                  |
+| --------- | -------- | -------- | ------------ | ----- | ------------------------------------------------------------ |
+| » created | integer  | true     | none         |       | Unix timestamp (seconds) when the chat completion was created. |
+| » data    | [object] | true     | none         |       | Generated image data.                                        |
+| »» url    | string   | false    | none         |       | Generated image URL.                                         |
+
+## POST Image Enhancement
+
+POST /image/image2enhance
+
+Image enhancement endpoint. Upload an image and receive the enhanced result URL.
+
+> Body Parameters
+
+```yaml
+model: default
+emotion: default
+text: Please enhance this image.
+category: default
+
+```
+
+### Params
+
+| Name   | Location | Type           | Required | Description          |
+| ------ | -------- | -------------- | -------- | -------------------- |
+| body   | body     | object         | no       | none                 |
+| » file | body     | string(binary) | yes      | Uploaded image file. |
+
+> Response Examples
+
+> 200 Response
+
+```json
+{
+  "status": "success",
+  "enhanceImageUrl": "https://example.com/enhanced-image.png"
+}
+```
+
+### Responses
+
+| HTTP Status Code | Meaning                                                 | Description          | Data schema |
+| ---------------- | ------------------------------------------------------- | -------------------- | ----------- |
+| 200              | [OK](https://tools.ietf.org/html/rfc7231#section-6.3.1) | Successful response. | Inline      |
+
+### Responses Data Schema
+
+HTTP Status Code **200**
+
+| Name              | Type   | Required | Restrictions | Title | description                                                  |
+| ----------------- | ------ | -------- | ------------ | ----- | ------------------------------------------------------------ |
+| » enhanceImageUrl | string | true     | none         |       | Enhanced image URL.                                          |
+| » status          | string | true     | none         |       | Execution status of the endpoint. success indicates success. |
+
+# Video
+
+## POST Image to Video
+
+POST /image/image2video
+
+Image-to-video endpoint. Upload an image and receive the generated video URL.
+
+> Body Parameters
+
+```yaml
+model: default
+emotion: default
+text: Generate a short video from this image.
+category: default
+
+```
+
+### Params
+
+| Name   | Location | Type           | Required | Description          |
+| ------ | -------- | -------------- | -------- | -------------------- |
+| body   | body     | object         | no       | none                 |
+| » file | body     | string(binary) | yes      | Uploaded image file. |
+
+> Response Examples
+
+> 200 Response
+
+```json
+{
+  "status": "success",
+  "svdVideoUrl": "https://example.com/generated-video.mp4"
+}
+```
+
+### Responses
+
+| HTTP Status Code | Meaning                                                 | Description          | Data schema |
+| ---------------- | ------------------------------------------------------- | -------------------- | ----------- |
+| 200              | [OK](https://tools.ietf.org/html/rfc7231#section-6.3.1) | Successful response. | Inline      |
+
+### Responses Data Schema
+
+HTTP Status Code **200**
+
+| Name          | Type   | Required | Restrictions | Title | description                                                  |
+| ------------- | ------ | -------- | ------------ | ----- | ------------------------------------------------------------ |
+| » svdVideoUrl | string | true     | none         |       | Generated video URL.                                         |
+| » status      | string | true     | none         |       | Execution status of the endpoint. success indicates success. |
+
+## POST Video Tracking
+
+POST /video/video2tracking
+
+Video tracking endpoint. Upload a video and receive the tracked video result URL.
+
+> Body Parameters
+
+```yaml
+file: file://./examples/video/sample.mp4
+
+```
+
+### Params
+
+| Name   | Location | Type           | Required | Description          |
+| ------ | -------- | -------------- | -------- | -------------------- |
+| body   | body     | object         | no       | none                 |
+| » file | body     | string(binary) | yes      | Uploaded video file. |
+
+> Response Examples
+
+> 200 Response
+
+```json
+{
+  "status": "success",
+  "data": "https://example.com/tracked-video.mp4"
+}
+```
+
+### Responses
+
+| HTTP Status Code | Meaning                                                 | Description          | Data schema |
+| ---------------- | ------------------------------------------------------- | -------------------- | ----------- |
+| 200              | [OK](https://tools.ietf.org/html/rfc7231#section-6.3.1) | Successful response. | Inline      |
+
+### Responses Data Schema
+
+HTTP Status Code **200**
+
+| Name     | Type   | Required | Restrictions | Title | description               |
+| -------- | ------ | -------- | ------------ | ----- | ------------------------- |
+| » status | string | true     | none         |       | Returned result status    |
+| » data   | string | true     | none         |       | Tracked video result URL. |
+
+## POST Video Enhancement
+
+POST /video/mmeditingInference
+
+Video enhancement endpoint. Upload a video and receive the enhanced video URL.
+
+> Body Parameters
+
+```yaml
+file: file://./examples/video/sample.mp4
+
+```
+
+### Params
+
+| Name   | Location | Type           | Required | Description          |
+| ------ | -------- | -------------- | -------- | -------------------- |
+| body   | body     | object         | no       | none                 |
+| » file | body     | string(binary) | yes      | Uploaded video file. |
+
+> Response Examples
+
+> 200 Response
+
+```json
+{
+  "status": "success",
+  "data": "https://example.com/enhanced-video.mp4"
+}
+```
+
+### Responses
+
+| HTTP Status Code | Meaning                                                 | Description          | Data schema |
+| ---------------- | ------------------------------------------------------- | -------------------- | ----------- |
+| 200              | [OK](https://tools.ietf.org/html/rfc7231#section-6.3.1) | Successful response. | Inline      |
+
+### Responses Data Schema
+
+HTTP Status Code **200**
+
+| Name     | Type   | Required | Restrictions | Title | description                |
+| -------- | ------ | -------- | ------------ | ----- | -------------------------- |
+| » status | string | true     | none         |       | Returned result status     |
+| » data   | string | true     | none         |       | Enhanced video result URL. |
+
+# RAG
+
+## POST Get Vectors
+
+POST /v1/vector/get
+
+Retrieve raw records from the vector store by condition.
+
+> Body Parameters
+
+```json
+{
+  "category": "default",
+  "where": {
+    "source": "file"
+  },
+  "limit": 10,
+  "offset": 0
+}
+```
+
+### Params
+
+| Name       | Location | Type    | Required | Description                                   |
+| ---------- | -------- | ------- | -------- | --------------------------------------------- |
+| body       | body     | object  | no       | none                                          |
+| » category | body     | string  | yes      | Knowledge category or vector collection name. |
+| » where    | body     | object  | yes      | Filter conditions.                            |
+| » limit    | body     | integer | yes      | Maximum number of records to return.          |
+| » offset   | body     | integer | yes      | Result offset.                                |
+
+> Response Examples
+
+> 200 Response
+
+```json
+{
+  "status": "success",
+  "data": [
+    {
+      "document": "LinkMind provides a unified AI middleware layer.",
+      "id": "doc_001",
+      "metadata": {
+        "category": "default",
+        "file_id": "file_001",
+        "filename": "sample-handbook.pdf",
+        "filepath": "202504240001.pdf",
+        "level": "user",
+        "parent_id": "chunk_root_001",
+        "source": "file"
       }
+    }
+  ]
+}
+```
+
+### Responses
+
+| HTTP Status Code | Meaning                                                 | Description          | Data schema |
+| ---------------- | ------------------------------------------------------- | -------------------- | ----------- |
+| 200              | [OK](https://tools.ietf.org/html/rfc7231#section-6.3.1) | Successful response. | Inline      |
+
+### Responses Data Schema
+
+HTTP Status Code **200**
+
+| Name          | Type     | Required | Restrictions | Title | description                                                  |
+| ------------- | -------- | -------- | ------------ | ----- | ------------------------------------------------------------ |
+| » data        | [object] | true     | none         |       | API response data.                                           |
+| »» document   | string   | true     | none         |       | Text content.                                                |
+| »» id         | string   | true     | none         |       | none                                                         |
+| »» metadata   | object   | true     | none         |       | Metadata associated with the text.                           |
+| »»» category  | string   | true     | none         |       | Knowledge category or vector collection name.                |
+| »»» file_id   | string   | true     | none         |       | File ID.                                                     |
+| »»» filename  | string   | true     | none         |       | File name.                                                   |
+| »»» filepath  | string   | true     | none         |       | File path.                                                   |
+| »»» level     | string   | true     | none         |       | Knowledge level. Default is user.                            |
+| »»» parent_id | string   | true     | none         |       | none                                                         |
+| »»» source    | string   | true     | none         |       | none                                                         |
+| » status      | string   | true     | none         |       | Execution status of the endpoint. success indicates success. |
+
+## POST Add Vectors
+
+POST /v1/vector/add
+
+Vector insert endpoint for adding text and metadata.
+
+> Body Parameters
+
+```json
+{
+  "category": "default",
+  "data": [
+    {
+      "metadata": {
+        "category": "default",
+        "filename": "sample-handbook.pdf",
+        "filepath": "202504240001.pdf",
+        "source": "file"
+      },
+      "document": "LinkMind provides a unified AI middleware layer."
+    }
+  ]
+}
+```
+
+### Params
+
+| Name        | Location | Type     | Required | Description                                   |
+| ----------- | -------- | -------- | -------- | --------------------------------------------- |
+| body        | body     | object   | no       | none                                          |
+| » category  | body     | string   | yes      | Knowledge category or vector collection name. |
+| » data      | body     | [object] | yes      | List of text entries and metadata to insert.  |
+| »» metadata | body     | object   | yes      | Metadata associated with the text.            |
+| »» document | body     | string   | yes      | Text content.                                 |
+
+> Response Examples
+
+> 200 Response
+
+```json
+{
+  "status": "success"
+}
+```
+
+### Responses
+
+| HTTP Status Code | Meaning                                                 | Description          | Data schema |
+| ---------------- | ------------------------------------------------------- | -------------------- | ----------- |
+| 200              | [OK](https://tools.ietf.org/html/rfc7231#section-6.3.1) | Successful response. | Inline      |
+
+### Responses Data Schema
+
+HTTP Status Code **200**
+
+| Name     | Type   | Required | Restrictions | Title | description                                                  |
+| -------- | ------ | -------- | ------------ | ----- | ------------------------------------------------------------ |
+| » status | string | true     | none         |       | Execution status of the endpoint. success indicates success. |
+
+## POST Update Vectors
+
+POST /v1/vector/update
+
+Vector update endpoint for updating text or metadata by record ID.
+
+> Body Parameters
+
+```json
+{
+  "category": "default",
+  "data": [
+    {
+      "id": "doc_001",
+      "metadata": {
+        "category": "default",
+        "filename": "sample-handbook.pdf",
+        "filepath": "202504240001.pdf",
+        "source": "file"
+      },
+      "document": "LinkMind provides a unified AI middleware layer for model routing."
+    }
+  ]
+}
+```
+
+### Params
+
+| Name        | Location | Type     | Required | Description                                   |
+| ----------- | -------- | -------- | -------- | --------------------------------------------- |
+| body        | body     | object   | no       | none                                          |
+| » category  | body     | string   | yes      | Knowledge category or vector collection name. |
+| » data      | body     | [object] | yes      | List of text entries and metadata to update.  |
+| »» id       | body     | string   | yes      | none                                          |
+| »» metadata | body     | object   | yes      | Metadata associated with the text.            |
+| »»» chapter | body     | integer  | yes      | none                                          |
+| »»» verse   | body     | integer  | yes      | none                                          |
+| »» document | body     | string   | yes      | Text content.                                 |
+
+> Response Examples
+
+> 200 Response
+
+```json
+{
+  "status": "success"
+}
+```
+
+### Responses
+
+| HTTP Status Code | Meaning                                                 | Description          | Data schema |
+| ---------------- | ------------------------------------------------------- | -------------------- | ----------- |
+| 200              | [OK](https://tools.ietf.org/html/rfc7231#section-6.3.1) | Successful response. | Inline      |
+
+### Responses Data Schema
+
+HTTP Status Code **200**
+
+| Name     | Type   | Required | Restrictions | Title | description                                                  |
+| -------- | ------ | -------- | ------------ | ----- | ------------------------------------------------------------ |
+| » status | string | true     | none         |       | Execution status of the endpoint. success indicates success. |
+
+## POST Delete Vectors
+
+POST /v1/vector/delete
+
+Vector delete endpoint for deleting vector data by record ID.
+
+> Body Parameters
+
+```json
+{
+  "category": "default",
+  "ids": [
+    "doc_001"
+  ]
+}
+```
+
+### Params
+
+| Name       | Location | Type     | Required | Description                                   |
+| ---------- | -------- | -------- | -------- | --------------------------------------------- |
+| body       | body     | object   | no       | none                                          |
+| » category | body     | string   | yes      | Knowledge category or vector collection name. |
+| » ids      | body     | [string] | yes      | List of record IDs to delete.                 |
+
+> Response Examples
+
+> 200 Response
+
+```json
+{
+  "status": "success"
+}
+```
+
+### Responses
+
+| HTTP Status Code | Meaning                                                 | Description          | Data schema |
+| ---------------- | ------------------------------------------------------- | -------------------- | ----------- |
+| 200              | [OK](https://tools.ietf.org/html/rfc7231#section-6.3.1) | Successful response. | Inline      |
+
+### Responses Data Schema
+
+HTTP Status Code **200**
+
+| Name     | Type   | Required | Restrictions | Title | description                                                  |
+| -------- | ------ | -------- | ------------ | ----- | ------------------------------------------------------------ |
+| » status | string | true     | none         |       | Execution status of the endpoint. success indicates success. |
+
+## POST Query Vectors
+
+POST /v1/vector/query
+
+Vector search endpoint that returns similar results for the query text.
+
+> Body Parameters
+
+```json
+{
+  "category": "default",
+  "text": "How does model routing work?",
+  "n": 5,
+  "where": {
+    "source": "file"
+  }
+}
+```
+
+### Params
+
+| Name       | Location | Type    | Required | Description                                   |
+| ---------- | -------- | ------- | -------- | --------------------------------------------- |
+| body       | body     | object  | no       | none                                          |
+| » text     | body     | string  | yes      | Input text.                                   |
+| » n        | body     | integer | yes      | Number of nearest-neighbor results to return. |
+| » where    | body     | object  | yes      | Filter conditions.                            |
+| » category | body     | string  | yes      | Knowledge category or vector collection name. |
+
+> Response Examples
+
+> 200 Response
+
+```json
+{
+  "status": "success",
+  "data": [
+    {
+      "document": "LinkMind can route requests across multiple model backends.",
+      "id": "doc_002",
+      "metadata": {
+        "category": "default",
+        "file_id": "file_001",
+        "filename": "sample-handbook.pdf",
+        "filepath": "202504240001.pdf",
+        "level": "user",
+        "parent_id": "chunk_root_001",
+        "source": "file"
+      },
+      "distance": 0.12
+    }
+  ]
+}
+```
+
+### Responses
+
+| HTTP Status Code | Meaning                                                 | Description          | Data schema |
+| ---------------- | ------------------------------------------------------- | -------------------- | ----------- |
+| 200              | [OK](https://tools.ietf.org/html/rfc7231#section-6.3.1) | Successful response. | Inline      |
+
+### Responses Data Schema
+
+HTTP Status Code **200**
+
+| Name                      | Type     | Required | Restrictions | Title | description                                                  |
+| ------------------------- | -------- | -------- | ------------ | ----- | ------------------------------------------------------------ |
+| » data                    | [object] | true     | none         |       | API response data.                                           |
+| »» document               | string   | true     | none         |       | Text content.                                                |
+| »» id                     | string   | true     | none         |       | none                                                         |
+| »» metadata               | object   | true     | none         |       | Metadata associated with the text.                           |
+| »»» category              | string   | true     | none         |       | Knowledge category or vector collection name.                |
+| »»» file_id               | string   | true     | none         |       | File ID.                                                     |
+| »»» filename              | string   | true     | none         |       | File name.                                                   |
+| »»» filepath              | string   | true     | none         |       | File path.                                                   |
+| »»» level                 | string   | true     | none         |       | Knowledge level. Default is user.                            |
+| »»» parent_id             | string   | true     | none         |       | none                                                         |
+| »»» source                | string   | true     | none         |       | none                                                         |
+| »»» reference_document_id | string   | true     | none         |       | none                                                         |
+| »» distance               | number   | true     | none         |       | Similarity distance or score.                                |
+| » status                  | string   | true     | none         |       | Execution status of the endpoint. success indicates success. |
+
+## POST Embeddings
+
+POST /v1/embeddings
+
+Embedding endpoint. Returns vector results for the input text.
+
+> Body Parameters
+
+```json
+{
+  "model": "text-embedding",
+  "input": [
+    "Hello LinkMind"
+  ]
+}
+```
+
+### Params
+
+| Name         | Location | Type     | Required | Description                   |
+| ------------ | -------- | -------- | -------- | ----------------------------- |
+| Content-Type | header   | string   | no       | Request body content type.    |
+| body         | body     | object   | no       | none                          |
+| » input      | body     | [string] | yes      | Text content to embed.        |
+| » model      | body     | string   | yes      | Model name used for the call. |
+
+> Response Examples
+
+> 200 Response
+
+```json
+{
+  "status": "success",
+  "data": [
+    [
+      0.12,
+      -0.03,
+      0.44,
+      0.08
     ]
-  }'
+  ]
+}
 ```
 
-OpenAI-compatible route:
+### Responses
 
-```bash
-curl http://localhost:8080/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "qwen-plus",
-    "stream": true,
-    "messages": [
-      {
-        "role": "user",
-        "content": "Write a short welcome message."
-      }
-    ]
-  }'
+| HTTP Status Code | Meaning                                                 | Description          | Data schema |
+| ---------------- | ------------------------------------------------------- | -------------------- | ----------- |
+| 200              | [OK](https://tools.ietf.org/html/rfc7231#section-6.3.1) | Successful response. | Inline      |
+
+### Responses Data Schema
+
+HTTP Status Code **200**
+
+| Name     | Type    | Required | Restrictions | Title | description                                                  |
+| -------- | ------- | -------- | ------------ | ----- | ------------------------------------------------------------ |
+| » status | string  | true     | none         |       | Execution status of the endpoint. success indicates success. |
+| » data   | [array] | true     | none         |       | Embedding vector list.                                       |
+
+## GET List Vector Collections
+
+GET /v1/vector/listCollections
+
+List the current vector collections.
+
+### Params
+
+| Name         | Location | Type   | Required | Description                |
+| ------------ | -------- | ------ | -------- | -------------------------- |
+| Content-Type | header   | string | no       | Request body content type. |
+
+> Response Examples
+
+> 200 Response
+
+```json
+{
+  "status": "success",
+  "data": [
+    {
+      "category": "default",
+      "vectorCount": 128
+    }
+  ]
+}
 ```
 
-Useful request fields from the current request object:
+### Responses
 
-| Field | Notes |
-| --- | --- |
-| `model` | Model ID configured in `functions.chat.backends` |
-| `messages` | Standard chat message list |
-| `stream` | `true` for SSE streaming |
-| `temperature` | Sampling temperature |
-| `max_tokens` | Response token limit |
-| `category` | RAG category for knowledge retrieval |
-| `tools`, `tool_choice`, `parallel_tool_calls` | Tool-calling compatible fields |
-| `response_format` | Structured output request |
-| `session_id` | Accepted as an alias for `sessionId` |
+| HTTP Status Code | Meaning                                                 | Description          | Data schema |
+| ---------------- | ------------------------------------------------------- | -------------------- | ----------- |
+| 200              | [OK](https://tools.ietf.org/html/rfc7231#section-6.3.1) | Successful response. | Inline      |
 
-## 2. Agent and Worker Execution
+### Responses Data Schema
 
-`/chat/go` is the entry point for invoking workers or routed agents.
+HTTP Status Code **200**
 
-```bash
-curl http://localhost:8080/chat/go \
-  -H "Content-Type: application/json" \
-  -d '{
-    "worker": "appointedWorker",
-    "agentId": "weather",
-    "stream": false,
-    "messages": [
-      {
-        "role": "user",
-        "content": "What is the weather in Beijing today?"
-      }
-    ]
-  }'
+| Name           | Type     | Required | Restrictions | Title | description                                                  |
+| -------------- | -------- | -------- | ------------ | ----- | ------------------------------------------------------------ |
+| » status       | string   | true     | none         |       | Execution status of the endpoint. success indicates success. |
+| » data         | [object] | true     | none         |       | List of vector collections.                                  |
+| »» category    | string   | true     | none         |       | Knowledge category or vector collection name.                |
+| »» vectorCount | integer  | true     | none         |       | Number of vectors in the collection.                         |
+
+# Private Training
+
+## POST Upload Training File
+
+POST /training/upload
+
+Upload a general knowledge file and write it into the private knowledge base.
+
+> Body Parameters
+
+```yaml
+fileToUpload: file://./examples/docs/sample.pdf
+
 ```
 
-Common fields:
+### Params
 
-- `worker`: worker name configured under `skills.workers`
-- `agentId`: target agent name when the worker route expects one
-- `messages`: conversation payload
-- `stream`: whether to stream the answer
+| Name           | Location | Type           | Required | Description                                   |
+| -------------- | -------- | -------------- | -------- | --------------------------------------------- |
+| category       | query    | string         | yes      | Knowledge category or vector collection name. |
+| level          | query    | string         | no       | Knowledge level. Default is user.             |
+| body           | body     | object         | no       | none                                          |
+| » fileToUpload | body     | string(binary) | yes      | Knowledge file to upload.                     |
 
-## 3. Audio APIs
+> Response Examples
 
-### Speech to Text
+> 200 Response
 
-`POST /audio/speech2text`
-
-Send raw audio bytes in the request body. Optional request parameters are parsed into `AudioRequestParam`, including `model`, `format`, `sample_rate`, `vocabulary_id`, and `customization_id`.
-
-```bash
-curl -X POST "http://localhost:8080/audio/speech2text?model=asr&format=wav" \
-  -H "Content-Type: application/octet-stream" \
-  --data-binary "@demo.wav"
+```json
+{
+  "status": "success",
+  "data": "[{\"filename\":\"sample.pdf\",\"filepath\":\"202504240001.pdf\",\"fileId\":\"file_001\",\"vectorIds\":[[\"vec_001\",\"vec_002\"]]}]",
+  "task_id": "task_001"
+}
 ```
 
-### Text to Speech
+### Responses
 
-`GET /audio/text2speech`
+| HTTP Status Code | Meaning                                                 | Description          | Data schema |
+| ---------------- | ------------------------------------------------------- | -------------------- | ----------- |
+| 200              | [OK](https://tools.ietf.org/html/rfc7231#section-6.3.1) | Successful response. | Inline      |
 
-Important query fields in the current implementation include `text`, `model`, `format`, `sample_rate`, `voice`, `volume`, `speech_rate`, `pitch_rate`, `emotion`, and `source`.
+### Responses Data Schema
 
-```bash
-curl "http://localhost:8080/audio/text2speech?model=landing-tts&text=Hello%20LinkMind"
+HTTP Status Code **200**
+
+| Name      | Type   | Required | Restrictions | Title | description                                                  |
+| --------- | ------ | -------- | ------------ | ----- | ------------------------------------------------------------ |
+| » status  | string | true     | none         |       | Execution status of the endpoint. success indicates success. |
+| » data    | string | true     | none         |       | Upload result returned as a file-info JSON string.           |
+| » task_id | string | true     | none         |       | Async task ID.                                               |
+
+## POST Upload Q&A Pairs
+
+POST /uploadFile/pairing
+
+Upload general Q&A pairs and write them into the private knowledge base.
+
+> Body Parameters
+
+```json
+{
+  "category": "default",
+  "level": "user",
+  "data": [
+    {
+      "instruction": [
+        "What is LinkMind?"
+      ],
+      "output": "LinkMind is an AI middleware layer for routing, RAG, and multimodal orchestration."
+    }
+  ]
+}
 ```
 
-When synthesis succeeds, the response body is audio data with `Content-Type: audio/mpeg`.
+### Params
 
-## 4. Image APIs
+| Name           | Location | Type     | Required | Description                                                  |
+| -------------- | -------- | -------- | -------- | ------------------------------------------------------------ |
+| body           | body     | object   | no       | none                                                         |
+| » category     | body     | string   | yes      | Knowledge category or vector collection name.                |
+| » level        | body     | string   | no       | Knowledge level. Default is user.                            |
+| » data         | body     | [object] | yes      | List of Q&A pairs.                                           |
+| »» instruction | body     | [string] | yes      | List of questions or instructions. A single string is also accepted by the server. |
+| »» output      | body     | string   | yes      | Answer or output content.                                    |
 
-### Text to Image
+> Response Examples
 
-Native:
+> 200 Response
 
-```bash
-curl http://localhost:8080/image/text2image \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "tti",
-    "prompt": "A clean product illustration of an AI control tower",
-    "size": "1024x1024"
-  }'
+```json
+{
+  "status": "success"
+}
 ```
 
-OpenAI-compatible:
+### Responses
 
-```bash
-curl http://localhost:8080/v1/images/generations \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "tti",
-    "prompt": "A clean product illustration of an AI control tower",
-    "size": "1024x1024"
-  }'
+| HTTP Status Code | Meaning                                                 | Description          | Data schema |
+| ---------------- | ------------------------------------------------------- | -------------------- | ----------- |
+| 200              | [OK](https://tools.ietf.org/html/rfc7231#section-6.3.1) | Successful response. | Inline      |
+
+### Responses Data Schema
+
+HTTP Status Code **200**
+
+| Name     | Type   | Required | Restrictions | Title | description                                                  |
+| -------- | ------ | -------- | ------------ | ----- | ------------------------------------------------------------ |
+| » status | string | true     | none         |       | Execution status of the endpoint. success indicates success. |
+
+## GET List Uploaded Files
+
+GET /uploadFile/getUploadFileList
+
+Paginated query for uploaded knowledge files.
+
+### Params
+
+| Name       | Location | Type   | Required | Description    |
+| ---------- | -------- | ------ | -------- | -------------- |
+| category   | query    | string | no       | Data category. |
+| pageSize   | query    | string | no       | Page size      |
+| pageNumber | query    | string | no       | Page number    |
+
+> Response Examples
+
+> 200 Response
+
+```json
+{
+  "status": "success",
+  "totalRow": 1,
+  "pageNumber": 1,
+  "data": [
+    {
+      "fileId": "file_001",
+      "filename": "sample.pdf",
+      "filepath": "202504240001.pdf",
+      "category": "default",
+      "createTime": 1700000000000
+    }
+  ],
+  "totalPage": 1,
+  "pageSize": 10
+}
 ```
 
-### Image OCR
+### Responses
 
-`POST /image/image2ocr`
+| HTTP Status Code | Meaning                                                 | Description          | Data schema |
+| ---------------- | ------------------------------------------------------- | -------------------- | ----------- |
+| 200              | [OK](https://tools.ietf.org/html/rfc7231#section-6.3.1) | Successful response. | Inline      |
 
-Upload one or more image files as `multipart/form-data`.
+### Responses Data Schema
 
-```bash
-curl http://localhost:8080/image/image2ocr \
-  -F "file=@page.png"
+HTTP Status Code **200**
+
+| Name         | Type     | Required | Restrictions | Title | description          |
+| ------------ | -------- | -------- | ------------ | ----- | -------------------- |
+| » totalRow   | integer  | true     | none         |       | Total records        |
+| » pageNumber | integer  | true     | none         |       | Page number          |
+| » data       | [object] | true     | none         |       | Knowledge file list. |
+| »» fileId    | string   | true     | none         |       | File ID              |
+| »» filename  | string   | true     | none         |       | File name            |
+| »» filepath  | string   | true     | none         |       | Relative file path   |
+| »» category  | string   | true     | none         |       | Data category.       |
+| » totalPage  | integer  | true     | none         |       | Total pages          |
+| » pageSize   | integer  | true     | none         |       | Page size            |
+| » status     | string   | true     | none         |       | Response status.     |
+
+## POST Delete Uploaded File
+
+POST /uploadFile/deleteFile
+
+Delete uploaded knowledge files and their related vectors.
+
+> Body Parameters
+
+```json
+[
+  "file_001"
+]
 ```
 
-## 5. Document APIs
+### Params
 
-### Document OCR
+| Name     | Location | Type          | Required | Description                                   |
+| -------- | -------- | ------------- | -------- | --------------------------------------------- |
+| category | query    | string        | no       | Knowledge category or vector collection name. |
+| body     | body     | array[string] | no       | none                                          |
 
-`POST /ocr/doc2ocr`
+> Response Examples
 
-The current implementation accepts uploaded files and an optional `lang` form field. PDFs are processed one at a time.
+> 200 Response
 
-```bash
-curl http://localhost:8080/ocr/doc2ocr \
-  -F "file=@contract.pdf" \
-  -F "lang=chn,eng"
+```json
+{
+  "status": "success"
+}
 ```
 
-### Extract Document Content
+### Responses
 
-`POST /doc/doc2ext`
+| HTTP Status Code | Meaning                                                 | Description          | Data schema |
+| ---------------- | ------------------------------------------------------- | -------------------- | ----------- |
+| 200              | [OK](https://tools.ietf.org/html/rfc7231#section-6.3.1) | Successful response. | Inline      |
 
-```bash
-curl http://localhost:8080/doc/doc2ext \
-  -F "file=@manual.pdf"
-```
+### Responses Data Schema
 
-### Convert Document to Structured Markdown
+HTTP Status Code **200**
 
-`POST /doc/doc2struct`
+| Name     | Type   | Required | Restrictions | Title         | description                                                  |
+| -------- | ------ | -------- | ------------ | ------------- | ------------------------------------------------------------ |
+| » status | string | true     | none         | Return status | Execution status of the endpoint. success indicates success. |
 
-```bash
-curl http://localhost:8080/doc/doc2struct \
-  -F "file=@manual.pdf"
-```
+# Data Schema
 
-### Generate Instructions from Files
-
-`POST /instruction/generate`
-
-```bash
-curl http://localhost:8080/instruction/generate \
-  -F "file=@faq.docx"
-```
-
-## 6. SQL APIs
-
-### Text to SQL
-
-`POST /sql/text2sql`
-
-```bash
-curl http://localhost:8080/sql/text2sql \
-  -H "Content-Type: application/json" \
-  -d '{
-    "demand": "Count orders created this week",
-    "tables": "orders",
-    "storage": "mysql"
-  }'
-```
-
-### SQL to Text
-
-`POST /sql/sql2text`
-
-```bash
-curl http://localhost:8080/sql/sql2text \
-  -H "Content-Type: application/json" \
-  -d '{
-    "demand": "Explain the result in plain English",
-    "sql": "SELECT COUNT(*) FROM orders",
-    "tables": "orders",
-    "storage": "mysql"
-  }'
-```
-
-## 7. Embeddings and Rerank
-
-### Embeddings
-
-Both routes are available:
-
-- `POST /embeddings`
-- `POST /v1/embeddings`
-
-```bash
-curl http://localhost:8080/embeddings \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "text-embedding",
-    "input": ["LinkMind", "RAG middleware"]
-  }'
-```
-
-### Rerank
-
-Both routes are available:
-
-- `POST /rerank`
-- `POST /v1/rerank`
-
-```bash
-curl http://localhost:8080/rerank \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "rerank-model",
-    "query": "enterprise knowledge base",
-    "documents": [
-      "Internal FAQ",
-      "Model integration guide",
-      "Random meeting notes"
-    ]
-  }'
-```
-
-## 8. Vector Administration
-
-Vector management currently stays under `/v1/vector/*`.
-
-Common routes in the current servlet:
-
-| Method | Route | Purpose |
-| --- | --- | --- |
-| `POST` | `/v1/vector/upsert` | Add or update documents |
-| `POST` | `/v1/vector/query` | Vector query |
-| `POST` | `/v1/vector/get` | Fetch by IDs or conditions |
-| `POST` | `/v1/vector/search` | Search by conversation context |
-| `POST` | `/v1/vector/searchByMetadata` | Search with metadata filter |
-| `POST` | `/v1/vector/deleteById` | Delete by IDs |
-| `POST` | `/v1/vector/deleteByMetadata` | Delete by metadata |
-| `POST` | `/v1/vector/deleteCollection` | Drop a category / collection |
-| `GET` | `/v1/vector/listCollections` | List collections |
-| `POST` | `/v1/vector/updateTextBlockSize` | Update RAG chunk size settings |
-| `GET` | `/v1/vector/getTextBlockSize` | Read RAG chunk size settings |
-| `POST` | `/v1/vector/resetBlockSize` | Reset chunk size settings |
-
-Example upsert:
-
-```bash
-curl http://localhost:8080/v1/vector/upsert \
-  -H "Content-Type: application/json" \
-  -d '{
-    "category": "product-docs",
-    "isContextLinked": true,
-    "data": [
-      {
-        "id": "intro-001",
-        "document": "LinkMind provides unified AI middleware capabilities.",
-        "metadata": {
-          "source": "README",
-          "lang": "en"
-        }
-      }
-    ]
-  }'
-```
-
-## 9. Compatibility Notes
-
-- `GET /v1/models` exists for OpenAI-compatible clients, but the current servlet returns a minimal compatibility-style list rather than a full provider inventory.
-- `/chat/isRAG` and `/chat/isMedusa` are present in the servlet for runtime toggling and inspection, but they are operational helpers rather than the main public integration surface.
-- `/v1/openclaw/context/*` exists for OpenClaw-related context APIs and should be treated as a specialized integration route.

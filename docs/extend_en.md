@@ -1,6 +1,6 @@
 # Extension Guide
 
-This guide describes the extension points that match the current codebase. The fastest path is usually to reuse an existing compatible adapter first, and only write Java code when you truly need a new protocol or storage backend.
+This guide explains how to extend model adapters, multimodal capabilities, vector stores, and runtime integrations. The safest path is to reuse an existing compatible adapter first, and only write Java code when you truly need a new protocol, modality, or storage backend.
 
 ## 1. Decide What Kind of Extension You Need
 
@@ -35,7 +35,6 @@ models:
     driver: ai.llm.adapter.impl.OpenAIStandardAdapter
     api_address: https://your-endpoint.example.com/chat/completions
     api_key: your-api-key
-    # Multi-key pool: api_keys: sk-key1,sk-key2  key_route: polling
 
 functions:
   chat:
@@ -49,9 +48,55 @@ functions:
         priority: 100
 ```
 
-## 3. Add a New LLM Adapter
+## 3. Extend Model And Multimodal Adapters
 
-### Step 1: Implement the Adapter
+## 3.1 Add Configuration First
+
+The current config shape still centers on `models` and `functions`. A minimal custom provider example looks like this:
+
+```yaml
+models:
+  - name: your-model-name
+    type: your-model-type
+    enable: true
+    model: model-version
+    driver: ai.llm.adapter.impl.YourAdapter
+    api_key: your-api-key
+    secret_key: your-secret-key
+    api_address: your-api-address
+
+functions:
+  chat:
+    route: pass(%)
+    backends:
+      - backend: your-model-name
+        model: model-version
+        enable: true
+        stream: true
+        priority: 100
+```
+
+Use the multi-driver shape when one provider exposes multiple modalities under one logical backend:
+
+```yaml
+models:
+  - name: landing
+    type: Landing
+    enable: true
+    drivers:
+      - model: turing,qa,tree,proxy
+        driver: ai.llm.adapter.impl.LandingAdapter
+      - model: image
+        driver: ai.image.adapter.impl.LandingImageAdapter
+        oss: landing
+      - model: landing-tts,landing-asr
+        driver: ai.audio.adapter.impl.LandingAudioAdapter
+      - model: video
+        driver: ai.video.adapter.impl.LandingVideoAdapter
+    api_key: your-api-key
+```
+
+## 3.2 Extend Large Language Model Adapters
 
 LLM adapters implement `ai.llm.adapter.ILlmAdapter`:
 
@@ -61,12 +106,6 @@ public interface ILlmAdapter {
     Observable<ChatCompletionResult> streamCompletions(ChatCompletionRequest request);
 }
 ```
-
-In practice, the adapter class should:
-
-- extend `ModelService`
-- implement `ILlmAdapter`
-- be annotated with `@LLM(modelNames = {...})`
 
 Minimal shape:
 
@@ -85,35 +124,32 @@ public class YourAdapter extends ModelService implements ILlmAdapter {
 }
 ```
 
-### Step 2: Register It in YAML
+Existing style example:
 
-```yaml
-models:
-  - name: your-provider
-    type: YourProvider
-    enable: true
-    model: your-model
-    driver: ai.llm.adapter.impl.YourAdapter
-    api_key: your-api-key
-    # Multi-key pool: api_keys: sk-key1,sk-key2  key_route: polling
+```java
+@LLM(modelNames = {"your_model1", "your_model2"})
+public class DoubaoAdapter extends ModelService implements ILlmAdapter {
+    @Override
+    public ChatCompletionResult completions(ChatCompletionRequest request) {
+        ArkService service = ArkService.builder()
+                .apiKey(apiKey)
+                .baseUrl("https://ark.cn-beijing.volces.com/api/v3/")
+                .build();
+        // Build provider request, invoke remote API, then convert back.
+        return new ChatCompletionResult();
+    }
 
-functions:
-  chat:
-    route: pass(%)
-    backends:
-      - backend: your-provider
-        model: your-model
-        enable: true
-        stream: true
-        protocol: completion
-        priority: 100
+    @Override
+    public Observable<ChatCompletionResult> streamCompletions(ChatCompletionRequest request) {
+        return Observable.create(emitter -> {
+            // Stream provider chunks and convert them into LinkMind chunks.
+            emitter.onComplete();
+        });
+    }
+}
 ```
 
-The important current detail is that chat backends live under `functions.chat.backends`, not under the older flat `functions.chat` list.
-
-## 4. Add Audio or Image Adapters
-
-### Audio
+## 3.3 Extend Speech-to-Text And Text-to-Speech
 
 Audio adapters implement `ai.audio.adapter.IAudioAdapter`:
 
@@ -124,31 +160,71 @@ public interface IAudioAdapter {
 }
 ```
 
-Use:
+Speech-to-text skeleton:
 
-- `@ASR(...)` for speech recognition
-- `@TTS(...)` for synthesis
+```java
+@ASR(company = "your-company-name", modelNames = "your-asr-model")
+public class YourAudioAdapter extends ModelService implements IAudioAdapter {
+    @Override
+    public AsrResult asr(File audio, AudioRequestParam param) {
+        return null;
+    }
 
-Then bind the adapter through normal config:
-
-```yaml
-functions:
-  speech2text:
-    - backend: your-audio
-      model: asr
-      enable: true
-      priority: 10
-
-  text2speech:
-    - backend: your-audio
-      model: tts
-      enable: true
-      priority: 10
+    @Override
+    public TTSResult tts(TTSRequestParam param) {
+        return null;
+    }
+}
 ```
 
-### Image Generation
+ASR example fragment:
 
-Image adapters implement `ai.image.adapter.IImageGenerationAdapter`:
+```java
+@ASR(company = "alibaba", modelNames = "asr")
+public class YourAudioAdapter extends ModelService implements IAudioAdapter {
+    @Override
+    public AsrResult asr(File audio, AudioRequestParam param) {
+        AlibabaAsrService asrService = new AlibabaAsrService(
+                getAppKey(),
+                getAccessKeyId(),
+                getAccessKeySecret()
+        );
+        return gson.fromJson(asrService.asr(audio), AsrResult.class);
+    }
+
+    @Override
+    public TTSResult tts(TTSRequestParam param) {
+        return null;
+    }
+}
+```
+
+TTS example fragment:
+
+```java
+@TTS(company = "alibaba", modelNames = "tts")
+public class YourAudioAdapter extends ModelService implements IAudioAdapter {
+    @Override
+    public AsrResult asr(File audio, AudioRequestParam param) {
+        return null;
+    }
+
+    @Override
+    public TTSResult tts(TTSRequestParam param) {
+        AlibabaTtsService ttsService = new AlibabaTtsService(
+                getAppKey(),
+                getAccessKeyId(),
+                getAccessKeySecret()
+        );
+        Request request = ttsService.getRequest(param);
+        return new TTSResult();
+    }
+}
+```
+
+## 3.4 Extend Text-to-Image
+
+Image generation adapters implement `ai.image.adapter.IImageGenerationAdapter`:
 
 ```java
 public interface IImageGenerationAdapter {
@@ -156,34 +232,283 @@ public interface IImageGenerationAdapter {
 }
 ```
 
-Register the class with `@ImgGen(modelNames = "...")`, then wire it into `functions.text2image`.
+Skeleton:
 
-## 5. Add a Vector Store
+```java
+@ImgGen(modelNames = "your-image-model")
+public class YourImageAdapter extends ModelService implements IImageGenerationAdapter {
+    @Override
+    public ImageGenerationResult generations(ImageGenerationRequest request) {
+        return null;
+    }
+}
+```
 
-For custom vector backends, implement `ai.vector.VectorStore` or extend `ai.vector.impl.BaseVectorStore`.
+Example fragment:
 
-The repository already gives you working references:
+```java
+@ImgGen(modelNames = "tti")
+public class SparkImageAdapter extends ModelService implements IImageGenerationAdapter {
+    @Override
+    public ImageGenerationResult generations(ImageGenerationRequest request) {
+        String authUrl = getAuthUrl(apiUrl, apiKey, secretKey);
+        SparkGenImgRequest sparkRequest = convert2SparkGenImageRequest(request);
+        String post = doPostJson(authUrl, null, JSONUtil.toJsonStr(sparkRequest));
+        SparkGenImgResponse bean = JSONUtil.toBean(post, SparkGenImgResponse.class);
+        return convert2ImageGenerationResult(bean);
+    }
+}
+```
+
+## 3.5 Extend Image-to-Text
+
+Image understanding adapters implement `ai.image.adapter.IImage2TextAdapter`:
+
+```java
+public interface IImage2TextAdapter {
+    ImageToTextResponse toText(FileRequest param);
+}
+```
+
+Example fragment:
+
+```java
+@Img2Text(modelNames = "Fuyu-8B")
+public class YourVisionAdapter extends ModelService implements IImage2TextAdapter {
+    @Override
+    public ImageToTextResponse toText(FileRequest param) {
+        Image2TextRequest request = convertImage2TextRequest(param);
+        Image2TextResponse response = buildQianfan().image2Text(request);
+        return ImageToTextResponse.success(response.getResult());
+    }
+}
+```
+
+## 3.6 Extend Image Enhancement
+
+Image enhancement adapters implement `ai.image.adapter.ImageEnhanceAdapter`:
+
+```java
+public interface ImageEnhanceAdapter {
+    ImageEnhanceResult enhance(ImageEnhanceRequest imageEnhanceRequest);
+}
+```
+
+Example fragment:
+
+```java
+@ImgEnhance(modelNames = "enhance")
+public class YourEnhanceAdapter extends ModelService implements ImageEnhanceAdapter {
+    @Override
+    public ImageEnhanceResult enhance(ImageEnhanceRequest request) {
+        String url = "https://aip.baidubce.com/rest/2.0/image-process/v1/image_definition_enhance";
+        return ImageEnhanceResult.builder().type("base64").data("...").build();
+    }
+}
+```
+
+## 3.7 Extend Text-to-Video
+
+Text-to-video adapters implement `ai.video.adapter.Text2VideoAdapter`:
+
+```java
+public interface Text2VideoAdapter {
+    VideoJobResponse toVideo(ImageGenerationRequest request);
+}
+```
+
+Example fragment:
+
+```java
+@Text2Video(modelNames = "video")
+public class YourVideoAdapter extends ModelService implements Text2VideoAdapter {
+    @Override
+    public VideoJobResponse toVideo(ImageGenerationRequest request) {
+        ImageGenerationResult generations = generations(request);
+        if (generations != null) {
+            String url = generations.getData().get(0).getUrl();
+            return VideoJobResponse.builder().data(url).build();
+        }
+        return null;
+    }
+}
+```
+
+## 3.8 Extend Image-to-Video
+
+Image-to-video adapters implement `ai.video.adapter.Image2VideoAdapter`:
+
+```java
+public interface Image2VideoAdapter {
+    VideoJobResponse image2Video(VideoGeneratorRequest videoGeneratorRequest);
+}
+```
+
+Example fragment:
+
+```java
+@Img2Video(modelNames = "video")
+public class YourVideoAdapter extends ModelService implements Image2VideoAdapter {
+    @Override
+    public VideoJobResponse image2Video(VideoGeneratorRequest request) {
+        GenerateVideoResponse response = client.generateVideo(convert2GenerateVideoRequest(request));
+        return VideoJobResponse.builder().jobId(response.getBody().getRequestId()).build();
+    }
+}
+```
+
+## 3.9 Extend Video Tracking
+
+Video tracking adapters implement `ai.video.adapter.Video2trackAdapter`:
+
+```java
+public interface Video2trackAdapter {
+    VideoJobResponse track(String videoUrl);
+}
+```
+
+Example fragment:
+
+```java
+@VideoTrack(modelNames = "video")
+public class YourTrackingAdapter extends ModelService implements Video2trackAdapter {
+    @Override
+    public VideoJobResponse track(String videoUrl) {
+        String url = universalOSS.upload("mmtracking/" + new File(videoUrl).getName(), new File(videoUrl));
+        return VideoJobResponse.builder().data(url).build();
+    }
+}
+```
+
+## 3.10 Extend Video Enhancement
+
+Video enhancement adapters implement `ai.video.adapter.Video2EnhanceAdapter`:
+
+```java
+public interface Video2EnhanceAdapter {
+    VideoJobResponse enhance(VideoEnhanceRequest videoEnhanceRequest);
+}
+```
+
+Example fragment:
+
+```java
+@VideoEnhance(modelNames = "vision")
+public class YourVideoEnhanceAdapter extends ModelService implements Video2EnhanceAdapter {
+    @Override
+    public VideoJobResponse enhance(VideoEnhanceRequest request) {
+        EnhanceVideoQualityResponse response = client.enhanceVideoQuality(
+                convert2EnhanceVideoQualityRequest(request)
+        );
+        return wait2Result(response.getBody().getRequestId());
+    }
+}
+```
+
+## 4. Extend Vector Stores
+
+Use `stores.vector` as the configuration key.
+
+Configuration example:
+
+```yaml
+stores:
+  vector:
+    - name: chroma
+      driver: ai.vector.impl.ChromaVectorStore
+      default_category: default
+      similarity_top_k: 10
+      similarity_cutoff: 0.5
+      parent_depth: 1
+      child_depth: 1
+      url: http://127.0.0.1:8000
+
+  rag:
+    vector: chroma
+    term: elastic
+    graph: landing
+    enable: true
+    priority: 10
+    default: "Please give prompt more precisely"
+```
+
+Custom vector backends implement `ai.vector.VectorStore` or extend `ai.vector.impl.BaseVectorStore`.
+
+The current interface includes:
+
+```java
+void upsert(List<UpsertRecord> upsertRecords);
+void upsert(List<UpsertRecord> upsertRecords, String category);
+List<IndexRecord> query(QueryCondition queryCondition);
+List<List<IndexRecord>> query(MultiQueryCondition queryCondition);
+List<IndexRecord> query(QueryCondition queryCondition, String category);
+List<IndexRecord> fetch(List<String> ids);
+List<IndexRecord> fetch(List<String> ids, String category);
+List<IndexRecord> fetch(Map<String, String> where);
+List<IndexRecord> fetch(Map<String, String> where, String category);
+void delete(List<String> ids);
+void delete(List<String> ids, String category);
+void deleteWhere(List<Map<String, String>> whereList);
+void deleteWhere(List<Map<String, String>> whereList, String category);
+void deleteCollection(String category);
+List<VectorCollection> listCollections();
+List<IndexRecord> get(GetEmbedding getEmbedding);
+void add(AddEmbedding addEmbedding);
+void update(UpdateEmbedding updateEmbedding);
+void delete(DeleteEmbedding deleteEmbedding);
+```
+
+Reference implementations already exist in the repository:
 
 - `ai.vector.impl.ChromaVectorStore`
 - `ai.vector.impl.SqliteVectorStore`
 - `lagi-extension/src/main/java/ai/vector/impl/MilvusVectorStore.java`
 - `lagi-extension/src/main/java/ai/vector/impl/PineconeVectorStore.java`
 
-Current registration happens in `stores.vector`:
+CRUD example fragments:
 
-```yaml
-stores:
-  vector:
-    - name: milvus
-      driver: ai.vector.impl.MilvusVectorStore
-      default_category: default
-      url: http://localhost:19530
-      token: your-token
+```java
+public void upsert(List<UpsertRecord> upsertRecords, String category) {
+    List<String> documents = new ArrayList<>();
+    List<Map<String, String>> metadatas = new ArrayList<>();
+    List<String> ids = new ArrayList<>();
+    for (UpsertRecord upsertRecord : upsertRecords) {
+        documents.add(upsertRecord.getDocument());
+        metadatas.add(upsertRecord.getMetadata());
+        ids.add(upsertRecord.getId());
+    }
+    List<List<Float>> embeddings = this.embeddingFunction.createEmbedding(documents);
+    Collection collection = getCollection(category);
+    collection.upsert(embeddings, metadatas, documents, ids);
+}
 ```
 
-Then point `stores.rag.vector` at that backend name.
+```java
+public List<IndexRecord> query(QueryCondition queryCondition, String category) {
+    List<IndexRecord> result = new ArrayList<>();
+    Collection collection = getCollection(category);
+    Collection.QueryResponse qr = collection.query(
+            Collections.singletonList(queryCondition.getText()),
+            queryCondition.getN(),
+            queryCondition.getWhere(),
+            null,
+            null
+    );
+    // Convert provider response into IndexRecord list.
+    return result;
+}
+```
 
-## 6. Extend Agents, Skills, Workers, and MCP
+```java
+public void deleteWhere(List<Map<String, String>> whereList, String category) {
+    Collection collection = getCollection(category);
+    for (Map<String, String> where : whereList) {
+        collection.deleteWhere(where);
+    }
+}
+```
+
+## 5. Extend Agents, Skills, Workers, And MCP
 
 ### Agents
 
@@ -195,6 +520,7 @@ agents:
   items:
     - name: your-agent
       driver: ai.agent.customer.YourAgent
+      token: your-token
 ```
 
 ### MCP
@@ -207,7 +533,7 @@ mcps:
       url: https://your-mcp.example.com/sse
 ```
 
-### Skills and Workers
+### Skills And Workers
 
 In the current default config, workers and pnps are nested under `skills`:
 
@@ -228,7 +554,7 @@ skills:
 
 If your extension needs routing, define or reuse a router under `routers.items`, then call it from the worker definition.
 
-## 7. Runtime Ecosystem Integrations
+## 6. Runtime Ecosystem Integrations
 
 The current codebase also includes sync services for:
 
@@ -238,7 +564,7 @@ The current codebase also includes sync services for:
 
 These are runtime integration helpers, not replacements for your LinkMind YAML. Treat them as ecosystem bridges that can import or export configuration where needed.
 
-## 8. Practical Extension Order
+## 7. Practical Extension Order
 
 For most teams, the safest order is:
 

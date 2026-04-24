@@ -159,6 +159,8 @@ Current packaging generates:
 
 More setup details are in the [Installation Guide](docs/install_en.md). For a guided first-run walkthrough, use the [Tutorial](docs/tutor_en.md).
 
+After LinkMind is running, use the [Configuration Guide](docs/config_en.md) to enable providers, routes, filters, RAG, and other runtime settings in `lagi.yml`.
+
 ## API Surface
 
 LinkMind exposes two route styles:
@@ -186,7 +188,7 @@ Turn private files, QA pairs, and structured knowledge into retrievable context 
 
 Use built-in cache acceleration to shorten repeat response latency and improve runtime efficiency in real production traffic.
 
-### 3. AI Rank
+### 3. Airank
 
 Route, rank, fail over, and orchestrate multiple models centrally through routers such as `best(...)` and `pass(...)` instead of hard-coding provider logic in each app.
 
@@ -198,7 +200,11 @@ Apply sensitive-word filtering, priority keywords, stopping keywords, continuati
 
 Augment retrieval and intent understanding with graph-style context so the middleware can make more stable decisions for complex enterprise knowledge scenarios.
 
-### 6. OpenClaw Plugin
+### 6. Cascade Networking
+
+Compose many LinkMind nodes into a larger router-like tree network. Each Agent Server manages its own concurrency and local data, while cascade links stitch distributed agents together and preserve physical and logical isolation for data and permissions.
+
+### 7. OpenClaw Plugin
 
 Connect LinkMind to the OpenClaw ecosystem as a plugin-friendly, OpenAI-compatible context and provider layer instead of wiring each model separately.
 

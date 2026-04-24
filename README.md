@@ -186,7 +186,7 @@ Turn private files, QA pairs, and structured knowledge into retrievable context 
 
 Use built-in cache acceleration to shorten repeat response latency and improve runtime efficiency in real production traffic.
 
-### 3. AI Rank
+### 3. Airank
 
 Route, rank, fail over, and orchestrate multiple models centrally through routers such as `best(...)` and `pass(...)` instead of hard-coding provider logic in each app.
 
@@ -198,7 +198,11 @@ Apply sensitive-word filtering, priority keywords, stopping keywords, continuati
 
 Augment retrieval and intent understanding with graph-style context so the middleware can make more stable decisions for complex enterprise knowledge scenarios.
 
-### 6. OpenClaw Plugin
+### 6. Cascade Networking
+
+Compose many LinkMind nodes into a larger router-like tree network. Each Agent Server manages its own concurrency and local data, while cascade links stitch distributed agents together and preserve physical and logical isolation for data and permissions.
+
+### 7. OpenClaw Plugin
 
 Connect LinkMind to the OpenClaw ecosystem as a plugin-friendly, OpenAI-compatible context and provider layer instead of wiring each model separately.
 

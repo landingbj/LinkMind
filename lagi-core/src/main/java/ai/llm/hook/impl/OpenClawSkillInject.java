@@ -39,7 +39,7 @@ import java.util.stream.Collectors;
 
 @Order(2)
 @Component
-@ConditionalOnProperty(name = "skills.enabled", havingValue = "true")
+@ConditionalOnProperty(name = "skills.enable", havingValue = "true")
 public class OpenClawSkillInject implements BeforeModel, AfterModel {
 
     private static final int CACHE_SIZE = 100;
@@ -421,7 +421,7 @@ public class OpenClawSkillInject implements BeforeModel, AfterModel {
     private void runAndCachedToolResult(ModelContext context, List<ToolClassification> serverTool) {
         SkillsAgent skillsAgent = new SkillsAgent();
         List<ToolCall> toolCalls = serverTool.stream().map(ToolClassification::getToolCall).collect(Collectors.toList());
-        List<ChatMessage> tools = skillsAgent.runTools(toolCalls);
+        List<ChatMessage> tools = skillsAgent.runTools(toolCalls, context.getRequest());
         if (!tools.isEmpty()) {
             toolCallResultCache.put(context.getRequest().getMessages(), tools);
         }

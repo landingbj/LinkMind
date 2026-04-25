@@ -53,7 +53,7 @@ public class SkillsAgent {
         });
     }
 
-    public List<ChatMessage> runTools(List<ToolCall> toolCalls ) {
+    public List<ChatMessage> runTools(List<ToolCall> toolCalls, ChatCompletionRequest request) {
         List<ChatMessage> tools = new ArrayList<>();
         for (ToolCall toolCall : toolCalls) {
             String name = toolCall.getFunction().getName();
@@ -63,7 +63,8 @@ public class SkillsAgent {
             Map<String, String> args = SkillsAgentToolUtil.parseArguments(
                     SkillsAgentToolUtil.toolArgumentsJson(toolCall));
             if("read".equals(name)) {
-                toolMessage.setContent(fs.read(args));
+                String content = SkillsAgentToolUtil.readFromToolArgs(fs.read(args), args, request);
+                toolMessage.setContent(content);
                 tools.add(toolMessage);
             } else if("exec".equals(name)) {
                 toolMessage.setContent(fs.exec(args, DEFAULT_SCRIPT_TIMEOUT_SECONDS));
@@ -103,7 +104,7 @@ public class SkillsAgent {
                             SkillsAgentToolUtil.toolArgumentsJson(toolCall));
                     String toolResult;
                     if ("read".equals(name)) {
-                        toolResult = fs.read(args);
+                        toolResult = SkillsAgentToolUtil.readFromToolArgs(fs.read(args), args, request);
                     } else if ("exec".equals(name)) {
                         toolResult = fs.exec(args, DEFAULT_SCRIPT_TIMEOUT_SECONDS);
                     } else if ("write".equals(name)) {

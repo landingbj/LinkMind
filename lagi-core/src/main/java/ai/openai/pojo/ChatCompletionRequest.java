@@ -10,6 +10,8 @@ import java.util.Map;
 public class ChatCompletionRequest {
     @JsonAlias({"session_id"})
     private String sessionId;
+    @JsonAlias({"extra_body"})
+    private ExtraBody extraBody;
     private String model;
     private double temperature;
     private Integer max_tokens;

@@ -418,6 +418,15 @@
     </servlet-mapping>
 
     <servlet>
+        <servlet-name>socialChannel</servlet-name>
+        <servlet-class>ai.servlet.SocialChannelServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>socialChannel</servlet-name>
+        <url-pattern>/socialChannel/*</url-pattern>
+    </servlet-mapping>
+
+    <servlet>
         <servlet-name>apiKey</servlet-name>
         <servlet-class>ai.servlet.ApiKeyServlet</servlet-class>
     </servlet>

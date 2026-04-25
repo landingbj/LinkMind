@@ -1,5 +1,6 @@
 package ai.pnps.skills.util;
 
+import ai.openai.pojo.ChatCompletionRequest;
 import ai.openai.pojo.ToolCall;
 import com.fasterxml.jackson.databind.JsonNode;
 
@@ -122,5 +123,40 @@ public final class SkillsAgentToolUtil {
 
     public static Integer parseOptionalNonNegativeInt(Map<String, String> args, String key) {
         return FilesystemToolUtil.parseOptionalNonNegativeInt(args, key);
+    }
+
+    public static String readFromToolArgs(String content, Map<String, String> args, ChatCompletionRequest request) {
+        if (args == null) {
+            return content;
+        }
+        if (args.containsKey("path")) {
+            String skillName = getSkillName(args.get("path"));
+            if (skillName == null) {
+                return content;
+            }else if (skillName.equals("social-channel")) {
+                return SocialSkillUtil.generateSkill(content, request);
+            }
+            return content;
+        }
+        return content;
+    }
+
+    private static String getSkillName(String path) {
+        String trimmedPath = SkillUtil.trimToNull(path);
+        if (trimmedPath == null) {
+            return null;
+        }
+
+        Path skillPath = Paths.get(trimmedPath);
+        Path fileName = skillPath.getFileName();
+        if (fileName == null || !"SKILL.md".equals(fileName.toString())) {
+            return null;
+        }
+
+        Path parent = skillPath.getParent();
+        if (parent == null || parent.getFileName() == null) {
+            return null;
+        }
+        return parent.getFileName().toString();
     }
 }

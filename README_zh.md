@@ -2,10 +2,6 @@
 
 # <img src="docs/images/logo/LinkMind%20logo%281%29.png" alt="LinkMind logo" width="42"> LinkMind
 
-<p align="center">
-  <img src="docs/images/logo/LinkMind%20logo.png" alt="LinkMind" width="380">
-</p>
-
 LinkMind 是面向企业场景的多模态 AI 中间件，用来把业务系统、私有知识、模型厂商和 Agent 运行时统一接到一层可治理、可扩展、可上线的能力层里。它优先解决的是企业真正落地时最常见的几个问题：上手慢、接入碎、成本高、稳定性差。
 
 ## 项目简介

@@ -2,10 +2,6 @@
 
 # <img src="docs/images/logo/LinkMind%20logo%281%29.png" alt="LinkMind logo" width="42"> LinkMind
 
-<p align="center">
-  <img src="docs/images/logo/LinkMind%20logo.png" alt="LinkMind" width="380">
-</p>
-
 LinkMind is enterprise-grade multimodal AI middleware for teams that need one stable layer between business systems, private knowledge, model providers, and agent runtimes. It focuses on fast onboarding, low-friction integration, routing and failover, RAG, multimodal APIs, and production governance.
 
 ## Introduction

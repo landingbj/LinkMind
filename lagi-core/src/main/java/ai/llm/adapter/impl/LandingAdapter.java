@@ -1,9 +1,18 @@
 package ai.llm.adapter.impl;
 
 
+import ai.common.db.HikariDS;
+import ai.config.ConfigUtil;
 import ai.openai.pojo.ChatCompletionRequest;
 import ai.openai.pojo.ChatCompletionResult;
+import ai.openai.pojo.ExtraBody;
 import io.reactivex.Observable;
+
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 
 public class LandingAdapter extends OpenAIStandardAdapter {
     @Override
@@ -46,6 +55,13 @@ public class LandingAdapter extends OpenAIStandardAdapter {
     }
 
     @Override
+    public void setApiAddress(String apiAddress) {
+        this.apiAddress = apiAddress;
+        String originalUrl = extractOrigin(apiAddress);
+        ConfigUtil.CASCADE_API_ADDRESS = originalUrl;
+    }
+
+    @Override
     public boolean verify() {
         return true;
     }
@@ -55,5 +71,72 @@ public class LandingAdapter extends OpenAIStandardAdapter {
         if (getApiKey() == null) {
             this.apiKey = apiKey;
         }
+    }
+
+    @Override
+    public void setDefaultField(ChatCompletionRequest request) {
+        ExtraBody extraBody;
+        if (ConfigUtil.getRunningMode().equals(ConfigUtil.MODE_MATE)) {
+            extraBody = getExtraBody();
+        } else {
+            extraBody = request.getExtraBody();
+        }
+        super.setDefaultField(request);
+        request.setExtraBody(extraBody);
+    }
+
+    private ExtraBody getExtraBody() {
+        String userId = getUserId();
+        if (userId == null) {
+            return null;
+        }
+        ExtraBody extraBody = new ExtraBody();
+        extraBody.setUserId(userId);
+        return extraBody;
+    }
+
+    private String getUserId() {
+        String sql = "SELECT v FROM social_temp WHERE k = ? LIMIT 1";
+        try (Connection conn = HikariDS.getConnection("saas");
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, "last_login_user_id");
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    String userId = rs.getString("v");
+                    if (userId != null && !userId.trim().isEmpty()) {
+                        return userId.trim();
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private String extractOrigin(String apiAddress) {
+        if (apiAddress == null) {
+            return null;
+        }
+        String trimmed = apiAddress.trim();
+        if (trimmed.isEmpty()) {
+            return trimmed;
+        }
+        try {
+            URI uri = new URI(trimmed);
+            if (uri.getScheme() != null && uri.getRawAuthority() != null) {
+                return uri.getScheme() + "://" + uri.getRawAuthority();
+            }
+        } catch (URISyntaxException ignored) {
+            // Fall back to a simple string split when the value is not a strict URI.
+        }
+
+        int schemeIdx = trimmed.indexOf("://");
+        if (schemeIdx >= 0) {
+            int pathStart = trimmed.indexOf('/', schemeIdx + 3);
+            if (pathStart >= 0) {
+                return trimmed.substring(0, pathStart);
+            }
+        }
+        return trimmed;
     }
 }

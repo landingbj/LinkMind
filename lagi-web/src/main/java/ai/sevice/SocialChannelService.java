@@ -40,6 +40,17 @@ public class SocialChannelService {
         }
     }
 
+    public void saveLastLoginUser(String userId) throws IOException {
+        if (isBlank(userId)) {
+            throw new IOException("userId is required");
+        }
+        try {
+            socialChannelDao.saveLastLoginUser(userId);
+        } catch (Exception e) {
+            throw new IOException("save last login user failed: " + e.getMessage(), e);
+        }
+    }
+
     public long createChannel(String userId, String name, String description, Boolean isPublic) throws IOException {
         if (isBlank(userId)) {
             throw new IOException("userId is required");
@@ -47,12 +58,11 @@ public class SocialChannelService {
         if (isBlank(name)) {
             throw new IOException("name is required");
         }
-        boolean pub = isPublic == null || isPublic;
         try {
             if (!socialChannelDao.userExists(userId)) {
                 throw new IOException("user not registered");
             }
-            return socialChannelDao.createChannelWithOwnerSubscription(userId, name, description, pub);
+            return socialChannelDao.createChannelWithOwnerSubscription(userId, name, description);
         } catch (IOException e) {
             throw e;
         } catch (Exception e) {
@@ -71,6 +81,9 @@ public class SocialChannelService {
             SocialChannel ch = socialChannelDao.findChannelById(channelId);
             if (ch == null) {
                 throw new IOException("channel not found");
+            }
+            if (!Boolean.TRUE.equals(ch.getEnabled())) {
+                throw new IOException("channel is disabled");
             }
             socialChannelDao.addSubscription(userId, channelId);
         } catch (IOException e) {
@@ -107,6 +120,17 @@ public class SocialChannelService {
         }
     }
 
+    public List<SocialChannel> listOwnedChannels(String userId) throws IOException {
+        if (isBlank(userId)) {
+            throw new IOException("userId is required");
+        }
+        try {
+            return socialChannelDao.listOwnerChannels(userId);
+        } catch (Exception e) {
+            throw new IOException("list owned channels failed: " + e.getMessage(), e);
+        }
+    }
+
     public List<SocialChannel> listPublicChannels(int limit) throws IOException {
         try {
             return socialChannelDao.listPublicChannels(limit);
@@ -121,9 +145,8 @@ public class SocialChannelService {
             if (ch == null) {
                 throw new IOException("channel not found");
             }
-            boolean sub = !isBlank(userId) && socialChannelDao.isSubscribed(userId, channelId);
-            if (!Boolean.TRUE.equals(ch.getIsPublic()) && !sub) {
-                throw new IOException("forbidden");
+            if (!Boolean.TRUE.equals(ch.getEnabled())) {
+                throw new IOException("channel is disabled");
             }
             return ch;
         } catch (IOException e) {
@@ -175,6 +198,13 @@ public class SocialChannelService {
                 }
                 resolvedChannelId = channels.get(0).getId();
             }
+            SocialChannel ch = socialChannelDao.findChannelById(resolvedChannelId);
+            if (ch == null) {
+                throw new IOException("channel not found");
+            }
+            if (!Boolean.TRUE.equals(ch.getEnabled())) {
+                throw new IOException("channel is disabled");
+            }
             if (!socialChannelDao.isSubscribed(userId, resolvedChannelId)) {
                 throw new IOException("not subscribed to this channel");
             }
@@ -183,6 +213,46 @@ public class SocialChannelService {
             throw e;
         } catch (Exception e) {
             throw new IOException("send message failed: " + e.getMessage(), e);
+        }
+    }
+
+    public void toggleChannel(String userId, long channelId, boolean enabled) throws IOException {
+        if (isBlank(userId)) {
+            throw new IOException("userId is required");
+        }
+        try {
+            SocialChannel ch = socialChannelDao.findChannelById(channelId);
+            if (ch == null) {
+                throw new IOException("channel not found");
+            }
+            if (!userId.trim().equals(ch.getOwnerUserId())) {
+                throw new IOException("only owner can toggle channel");
+            }
+            socialChannelDao.updateChannelStatus(channelId, enabled);
+        } catch (IOException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IOException("toggle channel failed: " + e.getMessage(), e);
+        }
+    }
+
+    public void deleteChannel(String userId, long channelId) throws IOException {
+        if (isBlank(userId)) {
+            throw new IOException("userId is required");
+        }
+        try {
+            SocialChannel ch = socialChannelDao.findChannelById(channelId);
+            if (ch == null) {
+                throw new IOException("channel not found");
+            }
+            if (!userId.trim().equals(ch.getOwnerUserId())) {
+                throw new IOException("only owner can delete channel");
+            }
+            socialChannelDao.deleteChannel(channelId);
+        } catch (IOException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IOException("delete channel failed: " + e.getMessage(), e);
         }
     }
 }

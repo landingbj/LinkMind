@@ -42,11 +42,13 @@ public class HookService {
         if (result == null || BeanManageUtil.getBeansByType(AfterModel.class) == null) {
             return result;
         }
+        context.setResult(result);
         for (AfterModel afterModel : BeanManageUtil.getBeansByType(AfterModel.class)) {
             try {
                 ChatCompletionResult next = afterModel.apply(context);
                 if (next != null) {
                     result = next;
+                    context.setResult(result);
                 }
             } catch (Exception e) {
                 log.error("HookService afterModel error", e);

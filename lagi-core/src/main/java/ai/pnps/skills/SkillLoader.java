@@ -71,6 +71,26 @@ public class SkillLoader {
         return loadBySources(sources, DEFAULT_LOAD_OPTIONS);
     }
 
+    public SkillEntry load(List<?> roots, String skillName) {
+        if (skillName == null || skillName.trim().isEmpty()) {
+            return null;
+        }
+        List<SkillEntry> loaded = load(roots);
+        if (loaded.isEmpty()) {
+            return null;
+        }
+        for (SkillEntry entry : loaded) {
+            if (entry == null) {
+                continue;
+            }
+            String name = trim(entry.getName());
+            if (skillName.equalsIgnoreCase(name)) {
+                return entry;
+            }
+        }
+        return null;
+    }   
+
     public List<SkillEntry> loadDefaultWorkspaceRoots(Path workspaceDir) {
         List<SkillSourceSpec> roots = new ArrayList<SkillSourceSpec>();
         int precedence = 0;

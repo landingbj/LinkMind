@@ -22,7 +22,7 @@ public class AiGlobal {
     public static final String DUPLICATE_TOKEN_TIME = "t";
     public static final String DUPLICATE_TOKEN_RANDOM = "r";
     public static String DIR_TEMP = "/WEB-INF/temp";
-    public static final String SAAS_URL = "https://saas.landingbj.com";
-//    public static final String SAAS_URL = "http://localhost:8090";
+//    public static final String SAAS_URL = "https://saas.landingbj.com";
+    public static final String SAAS_URL = "http://localhost:8090";
     public static final String DEFAULT_DB = "saas";
 }

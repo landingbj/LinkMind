@@ -1,6 +1,9 @@
 package ai.servlet;
 
+import ai.config.ConfigUtil;
 import ai.sevice.SocialChannelService;
+import ai.utils.OkHttpUtil;
+import cn.hutool.core.util.StrUtil;
 import com.google.gson.Gson;
 import lombok.extern.slf4j.Slf4j;
 
@@ -8,6 +11,7 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -20,10 +24,16 @@ public class SocialChannelServlet extends BaseServlet {
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         req.setCharacterEncoding("UTF-8");
+        if (tryProxyToCascade(req, resp, "GET")) {
+            return;
+        }
         String url = req.getRequestURI();
         String method = url.substring(url.lastIndexOf("/") + 1);
 
         switch (method) {
+            case "runningMode":
+                this.runningMode(resp);
+                break;
             case "listMyChannels":
                 this.listMyChannels(req, resp);
                 break;
@@ -33,11 +43,11 @@ public class SocialChannelServlet extends BaseServlet {
             case "listMessages":
                 this.listMessages(req, resp);
                 break;
+            case "listOwnedChannels":
+                this.listOwnedChannels(req, resp);
+                break;
             case "getChannel":
                 this.getChannel(req, resp);
-                break;
-            case "getUser":
-                this.getUser(req, resp);
                 break;
             default:
                 break;
@@ -47,6 +57,9 @@ public class SocialChannelServlet extends BaseServlet {
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         req.setCharacterEncoding("UTF-8");
+        if (tryProxyToCascade(req, resp, "POST")) {
+            return;
+        }
         String url = req.getRequestURI();
         String method = url.substring(url.lastIndexOf("/") + 1);
 
@@ -66,9 +79,95 @@ public class SocialChannelServlet extends BaseServlet {
             case "sendMessage":
                 this.sendMessage(req, resp);
                 break;
+            case "toggleChannel":
+                this.toggleChannel(req, resp);
+                break;
+            case "deleteChannel":
+                this.deleteChannel(req, resp);
+                break;
+            case "saveLastLoginUser":
+                this.saveLastLoginUser(req, resp);
+                break;
             default:
                 break;
         }
+    }
+
+    private boolean tryProxyToCascade(HttpServletRequest req, HttpServletResponse resp, String requestMethod) throws IOException {
+        String requestUri = req.getRequestURI();
+        String method = requestUri.substring(requestUri.lastIndexOf("/") + 1);
+        if ("saveLastLoginUser".equals(method)) {
+            return false;
+        }
+        if ("runningMode".equals(method)) {
+            return false;
+        }
+        if (!shouldProxyToCascade()) {
+            return false;
+        }
+        String cascadeApiAddress = ConfigUtil.CASCADE_API_ADDRESS.trim();
+        String targetUrl = buildTargetUrl(cascadeApiAddress, req);
+        resp.setContentType("application/json;charset=utf-8");
+        try {
+            String result;
+            if ("GET".equalsIgnoreCase(requestMethod)) {
+                result = OkHttpUtil.get(targetUrl, getQueryParams(req));
+            } else {
+                String body = requestToJson(req);
+                result = OkHttpUtil.post(targetUrl, new HashMap<String, String>(), getQueryParams(req), body);
+            }
+            responsePrint(resp, result);
+            return true;
+        } catch (Exception e) {
+            log.error("proxy social channel request failed, targetUrl={}", targetUrl, e);
+            Map<String, Object> result = new HashMap<String, Object>();
+            result.put("status", "failed");
+            result.put("msg", "proxy request failed: " + e.getMessage());
+            responsePrint(resp, gson.toJson(result));
+            return true;
+        }
+    }
+
+    private boolean shouldProxyToCascade() {
+        return ConfigUtil.MODE_MATE.equalsIgnoreCase(ConfigUtil.getRunningMode())
+                && StrUtil.isNotBlank(ConfigUtil.CASCADE_API_ADDRESS);
+    }
+
+    private String buildTargetUrl(String cascadeApiAddress, HttpServletRequest req) {
+        String requestUri = req.getRequestURI();
+        if (cascadeApiAddress.endsWith("/") && requestUri.startsWith("/")) {
+            return cascadeApiAddress.substring(0, cascadeApiAddress.length() - 1) + requestUri;
+        }
+        if (!cascadeApiAddress.endsWith("/") && !requestUri.startsWith("/")) {
+            return cascadeApiAddress + "/" + requestUri;
+        }
+        return cascadeApiAddress + requestUri;
+    }
+
+    private Map<String, String> getQueryParams(HttpServletRequest req) {
+        Map<String, String> params = new HashMap<String, String>();
+        Enumeration<String> parameterNames = req.getParameterNames();
+        while (parameterNames.hasMoreElements()) {
+            String name = parameterNames.nextElement();
+            params.put(name, req.getParameter(name));
+        }
+        return params;
+    }
+
+    private void runningMode(HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> result = new HashMap<String, Object>();
+        try {
+            String runningMode = ConfigUtil.getRunningMode();
+            result.put("status", "success");
+            result.put("runningMode", runningMode);
+            result.put("isMateMode", "mate".equals(runningMode));
+        } catch (Exception e) {
+            log.error("runningMode: {}", e.getMessage(), e);
+            result.put("status", "failed");
+            result.put("msg", e.getMessage());
+        }
+        responsePrint(resp, gson.toJson(result));
     }
 
     private void registerUser(HttpServletRequest req, HttpServletResponse resp) throws IOException {
@@ -90,15 +189,18 @@ public class SocialChannelServlet extends BaseServlet {
         responsePrint(resp, gson.toJson(result));
     }
 
-    private void getUser(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+    private void saveLastLoginUser(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json;charset=utf-8");
-        Map<String, Object> result = new HashMap<String, Object>();
+        Map<String, Object> result = new HashMap<>();
         try {
-            String userId = req.getParameter("userId");
+            LastLoginUserBody body = reqBodyToObj(req, LastLoginUserBody.class);
+            if (body == null) {
+                throw new IOException("userId is required");
+            }
+            socialChannelService.saveLastLoginUser(body.userId);
             result.put("status", "success");
-            result.put("data", socialChannelService.getUser(userId));
         } catch (Exception e) {
-            log.error("getUser: {}", e.getMessage(), e);
+            log.error("saveLastLoginUser: {}", e.getMessage(), e);
             result.put("status", "failed");
             result.put("msg", e.getMessage());
         }
@@ -225,6 +327,21 @@ public class SocialChannelServlet extends BaseServlet {
         responsePrint(resp, gson.toJson(result));
     }
 
+    private void listOwnedChannels(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> result = new HashMap<String, Object>();
+        try {
+            String userId = req.getParameter("userId");
+            result.put("status", "success");
+            result.put("data", socialChannelService.listOwnedChannels(userId));
+        } catch (Exception e) {
+            log.error("listOwnedChannels: {}", e.getMessage(), e);
+            result.put("status", "failed");
+            result.put("msg", e.getMessage());
+        }
+        responsePrint(resp, gson.toJson(result));
+    }
+
     private void listMessages(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json;charset=utf-8");
         Map<String, Object> result = new HashMap<String, Object>();
@@ -275,6 +392,44 @@ public class SocialChannelServlet extends BaseServlet {
         responsePrint(resp, gson.toJson(result));
     }
 
+    private void toggleChannel(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> result = new HashMap<String, Object>();
+        try {
+            ToggleChannelBody body = reqBodyToObj(req, ToggleChannelBody.class);
+            if (body == null || body.channelId == null || body.enabled == null) {
+                throw new IOException("userId, channelId and enabled are required");
+            }
+            socialChannelService.toggleChannel(body.userId, body.channelId, body.enabled);
+            result.put("status", "success");
+            result.put("msg", body.enabled ? "enabled" : "disabled");
+        } catch (Exception e) {
+            log.error("toggleChannel: {}", e.getMessage(), e);
+            result.put("status", "failed");
+            result.put("msg", e.getMessage());
+        }
+        responsePrint(resp, gson.toJson(result));
+    }
+
+    private void deleteChannel(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> result = new HashMap<String, Object>();
+        try {
+            UserChannelBody body = reqBodyToObj(req, UserChannelBody.class);
+            if (body == null || body.channelId == null) {
+                throw new IOException("userId and channelId are required");
+            }
+            socialChannelService.deleteChannel(body.userId, body.channelId);
+            result.put("status", "success");
+            result.put("msg", "deleted");
+        } catch (Exception e) {
+            log.error("deleteChannel: {}", e.getMessage(), e);
+            result.put("status", "failed");
+            result.put("msg", e.getMessage());
+        }
+        responsePrint(resp, gson.toJson(result));
+    }
+
     private static class RegisterUserBody {
         String userId;
         String username;
@@ -292,10 +447,20 @@ public class SocialChannelServlet extends BaseServlet {
         Long channelId;
     }
 
+    private static class ToggleChannelBody {
+        String userId;
+        Long channelId;
+        Boolean enabled;
+    }
+
     private static class SendMessageBody {
         String userId;
         Long channelId;
         String channelName;
         String content;
+    }
+
+    private static class LastLoginUserBody {
+        String userId;
     }
 }

@@ -11,5 +11,6 @@ public class SocialChannel {
     private String description;
     private String ownerUserId;
     private Boolean isPublic;
+    private Boolean enabled;
     private Date createdAt;
 }

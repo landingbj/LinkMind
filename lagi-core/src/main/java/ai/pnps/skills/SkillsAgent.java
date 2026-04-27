@@ -11,6 +11,7 @@ import ai.openai.pojo.ToolCall;
 import ai.pnps.skills.filesystem.Filesystem;
 import ai.pnps.skills.filesystem.impl.LocalFileSystemImpl;
 import ai.pnps.skills.pojo.*;
+import ai.pnps.skills.util.SkillUtil;
 import ai.pnps.skills.util.SkillsAgentToolUtil;
 import ai.utils.LagiGlobal;
 
@@ -62,8 +63,8 @@ public class SkillsAgent {
             toolMessage.setTool_call_id(toolCall.getId());
             Map<String, String> args = SkillsAgentToolUtil.parseArguments(
                     SkillsAgentToolUtil.toolArgumentsJson(toolCall));
-            if("read".equals(name)) {
-                String content = SkillsAgentToolUtil.readFromToolArgs(fs.read(args), args, request);
+            if(SkillUtil.isReadTool(name)) {
+                String content = SkillsAgentToolUtil.readFromToolArgs(fs, args, request);
                 toolMessage.setContent(content);
                 tools.add(toolMessage);
             } else if("exec".equals(name)) {
@@ -103,8 +104,8 @@ public class SkillsAgent {
                     Map<String, String> args = SkillsAgentToolUtil.parseArguments(
                             SkillsAgentToolUtil.toolArgumentsJson(toolCall));
                     String toolResult;
-                    if ("read".equals(name)) {
-                        toolResult = SkillsAgentToolUtil.readFromToolArgs(fs.read(args), args, request);
+                    if (SkillUtil.isReadTool(name)) {
+                        toolResult = SkillsAgentToolUtil.readFromToolArgs(fs, args, request);
                     } else if ("exec".equals(name)) {
                         toolResult = fs.exec(args, DEFAULT_SCRIPT_TIMEOUT_SECONDS);
                     } else if ("write".equals(name)) {
@@ -194,11 +195,7 @@ public class SkillsAgent {
         request.setStream_options(null);
         List<Tool> tools = request.getTools();
         if(tools != null) {
-            List<Tool> cleanTools = tools.stream().filter(tool -> {
-                String n = tool.getFunction().getName();
-                return "read".equals(n) || "exec".equals(n) || "write".equals(n) || "edit".equals(n);
-            }).collect(Collectors.toList());
-            request.setTools(cleanTools);
+            request.setTools(SkillUtil.loadSkillTools());
         }
     }
 

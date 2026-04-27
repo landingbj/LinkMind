@@ -5,13 +5,11 @@ import ai.dto.SocialChannel;
 import ai.dto.SocialChannelMessage;
 import ai.dto.SocialUser;
 
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
+import java.sql.*;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 public class SocialChannelDao {
     private static volatile boolean initialized = false;
@@ -27,7 +25,7 @@ public class SocialChannelDao {
                     "CREATE TABLE IF NOT EXISTS social_users (" +
                             "user_id TEXT PRIMARY KEY," +
                             "username TEXT NOT NULL UNIQUE," +
-                            "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP" +
+                            "created_at DATETIME NOT NULL DEFAULT (datetime('now', '+8 hours'))" +
                             ")"
             );
             stmt.executeUpdate(
@@ -36,8 +34,8 @@ public class SocialChannelDao {
                             "name TEXT NOT NULL," +
                             "description TEXT," +
                             "owner_user_id TEXT NOT NULL," +
-                            "is_public INTEGER NOT NULL DEFAULT 1 CHECK (is_public IN (0, 1))," +
-                            "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+                            "status INTEGER NOT NULL DEFAULT 1 CHECK (status IN (0, 1))," +
+                            "created_at DATETIME NOT NULL DEFAULT (datetime('now', '+8 hours'))," +
                             "FOREIGN KEY (owner_user_id) REFERENCES social_users(user_id) ON DELETE CASCADE," +
                             "UNIQUE(name, owner_user_id)" +
                             ")"
@@ -46,7 +44,7 @@ public class SocialChannelDao {
                     "CREATE TABLE IF NOT EXISTS social_channel_subscriptions (" +
                             "user_id TEXT NOT NULL," +
                             "channel_id INTEGER NOT NULL," +
-                            "subscribed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+                            "subscribed_at DATETIME NOT NULL DEFAULT (datetime('now', '+8 hours'))," +
                             "PRIMARY KEY (user_id, channel_id)," +
                             "FOREIGN KEY (user_id) REFERENCES social_users(user_id) ON DELETE CASCADE," +
                             "FOREIGN KEY (channel_id) REFERENCES social_channels(id) ON DELETE CASCADE" +
@@ -58,8 +56,15 @@ public class SocialChannelDao {
                             "channel_id INTEGER NOT NULL," +
                             "user_id TEXT NOT NULL," +
                             "content TEXT NOT NULL," +
-                            "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+                            "created_at DATETIME NOT NULL DEFAULT (datetime('now', '+8 hours'))," +
                             "FOREIGN KEY (channel_id) REFERENCES social_channels(id) ON DELETE CASCADE" +
+                            ")"
+            );
+            stmt.executeUpdate(
+                    "CREATE TABLE IF NOT EXISTS social_temp (" +
+                            "k TEXT PRIMARY KEY," +
+                            "v TEXT," +
+                            "updated_at DATETIME NOT NULL DEFAULT (datetime('now', '+8 hours'))" +
                             ")"
             );
             stmt.executeUpdate("CREATE INDEX IF NOT EXISTS idx_social_channels_owner ON social_channels(owner_user_id)");
@@ -69,8 +74,6 @@ public class SocialChannelDao {
         }
         initialized = true;
     }
-
-    // ---------- Users ----------
 
     public SocialUser findUserById(String userId) throws SQLException {
         if (userId == null || userId.trim().isEmpty()) {
@@ -117,7 +120,7 @@ public class SocialChannelDao {
         if (username == null || username.trim().isEmpty()) {
             throw new SQLException("username is required");
         }
-        String sql = "INSERT OR IGNORE INTO social_users(user_id,username) VALUES(?,?)";
+        String sql = "INSERT OR IGNORE INTO social_users(user_id,username,created_at) VALUES(?,?,datetime('now', '+8 hours'))";
         try (Connection conn = HikariDS.getConnection("saas");
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, userId.trim());
@@ -130,7 +133,7 @@ public class SocialChannelDao {
 
     public SocialChannel findChannelById(long channelId) throws SQLException {
         ensureTables();
-        String sql = "SELECT id,name,description,owner_user_id,is_public,created_at FROM social_channels WHERE id = ?";
+        String sql = "SELECT id,name,description,owner_user_id,status,created_at FROM social_channels WHERE id = ?";
         try (Connection conn = HikariDS.getConnection("saas");
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, channelId);
@@ -178,7 +181,7 @@ public class SocialChannelDao {
     /**
      * Creates a channel and subscribes the owner in one transaction.
      */
-    public long createChannelWithOwnerSubscription(String ownerUserId, String name, String description, boolean isPublic)
+    public long createChannelWithOwnerSubscription(String ownerUserId, String name, String description)
             throws SQLException {
         ensureTables();
         String owner = ownerUserId == null ? "" : ownerUserId.trim();
@@ -192,13 +195,13 @@ public class SocialChannelDao {
         try (Connection conn = HikariDS.getConnection("saas")) {
             conn.setAutoCommit(false);
             try {
-                String insertCh = "INSERT INTO social_channels(name,description,owner_user_id,is_public) VALUES(?,?,?,?)";
+                String insertCh = "INSERT INTO social_channels(name,description,owner_user_id,status,created_at) " +
+                        "VALUES(?,?,?,1,datetime('now', '+8 hours'))";
                 long channelId;
                 try (PreparedStatement ps = conn.prepareStatement(insertCh, Statement.RETURN_GENERATED_KEYS)) {
                     ps.setString(1, name.trim());
                     ps.setString(2, desc);
                     ps.setString(3, owner);
-                    ps.setInt(4, isPublic ? 1 : 0);
                     ps.executeUpdate();
                     try (ResultSet keys = ps.getGeneratedKeys()) {
                         if (!keys.next()) {
@@ -207,7 +210,8 @@ public class SocialChannelDao {
                         channelId = keys.getLong(1);
                     }
                 }
-                String insertSub = "INSERT OR IGNORE INTO social_channel_subscriptions(user_id,channel_id) VALUES(?,?)";
+                String insertSub = "INSERT OR IGNORE INTO social_channel_subscriptions(user_id,channel_id,subscribed_at) " +
+                        "VALUES(?,?,datetime('now', '+8 hours'))";
                 try (PreparedStatement ps = conn.prepareStatement(insertSub)) {
                     ps.setString(1, owner);
                     ps.setLong(2, channelId);
@@ -231,7 +235,8 @@ public class SocialChannelDao {
         if (userId == null || userId.trim().isEmpty()) {
             return false;
         }
-        String sql = "INSERT OR IGNORE INTO social_channel_subscriptions(user_id,channel_id) VALUES(?,?)";
+        String sql = "INSERT OR IGNORE INTO social_channel_subscriptions(user_id,channel_id,subscribed_at) " +
+                "VALUES(?,?,datetime('now', '+8 hours'))";
         try (Connection conn = HikariDS.getConnection("saas");
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, userId.trim());
@@ -260,10 +265,10 @@ public class SocialChannelDao {
         if (userId == null || userId.trim().isEmpty()) {
             return list;
         }
-        String sql = "SELECT c.id,c.name,c.description,c.owner_user_id,c.is_public,c.created_at " +
+        String sql = "SELECT c.id,c.name,c.description,c.owner_user_id,c.status,c.created_at " +
                 "FROM social_channels c " +
                 "INNER JOIN social_channel_subscriptions s ON s.channel_id = c.id " +
-                "WHERE s.user_id = ? " +
+                "WHERE s.user_id = ? AND c.status = 1 " +
                 "ORDER BY c.created_at DESC";
         try (Connection conn = HikariDS.getConnection("saas");
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -277,16 +282,47 @@ public class SocialChannelDao {
         return list;
     }
 
+    public List<Map<String, Object>> loadSubscribedChannels(String userId) {
+        List<Map<String, Object>> channels = new ArrayList<Map<String, Object>>();
+        if (userId == null || userId.trim().isEmpty()) {
+            return channels;
+        }
+        try {
+            ensureTables();
+            String sql = "SELECT c.id, c.name, c.description " +
+                    "FROM social_channels c " +
+                    "INNER JOIN social_channel_subscriptions s ON s.channel_id = c.id " +
+                    "WHERE s.user_id = ? AND c.status = 1 " +
+                    "ORDER BY c.name ASC";
+            try (Connection conn = HikariDS.getConnection("saas");
+                 PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, userId.trim());
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        Map<String, Object> ch = new LinkedHashMap<String, Object>();
+                        ch.put("channelId", rs.getLong("id"));
+                        ch.put("channelName", rs.getString("name"));
+                        ch.put("description", rs.getString("description"));
+                        channels.add(ch);
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            // Tables may not exist yet or DB unavailable; return what we have.
+        }
+        return channels;
+    }
+
     public List<SocialChannel> findSubscribedChannelsByName(String userId, String channelName) throws SQLException {
         ensureTables();
         List<SocialChannel> list = new ArrayList<SocialChannel>();
         if (userId == null || userId.trim().isEmpty() || channelName == null || channelName.trim().isEmpty()) {
             return list;
         }
-        String sql = "SELECT c.id,c.name,c.description,c.owner_user_id,c.is_public,c.created_at " +
+        String sql = "SELECT c.id,c.name,c.description,c.owner_user_id,c.status,c.created_at " +
                 "FROM social_channels c " +
                 "INNER JOIN social_channel_subscriptions s ON s.channel_id = c.id " +
-                "WHERE s.user_id = ? AND c.name = ? " +
+                "WHERE s.user_id = ? AND c.name = ? AND c.status = 1 " +
                 "ORDER BY c.created_at DESC";
         try (Connection conn = HikariDS.getConnection("saas");
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -305,8 +341,8 @@ public class SocialChannelDao {
         ensureTables();
         int lim = limit <= 0 ? 50 : Math.min(limit, 200);
         List<SocialChannel> list = new ArrayList<SocialChannel>();
-        String sql = "SELECT id,name,description,owner_user_id,is_public,created_at FROM social_channels " +
-                "WHERE is_public = 1 ORDER BY created_at DESC LIMIT ?";
+        String sql = "SELECT id,name,description,owner_user_id,status,created_at FROM social_channels " +
+                "WHERE status = 1 ORDER BY created_at DESC LIMIT ?";
         try (Connection conn = HikariDS.getConnection("saas");
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, lim);
@@ -317,6 +353,47 @@ public class SocialChannelDao {
             }
         }
         return list;
+    }
+
+    public List<SocialChannel> listOwnerChannels(String userId) throws SQLException {
+        ensureTables();
+        List<SocialChannel> list = new ArrayList<SocialChannel>();
+        if (userId == null || userId.trim().isEmpty()) {
+            return list;
+        }
+        String sql = "SELECT id,name,description,owner_user_id,status,created_at " +
+                "FROM social_channels WHERE owner_user_id = ? ORDER BY created_at DESC";
+        try (Connection conn = HikariDS.getConnection("saas");
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, userId.trim());
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    list.add(mapChannel(rs));
+                }
+            }
+        }
+        return list;
+    }
+
+    public int updateChannelStatus(long channelId, boolean enabled) throws SQLException {
+        ensureTables();
+        String sql = "UPDATE social_channels SET status = ? WHERE id = ?";
+        try (Connection conn = HikariDS.getConnection("saas");
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, enabled ? 1 : 0);
+            ps.setLong(2, channelId);
+            return ps.executeUpdate();
+        }
+    }
+
+    public int deleteChannel(long channelId) throws SQLException {
+        ensureTables();
+        String sql = "DELETE FROM social_channels WHERE id = ?";
+        try (Connection conn = HikariDS.getConnection("saas");
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, channelId);
+            return ps.executeUpdate();
+        }
     }
 
     // ---------- Messages ----------
@@ -357,7 +434,8 @@ public class SocialChannelDao {
         if (content == null || content.trim().isEmpty()) {
             throw new SQLException("content is required");
         }
-        String sql = "INSERT INTO social_channel_messages(channel_id,user_id,content) VALUES(?,?,?)";
+        String sql = "INSERT INTO social_channel_messages(channel_id,user_id,content,created_at) " +
+                "VALUES(?,?,?,datetime('now', '+8 hours'))";
         try (Connection conn = HikariDS.getConnection("saas");
              PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             ps.setLong(1, channelId);
@@ -371,6 +449,24 @@ public class SocialChannelDao {
             }
         }
         return -1;
+    }
+
+    // ---------- Temp ----------
+
+    public void saveLastLoginUser(String userId) throws SQLException {
+        ensureTables();
+        if (userId == null || userId.trim().isEmpty()) {
+            throw new SQLException("userId is required");
+        }
+        String normalizedUserId = userId.trim();
+        try (Connection conn = HikariDS.getConnection("saas")) {
+            String upsertSql = "INSERT OR REPLACE INTO social_temp(k,v,updated_at) VALUES(?, ?, datetime('now', '+8 hours'))";
+            try (PreparedStatement ps = conn.prepareStatement(upsertSql)) {
+                ps.setString(1, "last_login_user_id");
+                ps.setString(2, normalizedUserId);
+                ps.executeUpdate();
+            }
+        }
     }
 
     // ---------- Mapping ----------
@@ -389,7 +485,7 @@ public class SocialChannelDao {
         c.setName(rs.getString("name"));
         c.setDescription(rs.getString("description"));
         c.setOwnerUserId(rs.getString("owner_user_id"));
-        c.setIsPublic(rs.getInt("is_public") != 0);
+        c.setEnabled(rs.getInt("status") != 0);
         c.setCreatedAt(rs.getTimestamp("created_at"));
         return c;
     }

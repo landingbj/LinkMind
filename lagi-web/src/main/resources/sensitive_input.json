@@ -65,7 +65,6 @@
 		{"rule":"(?i)\\bT\\d{8}\\b", "level": 2, "mask": "*", "type": "taiwan_pass"},
 		{"rule":"(?<!\\d)\\d{11}(?!\\d)", "level": 2, "mask": "*", "type": "residence_permit"},
 		{"rule":"(?<!\\d)[A-Z0-9]{10,12}(?!\\d)", "level": 2, "mask": "*", "type": "military_official"},
-		{"rule":"(?<!\\d)\\d{7,9}(?!\\d)", "level": 2, "mask": "*", "type": "soldier_id"},
 
 		{"rule":"(?i)\\bsig\\s*[=:：]\\s*[A-Fa-f0-9]{32,64}", "level": 3, "mask": "***", "type": "sign_md5_sha"},
 		{"rule":"(?i)\\bappid\\s*[=:：]\\s*\\d{5,12}", "level": 2, "mask": "*", "type": "app_id"},

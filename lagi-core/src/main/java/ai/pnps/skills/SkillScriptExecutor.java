@@ -81,6 +81,9 @@ public class SkillScriptExecutor {
 
             ProcessBuilder pb = new ProcessBuilder(command);
             pb.directory(workingDir.toFile());
+            // Force Python subprocess stdout/stderr encoding to UTF-8 on Windows and other platforms.
+            pb.environment().put("PYTHONIOENCODING", "UTF-8");
+            pb.environment().put("PYTHONUTF8", "1");
             if (additionalEnvironment != null && !additionalEnvironment.isEmpty()) {
                 pb.environment().putAll(additionalEnvironment);
             }

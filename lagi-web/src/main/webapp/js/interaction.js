@@ -1,63 +1,15 @@
-const isMateMode = true; // TODO: 预留给后续后端接口判断
-window.isMateMode = isMateMode;
-
 const tTextInteraction = window.tText || ((text) => text);
 const tHtmlInteraction = window.tHtml || ((html) => html);
+const SOCIAL_CHANNEL_API_BASE = '/socialChannel';
 
 const interactionState = {
-    subscribeSearch: '',
-    publishSearch: '',
-    recommendedChannels: [
-        {
-            id: 'job',
-            tag: '#上海招聘',
-            description: '聚合本地岗位、内推消息和面试反馈。',
-            followers: '2.4k 人关注',
-            joined: true,
-            joinedInfo: {
-                name: '上海招聘',
-                latest: '发布信息：浦东产品经理岗位已更新'
-            }
-        },
-        {
-            id: 'study',
-            tag: '#留学情报',
-            description: '查看申请节奏、文书经验和院校资讯。',
-            followers: '1.8k 人关注',
-            joined: false,
-            joinedInfo: {
-                name: '留学情报',
-                latest: '发布信息：英国秋季申请时间线整理'
-            }
-        },
-        {
-            id: 'dating',
-            tag: '#相亲同城',
-            description: '浏览同城活动、破冰话题和线下见面信息。',
-            followers: '1.2k 人关注',
-            joined: false,
-            joinedInfo: {
-                name: '相亲同城',
-                latest: '发布信息：本周六静安下午茶活动'
-            }
-        },
-        {
-            id: 'rental',
-            tag: '#租房互助',
-            description: '获取转租、合租和租房提醒信息。',
-            followers: '920 人关注',
-            joined: true,
-            joinedInfo: {
-                name: '租房互助',
-                latest: '发布信息：徐汇单间转租今晚更新'
-            }
-        }
-    ],
-    publishChannels: [
-        { id: 'channel-job', name: '#上海招聘', status: '已上线', owner: '频道管理员 A' },
-        { id: 'channel-study', name: '#留学情报', status: '待完善', owner: '频道管理员 B' },
-        { id: 'channel-dating', name: '#相亲同城', status: '草稿中', owner: '频道管理员 C' }
-    ]
+    userId: '',
+    username: '',
+    recommendedChannels: [],
+    publishChannels: [],
+    initPromise: null,
+    subscribeLoading: false,
+    publishLoading: false
 };
 
 let interactionNoticeTimer = 0;
@@ -71,8 +23,144 @@ function escapeInteractionHtml(value) {
         .replace(/'/g, '&#39;');
 }
 
-function normalizeInteractionText(value) {
-    return String(value == null ? '' : value).trim().toLowerCase();
+function getInteractionUserId() {
+    const fromCookie = typeof getCookie === 'function' ? (getCookie('userId') || '') : '';
+    if (fromCookie) {
+        return fromCookie;
+    }
+    try {
+        return localStorage.getItem('userId') || '';
+    } catch (error) {
+        return '';
+    }
+}
+
+function getInteractionUsername() {
+    const fromDom = $('#user_box').text() || '';
+    const normalized = String(fromDom).trim();
+    if (normalized) {
+        return normalized;
+    }
+    return interactionState.userId || 'LinkMind 用户';
+}
+
+function interactionAjax(options) {
+    return new Promise(function (resolve, reject) {
+        $.ajax({
+            type: options.type || 'GET',
+            contentType: options.contentType || 'application/json;charset=utf-8',
+            url: options.url,
+            data: options.data,
+            success: function (res) {
+                if (res && res.status === 'success') {
+                    resolve(res);
+                    return;
+                }
+                reject(new Error((res && res.msg) || 'request failed'));
+            },
+            error: function (xhr) {
+                const responseMsg = xhr && xhr.responseJSON && xhr.responseJSON.msg;
+                reject(new Error(responseMsg || 'network error'));
+            }
+        });
+    });
+}
+
+function interactionGet(path, params) {
+    return interactionAjax({
+        type: 'GET',
+        contentType: 'application/x-www-form-urlencoded; charset=UTF-8',
+        url: `${SOCIAL_CHANNEL_API_BASE}/${path}`,
+        data: params || {}
+    });
+}
+
+function interactionPost(path, body) {
+    return interactionAjax({
+        type: 'POST',
+        url: `${SOCIAL_CHANNEL_API_BASE}/${path}`,
+        data: JSON.stringify(body || {})
+    });
+}
+
+async function ensureInteractionUserReady() {
+    if (!interactionState.userId) {
+        interactionState.userId = getInteractionUserId();
+    }
+    if (!interactionState.userId) {
+        throw new Error('请先登录后再使用频道功能');
+    }
+    if (!interactionState.username) {
+        interactionState.username = getInteractionUsername();
+    }
+    await interactionPost('registerUser', {
+        userId: interactionState.userId,
+        username: interactionState.username
+    });
+    try {
+        await interactionPost('saveLastLoginUser', {
+            userId: interactionState.userId,
+            username: interactionState.username
+        });
+    } catch (error) {
+        // Ignore temp-save failure because user registration has succeeded.
+    }
+}
+
+function toRecommendedChannel(channel, joinedMap) {
+    const channelId = channel && channel.id != null ? String(channel.id) : '';
+    const joined = !!joinedMap[channelId];
+    const rawName = channel && channel.name ? channel.name : '';
+    const normalizedName = rawName.indexOf('#') === 0 ? rawName.substring(1) : rawName;
+    const latestText = channel && channel.description ? channel.description : '暂无频道介绍';
+    return {
+        id: channelId,
+        tag: `#${normalizedName || '未命名频道'}`,
+        description: latestText,
+        followers: channel && channel.isPublic ? '公开频道' : '私有频道',
+        joined: joined,
+        joinedInfo: {
+            id: channelId,
+            name: normalizedName || '未命名频道',
+            latest: latestText
+        }
+    };
+}
+
+async function loadInteractionSubscribeData() {
+    await ensureInteractionUserReady();
+    const responses = await Promise.all([
+        interactionGet('listPublicChannels', { limit: 100 }),
+        interactionGet('listMyChannels', { userId: interactionState.userId })
+    ]);
+    const publicChannels = (responses[0] && responses[0].data) || [];
+    const myChannels = (responses[1] && responses[1].data) || [];
+    const joinedMap = {};
+    myChannels.forEach(function (channel) {
+        if (channel && channel.id != null) {
+            joinedMap[String(channel.id)] = channel;
+        }
+    });
+    interactionState.recommendedChannels = publicChannels.map(function (channel) {
+        return toRecommendedChannel(channel, joinedMap);
+    });
+}
+
+async function loadInteractionPublishData() {
+    await ensureInteractionUserReady();
+    const res = await interactionGet('listOwnedChannels', { userId: interactionState.userId });
+    const channels = (res && res.data) || [];
+    interactionState.publishChannels = channels.map(function (channel) {
+        const rawName = channel && channel.name ? channel.name : '';
+        const normalizedName = rawName.indexOf('#') === 0 ? rawName : `#${rawName}`;
+        return {
+            id: channel && channel.id != null ? String(channel.id) : '',
+            name: normalizedName,
+            status: channel && channel.enabled ? '已启用' : '已停用',
+            owner: '我创建的频道',
+            enabled: !!(channel && channel.enabled)
+        };
+    });
 }
 
 function prepareInteractionPage() {
@@ -80,6 +168,7 @@ function prepareInteractionPage() {
     $('#mytab').hide();
     $('#queryBox').hide();
     $('#footer-info').hide();
+    $('#not-content').hide();
     $('#introduces').hide();
     $('#topTitle').hide();
     $('#model-selects').empty();
@@ -88,6 +177,7 @@ function prepareInteractionPage() {
     $('#item-content').css('height', 'calc(100vh - 60px)');
     $('#item-content').css('overflow-y', 'auto');
     document.body.classList.remove('home-mode');
+    document.body.classList.add('interaction-mode');
     if (typeof hideBallDiv === 'function') {
         hideBallDiv();
     }
@@ -106,25 +196,8 @@ function showInteractionNotice(message) {
     }, 1800);
 }
 
-function getFilteredRecommendedChannels() {
-    const keyword = normalizeInteractionText(interactionState.subscribeSearch);
-    if (!keyword) {
-        return interactionState.recommendedChannels;
-    }
-    return interactionState.recommendedChannels.filter(function (channel) {
-        const matchText = [
-            channel.tag,
-            channel.description,
-            channel.followers,
-            channel.joinedInfo.name,
-            channel.joinedInfo.latest
-        ].join(' ');
-        return normalizeInteractionText(matchText).indexOf(keyword) !== -1;
-    });
-}
-
 function getFilteredJoinedChannels() {
-    return getFilteredRecommendedChannels()
+    return interactionState.recommendedChannels
         .filter(function (channel) {
             return channel.joined;
         })
@@ -141,14 +214,13 @@ function buildRecommendedChannelsHtml(channels) {
     return channels.map(function (channel) {
         const actionClass = channel.joined ? 'interaction-btn interaction-btn-secondary' : 'interaction-btn interaction-btn-primary';
         const actionLabel = channel.joined ? tTextInteraction('已加入') : tTextInteraction('加入');
-        const disabledAttr = channel.joined ? 'disabled="disabled"' : '';
         return `
             <article class="interaction-card">
                 <div class="interaction-card__tag">${escapeInteractionHtml(channel.tag)}</div>
                 <p class="interaction-card__desc">${escapeInteractionHtml(channel.description)}</p>
                 <div class="interaction-card__meta">
                     <span>${escapeInteractionHtml(channel.followers)}</span>
-                    <button type="button" class="${actionClass} interaction-join-btn" data-channel-id="${escapeInteractionHtml(channel.id)}" ${disabledAttr}>${actionLabel}</button>
+                    <button type="button" class="${actionClass} interaction-join-btn" data-channel-id="${escapeInteractionHtml(channel.id)}">${actionLabel}</button>
                 </div>
             </article>
         `;
@@ -178,53 +250,73 @@ function buildJoinedChannelsRowsHtml(channels) {
 }
 
 function updateInteractionSubscribeView() {
-    const filteredRecommended = getFilteredRecommendedChannels();
+    const filteredRecommended = interactionState.recommendedChannels;
     const filteredJoined = getFilteredJoinedChannels();
     $('#interactionRecommendedGrid').html(buildRecommendedChannelsHtml(filteredRecommended));
     $('#interactionJoinedTableBody').html(buildJoinedChannelsRowsHtml(filteredJoined));
 
-    $('.interaction-join-btn').off('click').on('click', function () {
+    $('.interaction-join-btn').off('click').on('click', async function () {
         const channelId = String($(this).data('channel-id') || '');
         const targetChannel = interactionState.recommendedChannels.find(function (channel) {
             return channel.id === channelId;
         });
-        if (!targetChannel || targetChannel.joined) {
+        if (!targetChannel || interactionState.subscribeLoading) {
             return;
         }
-        targetChannel.joined = true;
-        updateInteractionSubscribeView();
-        showInteractionNotice(`已加入 ${targetChannel.joinedInfo.name}`);
+        interactionState.subscribeLoading = true;
+        try {
+            if (targetChannel.joined) {
+                await interactionPost('unsubscribe', {
+                    userId: interactionState.userId,
+                    channelId: Number(channelId)
+                });
+            } else {
+                await interactionPost('subscribe', {
+                    userId: interactionState.userId,
+                    channelId: Number(channelId)
+                });
+            }
+            await loadInteractionSubscribeData();
+            updateInteractionSubscribeView();
+            showInteractionNotice(targetChannel.joined ? `已退出 ${targetChannel.joinedInfo.name}` : `已加入 ${targetChannel.joinedInfo.name}`);
+        } catch (error) {
+            showInteractionNotice(error.message || '频道操作失败');
+        } finally {
+            interactionState.subscribeLoading = false;
+        }
     });
 
-    $('.interaction-leave-btn').off('click').on('click', function () {
+    $('.interaction-leave-btn').off('click').on('click', async function () {
         const channelName = String($(this).data('channel-name') || '');
         const targetChannel = interactionState.recommendedChannels.find(function (channel) {
             return channel.joinedInfo && channel.joinedInfo.name === channelName;
         });
-        if (!targetChannel) {
+        if (!targetChannel || interactionState.subscribeLoading) {
             return;
         }
-        targetChannel.joined = false;
-        updateInteractionSubscribeView();
-        showInteractionNotice(`已退出 ${channelName}`);
+        interactionState.subscribeLoading = true;
+        try {
+            await interactionPost('unsubscribe', {
+                userId: interactionState.userId,
+                channelId: Number(targetChannel.id)
+            });
+            await loadInteractionSubscribeData();
+            updateInteractionSubscribeView();
+            showInteractionNotice(`已退出 ${channelName}`);
+        } catch (error) {
+            showInteractionNotice(error.message || '退出频道失败');
+        } finally {
+            interactionState.subscribeLoading = false;
+        }
     });
 }
 
-function renderInteractionSubscribePage() {
+async function renderInteractionSubscribePage() {
     prepareInteractionPage();
 
     const html = `
         <div id="interactionPage" class="interaction-page">
             <div id="interactionPageNotice" class="interaction-page-notice"></div>
-            <div class="interaction-toolbar">
-                <input
-                    id="interactionSubscribeSearch"
-                    class="interaction-search-input"
-                    type="search"
-                    value="${escapeInteractionHtml(interactionState.subscribeSearch)}"
-                    placeholder="${escapeInteractionHtml(tTextInteraction('搜索频道、关键词或最新消息'))}"
-                />
-            </div>
 
             <section class="interaction-section">
                 <div class="interaction-section__head">
@@ -260,22 +352,12 @@ function renderInteractionSubscribePage() {
     `;
 
     $('#item-content').html(tHtmlInteraction(html));
-    $('#interactionSubscribeSearch').on('input', function () {
-        interactionState.subscribeSearch = $(this).val() || '';
-        updateInteractionSubscribeView();
-    });
-    updateInteractionSubscribeView();
-}
-
-function getFilteredPublishChannels() {
-    const keyword = normalizeInteractionText(interactionState.publishSearch);
-    if (!keyword) {
-        return interactionState.publishChannels;
+    try {
+        await loadInteractionSubscribeData();
+    } catch (error) {
+        showInteractionNotice(error.message || '加载频道失败');
     }
-    return interactionState.publishChannels.filter(function (channel) {
-        const matchText = [channel.name, channel.status, channel.owner].join(' ');
-        return normalizeInteractionText(matchText).indexOf(keyword) !== -1;
-    });
+    updateInteractionSubscribeView();
 }
 
 function buildPublishChannelsHtml(channels) {
@@ -291,8 +373,8 @@ function buildPublishChannelsHtml(channels) {
                     <div class="interaction-manage-row__meta">${escapeInteractionHtml(channel.owner)} · ${escapeInteractionHtml(channel.status)}</div>
                 </div>
                 <div class="interaction-manage-actions">
-                    <button type="button" class="interaction-btn interaction-btn-secondary interaction-disable-btn" data-channel-name="${escapeInteractionHtml(channel.name)}">${tTextInteraction('停用')}</button>
-                    <button type="button" class="interaction-btn interaction-btn-secondary interaction-delete-btn" data-channel-name="${escapeInteractionHtml(channel.name)}">${tTextInteraction('删除')}</button>
+                    <button type="button" class="interaction-btn interaction-btn-secondary interaction-disable-btn" data-channel-id="${escapeInteractionHtml(channel.id)}" data-channel-name="${escapeInteractionHtml(channel.name)}">${channel.enabled ? tTextInteraction('停用') : tTextInteraction('启用')}</button>
+                    <button type="button" class="interaction-btn interaction-btn-secondary interaction-delete-btn" data-channel-id="${escapeInteractionHtml(channel.id)}" data-channel-name="${escapeInteractionHtml(channel.name)}">${tTextInteraction('删除')}</button>
                 </div>
             </div>
         `;
@@ -300,32 +382,70 @@ function buildPublishChannelsHtml(channels) {
 }
 
 function updateInteractionPublishView() {
-    $('#interactionPublishList').html(buildPublishChannelsHtml(getFilteredPublishChannels()));
-    $('.interaction-disable-btn').off('click').on('click', function () {
+    $('#interactionPublishList').html(buildPublishChannelsHtml(interactionState.publishChannels));
+    $('.interaction-disable-btn').off('click').on('click', async function () {
+        if (interactionState.publishLoading) {
+            return;
+        }
+        const channelId = String($(this).data('channel-id') || '');
         const channelName = String($(this).data('channel-name') || '');
-        showInteractionNotice(`${channelName} 暂不支持停用`);
+        if (!channelId) {
+            return;
+        }
+        const target = interactionState.publishChannels.find(function (channel) {
+            return channel.id === channelId;
+        });
+        if (!target) {
+            return;
+        }
+        interactionState.publishLoading = true;
+        try {
+            await interactionPost('toggleChannel', {
+                userId: interactionState.userId,
+                channelId: Number(channelId),
+                enabled: !target.enabled
+            });
+            await Promise.all([loadInteractionPublishData(), loadInteractionSubscribeData()]);
+            updateInteractionPublishView();
+            showInteractionNotice(target.enabled ? `已停用 ${channelName}` : `已启用 ${channelName}`);
+        } catch (error) {
+            showInteractionNotice(error.message || '状态切换失败');
+        } finally {
+            interactionState.publishLoading = false;
+        }
     });
-    $('.interaction-delete-btn').off('click').on('click', function () {
+    $('.interaction-delete-btn').off('click').on('click', async function () {
+        if (interactionState.publishLoading) {
+            return;
+        }
+        const channelId = String($(this).data('channel-id') || '');
         const channelName = String($(this).data('channel-name') || '');
-        showInteractionNotice(`${channelName} 暂不支持删除`);
+        if (!channelId) {
+            return;
+        }
+        interactionState.publishLoading = true;
+        try {
+            await interactionPost('deleteChannel', {
+                userId: interactionState.userId,
+                channelId: Number(channelId)
+            });
+            await Promise.all([loadInteractionPublishData(), loadInteractionSubscribeData()]);
+            updateInteractionPublishView();
+            showInteractionNotice(`已删除 ${channelName}`);
+        } catch (error) {
+            showInteractionNotice(error.message || '删除频道失败');
+        } finally {
+            interactionState.publishLoading = false;
+        }
     });
 }
 
-function renderInteractionPublishPage() {
+async function renderInteractionPublishPage() {
     prepareInteractionPage();
 
     const html = `
         <div id="interactionPage" class="interaction-page">
             <div id="interactionPageNotice" class="interaction-page-notice"></div>
-            <div class="interaction-toolbar">
-                <input
-                    id="interactionPublishSearch"
-                    class="interaction-search-input"
-                    type="search"
-                    value="${escapeInteractionHtml(interactionState.publishSearch)}"
-                    placeholder="${escapeInteractionHtml(tTextInteraction('搜索频道名称'))}"
-                />
-            </div>
 
             <section class="interaction-section">
                 <div class="interaction-section__head">
@@ -335,7 +455,7 @@ function renderInteractionPublishPage() {
                     </div>
                 </div>
                 <div class="interaction-action-grid">
-                    <button type="button" class="interaction-action-card" id="interactionCreateChannel">
+                    <button type="button" class="interaction-action-card interaction-action-card--fixed" id="interactionCreateChannel">
                         <span class="interaction-action-card__label">#${tTextInteraction('创建')}</span>
                         <strong>${tTextInteraction('创建频道')}</strong>
                         <p>${tTextInteraction('填写频道信息后即可发起创建')}</p>
@@ -353,20 +473,100 @@ function renderInteractionPublishPage() {
                 <div id="interactionPublishList" class="interaction-manage-list"></div>
             </section>
         </div>
+        <div id="interactionCreateChannelMask" style="display:none;position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,0.32);z-index:1200;align-items:center;justify-content:center;">
+            <div style="width:min(560px,92vw);background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;box-shadow:0 10px 30px rgba(15,23,42,.18);">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                    <div style="font-size:20px;font-weight:600;">${tTextInteraction('创建频道')}</div>
+                    <button type="button" id="interactionCreateChannelCloseBtn" style="border:none;background:transparent;font-size:20px;cursor:pointer;color:#6b7280;">×</button>
+                </div>
+                <div style="display:grid;gap:10px;">
+                    <label style="font-size:13px;color:#374151;">
+                        ${tTextInteraction('频道名称')}<span style="color:#dc2626;margin-left:2px;">*</span>
+                        <input id="interactionCreateChannelNameInput" type="text" placeholder="${tTextInteraction('请输入频道名称')}" style="margin-top:6px;width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;" />
+                    </label>
+                    <label style="font-size:13px;color:#374151;">
+                        ${tTextInteraction('频道介绍')}（${tTextInteraction('可选')}）
+                        <textarea id="interactionCreateChannelDescInput" placeholder="${tTextInteraction('请输入频道介绍（可选）')}" style="margin-top:6px;width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;min-height:88px;resize:vertical;"></textarea>
+                    </label>
+                </div>
+                <button type="button" id="interactionCreateChannelConfirmBtn" style="margin-top:14px;width:100%;padding:10px;border:none;border-radius:8px;background:#6366f1;color:#fff;cursor:pointer;">${tTextInteraction('创建')}</button>
+            </div>
+        </div>
     `;
 
     $('#item-content').html(tHtmlInteraction(html));
-    $('#interactionPublishSearch').on('input', function () {
-        interactionState.publishSearch = $(this).val() || '';
-        updateInteractionPublishView();
-    });
     $('#interactionCreateChannel').on('click', function () {
-        showInteractionNotice('暂不支持创建频道');
+        if (interactionState.publishLoading) {
+            return;
+        }
+        $('#interactionCreateChannelNameInput').val('');
+        $('#interactionCreateChannelDescInput').val('');
+        $('#interactionCreateChannelMask').css('display', 'flex');
     });
+    $('#interactionCreateChannelCloseBtn').on('click', function () {
+        $('#interactionCreateChannelMask').hide();
+    });
+    $('#interactionCreateChannelMask').on('click', function (e) {
+        if (e.target && e.target.id === 'interactionCreateChannelMask') {
+            $('#interactionCreateChannelMask').hide();
+        }
+    });
+    $('#interactionCreateChannelConfirmBtn').on('click', async function () {
+        if (interactionState.publishLoading) {
+            return;
+        }
+        const channelName = String($('#interactionCreateChannelNameInput').val() || '').trim();
+        if (!channelName) {
+            showInteractionNotice('请输入频道名称');
+            return;
+        }
+        const channelDesc = String($('#interactionCreateChannelDescInput').val() || '').trim();
+        interactionState.publishLoading = true;
+        try {
+            await interactionPost('createChannel', {
+                userId: interactionState.userId,
+                name: channelName,
+                description: channelDesc,
+                isPublic: true
+            });
+            $('#interactionCreateChannelMask').hide();
+            await Promise.all([loadInteractionPublishData(), loadInteractionSubscribeData()]);
+            updateInteractionPublishView();
+            showInteractionNotice(`频道 ${channelName} 创建成功`);
+        } catch (error) {
+            showInteractionNotice(error.message || '创建频道失败');
+        } finally {
+            interactionState.publishLoading = false;
+        }
+    });
+    try {
+        await loadInteractionPublishData();
+    } catch (error) {
+        showInteractionNotice(error.message || '加载管理频道失败');
+        interactionState.publishChannels = [];
+    }
+    if (interactionState.recommendedChannels.length === 0) {
+        try {
+            await loadInteractionSubscribeData();
+        } catch (error) {
+            // Ignore follow-up load failure here.
+        }
+    }
     updateInteractionPublishView();
 }
 
-window.openInteractionPage = function openInteractionPage(navId, subNavId) {
+async function initInteractionUser() {
+    if (interactionState.initPromise) {
+        return interactionState.initPromise;
+    }
+    interactionState.initPromise = ensureInteractionUserReady().catch(function (error) {
+        interactionState.initPromise = null;
+        throw error;
+    });
+    return interactionState.initPromise;
+}
+
+window.openInteractionPage = async function openInteractionPage(navId, subNavId) {
     const subNav = typeof getSubNav === 'function' ? getSubNav(navId, subNavId) : null;
     if (!subNav || subNav.disabled) {
         return;
@@ -374,9 +574,19 @@ window.openInteractionPage = function openInteractionPage(navId, subNavId) {
     if (typeof setLeafNavActiveByNavId === 'function') {
         setLeafNavActiveByNavId(subNavId);
     }
-    if (subNav.key === 'interactionPublish') {
-        renderInteractionPublishPage();
-        return;
+    try {
+        await initInteractionUser();
+        if (subNav.key === 'interactionPublish') {
+            await renderInteractionPublishPage();
+            return;
+        }
+        await renderInteractionSubscribePage();
+    } catch (error) {
+        prepareInteractionPage();
+        $('#item-content').html(tHtmlInteraction(`
+            <div class="interaction-page">
+                <div class="interaction-empty-state">${escapeInteractionHtml(error.message || '频道模块初始化失败')}</div>
+            </div>
+        `));
     }
-    renderInteractionSubscribePage();
 };

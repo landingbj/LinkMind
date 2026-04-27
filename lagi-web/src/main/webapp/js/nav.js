@@ -1237,6 +1237,7 @@ function backToChat() {
     $('#mytab').hide();
     $('#queryBox').show();
     $('#footer-info').show();
+    $('#not-content').show();
     $('#introduces').show();
     $('#topTitle').show();
     $('#item-content').show();
@@ -1251,6 +1252,7 @@ function backToChat() {
         formElement.style.visibility = 'visible';
     }
     document.body.classList.remove('home-mode');
+    document.body.classList.remove('interaction-mode');
     document.querySelectorAll('#conversationsNav a.active').forEach(a => {
         a.classList.remove('active');
     });
@@ -1275,12 +1277,14 @@ function backToChat() {
 function ensureChatBottomBarVisible() {
     $('#queryBox').show();
     $('#footer-info').show();
+    $('#not-content').show();
     const formElement = document.querySelector('#not-content form');
     if (formElement) {
         formElement.style.display = 'flex';
         formElement.style.visibility = 'visible';
     }
     document.body.classList.remove('home-mode');
+    document.body.classList.remove('interaction-mode');
 }
 
 function hideBallDiv() {
@@ -1780,6 +1784,71 @@ function loadNavBar() {
             `);
         }
     }
+}
+
+function refreshInteractionPublishNavState(isMateMode) {
+    for (const nav of promptNavs) {
+        if (!Array.isArray(nav.subNavs)) {
+            continue;
+        }
+        for (const subNav of nav.subNavs) {
+            if (subNav && subNav.id === INTERACTION_PUBLISH_NAV_ID) {
+                subNav.disabled = isMateMode === true;
+            }
+        }
+    }
+
+    const publishNavItem = document.querySelector('#nav_body .file-item[data-nav-id="' + INTERACTION_PUBLISH_NAV_ID + '"]');
+    if (!publishNavItem) {
+        return;
+    }
+
+    if (isMateMode === true) {
+        publishNavItem.classList.add('interaction-nav-disabled');
+        publishNavItem.setAttribute('data-disabled', 'true');
+        publishNavItem.setAttribute('aria-disabled', 'true');
+        publishNavItem.setAttribute('title', 'Mate 模式下暂不可用');
+        if (!publishNavItem.querySelector('.nav-disabled-badge')) {
+            publishNavItem.insertAdjacentHTML('beforeend', '<span class="nav-disabled-badge">Mate</span>');
+        }
+    } else {
+        publishNavItem.classList.remove('interaction-nav-disabled');
+        publishNavItem.removeAttribute('data-disabled');
+        publishNavItem.removeAttribute('aria-disabled');
+        publishNavItem.removeAttribute('title');
+        const badge = publishNavItem.querySelector('.nav-disabled-badge');
+        if (badge) {
+            badge.remove();
+        }
+    }
+}
+
+window.refreshInteractionPublishNavState = refreshInteractionPublishNavState;
+
+function detectMateModeOnPageLoad() {
+    if (typeof $ === 'undefined' || !$.ajax) {
+        return;
+    }
+    $.ajax({
+        type: 'GET',
+        contentType: 'application/x-www-form-urlencoded; charset=UTF-8',
+        url: '/socialChannel/runningMode',
+        success: function (res) {
+            const isMateMode = !!(res && res.status === 'success' && res.isMateMode);
+            window.isMateMode = isMateMode;
+            refreshInteractionPublishNavState(isMateMode);
+        },
+        error: function () {
+            window.isMateMode = false;
+            refreshInteractionPublishNavState(false);
+        }
+    });
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', detectMateModeOnPageLoad);
+} else {
+    detectMateModeOnPageLoad();
 }
 
 // Leaf items only (#nav_body is filled by loadNavBar after parse — use delegation)

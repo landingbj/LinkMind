@@ -707,6 +707,10 @@ body:not(.home-mode) #item-content {
     z-index: 100;
 }
 
+body.interaction-mode #item-content {
+    padding-bottom: 0;
+}
+
 /* Home mode: keep natural document flow to avoid blocking action buttons */
 body.home-mode #not-content {
     height: auto;
@@ -3016,8 +3020,9 @@ body.home-mode .home-stat-card__hint {
 
 .interaction-card-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fill, 260px);
     gap: 14px;
+    justify-content: flex-start;
 }
 
 .interaction-card {
@@ -3149,6 +3154,12 @@ body.home-mode .home-stat-card__hint {
     gap: 14px;
 }
 
+.interaction-action-card--fixed {
+    width: 320px;
+    min-width: 320px;
+    max-width: 320px;
+}
+
 .interaction-action-card {
     display: flex;
     flex-direction: column;
@@ -3263,8 +3274,18 @@ body.home-mode .home-stat-card__hint {
         flex: 1;
     }
 
+    .interaction-card-grid {
+        grid-template-columns: 1fr;
+    }
+
     .interaction-card__meta {
         flex-direction: column;
         align-items: stretch;
+    }
+
+    .interaction-action-card--fixed {
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
     }
 }

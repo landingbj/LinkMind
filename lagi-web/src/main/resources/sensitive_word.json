@@ -7,10 +7,7 @@
 		{"rule":"front-hand-up", "level": 2, "mask": ""},
 		{"rule":"turn-right-hand-up", "level": 2, "mask": ""},
 		{"rule":"one-finger-refuse", "level": 2, "mask": ""},
-		{"rule":"```json", "level": 2, "mask": ""},
 		{"rule":"\"answer\": \"", "level": 2, "mask": ""},
-		{"rule":"```", "level": 2, "mask": ""},
-		{"rule":"---", "level": 2, "mask": ""},
 		{
 			"rule": "(?<!\\d)1[3-9]\\d{9}(?!\\d)",
 			"level": 2,
@@ -46,18 +43,6 @@
 			"level": 2,
 			"mask": "*",
 			"type": "api-key"
-		},
-		{
-			"rule": "[a-zA-Z0-9]{4,10}(-[a-zA-Z0-9]{1,10}){1,5}",
-			"level": 2,
-			"mask": "*",
-			"type": "api-key"
-		},
-		{
-			"rule": "base64\\s+(-d|--decode)\\s+.*?\\\\|\\s*(bash|sh|powershell|cmd)",
-			"level": 3,
-			"mask": "***",
-			"type": "base64_hidden_execution"
 		},
 		{
 			"rule": "(del|erase)\\s+(/f|/s|/q){1,3}|rmdir\\s+(/s|/q){1,2}|rd\\s+(/s|/q){1,2}",

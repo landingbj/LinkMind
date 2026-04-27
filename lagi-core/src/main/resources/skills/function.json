@@ -1,0 +1,276 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "read",
+      "description": "Read the contents of a file. Supports text files and images (jpg, png, gif, webp). Images are sent as attachments. For text files, output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.",
+      "strict": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path to the file to read (relative or absolute)",
+            "schemaExtensions": {}
+          },
+          "offset": {
+            "type": "number",
+            "description": "Line number to start reading from (1-indexed)",
+            "schemaExtensions": {}
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of lines to read",
+            "schemaExtensions": {}
+          },
+          "file_path": {
+            "type": "string",
+            "description": "Path to the file to read (relative or absolute)",
+            "schemaExtensions": {}
+          },
+          "filePath": {
+            "type": "string",
+            "description": "Path to the file to read (relative or absolute)",
+            "schemaExtensions": {}
+          },
+          "file": {
+            "type": "string",
+            "description": "Path to the file to read (relative or absolute)",
+            "schemaExtensions": {}
+          }
+        },
+        "required": [],
+        "additionalProperties": false,
+        "schemaExtensions": {}
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "edit",
+      "description": "Edit a single file using exact text replacement. Use oldText/newText only for one contiguous replacement. Use edits when changing multiple separate, disjoint regions in the same file. In edits mode, every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes. Do not provide both modes at once.",
+      "strict": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path to the file to edit (relative or absolute)",
+            "schemaExtensions": {}
+          },
+          "oldText": {
+            "type": "string",
+            "description": "Exact text to replace for one contiguous change. Include only enough surrounding context to make the match unique. Do not use this to cover multiple distant changes in one large block.",
+            "schemaExtensions": {}
+          },
+          "newText": {
+            "type": "string",
+            "description": "Replacement text for oldText in single-replacement mode.",
+            "schemaExtensions": {}
+          },
+          "edits": {
+            "type": "array",
+            "description": "Use this when changing multiple separate, disjoint regions in the same file. Each edit is matched against the original file, not incrementally. Do not include overlapping or nested edits. If two changes touch the same block or nearby lines, merge them into one edit instead.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "oldText": {
+                  "type": "string",
+                  "description": "Exact text for one targeted replacement. It must be unique in the original file and must not overlap with any other edits[].oldText in the same call.",
+                  "schemaExtensions": {}
+                },
+                "newText": {
+                  "type": "string",
+                  "description": "Replacement text for this targeted edit.",
+                  "schemaExtensions": {}
+                }
+              },
+              "required": [
+                "oldText",
+                "newText"
+              ],
+              "additionalProperties": false,
+              "schemaExtensions": {}
+            },
+            "schemaExtensions": {}
+          },
+          "file_path": {
+            "type": "string",
+            "description": "Path to the file to edit (relative or absolute)",
+            "schemaExtensions": {}
+          },
+          "filePath": {
+            "type": "string",
+            "description": "Path to the file to edit (relative or absolute)",
+            "schemaExtensions": {}
+          },
+          "file": {
+            "type": "string",
+            "description": "Path to the file to edit (relative or absolute)",
+            "schemaExtensions": {}
+          },
+          "old_string": {
+            "type": "string",
+            "description": "Exact text to replace for one contiguous change. Include only enough surrounding context to make the match unique. Do not use this to cover multiple distant changes in one large block.",
+            "schemaExtensions": {}
+          },
+          "old_text": {
+            "type": "string",
+            "description": "Exact text to replace for one contiguous change. Include only enough surrounding context to make the match unique. Do not use this to cover multiple distant changes in one large block.",
+            "schemaExtensions": {}
+          },
+          "oldString": {
+            "type": "string",
+            "description": "Exact text to replace for one contiguous change. Include only enough surrounding context to make the match unique. Do not use this to cover multiple distant changes in one large block.",
+            "schemaExtensions": {}
+          },
+          "new_string": {
+            "type": "string",
+            "description": "Replacement text for oldText in single-replacement mode.",
+            "schemaExtensions": {}
+          },
+          "new_text": {
+            "type": "string",
+            "description": "Replacement text for oldText in single-replacement mode.",
+            "schemaExtensions": {}
+          },
+          "newString": {
+            "type": "string",
+            "description": "Replacement text for oldText in single-replacement mode.",
+            "schemaExtensions": {}
+          }
+        },
+        "required": [],
+        "additionalProperties": false,
+        "schemaExtensions": {}
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "write",
+      "description": "Write content to a file. Creates the file if it doesn\u0027t exist, overwrites if it does. Automatically creates parent directories.",
+      "strict": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path to the file to write (relative or absolute)",
+            "schemaExtensions": {}
+          },
+          "content": {
+            "type": "string",
+            "description": "Content to write to the file",
+            "schemaExtensions": {}
+          },
+          "file_path": {
+            "type": "string",
+            "description": "Path to the file to write (relative or absolute)",
+            "schemaExtensions": {}
+          },
+          "filePath": {
+            "type": "string",
+            "description": "Path to the file to write (relative or absolute)",
+            "schemaExtensions": {}
+          },
+          "file": {
+            "type": "string",
+            "description": "Path to the file to write (relative or absolute)",
+            "schemaExtensions": {}
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "additionalProperties": false,
+        "schemaExtensions": {}
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "exec",
+      "description": "Execute shell commands with background continuation. Use yieldMs/background to continue later via process tool. Use pty\u003dtrue for TTY-required commands (terminal UIs, coding agents).",
+      "strict": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "Shell command to execute",
+            "schemaExtensions": {}
+          },
+          "workdir": {
+            "type": "string",
+            "description": "Working directory (defaults to cwd)",
+            "schemaExtensions": {}
+          },
+          "env": {
+            "type": "object",
+            "schemaExtensions": {
+              "patternProperties": {
+                "^(.*)$": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "yieldMs": {
+            "type": "number",
+            "description": "Milliseconds to wait before backgrounding (default 10000)",
+            "schemaExtensions": {}
+          },
+          "background": {
+            "type": "boolean",
+            "description": "Run in background immediately",
+            "schemaExtensions": {}
+          },
+          "timeout": {
+            "type": "number",
+            "description": "Timeout in seconds (optional, kills process on expiry)",
+            "schemaExtensions": {}
+          },
+          "pty": {
+            "type": "boolean",
+            "description": "Run in a pseudo-terminal (PTY) when available (TTY-required CLIs, coding agents)",
+            "schemaExtensions": {}
+          },
+          "elevated": {
+            "type": "boolean",
+            "description": "Run on the host with elevated permissions (if allowed)",
+            "schemaExtensions": {}
+          },
+          "host": {
+            "type": "string",
+            "description": "Exec host (sandbox|gateway|node).",
+            "schemaExtensions": {}
+          },
+          "security": {
+            "type": "string",
+            "description": "Exec security mode (deny|allowlist|full).",
+            "schemaExtensions": {}
+          },
+          "ask": {
+            "type": "string",
+            "description": "Exec ask mode (off|on-miss|always).",
+            "schemaExtensions": {}
+          },
+          "node": {
+            "type": "string",
+            "description": "Node id/name for host\u003dnode.",
+            "schemaExtensions": {}
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "additionalProperties": false,
+        "schemaExtensions": {}
+      }
+    }
+  }
+]

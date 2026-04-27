@@ -1,15 +1,13 @@
 package ai.pnps.skills.util;
 
-import ai.common.db.HikariDS;
 import ai.openai.pojo.ChatCompletionRequest;
+import ai.openai.pojo.ChatMessage;
 import ai.openai.pojo.ExtraBody;
+import ai.utils.ExtraBodyUtil;
+import ai.utils.qa.ChatCompletionUtil;
 import com.google.gson.Gson;
 
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -31,6 +29,13 @@ public final class SocialSkillUtil {
     public static String generateSkill(String skillTemplate, ChatCompletionRequest request) {
         if (skillTemplate == null) {
             return null;
+        }
+        List<ChatMessage> systemPrompt = ChatCompletionUtil.getSystemMessages(request.getMessages());
+        if (!systemPrompt.isEmpty()) {
+            ChatMessage systemMessage = systemPrompt.get(0);
+            String content = systemMessage.getContent();
+            ExtraBody extraBody = ExtraBodyUtil.extractExtraBody(content);
+            request.setExtraBody(extraBody);
         }
         String userId = resolveUserId(request);
         List<Map<String, Object>> channels = loadSubscribedChannels(userId);
@@ -60,26 +65,18 @@ public final class SocialSkillUtil {
         if (userId == null || userId.isEmpty()) {
             return channels;
         }
-        String sql = "SELECT c.id, c.name, c.description, c.is_public "
-                + "FROM social_channels c "
-                + "INNER JOIN social_channel_subscriptions s ON s.channel_id = c.id "
-                + "WHERE s.user_id = ? "
-                + "ORDER BY c.name ASC";
-        try (Connection conn = HikariDS.getConnection("saas");
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, userId);
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    Map<String, Object> ch = new LinkedHashMap<String, Object>();
-                    ch.put("channelId", rs.getLong("id"));
-                    ch.put("channelName", rs.getString("name"));
-                    ch.put("description", rs.getString("description"));
-                    ch.put("isPublic", rs.getInt("is_public") == 1);
-                    channels.add(ch);
-                }
+        try {
+            Class<?> daoClass = Class.forName("ai.migrate.dao.SocialChannelDao");
+            Object dao = daoClass.getDeclaredConstructor().newInstance();
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> result = (List<Map<String, Object>>) daoClass
+                    .getMethod("loadSubscribedChannels", String.class)
+                    .invoke(dao, userId);
+            if (result != null) {
+                channels = result;
             }
         } catch (Exception ignored) {
-            // Tables may not exist yet or DB unavailable; return what we have.
+            // DAO module may not be present or DB unavailable; return what we have.
         }
         return channels;
     }

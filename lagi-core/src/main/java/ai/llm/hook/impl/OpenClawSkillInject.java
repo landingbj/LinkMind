@@ -18,7 +18,10 @@ import ai.pnps.skills.SkillsAgent;
 import ai.pnps.skills.util.OpenClawSkillUtil;
 import ai.pnps.skills.pojo.SkillEntry;
 import ai.pnps.skills.pojo.SkillsAgentResult;
+import ai.pnps.skills.util.SkillUtil;
+import ai.pnps.skills.util.SkillsAgentToolUtil;
 import ai.pnps.skills.util.SkillsJsons;
+import ai.utils.ExtraBodyUtil;
 import ai.utils.LagiGlobal;
 import ai.utils.qa.ChatCompletionUtil;
 import cn.hutool.core.bean.BeanUtil;
@@ -110,7 +113,13 @@ public class OpenClawSkillInject implements BeforeModel, AfterModel {
         List<SkillEntry> openClawSkills = OpenClawSkillUtil.SkillExtractor(content);
         List<SkillEntry> finalSkills = mergeSkills(openClawSkills, serverSkills);
         context.setSkills(finalSkills);
-        systemMessage.setContent(OpenClawSkillUtil.replaceAvailableSkill(content, finalSkills));
+        String systemPromptContent = OpenClawSkillUtil.replaceAvailableSkill(content, finalSkills);
+        ExtraBody extraBody = ExtraBodyUtil.extractExtraBody(content);
+        if (extraBody == null) {
+            String extraBodyStr = ExtraBodyUtil.toExtraBodyString(request);
+            systemPromptContent = systemPromptContent + extraBodyStr;
+        }
+        systemMessage.setContent(systemPromptContent);
         return context.getRequest();
     }
 
@@ -121,6 +130,7 @@ public class OpenClawSkillInject implements BeforeModel, AfterModel {
             for (SkillEntry skill : skills) {
                 if (Objects.equals(skill.getName(), configSkill.getName())) {
                     skill.setRule(configSkill.getRule());
+                    skill.setName(SkillsAgentToolUtil.getLandingbjSkillName(skill.getName()));
                     retainSkills.add(skill);
                     break;
                 }
@@ -217,8 +227,8 @@ public class OpenClawSkillInject implements BeforeModel, AfterModel {
             }
             String name = toolCall.getFunction().getName();
             try {
-                if ("read".equals(name)) {
-                    classifyTools(toolCall, "path", skills1, serverTool, cliTool);
+                if (SkillUtil.isReadTool(name)) {
+                    classifyReadSkillTools(toolCall, skills1, serverTool, cliTool);
                 } else if ("exec".equals(name)) {
                     classifyTools(toolCall, "workdir", skills1, serverTool, cliTool);
                 } else {
@@ -367,8 +377,8 @@ public class OpenClawSkillInject implements BeforeModel, AfterModel {
                 continue;
             }
             String name = toolCall.getFunction().getName();
-            if ("read".equals(name)) {
-                classifyTools(toolCall , "path", skills1, serverTool, cliTool);
+            if (SkillUtil.isReadTool(name)) {
+                classifyReadSkillTools(toolCall , skills1, serverTool, cliTool);
             } else if ("exec".equals(name)) {
                 classifyTools(toolCall , "workdir", skills1, serverTool, cliTool);
             } else {
@@ -405,7 +415,9 @@ public class OpenClawSkillInject implements BeforeModel, AfterModel {
             ChatCompletionResult originalResult = run.getOriginalResult();
             if (originalResult != null) {
                 intercepted[0] = true;
-                originalResult.getChoices().get(0).setDelta(originalResult.getChoices().get(0).getMessage());
+                ChatCompletionChoice firstChoice = originalResult.getChoices().get(0);
+                firstChoice.setDelta(firstChoice.getMessage());
+                firstChoice.setMessage(null);
                 emitter.onNext(originalResult);
             } else if (lastChunk != null) {
                 emitter.onNext(lastChunk);
@@ -441,7 +453,6 @@ public class OpenClawSkillInject implements BeforeModel, AfterModel {
         chatMessage.setRole(LagiGlobal.LLM_ROLE_ASSISTANT);
         chatMessage.setContent("");
         choice.setDelta(chatMessage);
-        choice.setMessage(chatMessage);
         result.setChoices(Collections.singletonList(choice));
         return result;
     }
@@ -509,7 +520,6 @@ public class OpenClawSkillInject implements BeforeModel, AfterModel {
         ChatCompletionChoice choice = new ChatCompletionChoice();
         ChatMessage chatMessage = new ChatMessage();
         chatMessage.setTool_calls(toolCalls);
-        choice.setMessage(chatMessage);
         choice.setDelta(chatMessage);
         result.setChoices(Collections.singletonList(choice));
         return result;
@@ -531,6 +541,31 @@ public class OpenClawSkillInject implements BeforeModel, AfterModel {
         }
         assistantMessage.setTool_calls(mergedToolCalls);
         return assistantMessage;
+    }
+
+    private void classifyReadSkillTools(ToolCall toolCall, List<SkillEntry> skills, List<ToolClassification> serverTool, List<ToolClassification> cliTool) throws IOException {
+        String path = SkillsJsons.getArg(toolCall.getFunction().getArguments(), "path");
+        String name = SkillsJsons.getArg(toolCall.getFunction().getArguments(), "name");
+        if (path != null && !path.trim().isEmpty()) {
+            classifyTools(toolCall, "path", skills, serverTool, cliTool);
+        } else if (name != null && !name.trim().isEmpty()) {
+            classifyToolsByName(toolCall, name, skills, serverTool, cliTool);
+        } else {
+            cliTool.add(new ToolClassification(toolCall, "cli", null));
+        }
+    }
+
+    private void classifyToolsByName(ToolCall toolCall, String name, List<SkillEntry> skills, List<ToolClassification> serverTool, List<ToolClassification> cliTool) throws IOException {
+        if (SkillsAgentToolUtil.isLandingbjSkillName(name)) {
+            for (SkillEntry skillEntry : skills) {
+                if (skillEntry.getName().equals(name)) {
+                    serverTool.add(new ToolClassification(toolCall, "server", skillEntry));
+                    return;
+                }
+            }
+        } else {
+            cliTool.add(new ToolClassification(toolCall, "cli", null));
+        }
     }
 
     private void classifyTools(ToolCall toolCall, String argument, List<SkillEntry> skills1, List<ToolClassification> serverTool, List<ToolClassification> cliTool) throws IOException {

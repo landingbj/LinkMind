@@ -22,6 +22,9 @@ const AGENT_NAV_ID = 11;
 const ORCHESTRATION_NAV_ID = 12;
 const FEATURE_NAV_ID = 14;
 const MINE_NAV_ID = 15;
+const INTERACTION_NAV_ID = 17;
+const INTERACTION_SUBSCRIBE_NAV_ID = 1701;
+const INTERACTION_PUBLISH_NAV_ID = 1702;
 
 let MODEL_NAV = null;
 let AGENT_NAV = null;
@@ -394,6 +397,35 @@ promptNavs = [
                 icon2: '<svg t="1774942567708" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="10038" width="16" height="16"><path d="M789.2 147V87h-45v60H279.8V87h-45v60H64v790h896V147H789.2zM915 892H109V192h125.8v75h45v-75h464.5v75h45v-75H915v700zM247 382.3h530v45H247v-45z m0 147.2h530v45H247v-45z m0 147.2h390v45H247v-45z" fill="" p-id="10039"></path></svg>',
                 prompt: '用于查看请求级日志列表与筛选。',
                 operation: '点击后可查看日志明细。'
+            }
+        ]
+    },
+    {
+        id: INTERACTION_NAV_ID,
+        key: 'interaction',
+        icon1: '<svg t="1774947800000" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="18881" width="16" height="16"><path d="M512 128c-211.744 0-384 135.232-384 301.952 0 96.768 57.856 182.912 147.968 238.08V896l190.336-105.472c15.104 1.344 30.336 2.048 45.696 2.048 211.744 0 384-135.168 384-301.888C896 263.104 723.744 128 512 128z m0 597.248c-17.024 0-34.048-0.96-50.624-2.88l-15.872-1.856-101.376 56.192v-115.84l-16.448-8.768C252.416 612.224 192 525.184 192 429.952 192 298.496 335.488 192 512 192s320 106.496 320 237.952c0 131.456-143.488 237.344-320 237.344z" fill="#444444" p-id="18882"></path><path d="M352 384m-48 0a48 48 0 1 0 96 0 48 48 0 1 0-96 0Z" fill="#444444" p-id="18883"></path><path d="M512 384m-48 0a48 48 0 1 0 96 0 48 48 0 1 0-96 0Z" fill="#444444" p-id="18884"></path><path d="M672 384m-48 0a48 48 0 1 0 96 0 48 48 0 1 0-96 0Z" fill="#444444" p-id="18885"></path></svg>',
+        icon2: '<svg t="1774947800000" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="18881" width="16" height="16"><path d="M512 128c-211.744 0-384 135.232-384 301.952 0 96.768 57.856 182.912 147.968 238.08V896l190.336-105.472c15.104 1.344 30.336 2.048 45.696 2.048 211.744 0 384-135.168 384-301.888C896 263.104 723.744 128 512 128z m0 597.248c-17.024 0-34.048-0.96-50.624-2.88l-15.872-1.856-101.376 56.192v-115.84l-16.448-8.768C252.416 612.224 192 525.184 192 429.952 192 298.496 335.488 192 512 192s320 106.496 320 237.952c0 131.456-143.488 237.344-320 237.344z" fill="#1296db" p-id="18882"></path><path d="M352 384m-48 0a48 48 0 1 0 96 0 48 48 0 1 0-96 0Z" fill="#1296db" p-id="18883"></path><path d="M512 384m-48 0a48 48 0 1 0 96 0 48 48 0 1 0-96 0Z" fill="#1296db" p-id="18884"></path><path d="M672 384m-48 0a48 48 0 1 0 96 0 48 48 0 1 0-96 0Z" fill="#1296db" p-id="18885"></path></svg>',
+        title: '互动',
+        bindfunc: 'openInteractionPage',
+        subNavs: [
+            {
+                id: INTERACTION_SUBSCRIBE_NAV_ID,
+                key: 'interactionSubscribe',
+                title: '订阅',
+                icon1: '<svg t="1774947800001" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="18891" width="16" height="16"><path d="M160 224h704a64 64 0 0 1 64 64v448a64 64 0 0 1-64 64H160a64 64 0 0 1-64-64V288a64 64 0 0 1 64-64z m0 64v448h704V288H160z" fill="#444444" p-id="18892"></path><path d="M216.896 323.648l295.104 230.272 295.104-230.272 39.296 50.304-314.816 245.632a32 32 0 0 1-39.168 0L177.6 373.952z" fill="#444444" p-id="18893"></path></svg>',
+                icon2: '<svg t="1774947800001" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="18891" width="16" height="16"><path d="M160 224h704a64 64 0 0 1 64 64v448a64 64 0 0 1-64 64H160a64 64 0 0 1-64-64V288a64 64 0 0 1 64-64z m0 64v448h704V288H160z" fill="#1296db" p-id="18892"></path><path d="M216.896 323.648l295.104 230.272 295.104-230.272 39.296 50.304-314.816 245.632a32 32 0 0 1-39.168 0L177.6 373.952z" fill="#1296db" p-id="18893"></path></svg>',
+                prompt: '用于查看推荐频道、搜索并进入已加入频道。',
+                operation: '点击后进入订阅页面。'
+            },
+            {
+                id: INTERACTION_PUBLISH_NAV_ID,
+                key: 'interactionPublish',
+                title: '发布',
+                icon1: '<svg t="1774947800002" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="18901" width="16" height="16"><path d="M832 128H192a64 64 0 0 0-64 64v640a64 64 0 0 0 64 64h640a64 64 0 0 0 64-64V192a64 64 0 0 0-64-64z m0 64v640H192V192h640z" fill="#444444" p-id="18902"></path><path d="M544 320v160h160v64H544v160h-64V544H320v-64h160V320z" fill="#444444" p-id="18903"></path></svg>',
+                icon2: '<svg t="1774947800002" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="18901" width="16" height="16"><path d="M832 128H192a64 64 0 0 0-64 64v640a64 64 0 0 0 64 64h640a64 64 0 0 0 64-64V192a64 64 0 0 0-64-64z m0 64v640H192V192h640z" fill="#1296db" p-id="18902"></path><path d="M544 320v160h160v64H544v160h-64V544H320v-64h160V320z" fill="#1296db" p-id="18903"></path></svg>',
+                prompt: '用于创建和管理频道的发布入口。',
+                operation: '点击后进入发布页面。',
+                disabled: window.isMateMode === true
             }
         ]
     },
@@ -1710,28 +1742,40 @@ function loadNavBar() {
                 const subFolderContent = folder_content.find(".sub-folder-content:last");
                 for (const thirdNav of subNav.subNavs) {
                     const thirdClickHandler = buildThirdClickHandler(nav, subNav, thirdNav);
+                    const thirdNavDisabled = thirdNav.disabled === true;
+                    const thirdNavClassName = thirdNavDisabled ? 'file-item third-file-item interaction-nav-disabled' : 'file-item third-file-item';
+                    const thirdNavAttrs = thirdNavDisabled
+                        ? 'data-disabled="true" aria-disabled="true" title="Mate 模式下暂不可用"'
+                        : `onclick="${thirdClickHandler}"`;
                     subFolderContent.append(`
-                        <div class="file-item third-file-item" data-nav-id="${thirdNav.id}" onclick="${thirdClickHandler}">
+                        <div class="${thirdNavClassName}" data-nav-id="${thirdNav.id}" ${thirdNavAttrs}>
                             <div class="file-icon">
                                 <i class="fa fa-file-code-o">
                                     ${thirdNav.icon1 || ''}
                                 </i>
                             </div>
                             <span class="file-text">${thirdNav.title}</span>
+                            ${thirdNavDisabled ? '<span class="nav-disabled-badge">Mate</span>' : ''}
                         </div>
                     `);
                 }
                 continue;
             }
 
+            const subNavDisabled = subNav.disabled === true;
+            const subNavClassName = subNavDisabled ? 'file-item interaction-nav-disabled' : 'file-item';
+            const subNavAttrs = subNavDisabled
+                ? 'data-disabled="true" aria-disabled="true" title="Mate 模式下暂不可用"'
+                : `onclick="${nav.bindfunc}(${nav.id}, ${subNav.id}, event)"`;
             folder_content.append(`
-                <div class="file-item" data-nav-id="${subNav.id}" onclick="${nav.bindfunc}(${nav.id}, ${subNav.id}, event)">
+                <div class="${subNavClassName}" data-nav-id="${subNav.id}" ${subNavAttrs}>
                     <div class="file-icon">
                         <i class="fa fa-file-code-o">
                             ${subNav.icon1 || ''}
                         </i>
                     </div>
                     <span class="file-text" >${subNav.title}</span>
+                    ${subNavDisabled ? '<span class="nav-disabled-badge">Mate</span>' : ''}
                 </div>
             `);
         }
@@ -1747,6 +1791,9 @@ function loadNavBar() {
     navBody.addEventListener('click', function (e) {
         const fileItem = e.target.closest && e.target.closest('.file-item');
         if (!fileItem || !navBody.contains(fileItem)) {
+            return;
+        }
+        if (fileItem.getAttribute('data-disabled') === 'true') {
             return;
         }
         clearNavBodyLeafActive();

@@ -405,6 +405,7 @@
 <script src="js/hello.js?t=<%=System.currentTimeMillis()%>"></script>
 <script src="js/chat.js?ver=${initParam.version}"></script>
 <script src="js/conversations.js?ver=${initParam.version}"></script>
+<script src="js/interaction.js?t=<%=System.currentTimeMillis()%>"></script>
 <script src="js/nav.js?t=<%=System.currentTimeMillis()%>"></script>
 <script src="js/index.js?ver=${initParam.version}"></script>
 <script src="js/self.js?ver=${initParam.version}"></script>

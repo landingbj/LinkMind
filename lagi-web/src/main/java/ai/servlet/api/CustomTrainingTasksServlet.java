@@ -87,12 +87,12 @@ public class CustomTrainingTasksServlet extends BaseServlet {
             // 获取传入的templateId（可能为null或空字符串）
             JsonElement templateIdElement = templateObj.get("template_id");
             String templateId = templateIdElement != null && !templateIdElement.isJsonNull() ? templateIdElement.getAsString() : null;
-            
+
             if (templateId == null || templateId.isEmpty()){
                 //新增
                 // 生成默认UUID（如果未传入templateId）
                 templateId = java.util.UUID.randomUUID().toString();
-                
+
                 templateInfoDto.setTemplateId(templateId);
                 templateInfoDto.setName(templateObj.get("name").getAsString());
                 templateInfoDto.setDescription(templateObj.get("description").getAsString());
@@ -245,7 +245,7 @@ public class CustomTrainingTasksServlet extends BaseServlet {
                 templateInfoDto.setRating(templateObj.get("rating").getAsFloat());
                 templateInfoDto.setIsPublic(templateObj.get("isPublic").getAsBoolean());
                 String tagsStr = templateInfoDto.getTags() == null ? "" : templateInfoDto.getTags().toString();
-                
+
                 //更新数据库
                 String updateTemplateSql = "UPDATE template_info SET template_name=?, description=?, type=?, category=?, difficulty=?, " +
                         "estimated_time=?, tags=?, is_built_in=?, usage_count=?, rating=?, is_public=?, updated_at=? WHERE template_id=?";
@@ -473,12 +473,12 @@ public class CustomTrainingTasksServlet extends BaseServlet {
                 }
             }
 
-            // 3. 处理page_size参数（默认10，限制最大100）
+            // 3. 处理page_size参数（默认10）
             int pageSize = 10;
             if (jsonNode != null && jsonNode.has("page_size") && !jsonNode.get("page_size").isJsonNull()) {
                 try {
                     pageSize = jsonNode.get("page_size").getAsInt();
-                    if (pageSize <= 0 || pageSize > 100) {
+                    if (pageSize <= 0 ) {
                         pageSize = 10;
                     }
                 } catch (Exception e) {

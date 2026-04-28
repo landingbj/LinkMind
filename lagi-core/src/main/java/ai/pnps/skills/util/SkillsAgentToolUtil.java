@@ -138,11 +138,13 @@ public final class SkillsAgentToolUtil {
             return content;
         }
         if (args.containsKey("path")) {
-            String skillName = getSkillName(args.get("path"));
+            String pathStr = args.get("path");
+            String skillName = getSkillName(pathStr);
             if (skillName == null) {
                 return content;
-            }else if (skillName.equals("social-channel")) {
-                return SocialSkillUtil.generateSkill(content, request);
+            } else if (skillName.equals("social-channel")) {
+                String skillBaseDir = resolveSkillBaseDir(pathStr);
+                return SocialSkillUtil.generateSkill(skillBaseDir, content, request);
             }
             return content;
         }
@@ -155,10 +157,28 @@ public final class SkillsAgentToolUtil {
             args.put("path", skillMdPath);
             content = fs.read(args);
             if (skillName.equals("social-channel")) {
-                return SocialSkillUtil.generateSkill(content, request);
+                String skillBaseDir = resolveSkillBaseDir(skillMdPath);
+                return SocialSkillUtil.generateSkill(skillBaseDir, content, request);
             }
         }
         return content;
+    }
+
+    /**
+     * Returns the absolute parent directory of the given SKILL.md path,
+     * which is used as the {@code skillBaseDir} for placeholder rendering.
+     */
+    private static String resolveSkillBaseDir(String skillMdPath) {
+        if (skillMdPath == null || skillMdPath.isEmpty()) {
+            return "";
+        }
+        try {
+            Path p = Paths.get(skillMdPath).toAbsolutePath();
+            Path parent = p.getParent();
+            return parent == null ? "" : parent.toString();
+        } catch (Exception ignored) {
+            return "";
+        }
     }
 
     private static String getSkillName(String path) {

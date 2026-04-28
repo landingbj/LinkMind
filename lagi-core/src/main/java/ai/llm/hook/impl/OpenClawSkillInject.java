@@ -3,15 +3,12 @@ package ai.llm.hook.impl;
 import ai.annotation.Component;
 import ai.annotation.ConditionalOnProperty;
 import ai.annotation.Order;
-import ai.annotation.Profile;
-import ai.common.ModelService;
 import ai.common.utils.LRUCache;
 import ai.config.ContextLoader;
 import ai.config.pojo.SkillsConfig;
 import ai.llm.hook.AfterModel;
 import ai.llm.hook.BeforeModel;
 import ai.llm.pojo.ModelContext;
-import ai.llm.responses.ResponseProtocolConstants;
 import ai.openai.pojo.*;
 import ai.pnps.skills.SkillLoader;
 import ai.pnps.skills.SkillsAgent;
@@ -110,7 +107,7 @@ public class OpenClawSkillInject implements BeforeModel, AfterModel {
         // server skills injection
         ChatMessage systemMessage = systemPrompt.get(0);
         String content = systemMessage.getContent();
-        List<SkillEntry> openClawSkills = OpenClawSkillUtil.SkillExtractor(content);
+        List<SkillEntry> openClawSkills = OpenClawSkillUtil.skillExtractor(content);
         List<SkillEntry> finalSkills = mergeSkills(openClawSkills, serverSkills);
         context.setSkills(finalSkills);
         String systemPromptContent = OpenClawSkillUtil.replaceAvailableSkill(content, finalSkills);

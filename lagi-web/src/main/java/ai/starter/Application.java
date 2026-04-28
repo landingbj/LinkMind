@@ -1,5 +1,6 @@
 package ai.starter;
 
+import ai.config.ConfigUtil;
 import ai.starter.config.ConfigSyncService;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.bridge.SLF4JBridgeHandler;
@@ -28,6 +29,12 @@ public class Application {
         }
 
         Path webappDir = TomcatUtil.resolveWebappDir(Application.class);
+        if (host.equals("0.0.0.0")) {
+            ConfigUtil.setAppHost("localhost");
+        } else {
+            ConfigUtil.setAppHost(host);
+        }
+        ConfigUtil.setAppPort(port);
         TomcatUtil.startAndAwait(host, port, webappDir, devMode);
     }
 }

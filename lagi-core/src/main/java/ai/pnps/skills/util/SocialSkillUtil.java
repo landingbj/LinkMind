@@ -1,5 +1,6 @@
 package ai.pnps.skills.util;
 
+import ai.config.ConfigUtil;
 import ai.openai.pojo.ChatCompletionRequest;
 import ai.openai.pojo.ChatMessage;
 import ai.openai.pojo.ExtraBody;
@@ -22,11 +23,13 @@ public final class SocialSkillUtil {
     private static final Gson GSON = new Gson();
     private static final String PLACEHOLDER_USER_ID = "{{USER_ID}}";
     private static final String PLACEHOLDER_CHANNELS = "{{SUBSCRIBED_CHANNELS_JSON}}";
+    private static final String PLACEHOLDER_BASE_URL = "{{BASE_URL}}";
+    private static final String PLACEHOLDER_SKILL_DIR = "{{SKILL_DIR}}";
 
     private SocialSkillUtil() {
     }
 
-    public static String generateSkill(String skillTemplate, ChatCompletionRequest request) {
+   public static String generateSkill(String skillBaseDir, String skillTemplate, ChatCompletionRequest request) {
         if (skillTemplate == null) {
             return null;
         }
@@ -40,9 +43,22 @@ public final class SocialSkillUtil {
         String userId = resolveUserId(request);
         List<Map<String, Object>> channels = loadSubscribedChannels(userId);
         String channelsJson = GSON.toJson(channels);
+        String baseUrl = resolveBaseUrl();
+        String skillDir = skillBaseDir == null ? "" : skillBaseDir;
         return skillTemplate
                 .replace(PLACEHOLDER_USER_ID, userId == null ? "" : userId)
-                .replace(PLACEHOLDER_CHANNELS, channelsJson);
+                .replace(PLACEHOLDER_CHANNELS, channelsJson)
+                .replace(PLACEHOLDER_BASE_URL, baseUrl)
+                .replace(PLACEHOLDER_SKILL_DIR, skillDir);
+    }
+
+    private static String resolveBaseUrl() {
+        try {
+            String baseUrl = ConfigUtil.getBaseUrl();
+            return baseUrl == null ? "" : baseUrl;
+        } catch (Exception ignored) {
+            return "";
+        }
     }
 
     private static String resolveUserId(ChatCompletionRequest request) {

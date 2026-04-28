@@ -7,6 +7,8 @@ public class ConfigUtil {
 
     public static final String MODE_SERVER = "server";
     public static final String MODE_MATE = "mate";
+    public static String APP_HOST;
+    public static int APP_PORT;
 
     private ConfigUtil() {
     }
@@ -28,5 +30,25 @@ public class ConfigUtil {
         }
 
         return MODE_MATE;
+    }
+
+    public static String getAppHost() {
+        return APP_HOST;
+    }
+
+    public static int getAppPort() {
+        return APP_PORT;
+    }
+
+    public static void setAppPort(int port) {
+        APP_PORT = port;
+    }
+
+    public static void setAppHost(String host) {
+        APP_HOST = host;
+    }
+
+    public static String getBaseUrl() {
+        return "http://" + getAppHost() + ":" + getAppPort();
     }
 }

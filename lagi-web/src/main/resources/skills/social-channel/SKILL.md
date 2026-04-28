@@ -33,6 +33,20 @@ tags:
 {{SUBSCRIBED_CHANNELS_JSON}}
 ```
 
+### 服务 Base URL
+
+```
+{{BASE_URL}}
+```
+
+### 本 skill 工作目录（绝对路径）
+
+```
+{{SKILL_DIR}}
+```
+
+注意：执行 Python 脚本时使用 `{{SKILL_DIR}}` 拼出脚本绝对路径，避免 `cwd` 不确定造成相对路径找不到；调用接口时使用 `{{BASE_URL}}` 作为 `--base-url`，无需用户再指定。
+
 每个元素的字段含义：
 - `channelId`：频道数字 ID（用于接口调用）
 - `channelName`：频道名称（用户在请求中使用的中文/英文名）
@@ -73,12 +87,12 @@ tags:
 通过 `exec` 工具调用本 skill 自带的 Python 脚本 `scripts/list_messages.py`（仅使用标准库，无需 `pip install`）。脚本路径相对于本 SKILL.md 所在目录。示例命令：
 
 ```bash
-python scripts/list_messages.py \
+python {{SKILL_DIR}}/scripts/list_messages.py \
   --user-id "{{USER_ID}}" \
   --channel-id <CHANNEL_ID> \
-  --limit 20
+  --limit 20 \
+  --base-url "{{BASE_URL}}"
 # 如需翻页：追加 --before-id <BEFORE_ID>
-# 如服务地址不是默认值：追加 --base-url http://host:port
 ```
 
 成功响应形如：
@@ -104,11 +118,11 @@ python scripts/list_messages.py \
 通过 `exec` 工具调用本 skill 自带的 Python 脚本 `scripts/send_message.py`（仅使用标准库）。脚本会自行做 JSON 编码，调用方只需把消息正文原样作为 `--content` 传入：
 
 ```bash
-python scripts/send_message.py \
+python {{SKILL_DIR}}/scripts/send_message.py \
   --user-id "{{USER_ID}}" \
   --channel-id <CHANNEL_ID> \
-  --content "<MESSAGE_CONTENT>"
-# 如服务地址不是默认值：追加 --base-url http://host:port
+  --content "<MESSAGE_CONTENT>" \
+  --base-url "{{BASE_URL}}"
 ```
 
 注意：

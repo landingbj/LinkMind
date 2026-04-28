@@ -363,12 +363,6 @@
 			"type": "crypto_mine"
 		},
 		{
-			"rule": "trojan|virus|backdoor|keylogger|rat",
-			"level": 3,
-			"mask": "***",
-			"type": "malware"
-		},
-		{
 			"rule": "hydra|medusa|john|hashcat|brute\\s+force",
 			"level": 3,
 			"mask": "***",

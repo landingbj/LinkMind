@@ -31,13 +31,6 @@ public class GitServiceImpl implements GitService {
 
     // 执行外部命令的工具方法
     private void executeCommand(String workingDir, String... command) throws Exception {
-        // 如果是 Git 命令，先设置 Git 用户名和邮箱
-        if (command != null && command.length > 0 && "git".equals(command[0])) {
-            // 执行配置命令
-            runGitConfig(workingDir, "user.name", "root");
-            runGitConfig(workingDir, "user.email", "root@example.com");
-        }
-
         ProcessBuilder processBuilder = new ProcessBuilder(command);
         if (workingDir != null) processBuilder.directory(new File(workingDir));
         processBuilder.redirectErrorStream(true);
@@ -56,14 +49,6 @@ public class GitServiceImpl implements GitService {
         if (exitCode != 0) {
             throw new RuntimeException("Command failed with exit code: " + exitCode + ", command: " + String.join(" ", command));
         }
-    }
-
-    // 执行 Git 配置命令的辅助方法
-    private void runGitConfig(String workingDir, String key, String value) throws Exception {
-        ProcessBuilder builder = new ProcessBuilder("git", "config", key, value);
-        if (workingDir != null) builder.directory(new File(workingDir));
-        builder.redirectErrorStream(true);
-        builder.start().waitFor();
     }
 
     @Override
@@ -645,20 +630,14 @@ public class GitServiceImpl implements GitService {
     public Map<String, Object> pushDirectory(String dirPath, String repoUrl, String branch, String message, boolean force) {
         try {
             File dir = new File(dirPath);
-            
+
             // 目录检查
             if (!dir.exists() || !dir.isDirectory()) return Map.of("code", "400", "message", "failed", "errorMsg", "Directory not found");
             if (!dir.canRead() || !dir.canWrite()) return Map.of("code", "403", "message", "failed", "errorMsg", "Permission denied");
 
-            // 初始化/配置仓库
-            if (!new File(dir, ".git").exists()) executeCommand(dirPath, "git", "init");
-            executeCommand(dirPath, "git", "config", "user.name", "root");
-            executeCommand(dirPath, "git", "config", "user.email", "root@example.com");
-            executeCommand(dirPath, "git", "remote", "add", "origin", repoUrl);
-
             // 添加文件
             executeCommand(dirPath, "git", "add", ".");
-            
+
             // 检查变更
             if (!hasChanges(dirPath)) return Map.of("code", "200", "message", "success", "data", "No changes");
 

@@ -447,6 +447,12 @@ function getTextResult(question, robootAnswerJq, conversation, agentId) {
 
 async function generalOutput(paras, question, robootAnswerJq) {
     let url = paras.agentId ? 'chat/go' : 'v1/chat/completions';
+    if (!paras.agentId) {
+        var selectedModel = $('#model-select').val() || $('.model-select:visible').first().val() || $('.model-select').first().val();
+        if (selectedModel) {
+            paras.model = selectedModel;
+        }
+    }
     var ajaxOpts = {
         type: "POST",
         contentType: "application/json;charset=utf-8",
@@ -530,6 +536,12 @@ function streamOutput(paras, question, robootAnswerJq) {
 
     async function generateStream(paras) {
         let url = paras.agentId ? 'chat/go' : 'v1/chat/completions';
+        if (!paras.agentId) {
+            var selectedModel = $('#model-select').val() || $('.model-select:visible').first().val() || $('.model-select').first().val();
+            if (selectedModel) {
+                paras.model = selectedModel;
+            }
+        }
         var streamHeaders = {
             "Content-Type": "application/json",
             "Accept": "text/event-stream",

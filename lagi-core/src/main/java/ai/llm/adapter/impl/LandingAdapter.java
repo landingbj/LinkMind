@@ -3,6 +3,7 @@ package ai.llm.adapter.impl;
 
 import ai.common.db.HikariDS;
 import ai.config.ConfigUtil;
+import ai.llm.utils.ExtraBodyUtil;
 import ai.openai.pojo.ChatCompletionRequest;
 import ai.openai.pojo.ChatCompletionResult;
 import ai.openai.pojo.ExtraBody;
@@ -77,40 +78,12 @@ public class LandingAdapter extends OpenAIStandardAdapter {
     public void setDefaultField(ChatCompletionRequest request) {
         ExtraBody extraBody;
         if (ConfigUtil.getRunningMode().equals(ConfigUtil.MODE_MATE)) {
-            extraBody = getExtraBody();
+            extraBody = ExtraBodyUtil.getExtraBody();
         } else {
             extraBody = request.getExtraBody();
         }
         super.setDefaultField(request);
         request.setExtraBody(extraBody);
-    }
-
-    private ExtraBody getExtraBody() {
-        String userId = getUserId();
-        if (userId == null) {
-            return null;
-        }
-        ExtraBody extraBody = new ExtraBody();
-        extraBody.setUserId(userId);
-        return extraBody;
-    }
-
-    private String getUserId() {
-        String sql = "SELECT v FROM social_temp WHERE k = ? LIMIT 1";
-        try (Connection conn = HikariDS.getConnection("saas");
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, "last_login_user_id");
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    String userId = rs.getString("v");
-                    if (userId != null && !userId.trim().isEmpty()) {
-                        return userId.trim();
-                    }
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        return null;
     }
 
     private String extractOrigin(String apiAddress) {

@@ -98,6 +98,20 @@ ChatCompletionResult result = service.completions(request);
 String answer = result.getChoices().get(0).getMessage().getContent();
 ```
 
+### 按需附加二次开发上下文
+
+二次开发元数据被刻意隔离在标准聊天参数之外。只有当业务流程确实需要传递调用方身份或其他带外信息时，才建议通过 `extra_body` 挂载，而不是改写消息结构：
+
+```java
+import ai.openai.pojo.ExtraBody;
+
+ExtraBody extraBody = new ExtraBody();
+extraBody.setUserId("u_1001");
+request.setExtraBody(extraBody);
+```
+
+这种写法既保留了 OpenAI 兼容请求形态，也为 Skill、社交能力和其他服务端扩展提供了明确的业务上下文边界。如果你在 `Agent Mate` 模式下通过 `LandingAdapter` 运行 LinkMind，当前登录用户也可以由运行时自动注入，已有调用点不需要做侵入式改造。
+
 ### 语音识别
 
 ```java
@@ -249,6 +263,16 @@ Authorization: Bearer <你的-linkmind-api-key>
 ```
 
 每个接口的参数与返回体细节，请继续查看 [API 参考](API_zh.md)。
+
+### 二次开发接口分组
+
+LinkMind 将二次开发能力拆成独立的接口分组，便于按职责接入：
+
+- `带外上下文接口`：`POST /chat/completions` 和 `POST /v1/chat/completions` 支持 `extra_body`，用于承载用户身份等业务侧上下文。
+- `社交 Skill 与频道接口`：`/socialChannel/*` 提供用户登记、频道订阅、消息查询和消息发送能力，Skill 层通过这些接口复用现有流程，而不是直接侵入聊天 Adapter。
+- `用户、API Key 与计费接口`：`/user/*`、`/apiKey/*`、`/credit/*` 将账号体系、凭证池和收费流程从模型路由中解耦出来，最适合对接既有的 SSO、用户中心或计费平台。
+
+这种接口拆分方式意味着多数场景下你可以保持现有聊天与多模态链路不变，只替换自己真正需要接管的业务模块。
 
 ## 七、如果改走 Docker 集成
 

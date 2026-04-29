@@ -81,7 +81,7 @@ The current codebase exposes a single middleware layer for chat, RAG, OCR, ASR/T
   </tr>
 </table>
 
-Entries are grouped by type and listed alphabetically. These ecosystems are extensible; the [Extension Guide](docs/extend_en.md) covers writing new model, vector-store, and adapter integrations. For Chroma setup specifics, see the [Annex](docs/annex_en.md).
+Entries are grouped by type and listed alphabetically. These ecosystems are extensible; the [Extension Guide](docs/extend_en.md) covers writing new model, vector-store, adapter, and secondary-development integrations. For Chroma setup specifics, see the [Annex](docs/annex_en.md).
 
 ## Why LinkMind
 
@@ -169,6 +169,16 @@ LinkMind exposes two route styles:
 - OpenAI-compatible routes that intentionally keep the standard prefix, such as `/v1/chat/completions`, `/v1/models`, `/v1/embeddings`, `/v1/images/generations`, and `/v1/rerank`
 
 One current exception is the vector administration namespace, which is still mapped in code as `/v1/vector/*`. Full endpoint documentation is in the [API Reference](docs/API_en.md).
+
+## Secondary Development Interfaces
+
+LinkMind keeps secondary-development entry points behind object-oriented boundaries so teams can extend behavior without rewriting the main request flow.
+
+- `Communication and out-of-band data`: OpenAI-compatible chat requests accept `extra_body`, and runtime helpers handle encoding, decoding, and current-user injection without pushing business parsing into the adapter itself. Existing completion, streaming, and cascade flows remain unchanged.
+- `Skill-level social data`: social interaction data is encapsulated in skills and service classes, then exposed through `/socialChannel/*`. If you do not enable social skills, the original chat and token flow stays intact.
+- `Authentication, API-key, and billing`: `/user/*`, `/apiKey/*`, and `/credit/*` form the stable HTTP surface for account binding, key-pool management, and charging workflows. You can replace the backing service logic while preserving the external contract.
+
+This split gives two practical benefits for secondary development: zero-invasive integration with the current codebase, and opt-in adoption so you only enable the interfaces your deployment actually needs.
 
 ## Agent Runtime Integration
 

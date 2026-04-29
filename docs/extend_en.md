@@ -1,6 +1,6 @@
 # Extension Guide
 
-This guide explains how to extend model adapters, multimodal capabilities, vector stores, and runtime integrations. The safest path is to reuse an existing compatible adapter first, and only write Java code when you truly need a new protocol, modality, or storage backend.
+This guide explains how to extend model adapters, multimodal capabilities, vector stores, runtime integrations, and secondary-development interfaces. The safest path is to reuse an existing compatible adapter first, and only write Java code when you truly need a new protocol, modality, storage backend, or business-side extension point.
 
 ## 1. Decide What Kind of Extension You Need
 
@@ -404,6 +404,16 @@ public class YourVideoEnhanceAdapter extends ModelService implements Video2Enhan
     }
 }
 ```
+
+## 3.11 Design OOP-Style Secondary-Development Interfaces
+
+When you extend LinkMind for business-specific workflows, keep the secondary-development boundary object-oriented and responsibility-driven:
+
+- `Out-of-band request data`: keep non-standard business fields in typed request extensions such as `extra_body`, and centralize encode or decode logic in helper classes. Adapters should read typed objects, not parse scattered business strings.
+- `Skill-level interaction state`: keep social, announcement, or workflow state inside skills, scripts, and service helpers. This lets you reuse the current tool and chat pipeline without modifying the base completion path.
+- `Authentication, API-key, and billing`: keep account, credential-pool, and charging logic behind service or servlet boundaries such as `/user/*`, `/apiKey/*`, and `/credit/*`. Replace the backing implementation when integrating with enterprise SSO or billing, but preserve the HTTP contract.
+
+This layering keeps the current codebase zero-invasive for existing callers and makes each module opt-in. Teams that only need routing, RAG, or token optimization can leave social or billing extensions disabled without affecting the standard runtime.
 
 ## 4. Extend Vector Stores
 

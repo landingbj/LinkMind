@@ -98,6 +98,20 @@ ChatCompletionResult result = service.completions(request);
 String answer = result.getChoices().get(0).getMessage().getContent();
 ```
 
+### Carry Secondary-Development Context Only When You Need It
+
+Secondary-development metadata is intentionally isolated from the standard chat surface. When your business flow needs caller identity or other out-of-band data, attach it through `extra_body` instead of changing the message schema:
+
+```java
+import ai.openai.pojo.ExtraBody;
+
+ExtraBody extraBody = new ExtraBody();
+extraBody.setUserId("u_1001");
+request.setExtraBody(extraBody);
+```
+
+This keeps the request object OpenAI-compatible while giving skills, social features, and other server-side extensions a typed place to read business context. If you run LinkMind through `LandingAdapter` in `Agent Mate` mode, the current login user can also be injected automatically, so existing call sites do not need invasive rewrites.
+
 ### Speech Recognition
 
 ```java
@@ -249,6 +263,16 @@ Authorization: Bearer <your-linkmind-api-key>
 ```
 
 For route-by-route request details, use the [API Reference](API_en.md).
+
+### Secondary-Development Interface Groups
+
+LinkMind exposes secondary-development contracts as separate interface groups, so you can adopt only the layers your project actually needs:
+
+- `Out-of-band request context`: `POST /chat/completions` and `POST /v1/chat/completions` accept `extra_body`, which is the preferred contract for user identity and other business-side metadata.
+- `Social skill and channel APIs`: `/socialChannel/*` provides channel registration, subscription, message listing, and message publishing. Skill-side social features consume these routes instead of writing directly into the chat adapter path.
+- `User, API-key, and billing APIs`: `/user/*`, `/apiKey/*`, and `/credit/*` separate account, credential-pool, and charging workflows from model routing. This is the safest replacement point when you need to plug LinkMind into an existing SSO, user center, or charging platform.
+
+Because these interfaces are separated by responsibility, most teams can keep the current chat and multimodal flows unchanged and only swap the business module they actually own.
 
 ## 7. Integrate Through Docker
 

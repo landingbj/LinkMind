@@ -1534,5 +1534,117 @@ HTTP Status Code **200**
 | -------- | ------ | -------- | ------------ | ------------- | ------------------------------------------------------------ |
 | » status | string | true     | none         | Return status | Execution status of the endpoint. success indicates success. |
 
+# Secondary Development Conventions
+
+Unless otherwise noted, the secondary-development endpoints below return JSON envelopes shaped like `{"status":"success|failed","msg":"...","data":...}`.
+
+## OpenAI-Compatible `extra_body`
+
+`POST /chat/completions` and `POST /v1/chat/completions` accept an optional `extra_body` object for business-side metadata.
+
+```json
+{
+  "model": "qwen-plus",
+  "stream": false,
+  "messages": [
+    {
+      "role": "user",
+      "content": "List my subscribed channels."
+    }
+  ],
+  "extra_body": {
+    "user_id": "u_1001"
+  }
+}
+```
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `user_id` | string | no | Logical user identifier used by social skills, channel APIs, and user-aware workflows. |
+| `user` | string | no | Alias of `user_id` for compatibility. |
+
+Notes:
+
+- `extra_body` is the recommended place to carry out-of-band business context without changing the OpenAI-compatible message schema.
+- When the runtime injects skills, it may temporarily serialize this payload into an internal `<extra_body>...</extra_body>` block so the value survives tool execution. This is an internal transport detail; clients should keep sending normal JSON `extra_body`.
+- In `Agent Mate` mode, `LandingAdapter` can auto-populate the current login user for local runtime calls.
+
+# Secondary Development Interfaces
+
+## Social Channel APIs
+
+| Route | Method | Required input | Purpose | Success payload |
+| --- | --- | --- | --- | --- |
+| `/socialChannel/runningMode` | GET | none | Inspect whether the current node is running in `mate` or `server` mode. | `runningMode`, `isMateMode` |
+| `/socialChannel/registerUser` | POST | `userId`, `username` | Register or synchronize a social user identity. | `created` |
+| `/socialChannel/saveLastLoginUser` | POST | `userId` | Persist the current login user so local `Agent Mate` calls can auto-inject user context. | `status` |
+| `/socialChannel/createChannel` | POST | `userId`, `name` | Create a channel and subscribe the owner automatically. Optional `description` and `isPublic` are accepted as compatibility fields. | `channelId` |
+| `/socialChannel/subscribe` | POST | `userId`, `channelId` | Subscribe a user to a channel. | `msg: subscribed` |
+| `/socialChannel/unsubscribe` | POST | `userId`, `channelId` | Remove a subscription. Channel owners cannot unsubscribe themselves. | `msg: unsubscribed` |
+| `/socialChannel/listMyChannels` | GET | `userId` | List channels subscribed by the current user. | `data: SocialChannel[]` |
+| `/socialChannel/listPublicChannels` | GET | none, `limit?` | List public channels available for discovery. | `data: SocialChannel[]` |
+| `/socialChannel/listOwnedChannels` | GET | `userId` | List channels owned by the current user. | `data: SocialChannel[]` |
+| `/socialChannel/getChannel` | GET | `channelId` | Read channel metadata after enablement checks. | `data: SocialChannel` |
+| `/socialChannel/listMessages` | GET | `userId`, `channelId` | List channel messages for a subscribed user. Optional `limit` and `beforeId` support paging. | `data: SocialChannelMessage[]` |
+| `/socialChannel/sendMessage` | POST | `userId`, `content`, and either `channelId` or `channelName` | Publish a message into a subscribed channel. | `messageId` |
+| `/socialChannel/toggleChannel` | POST | `userId`, `channelId`, `enabled` | Enable or disable a channel. Owner only. | `msg: enabled|disabled` |
+| `/socialChannel/deleteChannel` | POST | `userId`, `channelId` | Delete a channel. Owner only. | `msg: deleted` |
+
+Notes:
+
+- In `Agent Mate` mode, all social endpoints except `runningMode` and `saveLastLoginUser` can proxy automatically to the configured cascade server address.
+- The `social-channel` skill consumes these routes instead of embedding storage logic into the chat adapter path.
+
+## User And Authentication APIs
+
+| Route | Method | Required input | Purpose | Success payload |
+| --- | --- | --- | --- | --- |
+| `/user/login` | POST | `username`, `password`, `captcha` | Authenticate a console or embedded user session. | `data.username`, `data.userId`, plus `lagi-auth` and `userId` cookies |
+| `/user/register` | POST | `username`, `password`, `captcha` | Register a new user. `domainName` is accepted for compatibility and defaults to the username in the current implementation. | `status`, optional `channelId`, plus login cookies on success |
+| `/user/authLoginCookie` | POST | `cookieValue` | Revalidate a persisted login cookie and refresh session cookies. | Same shape as `/user/login` |
+| `/user/getCaptcha` | GET | none | Render the captcha image bound to the current HTTP session. Optional query params: `charNum`, `width`, `height`, `fontSize`. | JPEG binary |
+| `/user/getRandomCategory` | GET | none | Return a generated or current default category. Optional `currentCategory` and `userId` are accepted. | `data.category` |
+| `/user/getDefaultTitle` | GET | none | Read the configured default system title. | `data` |
+
+These routes are the clean replacement point when you need to connect LinkMind to an existing SSO, tenant, or account-center implementation.
+
+## API Key Management APIs
+
+| Route | Method | Required input | Purpose | Success payload |
+| --- | --- | --- | --- | --- |
+| `/apiKey/list` | GET | none | List API keys visible to the current deployment. Optional `userId` enables Landing user-level keys. | `data: ModelApiKey[]`, `localApiKeyEditable` |
+| `/apiKey/get` | GET | `modelName` | Read the configured key of one model. The response masks the secret. | `data.name`, `data.provider`, `data.api_key`, `data.api_address` |
+| `/apiKey/providers` | GET | none | List provider types supported by the key-management UI. | `data: string[]`, `localApiKeyEditable` |
+| `/apiKey/add` | POST | `name`, `provider`, `apiKey` | Add a new key and sync it into the active configuration when applicable. Optional `model`, `apiAddress`, and `userId` are supported. | `msg: add success` |
+| `/apiKey/delete` | POST | `provider` plus `apiKey` or `id` | Remove a key from local config or a Landing user pool. `userId` is required for Landing keys. | `msg: delete success` |
+| `/apiKey/toggle` | POST | `id`, `provider`, `enabled` | Activate or deactivate a key in the current configuration or remote Landing pool. Optional `userId` is supported. | `msg: toggle success` |
+
+Notes:
+
+- The service can read both `api_key` and `api_keys`, so a single provider can expose a key pool without changing the external HTTP contract.
+- When `localApiKeyEditable` is `false`, the deployment treats local YAML keys as read-only and only manages remote Landing keys through this interface.
+
+## Credit And Billing APIs
+
+| Route | Method | Required input | Purpose | Success payload |
+| --- | --- | --- | --- | --- |
+| `/credit/prepay` | POST | `lagiUserId`, `fee` | Start a prepay order. | `outTradeNo`, `qrCode`, `mWebUrl`, `totalFee`, `result` |
+| `/credit/getChargeDetail` | GET | `outTradeNo` | Read one charge record by payment order number. | `seq`, `userId`, `amount`, `time`, `status` |
+| `/credit/getChargeDetailByUserId` | GET | `userId` | List charge records of one user. | `data: ChargeDetail[]` |
+| `/credit/getCreditUserBalance` | GET | `userId` | Read the current balance of one user. | `data.userId`, `data.balance` |
+| `/credit/getChargeDetailBySeq` | GET | `seq` | Read one charge record by sequence number. | `data: ChargeDetail` |
+
+These billing routes are intentionally isolated from model routing and chat execution so enterprise deployments can replace the backing billing provider while keeping the same console and HTTP integration contract.
+
+## Secondary-Development Data Objects
+
+| Object | Key fields |
+| --- | --- |
+| `SocialChannel` | `id`, `name`, `description`, `ownerUserId`, `isPublic`, `enabled`, `createdAt` |
+| `SocialChannelMessage` | `id`, `channelId`, `channelName`, `userId`, `userName`, `content`, `createdAt` |
+| `ModelApiKey` | `id`, `name`, `provider`, `apiKey`, `apiAddress`, `createdTime`, `userId`, `status` |
+| `CreditUserBalance` | `userId`, `balance` |
+| `ChargeDetail` | `seq`, `userId`, `amount`, `time`, `status` |
+
 # Data Schema
 

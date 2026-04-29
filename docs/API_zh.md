@@ -1534,5 +1534,117 @@ POST /uploadFile/deleteFile
 | -------- | ------ | ---- | ---- | -------- | -------------------------------- |
 | » status | string | true | none | 返回状态 | 接口执行状态，success 表示成功。 |
 
+# 二次开发约定
+
+除特别说明外，下述二次开发接口统一返回 JSON 包装结构 `{"status":"success|failed","msg":"...","data":...}`。
+
+## OpenAI 兼容 `extra_body`
+
+`POST /chat/completions` 和 `POST /v1/chat/completions` 支持可选的 `extra_body` 对象，用于承载业务侧带外元数据。
+
+```json
+{
+  "model": "qwen-plus",
+  "stream": false,
+  "messages": [
+    {
+      "role": "user",
+      "content": "列出我已订阅的频道。"
+    }
+  ],
+  "extra_body": {
+    "user_id": "u_1001"
+  }
+}
+```
+
+| 字段 | 类型 | 必选 | 说明 |
+| --- | --- | --- | --- |
+| `user_id` | string | 否 | 逻辑用户标识，供社交 Skill、频道接口和需要识别调用方身份的业务流程使用。 |
+| `user` | string | 否 | `user_id` 的兼容别名。 |
+
+说明：
+
+- `extra_body` 是承载带外业务上下文的推荐位置，不需要为此修改 OpenAI 兼容消息结构。
+- 当运行时注入 Skill 时，系统可能暂时把该载荷序列化到内部的 `<extra_body>...</extra_body>` 片段中，以便跨工具调用保留上下文。这只是内部传递细节，调用方仍然只需要发送标准 JSON `extra_body`。
+- 在 `Agent Mate` 模式下，`LandingAdapter` 也可以为本地运行时调用自动补齐当前登录用户。
+
+# 二次开发接口
+
+## 社交频道接口
+
+| 路径 | 方法 | 必要输入 | 用途 | 成功返回 |
+| --- | --- | --- | --- | --- |
+| `/socialChannel/runningMode` | GET | 无 | 查看当前节点运行在 `mate` 还是 `server` 模式。 | `runningMode`、`isMateMode` |
+| `/socialChannel/registerUser` | POST | `userId`、`username` | 注册或同步社交用户身份。 | `created` |
+| `/socialChannel/saveLastLoginUser` | POST | `userId` | 保存当前登录用户，供 `Agent Mate` 模式自动注入用户上下文。 | `status` |
+| `/socialChannel/createChannel` | POST | `userId`、`name` | 创建频道并自动为所有者建立订阅。`description`、`isPublic` 可作为兼容字段传入。 | `channelId` |
+| `/socialChannel/subscribe` | POST | `userId`、`channelId` | 订阅频道。 | `msg: subscribed` |
+| `/socialChannel/unsubscribe` | POST | `userId`、`channelId` | 取消订阅。频道所有者不能取消自己的订阅。 | `msg: unsubscribed` |
+| `/socialChannel/listMyChannels` | GET | `userId` | 查询当前用户已订阅频道。 | `data: SocialChannel[]` |
+| `/socialChannel/listPublicChannels` | GET | 无 | 查询公开频道。支持可选 `limit`。 | `data: SocialChannel[]` |
+| `/socialChannel/listOwnedChannels` | GET | `userId` | 查询当前用户拥有的频道。 | `data: SocialChannel[]` |
+| `/socialChannel/getChannel` | GET | `channelId` | 在启用状态校验后读取频道元数据。 | `data: SocialChannel` |
+| `/socialChannel/listMessages` | GET | `userId`、`channelId` | 查询已订阅频道的消息。支持可选 `limit`、`beforeId` 分页。 | `data: SocialChannelMessage[]` |
+| `/socialChannel/sendMessage` | POST | `userId`、`content`，以及 `channelId` 或 `channelName` 二选一 | 向已订阅频道发送消息。 | `messageId` |
+| `/socialChannel/toggleChannel` | POST | `userId`、`channelId`、`enabled` | 启用或禁用频道，仅所有者可操作。 | `msg: enabled|disabled` |
+| `/socialChannel/deleteChannel` | POST | `userId`、`channelId` | 删除频道，仅所有者可操作。 | `msg: deleted` |
+
+说明：
+
+- 在 `Agent Mate` 模式下，除 `runningMode` 和 `saveLastLoginUser` 外，其余社交接口都可以自动代理到配置好的级联上级节点。
+- `social-channel` Skill 通过这些接口复用社交能力，而不是把存储逻辑写入聊天 Adapter 主路径。
+
+## 用户与认证接口
+
+| 路径 | 方法 | 必要输入 | 用途 | 成功返回 |
+| --- | --- | --- | --- | --- |
+| `/user/login` | POST | `username`、`password`、`captcha` | 登录控制台或嵌入式用户会话。 | `data.username`、`data.userId`，并写入 `lagi-auth`、`userId` Cookie |
+| `/user/register` | POST | `username`、`password`、`captcha` | 注册新用户。`domainName` 为兼容字段，当前实现会默认回填为用户名。 | `status`、可选 `channelId`，成功时同时写入登录 Cookie |
+| `/user/authLoginCookie` | POST | `cookieValue` | 校验持久化登录 Cookie 并刷新会话 Cookie。 | 与 `/user/login` 相同 |
+| `/user/getCaptcha` | GET | 无 | 输出绑定到当前 HTTP Session 的验证码图片。支持可选 `charNum`、`width`、`height`、`fontSize`。 | JPEG 二进制 |
+| `/user/getRandomCategory` | GET | 无 | 获取随机或当前默认分类。支持可选 `currentCategory`、`userId`。 | `data.category` |
+| `/user/getDefaultTitle` | GET | 无 | 读取默认系统标题。 | `data` |
+
+这组接口是接入企业级 SSO、租户体系或账号中心时最适合替换的边界层。
+
+## API Key 管理接口
+
+| 路径 | 方法 | 必要输入 | 用途 | 成功返回 |
+| --- | --- | --- | --- | --- |
+| `/apiKey/list` | GET | 无 | 列出当前部署可见的 API Key。传入可选 `userId` 时可合并 Landing 用户级 Key。 | `data: ModelApiKey[]`、`localApiKeyEditable` |
+| `/apiKey/get` | GET | `modelName` | 读取单个模型当前配置的密钥，返回值会自动脱敏。 | `data.name`、`data.provider`、`data.api_key`、`data.api_address` |
+| `/apiKey/providers` | GET | 无 | 列出 UI 可管理的提供方类型。 | `data: string[]`、`localApiKeyEditable` |
+| `/apiKey/add` | POST | `name`、`provider`、`apiKey` | 新增 API Key，并在适用时同步到当前配置。支持可选 `model`、`apiAddress`、`userId`。 | `msg: add success` |
+| `/apiKey/delete` | POST | `provider`，以及 `apiKey` 或 `id` | 删除本地配置中的 Key 或 Landing 用户 Key。Landing 场景要求传入 `userId`。 | `msg: delete success` |
+| `/apiKey/toggle` | POST | `id`、`provider`、`enabled` | 在当前配置或远端 Landing Key 池中启用或停用某个 Key。支持可选 `userId`。 | `msg: toggle success` |
+
+说明：
+
+- 该服务同时识别 `api_key` 与 `api_keys`，因此单个 Provider 可以对外保持同一套 HTTP 协议，同时在内部启用 Key 池。
+- 当 `localApiKeyEditable` 为 `false` 时，部署会将本地 YAML 视为只读，并只通过该接口管理远端 Landing Key。
+
+## 计费接口
+
+| 路径 | 方法 | 必要输入 | 用途 | 成功返回 |
+| --- | --- | --- | --- | --- |
+| `/credit/prepay` | POST | `lagiUserId`、`fee` | 发起预支付订单。 | `outTradeNo`、`qrCode`、`mWebUrl`、`totalFee`、`result` |
+| `/credit/getChargeDetail` | GET | `outTradeNo` | 按支付订单号读取一条计费记录。 | `seq`、`userId`、`amount`、`time`、`status` |
+| `/credit/getChargeDetailByUserId` | GET | `userId` | 按用户查询计费记录列表。 | `data: ChargeDetail[]` |
+| `/credit/getCreditUserBalance` | GET | `userId` | 查询用户当前余额。 | `data.userId`、`data.balance` |
+| `/credit/getChargeDetailBySeq` | GET | `seq` | 按流水号读取一条计费记录。 | `data: ChargeDetail` |
+
+这组接口被刻意放在模型路由与聊天执行之外，便于企业部署在保留控制台和 HTTP 合同不变的前提下，替换为自己的计费提供方。
+
+## 二次开发数据对象
+
+| 对象 | 关键字段 |
+| --- | --- |
+| `SocialChannel` | `id`、`name`、`description`、`ownerUserId`、`isPublic`、`enabled`、`createdAt` |
+| `SocialChannelMessage` | `id`、`channelId`、`channelName`、`userId`、`userName`、`content`、`createdAt` |
+| `ModelApiKey` | `id`、`name`、`provider`、`apiKey`、`apiAddress`、`createdTime`、`userId`、`status` |
+| `CreditUserBalance` | `userId`、`balance` |
+| `ChargeDetail` | `seq`、`userId`、`amount`、`time`、`status` |
+
 # 数据模型
 

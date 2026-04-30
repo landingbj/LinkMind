@@ -47,14 +47,15 @@ public class GPTAzureAdapter extends ModelService implements ILlmAdapter {
 
     @Override
     public ChatCompletionResult completions(ChatCompletionRequest chatCompletionRequest) {
+        String reqApiKey = getApiKey(chatCompletionRequest);
         setDefaultField(chatCompletionRequest);
         chatCompletionRequest.setMax_completion_tokens(chatCompletionRequest.getMax_tokens());
         chatCompletionRequest.setMax_tokens(null);
         if (ResponseProtocolUtil.isResponseProtocol(this)) {
             ResponseSessionContext sessionContext = SESSION_MANAGER.prepare(chatCompletionRequest, this);
             String json = toJson(ResponsesChatCompletionConverter.toRequest(chatCompletionRequest, sessionContext, getDeployment()));
-            LlmApiResponse response = OpenAiResponsesApiUtil.createResponse(getApiKey(), getResponsesApiAddress(), HTTP_TIMEOUT, json,
-                    GptAzureConvert::convertByResponse, responseHeaders(), null);
+            LlmApiResponse response = OpenAiResponsesApiUtil.createResponse(reqApiKey, getResponsesApiAddress(), HTTP_TIMEOUT, json,
+                    GptAzureConvert::convertByResponse, responseHeaders(reqApiKey), null);
             if(response.getCode() != 200) {
                 logger.error("open ai azure responses api error {}", response.getMsg());
                 throw new RRException(response.getCode(), response.getMsg());
@@ -66,11 +67,11 @@ public class GPTAzureAdapter extends ModelService implements ILlmAdapter {
         }
         Map<String, String> headers = new HashMap<>();
         headers.put("Content-Type", "application/json");
-        headers.put("api-key", getApiKey());
+        headers.put("api-key", reqApiKey);
 
         String json = toJson(chatCompletionRequest);
         Proxy proxy = new Proxy(Proxy.Type.SOCKS, GptAzureConvert.convertProxyUrl2InetSocketAddress());
-        LlmApiResponse completions = OpenAiApiUtil.completions(getApiKey(), getApiAddress(), HTTP_TIMEOUT, json,
+        LlmApiResponse completions = OpenAiApiUtil.completions(reqApiKey, getApiAddress(), HTTP_TIMEOUT, json,
                 GptAzureConvert::convert2ChatCompletionResult, GptAzureConvert::convertByResponse,
                 headers,proxy);
         if(completions.getCode() != 200) {
@@ -82,13 +83,14 @@ public class GPTAzureAdapter extends ModelService implements ILlmAdapter {
 
     @Override
     public Observable<ChatCompletionResult> streamCompletions(ChatCompletionRequest chatCompletionRequest) {
+        String reqApiKey = getApiKey(chatCompletionRequest);
         setDefaultField(chatCompletionRequest);
         if (ResponseProtocolUtil.isResponseProtocol(this)) {
             ResponseSessionContext sessionContext = SESSION_MANAGER.prepare(chatCompletionRequest, this);
             Proxy proxy = new Proxy(Proxy.Type.SOCKS, GptAzureConvert.convertProxyUrl2InetSocketAddress());
             String json = toJson(ResponsesChatCompletionConverter.toRequest(chatCompletionRequest, sessionContext, getDeployment()));
-            LlmApiResponse response = OpenAiResponsesApiUtil.streamResponse(getApiKey(), getResponsesApiAddress(), HTTP_TIMEOUT, json,
-                    GptAzureConvert::convertByResponse, responseHeaders(), proxy);
+            LlmApiResponse response = OpenAiResponsesApiUtil.streamResponse(reqApiKey, getResponsesApiAddress(), HTTP_TIMEOUT, json,
+                    GptAzureConvert::convertByResponse, responseHeaders(reqApiKey), proxy);
             Integer code = response.getCode();
             if(code != null && code != 200) {
                 logger.error("open ai azure responses stream api error {}", response.getMsg());
@@ -106,7 +108,7 @@ public class GPTAzureAdapter extends ModelService implements ILlmAdapter {
                     .doOnComplete(() -> SESSION_MANAGER.onSuccess(sessionContext, responseId.get(), assistantMessage.get()));
         }
         String apiUrl = getApiAddress();
-        String apiKey = getApiKey();
+        String apiKey = reqApiKey;
         Map<String, String> headers = new HashMap<>();
         headers.put("api-key", apiKey);
         Map incloudUsage = new HashMap<>();
@@ -135,10 +137,10 @@ public class GPTAzureAdapter extends ModelService implements ILlmAdapter {
         return endpoint + "openai/v1/responses";
     }
 
-    private Map<String, String> responseHeaders() {
+    private Map<String, String> responseHeaders(String reqApiKey) {
         Map<String, String> headers = new HashMap<>();
         headers.put("Content-Type", "application/json");
-        headers.put("api-key", getApiKey());
+        headers.put("api-key", reqApiKey);
         return headers;
     }
 

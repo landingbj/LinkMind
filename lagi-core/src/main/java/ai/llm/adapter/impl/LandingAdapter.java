@@ -7,6 +7,7 @@ import ai.llm.utils.ExtraBodyUtil;
 import ai.openai.pojo.ChatCompletionRequest;
 import ai.openai.pojo.ChatCompletionResult;
 import ai.openai.pojo.ExtraBody;
+import ai.utils.ApikeyUtil;
 import io.reactivex.Observable;
 
 import java.net.URI;
@@ -16,17 +17,27 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 
 public class LandingAdapter extends OpenAIStandardAdapter {
+    private final String DEFAULT_BASE_URL = "https://lagi.saasai.top";
+
     @Override
     public ChatCompletionResult completions(ChatCompletionRequest chatCompletionRequest) {
-        normalizeModelNameIfSlashSeparated(chatCompletionRequest);
-        setApiKey(chatCompletionRequest.getApiKey());
+        if (isFinalServer()) {
+            normalizeModelNameIfSlashSeparated(chatCompletionRequest);
+            if (ApikeyUtil.isLandingKey(chatCompletionRequest.getApiKey())) {
+                chatCompletionRequest.setApiKey(ApikeyUtil.getModelKey(chatCompletionRequest.getModel()));
+            }
+        }
         return super.completions(chatCompletionRequest);
     }
 
     @Override
     public Observable<ChatCompletionResult> streamCompletions(ChatCompletionRequest chatCompletionRequest) {
-        normalizeModelNameIfSlashSeparated(chatCompletionRequest);
-        setApiKey(chatCompletionRequest.getApiKey());
+        if (isFinalServer()) {
+            normalizeModelNameIfSlashSeparated(chatCompletionRequest);
+            if (ApikeyUtil.isLandingKey(chatCompletionRequest.getApiKey())) {
+                chatCompletionRequest.setApiKey(ApikeyUtil.getModelKey(chatCompletionRequest.getModel()));
+            }
+        }
         return super.streamCompletions(chatCompletionRequest);
     }
 
@@ -47,10 +58,14 @@ public class LandingAdapter extends OpenAIStandardAdapter {
         }
     }
 
+    private boolean isFinalServer() {
+        return getApiAddress().startsWith(ConfigUtil.getBaseUrl()) || getApiAddress().startsWith(DEFAULT_BASE_URL);
+    }
+
     @Override
     public String getApiAddress() {
         if (apiAddress == null) {
-            apiAddress = "https://lagi.saasai.top/v1/chat/completions";
+            apiAddress = DEFAULT_BASE_URL + "/v1/chat/completions";
         }
         return apiAddress;
     }
@@ -65,13 +80,6 @@ public class LandingAdapter extends OpenAIStandardAdapter {
     @Override
     public boolean verify() {
         return true;
-    }
-
-    @Override
-    public void setApiKey(String apiKey) {
-        if (getApiKey() == null) {
-            this.apiKey = apiKey;
-        }
     }
 
     @Override

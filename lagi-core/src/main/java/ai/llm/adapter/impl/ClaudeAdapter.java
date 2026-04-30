@@ -32,10 +32,11 @@ public class ClaudeAdapter extends ModelService implements ILlmAdapter {
 
     @Override
     public ChatCompletionResult completions(ChatCompletionRequest chatCompletionRequest) {
+        String reqApiKey = getApiKey(chatCompletionRequest);
         setDefaultField(chatCompletionRequest);
         Map<String, String> headers = new HashMap<>();
         headers.put("Content-Type", "application/json");
-        headers.put("x-api-key", getApiKey());
+        headers.put("x-api-key", reqApiKey);
         headers.put("anthropic-version", "2023-06-01");
         String jsonResult;
         try {
@@ -48,13 +49,14 @@ public class ClaudeAdapter extends ModelService implements ILlmAdapter {
 
     @Override
     public Observable<ChatCompletionResult> streamCompletions(ChatCompletionRequest chatCompletionRequest) {
+        String reqApiKey = getApiKey(chatCompletionRequest);
         setDefaultField(chatCompletionRequest);
         Map<String, String> headers = new HashMap<>();
         headers.put("Content-Type", "application/json");
-        headers.put("x-api-key", getApiKey());
+        headers.put("x-api-key", reqApiKey);
         headers.put("anthropic-version", "2023-06-01");
         LlmApiResponse llmStreamApiResponse = OpenAiApiUtil.streamCompletions(
-                getApiKey(),
+                reqApiKey,
                 BASE_URL + "/v1/messages",
                 30,
                 gson.toJson(convertRequest(chatCompletionRequest)),

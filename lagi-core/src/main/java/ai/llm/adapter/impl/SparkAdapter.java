@@ -21,11 +21,6 @@ public class SparkAdapter extends ModelService implements ILlmAdapter {
     private static final int HTTP_TIMEOUT = 15 * 1000;
 
     @Override
-    public boolean verify() {
-        return getApiKey() != null && !getApiKey().startsWith("you");
-    }
-
-    @Override
     public ChatCompletionResult completions(ChatCompletionRequest chatCompletionRequest) {
         LlmApiResponse llmApiResponse = llmCompletions(chatCompletionRequest);
         if (llmApiResponse.getCode() != 200) {
@@ -47,17 +42,18 @@ public class SparkAdapter extends ModelService implements ILlmAdapter {
     }
 
     public LlmApiResponse llmCompletions(ChatCompletionRequest chatCompletionRequest) {
+        String reqApiKey = getApiKey(chatCompletionRequest);
         setDefaultField(chatCompletionRequest);
         LlmApiResponse completions;
         if (chatCompletionRequest.getStream()) {
-            completions = OpenAiApiUtil.streamCompletions(getApiKey(),
+            completions = OpenAiApiUtil.streamCompletions(reqApiKey,
                     COMPLETIONS_URL,
                     HTTP_TIMEOUT,
                     chatCompletionRequest,
                     SparkConvert::convertStreamLine2ChatCompletionResult,
                     SparkConvert::convertByResponse);
         } else {
-            completions = OpenAiApiUtil.completions(getApiKey(),
+            completions = OpenAiApiUtil.completions(reqApiKey,
                     COMPLETIONS_URL,
                     HTTP_TIMEOUT,
                     chatCompletionRequest,

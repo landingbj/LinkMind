@@ -32,6 +32,7 @@
                 loading: false,
                 types: [],
                 localApiKeyEditable: true,
+                invalidApiKeys: {},
                 apiKeysTableReady: false
             };
         }
@@ -65,6 +66,21 @@
         if (!s) return "—";
         if (s.length <= 8) return s;
         return s.slice(0, 4) + "..." + s.slice(-4);
+    }
+
+    function isInvalidApiKey(row) {
+        const st = window.__apiKeysPageState || {};
+        const apiKey = String((row && row.api_key) || "").trim();
+        return !!(apiKey && st.invalidApiKeys && st.invalidApiKeys[apiKey]);
+    }
+
+    function openCreditsPage() {
+        if (typeof loadCreditsPage === "function") {
+            loadCreditsPage();
+            if (typeof setLeafNavActiveByNavId === "function") {
+                setLeafNavActiveByNavId(19);
+            }
+        }
     }
 
     function copyTextToClipboard(text, onDone) {
@@ -106,16 +122,23 @@
         const showToggle = st.localApiKeyEditable !== false;
         return rows.map(function(row, rowIndex) {
             const isEnabled = Number(row.status || 0) === 1;
+            const isInvalid = isInvalidApiKey(row);
+            const rowStyle = isInvalid ? ' style="color:#dc2626;"' : "";
+            const tdStyle = openRouterTdStyle() + (isInvalid ? "color:#dc2626;" : "");
+            const apiKeyText = maskApiKey(row.api_key);
+            const apiKeyHtml = isInvalid
+                ? `<a href="javascript:void(0)" class="api-key-credit-link" style="color:#dc2626;font-weight:600;text-decoration:underline;">${apiKeyText}</a>`
+                : apiKeyText;
             const toggleLink = showToggle
                 ? `<a href="javascript:void(0)" class="api-key-toggle-link" data-id="${row.id || ""}" data-provider="${row.provider || ""}" data-enabled="${isEnabled ? "1" : "0"}" style="margin-right:12px;color:${isEnabled ? "#f59e0b" : "#10b981"};">${isEnabled ? tTextOpenRouter("禁用") : tTextOpenRouter("启用")}</a>`
                 : "";
             const copyLink = `<a href="javascript:void(0)" class="api-key-copy-link" data-row-index="${rowIndex}" style="margin-right:12px;color:#6366f1;">${tTextOpenRouter("复制")}</a>`;
             return `
-                <tr>
-                    <td style="${openRouterTdStyle()}">${row.name || "—"}</td>
-                    <td style="${openRouterTdStyle()}">${row.provider || "—"}</td>
-                    <td style="${openRouterTdStyle()}">${maskApiKey(row.api_key)}</td>
-                    <td style="${openRouterTdStyle()}">
+                <tr${rowStyle}>
+                    <td style="${tdStyle}">${row.name || "—"}</td>
+                    <td style="${tdStyle}">${row.provider || "—"}</td>
+                    <td style="${tdStyle}">${apiKeyHtml}</td>
+                    <td style="${tdStyle}">
                         ${toggleLink}${copyLink}<a href="javascript:void(0)" class="api-key-delete-link" data-id="${row.id || ""}" data-provider="${row.provider || ""}" data-row-index="${rowIndex}" style="color:#ef4444;">${tTextOpenRouter("删除")}</a>
                     </td>
                 </tr>
@@ -174,6 +197,43 @@
         });
     }
 
+    function loadInvalidApiKeys(rows) {
+        const st = window.__apiKeysPageState;
+        const apiKeys = (rows || []).map(function(row) {
+            return String((row && row.api_key) || "").trim();
+        }).filter(function(apiKey) {
+            return !!apiKey;
+        });
+        if (!apiKeys.length) {
+            st.invalidApiKeys = {};
+            $("#apiKeysTbody").html(renderApiKeysRows(st.rows));
+            return;
+        }
+        $.ajax({
+            type: "POST",
+            url: "/apiKey/invalidList",
+            contentType: "application/json;charset=utf-8",
+            data: JSON.stringify({ apiKeys: apiKeys }),
+            success: function(res) {
+                const invalidMap = {};
+                if (res && res.status === "success" && Array.isArray(res.data)) {
+                    res.data.forEach(function(apiKey) {
+                        const key = String(apiKey || "").trim();
+                        if (key) {
+                            invalidMap[key] = true;
+                        }
+                    });
+                }
+                st.invalidApiKeys = invalidMap;
+                $("#apiKeysTbody").html(renderApiKeysRows(st.rows));
+            },
+            error: function() {
+                st.invalidApiKeys = {};
+                $("#apiKeysTbody").html(renderApiKeysRows(st.rows));
+            }
+        });
+    }
+
     function toggleAddDialogFields() {
         const provider = ($("#apiKeyAddProviderSelect").val() || "").trim();
         const isOpenAICompatible = provider === OPENAI_COMPATIBLE;
@@ -227,6 +287,7 @@
                 $("#apiKeysTbody").html(renderApiKeysRows(st.rows));
                 st.apiKeysTableReady = true;
                 updateApiKeysModeHint(st);
+                loadInvalidApiKeys(st.rows);
             },
             error: function() {
                 const st = window.__apiKeysPageState;
@@ -293,6 +354,9 @@
                     alert(tTextOpenRouter("复制失败"));
                 }
             });
+        });
+        $("#api-keys-container").on("click", ".api-key-credit-link", function() {
+            openCreditsPage();
         });
     }
 

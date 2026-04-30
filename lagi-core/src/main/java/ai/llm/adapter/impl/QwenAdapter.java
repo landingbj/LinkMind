@@ -50,13 +50,14 @@ public class QwenAdapter extends ModelService implements ILlmAdapter {
 
     @Override
     public ChatCompletionResult completions(ChatCompletionRequest chatCompletionRequest) {
+        String reqApiKey = getApiKey(chatCompletionRequest);
         setDefaultField(chatCompletionRequest);
         if (ResponseProtocolUtil.isResponseProtocol(this)) {
             ResponseSessionContext sessionContext = SESSION_MANAGER.prepare(chatCompletionRequest, this);
             LlmApiResponse response = OpenAiResponsesApiUtil.createResponse(getApiKey(), getResponsesApiAddress(), HTTP_TIMEOUT,
                     QwenResponsesChatCompletionConverter.toRequest(chatCompletionRequest, sessionContext,
                             Optional.ofNullable(chatCompletionRequest.getModel()).orElse(getModel())),
-                    QwenConvert::convertByHttpResponse, defaultHeaders());
+                    QwenConvert::convertByHttpResponse, defaultHeaders(reqApiKey));
             if(response.getCode() != 200) {
                 log.error("qwen responses api error {}", response.getMsg());
                 throw QwenConvert.convertResponseException(response.getCode(), response.getMsg());
@@ -81,13 +82,14 @@ public class QwenAdapter extends ModelService implements ILlmAdapter {
 
     @Override
     public Observable<ChatCompletionResult> streamCompletions(ChatCompletionRequest chatCompletionRequest) {
+        String reqApiKey = getApiKey(chatCompletionRequest);
         setDefaultField(chatCompletionRequest);
         if (ResponseProtocolUtil.isResponseProtocol(this)) {
             ResponseSessionContext sessionContext = SESSION_MANAGER.prepare(chatCompletionRequest, this);
-            LlmApiResponse response = OpenAiResponsesApiUtil.streamResponse(getApiKey(), getResponsesApiAddress(), HTTP_TIMEOUT,
+            LlmApiResponse response = OpenAiResponsesApiUtil.streamResponse(reqApiKey, getResponsesApiAddress(), HTTP_TIMEOUT,
                     QwenResponsesChatCompletionConverter.toRequest(chatCompletionRequest, sessionContext,
                             Optional.ofNullable(chatCompletionRequest.getModel()).orElse(getModel())),
-                    QwenConvert::convertByHttpResponse, defaultHeaders());
+                    QwenConvert::convertByHttpResponse, defaultHeaders(reqApiKey));
             if(response.getCode() != 200) {
                 log.error("qwen responses stream api error {}", response.getMsg());
                 throw QwenConvert.convertResponseException(response.getCode(), response.getMsg());
@@ -124,6 +126,7 @@ public class QwenAdapter extends ModelService implements ILlmAdapter {
     }
 
     private GenerationParam convertRequest(ChatCompletionRequest request) {
+        String reqApiKey = getApiKey(request);
         List<Message> messages = new ArrayList<>();
         for (ChatMessage chatMessage : request.getMessages()) {
             List<ToolCall> toolCalls = chatMessage.getTool_calls();
@@ -158,7 +161,7 @@ public class QwenAdapter extends ModelService implements ILlmAdapter {
             }).collect(Collectors.toList());
         }
         return GenerationParam.builder()
-                .apiKey(getApiKey())
+                .apiKey(reqApiKey)
                 .model(model)
                 .messages(messages)
                 .resultFormat(GenerationParam.ResultFormat.MESSAGE)
@@ -210,10 +213,10 @@ public class QwenAdapter extends ModelService implements ILlmAdapter {
         return QwenResponseProtocolUtil.resolveResponsesApiAddress(getApiAddress());
     }
 
-    private Map<String, String> defaultHeaders() {
+    private Map<String, String> defaultHeaders(String apiKey) {
         Map<String, String> headers = new HashMap<>();
         headers.put("Content-Type", "application/json");
-        headers.put("Authorization", "Bearer " + getApiKey());
+        headers.put("Authorization", "Bearer " + apiKey);
         return headers;
     }
 

@@ -1,6 +1,16 @@
 package ai.llm.utils;
 
+import ai.openai.pojo.ChatCompletionChoice;
+import ai.openai.pojo.ChatCompletionRequest;
+import ai.openai.pojo.ChatCompletionResult;
+import ai.openai.pojo.ChatMessage;
+import ai.openai.pojo.ExtraBody;
+import ai.openai.pojo.PromptTokensDetails;
+import ai.openai.pojo.Usage;
+import ai.utils.LagiGlobal;
 
+import java.util.Collections;
+import java.util.UUID;
 
 public class LLMErrorConstants {
 
@@ -55,7 +65,61 @@ public class LLMErrorConstants {
 
     public static final Integer UNAUTHORIZED_CODE = 401;
 
+    public static final String UNAUTHORIZED_MESSAGE = "Your API key has insufficient balance. Please recharge before continuing.";
+
     public static boolean isContentSafetyBlocked(Integer errorCode) {
         return CONTENT_SAFETY_BLOCKED.equals(errorCode);
+    }
+
+
+    public static ChatCompletionResult errorResponse(ChatCompletionRequest chatCompletionRequest) {
+        return errorResponse(chatCompletionRequest, UNAUTHORIZED_CODE, UNAUTHORIZED_MESSAGE);
+    }
+
+    public static ChatCompletionResult errorResponse(ChatCompletionRequest chatCompletionRequest, int code, String message) {
+        String model = chatCompletionRequest.getModel();
+        boolean stream = chatCompletionRequest.getStream();
+        ExtraBody extraBody = chatCompletionRequest.getExtraBody();
+        String mateUrl = extraBody != null ? extraBody.getMateUrl() : null;
+        ChatCompletionResult result = new ChatCompletionResult();
+        result.setId(UUID.randomUUID().toString());
+        result.setObject(stream ? "chat.completion.chunk" : "chat.completion");
+        result.setCreated(System.currentTimeMillis() / 1000);
+        result.setModel(model);
+
+        ChatMessage chatMessage = new ChatMessage();
+        chatMessage.setRole(LagiGlobal.LLM_ROLE_ASSISTANT);
+        chatMessage.setContent(buildApiKeyErrorContent(mateUrl, Integer.toString(code), message));
+
+        ChatCompletionChoice choice = new ChatCompletionChoice();
+        choice.setIndex(0);
+        choice.setFinish_reason("stop");
+        if (stream) {
+            choice.setDelta(chatMessage);
+        } else {
+            choice.setMessage(chatMessage);
+        }
+        result.setChoices(Collections.singletonList(choice));
+
+        Usage usage = new Usage();
+        PromptTokensDetails promptTokensDetails = new PromptTokensDetails();
+        usage.setPrompt_tokens_details(promptTokensDetails);
+        result.setUsage(usage);
+        return result;
+    }
+
+    private static String buildApiKeyErrorContent(String mateUrl, String code, String message) {
+        String errorContent = "An error occurred while calling the large language model.\n\n"
+                + "Error code: " + safeString(code) + "\n"
+                + "Error message: " + safeString(message) + "\n";
+        if (safeString(mateUrl).isEmpty()) {
+            return errorContent;
+        }
+        return errorContent + "\n"
+                + "You can log in to **[" + mateUrl + "](" + mateUrl + ")** to recharge, manage configuration, and perform other operations.\n";
+    }
+
+    private static String safeString(String value) {
+        return value == null ? "" : value;
     }
 }

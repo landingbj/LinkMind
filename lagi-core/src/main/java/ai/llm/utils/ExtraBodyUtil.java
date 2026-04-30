@@ -1,6 +1,7 @@
 package ai.llm.utils;
 
 import ai.common.db.HikariDS;
+import ai.config.ConfigUtil;
 import ai.openai.pojo.ExtraBody;
 
 import java.sql.Connection;
@@ -15,6 +16,7 @@ public class ExtraBodyUtil {
         }
         ExtraBody extraBody = new ExtraBody();
         extraBody.setUserId(userId);
+        extraBody.setMateUrl(ConfigUtil.getBaseUrl());
         return extraBody;
     }
 

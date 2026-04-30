@@ -33,12 +33,13 @@ public class OpenAIStandardAdapter extends ModelService implements ILlmAdapter {
 
     @Override
     public ChatCompletionResult completions(ChatCompletionRequest chatCompletionRequest) {
+        String reqApiKey = getApiKey(chatCompletionRequest);
         setDefaultField(chatCompletionRequest);
         if (ResponseProtocolUtil.isResponseProtocol(this)) {
             ResponseSessionContext sessionContext = SESSION_MANAGER.prepare(chatCompletionRequest, this);
-            LlmApiResponse response = OpenAiResponsesApiUtil.createResponse(apiKey, getResponsesApiAddress(), HTTP_TIMEOUT,
+            LlmApiResponse response = OpenAiResponsesApiUtil.createResponse(reqApiKey, getResponsesApiAddress(), HTTP_TIMEOUT,
                     ResponsesChatCompletionConverter.toRequest(chatCompletionRequest, sessionContext, chatCompletionRequest.getModel()),
-                    GptConvert::convertByResponse, defaultHeaders());
+                    GptConvert::convertByResponse, defaultHeaders(reqApiKey));
             if(response.getCode() != 200) {
                 logger.error("openai responses api : code{}  error  {}", response.getCode(), response.getMsg());
                 throw new RRException(response.getCode(), response.getMsg());
@@ -48,7 +49,7 @@ public class OpenAIStandardAdapter extends ModelService implements ILlmAdapter {
                     extractAssistantMessage(response.getData()));
             return response.getData();
         }
-        LlmApiResponse completions = OpenAiApiUtil.completions(apiKey, getApiAddress(), HTTP_TIMEOUT, chatCompletionRequest,
+        LlmApiResponse completions = OpenAiApiUtil.completions(reqApiKey, getApiAddress(), HTTP_TIMEOUT, chatCompletionRequest,
                 GptConvert::convert2ChatCompletionResult, GptConvert::convertByResponse);
         if(completions.getCode() != 200) {
             logger.error("openai api : code{}  error  {}", completions.getCode(), completions.getMsg());
@@ -61,12 +62,13 @@ public class OpenAIStandardAdapter extends ModelService implements ILlmAdapter {
 
     @Override
     public Observable<ChatCompletionResult> streamCompletions(ChatCompletionRequest chatCompletionRequest) {
+        String reqApiKey = getApiKey(chatCompletionRequest);
         setDefaultField(chatCompletionRequest);
         if (ResponseProtocolUtil.isResponseProtocol(this)) {
             ResponseSessionContext sessionContext = SESSION_MANAGER.prepare(chatCompletionRequest, this);
-            LlmApiResponse response = OpenAiResponsesApiUtil.streamResponse(apiKey, getResponsesApiAddress(), HTTP_TIMEOUT,
+            LlmApiResponse response = OpenAiResponsesApiUtil.streamResponse(reqApiKey, getResponsesApiAddress(), HTTP_TIMEOUT,
                     ResponsesChatCompletionConverter.toRequest(chatCompletionRequest, sessionContext, chatCompletionRequest.getModel()),
-                    GptConvert::convertByResponse, defaultHeaders());
+                    GptConvert::convertByResponse, defaultHeaders(reqApiKey));
             if(response.getCode() != 200) {
                 logger.error("openai responses stream api : code{}  error  {}", response.getCode(), response.getMsg());
                 throw new RRException(response.getCode(), response.getMsg());
@@ -82,7 +84,7 @@ public class OpenAIStandardAdapter extends ModelService implements ILlmAdapter {
                     })
                     .doOnComplete(() -> SESSION_MANAGER.onSuccess(sessionContext, responseId.get(), assistantMessage.get()));
         }
-        LlmApiResponse completions = OpenAiApiUtil.streamCompletions(apiKey, getApiAddress(), HTTP_TIMEOUT, chatCompletionRequest,
+        LlmApiResponse completions = OpenAiApiUtil.streamCompletions(reqApiKey, getApiAddress(), HTTP_TIMEOUT, chatCompletionRequest,
                 GptConvert::convertSteamLine2ChatCompletionResult, GptConvert::convertByResponse);
         if(completions.getCode() != 200) {
             logger.error("openai  stream api : code{}  error  {}", completions.getCode(), completions.getMsg());
@@ -104,7 +106,7 @@ public class OpenAIStandardAdapter extends ModelService implements ILlmAdapter {
         throw ResponseProtocolUtil.invalidRequest("api_address must end with /chat/completions or /responses");
     }
 
-    private Map<String, String> defaultHeaders() {
+    private Map<String, String> defaultHeaders(String apiKey) {
         Map<String, String> headers = new HashMap<>();
         headers.put("Content-Type", "application/json");
         headers.put("Authorization", "Bearer " + apiKey);

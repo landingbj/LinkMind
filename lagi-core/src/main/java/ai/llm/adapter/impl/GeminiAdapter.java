@@ -25,7 +25,6 @@ public class GeminiAdapter extends ModelService implements ILlmAdapter {
 
     @Override
     public ChatCompletionResult completions(ChatCompletionRequest chatCompletionRequest) {
-        setDefaultField(chatCompletionRequest);
         LlmApiResponse llmApiResponse = getLlmApiResponse(chatCompletionRequest);
         if(llmApiResponse.getCode() != 200) {
             throw new RRException(llmApiResponse.getCode(), llmApiResponse.getMsg());
@@ -35,7 +34,6 @@ public class GeminiAdapter extends ModelService implements ILlmAdapter {
 
     @Override
     public Observable<ChatCompletionResult> streamCompletions(ChatCompletionRequest chatCompletionRequest) {
-        setDefaultField(chatCompletionRequest);
         LlmApiResponse llmStreamApiResponse = getLlmStreamApiResponse(chatCompletionRequest);
         if(llmStreamApiResponse.getCode() != 200) {
             throw new RRException(llmStreamApiResponse.getCode(), llmStreamApiResponse.getMsg());
@@ -45,23 +43,25 @@ public class GeminiAdapter extends ModelService implements ILlmAdapter {
 
 
     private LlmApiResponse getLlmApiResponse(ChatCompletionRequest chatCompletionRequest) {
+        String reqApiKey = getApiKey(chatCompletionRequest);
         setDefaultField(chatCompletionRequest);
         String url = COMPLETIONS_URL.replace("{model}", getModel());
         Map<String, String> params = new HashMap<>();
-        params.put("key", getApiKey());
+        params.put("key", reqApiKey);
         HttpUrl.Builder urlBuilder = HttpUrl.parse(url).newBuilder();
         for (Map.Entry<String, String> param : params.entrySet()) {
             urlBuilder.addQueryParameter(param.getKey(), param.getValue());
         }
         HttpUrl finalUrl = urlBuilder.build();
-        return OpenAiApiUtil.completions(apiKey, finalUrl.toString(), 30, chatCompletionRequest,
+        return OpenAiApiUtil.completions(reqApiKey, finalUrl.toString(), 30, chatCompletionRequest,
                 GeminiConvert::convertStringResponse,
                 GeminiConvert::convertByResponse);
     }
 
     private LlmApiResponse getLlmStreamApiResponse(ChatCompletionRequest chatCompletionRequest) {
+        String reqApiKey = getApiKey(chatCompletionRequest);
         setDefaultField(chatCompletionRequest);
-        String apiKey = getApiKey();
+        String apiKey = reqApiKey;
         String url = STEAM_COMPLETIONS_URL.replace("{model}", getModel()) + "?key=" + apiKey + "&alt=sse";
         return OpenAiApiUtil.streamCompletions(apiKey, url, 30, chatCompletionRequest,
                 GeminiConvert::convertStringResponse,

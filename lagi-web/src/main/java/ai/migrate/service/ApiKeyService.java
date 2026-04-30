@@ -225,7 +225,7 @@ public class ApiKeyService {
         }
         try {
             if (localSynced.compareAndSet(false, true)) {
-                syncLocalApiKeysToDb();
+                syncLocalApiKeysToDb(userId);
             }
             if (!isBlank(userId) && landingSynced.compareAndSet(false, true)) {
                 syncLandingApiKeysToDb(userId.trim());
@@ -237,9 +237,12 @@ public class ApiKeyService {
         }
     }
 
-    private void syncLocalApiKeysToDb() throws Exception {
+    private void syncLocalApiKeysToDb(String userId) throws Exception {
         List<ModelApiKey> localApiKeys = getLocalApiKeys();
         for (ModelApiKey item : localApiKeys) {
+            if (!isBlank(userId)) {
+                item.setUserId(userId.trim());
+            }
             insertIfApiKeyNotExists(item);
             // Local keys are all read from lagi.yml (api_key / api_keys) -> mark as active.
             if (!isBlank(item.getApiKey())) {

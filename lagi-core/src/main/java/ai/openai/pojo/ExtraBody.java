@@ -14,4 +14,6 @@ import lombok.Data;
 public class ExtraBody {
     @JsonAlias({"user_id", "user"})
     private String userId;
+    @JsonAlias({"mate_url"})
+    private String mateUrl;
 }

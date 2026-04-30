@@ -24,10 +24,7 @@ import ai.medusa.pojo.CacheItem;
 import ai.medusa.pojo.PromptInput;
 import ai.medusa.utils.PromptInputUtil;
 import ai.migrate.service.TokenUsageService;
-import ai.openai.pojo.ChatCompletionChoice;
-import ai.openai.pojo.ChatCompletionRequest;
-import ai.openai.pojo.ChatCompletionResult;
-import ai.openai.pojo.ChatMessage;
+import ai.openai.pojo.*;
 import ai.router.pojo.LLmRequest;
 import ai.servlet.BaseServlet;
 import ai.utils.ApikeyUtil;
@@ -221,9 +218,13 @@ public class LlmApiServlet extends BaseServlet {
         ChatCompletionRequest chatCompletionRequest = setCustomerModel(req, session);
         String apiKey = chatCompletionRequest.getApiKey();
 
+        ExtraBody extraBody = chatCompletionRequest.getExtraBody();
+        String mateUrl = extraBody != null ? extraBody.getMateUrl() : null;
+
         if (!ApikeyUtil.validateModelApiKey(apiKey)) {
-            resp.setStatus(LLMErrorConstants.UNAUTHORIZED_CODE);
-            responsePrint(resp, "{\"error\":\"LinkMind api key is invalid\"}");
+            ChatCompletionResult chatCompletionResult = LLMErrorConstants.errorResponse(chatCompletionRequest);
+            outPrintChatCompletion(resp, chatCompletionRequest, chatCompletionResult);
+            ApikeyUtil.saveInvalidApiKey(apiKey);
             return;
         }
 
@@ -313,8 +314,7 @@ public class LlmApiServlet extends BaseServlet {
                 streamOutPrint(medusaService.getPromptInput(chatCompletionRequest), result,
                         context, indexSearchDataList, out, chatCompletionRequest, apiKey);
             } catch (RRException e) {
-                resp.setStatus(e.getCode());
-                responsePrint(resp, e.getMsg());
+                handleCompletionException(resp, chatCompletionRequest, mateUrl, e);
             }
 
         } else {
@@ -335,10 +335,26 @@ public class LlmApiServlet extends BaseServlet {
                 responsePrint(resp, toJson(result));
                 enqueueUsageRecord(apiKey, chatCompletionRequest, result);
             } catch (RRException e) {
-                resp.setStatus(e.getCode());
-                responsePrint(resp, e.getMsg());
+                handleCompletionException(resp, chatCompletionRequest, mateUrl, e);
             }
         }
+    }
+
+    private void handleCompletionException(HttpServletResponse resp, ChatCompletionRequest chatCompletionRequest,
+                                           String mateUrl, RRException e) throws IOException {
+        if (mateUrl == null) {
+            resp.setStatus(e.getCode());
+            responsePrint(resp, e.getMsg());
+            return;
+        }
+        ExtraBody extraBody = chatCompletionRequest.getExtraBody();
+        if (extraBody == null) {
+            extraBody = new ExtraBody();
+            chatCompletionRequest.setExtraBody(extraBody);
+        }
+        extraBody.setMateUrl(mateUrl);
+        ChatCompletionResult chatCompletionResult = LLMErrorConstants.errorResponse(chatCompletionRequest, e.getCode(), e.getMsg());
+        outPrintChatCompletion(resp, chatCompletionRequest, chatCompletionResult);
     }
 
     private void addChunkIds(ChatCompletionResult result, GetRagContext context) {
@@ -485,6 +501,7 @@ public class LlmApiServlet extends BaseServlet {
     }
 
     private void enqueueUsageRecord(String apiKey, ChatCompletionRequest request, ChatCompletionResult result) {
+        ApikeyUtil.removeInvalidApiKey(apiKey);
         if (!Boolean.TRUE.equals(tokenCharge) || result == null || result.getUsage() == null) {
             return;
         }

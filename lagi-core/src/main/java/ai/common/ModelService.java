@@ -5,7 +5,9 @@ import ai.common.utils.LRUCache;
 import ai.llm.pojo.EnhanceChatCompletionRequest;
 import ai.llm.responses.ResponseProtocolConstants;
 import ai.openai.pojo.ChatCompletionRequest;
+import lombok.AccessLevel;
 import lombok.Data;
+import lombok.Getter;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -47,6 +49,13 @@ public class ModelService implements ModelVerify {
             return apiKeys.stream().anyMatch(k -> k != null && !k.startsWith("you"));
         }
         return getApiKey() != null && !getApiKey().startsWith("you");
+    }
+
+    public String getApiKey(ChatCompletionRequest request) {
+        if (request.getApiKey() != null) {
+            return request.getApiKey();
+        }
+        return apiKey;
     }
 
     public String selectNextKey(ChatCompletionRequest request) {

@@ -23,6 +23,18 @@ function escapeInteractionHtml(value) {
         .replace(/'/g, '&#39;');
 }
 
+function interactionActionNotice(action, channelName) {
+    return `${tTextInteraction(action)} ${channelName}`;
+}
+
+function interactionCreateSuccessNotice(channelName) {
+    const currentLang = typeof window.getCurrentLang === 'function' ? window.getCurrentLang() : '';
+    if (currentLang === 'en-US') {
+        return `Channel ${channelName} created successfully`;
+    }
+    return `频道 ${channelName} 创建成功`;
+}
+
 function getInteractionUserId() {
     const fromCookie = typeof getCookie === 'function' ? (getCookie('userId') || '') : '';
     if (fromCookie) {
@@ -41,7 +53,7 @@ function getInteractionUsername() {
     if (normalized) {
         return normalized;
     }
-    return interactionState.userId || 'LinkMind 用户';
+    return interactionState.userId || tTextInteraction('LinkMind 用户');
 }
 
 function interactionAjax(options) {
@@ -88,7 +100,7 @@ async function ensureInteractionUserReady() {
         interactionState.userId = getInteractionUserId();
     }
     if (!interactionState.userId) {
-        throw new Error('请先登录后再使用频道功能');
+        throw new Error(tTextInteraction('请先登录后再使用频道功能'));
     }
     if (!interactionState.username) {
         interactionState.username = getInteractionUsername();
@@ -112,16 +124,17 @@ function toRecommendedChannel(channel, joinedMap) {
     const joined = !!joinedMap[channelId];
     const rawName = channel && channel.name ? channel.name : '';
     const normalizedName = rawName.indexOf('#') === 0 ? rawName.substring(1) : rawName;
-    const latestText = channel && channel.description ? channel.description : '暂无频道介绍';
+    const latestText = channel && channel.description ? channel.description : tTextInteraction('暂无频道介绍');
+    const defaultChannelName = tTextInteraction('未命名频道');
     return {
         id: channelId,
-        tag: `#${normalizedName || '未命名频道'}`,
+        tag: `#${normalizedName || defaultChannelName}`,
         description: latestText,
-        followers: channel && channel.isPublic ? '公开频道' : '私有频道',
+        followers: channel && channel.isPublic ? tTextInteraction('公开频道') : tTextInteraction('私有频道'),
         joined: joined,
         joinedInfo: {
             id: channelId,
-            name: normalizedName || '未命名频道',
+            name: normalizedName || defaultChannelName,
             latest: latestText
         }
     };
@@ -156,8 +169,8 @@ async function loadInteractionPublishData() {
         return {
             id: channel && channel.id != null ? String(channel.id) : '',
             name: normalizedName,
-            status: channel && channel.enabled ? '已启用' : '已停用',
-            owner: '我创建的频道',
+            status: channel && channel.enabled ? tTextInteraction('已启用') : tTextInteraction('已停用'),
+            owner: tTextInteraction('我创建的频道'),
             enabled: !!(channel && channel.enabled)
         };
     });
@@ -189,7 +202,7 @@ function showInteractionNotice(message) {
         return;
     }
     clearTimeout(interactionNoticeTimer);
-    notice.text(message);
+    notice.text(tTextInteraction(message));
     notice.addClass('is-visible');
     interactionNoticeTimer = setTimeout(function () {
         notice.removeClass('is-visible');
@@ -278,9 +291,11 @@ function updateInteractionSubscribeView() {
             }
             await loadInteractionSubscribeData();
             updateInteractionSubscribeView();
-            showInteractionNotice(targetChannel.joined ? `已退出 ${targetChannel.joinedInfo.name}` : `已加入 ${targetChannel.joinedInfo.name}`);
+            showInteractionNotice(targetChannel.joined
+                ? interactionActionNotice('已退出', targetChannel.joinedInfo.name)
+                : interactionActionNotice('已加入', targetChannel.joinedInfo.name));
         } catch (error) {
-            showInteractionNotice(error.message || '频道操作失败');
+            showInteractionNotice(error.message || tTextInteraction('频道操作失败'));
         } finally {
             interactionState.subscribeLoading = false;
         }
@@ -302,9 +317,9 @@ function updateInteractionSubscribeView() {
             });
             await loadInteractionSubscribeData();
             updateInteractionSubscribeView();
-            showInteractionNotice(`已退出 ${channelName}`);
+            showInteractionNotice(interactionActionNotice('已退出', channelName));
         } catch (error) {
-            showInteractionNotice(error.message || '退出频道失败');
+            showInteractionNotice(error.message || tTextInteraction('退出频道失败'));
         } finally {
             interactionState.subscribeLoading = false;
         }
@@ -355,7 +370,7 @@ async function renderInteractionSubscribePage() {
     try {
         await loadInteractionSubscribeData();
     } catch (error) {
-        showInteractionNotice(error.message || '加载频道失败');
+        showInteractionNotice(error.message || tTextInteraction('加载频道失败'));
     }
     updateInteractionSubscribeView();
 }
@@ -407,9 +422,11 @@ function updateInteractionPublishView() {
             });
             await Promise.all([loadInteractionPublishData(), loadInteractionSubscribeData()]);
             updateInteractionPublishView();
-            showInteractionNotice(target.enabled ? `已停用 ${channelName}` : `已启用 ${channelName}`);
+            showInteractionNotice(target.enabled
+                ? interactionActionNotice('已停用', channelName)
+                : interactionActionNotice('已启用', channelName));
         } catch (error) {
-            showInteractionNotice(error.message || '状态切换失败');
+            showInteractionNotice(error.message || tTextInteraction('状态切换失败'));
         } finally {
             interactionState.publishLoading = false;
         }
@@ -431,9 +448,9 @@ function updateInteractionPublishView() {
             });
             await Promise.all([loadInteractionPublishData(), loadInteractionSubscribeData()]);
             updateInteractionPublishView();
-            showInteractionNotice(`已删除 ${channelName}`);
+            showInteractionNotice(interactionActionNotice('已删除', channelName));
         } catch (error) {
-            showInteractionNotice(error.message || '删除频道失败');
+            showInteractionNotice(error.message || tTextInteraction('删除频道失败'));
         } finally {
             interactionState.publishLoading = false;
         }
@@ -517,7 +534,7 @@ async function renderInteractionPublishPage() {
         }
         const channelName = String($('#interactionCreateChannelNameInput').val() || '').trim();
         if (!channelName) {
-            showInteractionNotice('请输入频道名称');
+            showInteractionNotice(tTextInteraction('请输入频道名称'));
             return;
         }
         const channelDesc = String($('#interactionCreateChannelDescInput').val() || '').trim();
@@ -532,9 +549,9 @@ async function renderInteractionPublishPage() {
             $('#interactionCreateChannelMask').hide();
             await Promise.all([loadInteractionPublishData(), loadInteractionSubscribeData()]);
             updateInteractionPublishView();
-            showInteractionNotice(`频道 ${channelName} 创建成功`);
+            showInteractionNotice(interactionCreateSuccessNotice(channelName));
         } catch (error) {
-            showInteractionNotice(error.message || '创建频道失败');
+            showInteractionNotice(error.message || tTextInteraction('创建频道失败'));
         } finally {
             interactionState.publishLoading = false;
         }
@@ -542,7 +559,7 @@ async function renderInteractionPublishPage() {
     try {
         await loadInteractionPublishData();
     } catch (error) {
-        showInteractionNotice(error.message || '加载管理频道失败');
+        showInteractionNotice(error.message || tTextInteraction('加载管理频道失败'));
         interactionState.publishChannels = [];
     }
     if (interactionState.recommendedChannels.length === 0) {

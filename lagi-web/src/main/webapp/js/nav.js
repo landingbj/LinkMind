@@ -481,6 +481,24 @@ promptNavs = [
     }
 ];
 
+const interactionNav = promptNavs.find(nav => nav.id === INTERACTION_NAV_ID);
+if (interactionNav && Array.isArray(interactionNav.subNavs)) {
+    const interactionSubNavOrder = {
+        interactionCascade: 0,
+        interactionSubscribe: 1,
+        interactionPublish: 2
+    };
+    interactionNav.subNavs.sort((left, right) => {
+        const leftOrder = Object.prototype.hasOwnProperty.call(interactionSubNavOrder, left.key)
+            ? interactionSubNavOrder[left.key]
+            : Number.MAX_SAFE_INTEGER;
+        const rightOrder = Object.prototype.hasOwnProperty.call(interactionSubNavOrder, right.key)
+            ? interactionSubNavOrder[right.key]
+            : Number.MAX_SAFE_INTEGER;
+        return leftOrder - rightOrder;
+    });
+}
+
 promptNavs = localizeDataDeepFn(promptNavs);
 
 

@@ -5,10 +5,10 @@ models:
     type: Landing
     enable: true
     model:  cascade,
-            turing,qa,tree,proxy,
-            image,
-            landing-tts,landing-asr,
-            video
+      turing,qa,tree,proxy,
+      image,
+      landing-tts,landing-asr,
+      video
     # Options for default, llm, image, voice and vision, line by line above.
     driver: ai.wrapper.impl.LandingAdapter
     api_key: your-api-key # http://saas.landingbj.com/
@@ -49,11 +49,11 @@ models:
     type: Baidu
     enable: true
     model:  ERNIE-Bot-turbo,
-            ERNIE-Speed-128K,ERNIE-4.0-8K,ERNIE-3.5-8K-0205,ERNIE-3.5-4K-0205, ERNIE-3.5-8K-1222,
-            Fuyu-8B,Stable-Diffusion-XL,
-            translate,
-            enhance,
-            aiVideo
+      ERNIE-Speed-128K,ERNIE-4.0-8K,ERNIE-3.5-8K-0205,ERNIE-3.5-4K-0205, ERNIE-3.5-8K-1222,
+      Fuyu-8B,Stable-Diffusion-XL,
+      translate,
+      enhance,
+      aiVideo
     # Options for default, llm, image, translate, image enhance and vision line by line above.
     driver: ai.wrapper.impl.BaiduAdapter
     # help document https://developer.baidu.com/article/detail.html?id=1089328
@@ -91,8 +91,8 @@ models:
     type: iFLYTEK
     enable: true
     model:  v4.0,
-            v1.1,v2.1,v3.1,v3.5,
-            tti
+      v1.1,v2.1,v3.1,v3.5,
+      tti
     # Options for default, llm and image, line by line above.
     driver: ai.wrapper.impl.FlytekAdapter
     app_id: your-app-id
@@ -121,8 +121,8 @@ models:
     type: ByteDance
     enable: true
     model:  doubao-pro-4k,
-            doubao-pro-32k,
-            openspeech
+      doubao-pro-32k,
+      openspeech
     # Options for default, llm and voice, line by line above.
     driver: ai.wrapper.impl.ByteDanceAdapter
     api_key: your-api-key

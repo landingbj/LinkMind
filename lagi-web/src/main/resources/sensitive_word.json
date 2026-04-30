@@ -273,12 +273,6 @@
 			"type": "linux_read_log"
 		},
 		{
-			"rule": "crontab\\s+-e|at\\s+.*?|systemctl\\s+start",
-			"level": 3,
-			"mask": "***",
-			"type": "linux_task_schedule"
-		},
-		{
 			"rule": "reg\\s+delete|reg\\s+add|reg\\s+export",
 			"level": 3,
 			"mask": "***",
@@ -355,12 +349,6 @@
 			"level": 3,
 			"mask": "***",
 			"type": "ransomware_deep"
-		},
-		{
-			"rule": "monero|bitcoin|eth|btc|usdt|tron",
-			"level": 3,
-			"mask": "***",
-			"type": "crypto_mine"
 		},
 		{
 			"rule": "hydra|medusa|john|hashcat|brute\\s+force",
@@ -559,12 +547,6 @@
 			"level": 2,
 			"mask": "*",
 			"type": "residence_permit"
-		},
-		{
-			"rule": "(?<!\\d)[A-Z0-9]{10,12}(?!\\d)",
-			"level": 2,
-			"mask": "*",
-			"type": "military_official"
 		},
 		{
 			"rule": "(?<!\\d)\\d{7,9}(?!\\d)",

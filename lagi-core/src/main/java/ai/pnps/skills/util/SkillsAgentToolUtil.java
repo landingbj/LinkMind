@@ -137,6 +137,10 @@ public final class SkillsAgentToolUtil {
         if (args == null) {
             return content;
         }
+        if (args.containsKey("file_path")) {
+            String pathStr = args.get("file_path");
+            args.put("path", pathStr);
+        }
         if (args.containsKey("path")) {
             String pathStr = args.get("path");
             String skillName = getSkillName(pathStr);

@@ -3252,6 +3252,60 @@ body.home-mode .home-stat-card__hint {
     font-size: 13px;
 }
 
+.interaction-settings-section {
+    max-width: 760px;
+}
+
+.interaction-setting-form {
+    display: grid;
+    gap: 10px;
+}
+
+.interaction-setting-label {
+    color: #374151;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.interaction-setting-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+}
+
+.interaction-setting-input {
+    width: 100%;
+    height: 40px;
+    padding: 0 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #111827;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.interaction-setting-input:focus {
+    border-color: #1296db;
+    box-shadow: 0 0 0 3px rgba(18, 150, 219, 0.16);
+}
+
+.interaction-setting-save-btn {
+    height: 40px;
+    border-radius: 8px;
+    white-space: nowrap;
+}
+
+.interaction-setting-status {
+    min-height: 20px;
+    color: #6b7280;
+    font-size: 13px;
+    line-height: 1.5;
+    word-break: break-all;
+}
+
 @media (max-width: 768px) {
     .interaction-page {
         padding: 14px;
@@ -3281,6 +3335,14 @@ body.home-mode .home-stat-card__hint {
     .interaction-card__meta {
         flex-direction: column;
         align-items: stretch;
+    }
+
+    .interaction-setting-row {
+        grid-template-columns: 1fr;
+    }
+
+    .interaction-setting-save-btn {
+        width: 100%;
     }
 
     .interaction-action-card--fixed {

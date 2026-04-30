@@ -59,7 +59,7 @@ public class LandingAdapter extends OpenAIStandardAdapter {
     public void setApiAddress(String apiAddress) {
         this.apiAddress = apiAddress;
         String originalUrl = extractOrigin(apiAddress);
-        ConfigUtil.CASCADE_API_ADDRESS = originalUrl;
+        ConfigUtil.setCascadeApiAddress(originalUrl);
     }
 
     @Override

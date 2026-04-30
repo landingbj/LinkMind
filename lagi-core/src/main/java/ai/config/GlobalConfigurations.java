@@ -57,6 +57,7 @@ public class GlobalConfigurations extends AbstractConfiguration {
     @Override
     public void init() {
         loadFromPropertiesFromYaml();
+        initCascadeApiAddress();
         validateChatBackends();
         EmbeddingManager.getInstance().register(functions.getEmbedding());
         BigdataManager.getInstance().register(stores.getBigdata());
@@ -76,6 +77,11 @@ public class GlobalConfigurations extends AbstractConfiguration {
         McpManager.getInstance().register(mcps);
         PnpManager.getInstance().register(skills.getPnps());
         registerFilter();
+    }
+
+    private void initCascadeApiAddress() {
+        String cascadeApiAddress = general == null ? null : general.getCascadeApiAddress();
+        ConfigUtil.setCascadeApiAddress(cascadeApiAddress);
     }
 
     private void loadFromPropertiesFromYaml() {

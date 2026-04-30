@@ -25,6 +25,7 @@ const MINE_NAV_ID = 15;
 const INTERACTION_NAV_ID = 17;
 const INTERACTION_SUBSCRIBE_NAV_ID = 1701;
 const INTERACTION_PUBLISH_NAV_ID = 1702;
+const INTERACTION_CASCADE_NAV_ID = 1703;
 
 let MODEL_NAV = null;
 let AGENT_NAV = null;
@@ -425,7 +426,19 @@ promptNavs = [
                 icon2: '<svg t="1774947800002" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="18901" width="16" height="16"><path d="M832 128H192a64 64 0 0 0-64 64v640a64 64 0 0 0 64 64h640a64 64 0 0 0 64-64V192a64 64 0 0 0-64-64z m0 64v640H192V192h640z" fill="#1296db" p-id="18902"></path><path d="M544 320v160h160v64H544v160h-64V544H320v-64h160V320z" fill="#1296db" p-id="18903"></path></svg>',
                 prompt: '用于创建和管理频道的发布入口。',
                 operation: '点击后进入发布页面。',
-                disabled: window.isMateMode === true
+                disabled: window.isMateMode === true,
+                disabledLabel: 'Mate'
+            },
+            {
+                id: INTERACTION_CASCADE_NAV_ID,
+                key: 'interactionCascade',
+                title: '级联',
+                icon1: '<svg t="1774947800003" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="18911" width="16" height="16"><path d="M512 96c229.76 0 416 186.24 416 416S741.76 928 512 928 96 741.76 96 512 282.24 96 512 96z m0 64C317.6 160 160 317.6 160 512s157.6 352 352 352 352-157.6 352-352S706.4 160 512 160z" fill="#444444" p-id="18912"></path><path d="M160 480h704v64H160zM512 128c98.56 91.2 153.6 224 153.6 384S610.56 804.8 512 896c-98.56-91.2-153.6-224-153.6-384S413.44 219.2 512 128z m0 96c-57.6 72-89.6 171.2-89.6 288s32 216 89.6 288c57.6-72 89.6-171.2 89.6-288s-32-216-89.6-288z" fill="#444444" p-id="18913"></path></svg>',
+                icon2: '<svg t="1774947800003" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="18911" width="16" height="16"><path d="M512 96c229.76 0 416 186.24 416 416S741.76 928 512 928 96 741.76 96 512 282.24 96 512 96z m0 64C317.6 160 160 317.6 160 512s157.6 352 352 352 352-157.6 352-352S706.4 160 512 160z" fill="#1296db" p-id="18912"></path><path d="M160 480h704v64H160zM512 128c98.56 91.2 153.6 224 153.6 384S610.56 804.8 512 896c-98.56-91.2-153.6-224-153.6-384S413.44 219.2 512 128z m0 96c-57.6 72-89.6 171.2-89.6 288s32 216 89.6 288c57.6-72 89.6-171.2 89.6-288s-32-216-89.6-288z" fill="#1296db" p-id="18913"></path></svg>',
+                prompt: '用于配置互动级联服务器地址。',
+                operation: '点击后进入服务器设置页面。',
+                disabled: window.isMateMode === false,
+                disabledLabel: 'Server'
             }
         ]
     },
@@ -1690,6 +1703,16 @@ function toggleFolder(element) {
     }
 }
 
+function getNavDisabledLabel(navItem) {
+    return navItem && navItem.disabledLabel ? navItem.disabledLabel : 'Mate';
+}
+
+function getNavDisabledTitle(navItem) {
+    const label = getNavDisabledLabel(navItem);
+    const isEnglish = typeof window.getCurrentLang === 'function' && window.getCurrentLang() === 'en-US';
+    return isEnglish ? `${label} mode unavailable` : `${label} 模式下暂不可用`;
+}
+
 function loadNavBar() {
     $("#nav_body").empty();
     const navs = promptNavs;
@@ -1747,9 +1770,10 @@ function loadNavBar() {
                 for (const thirdNav of subNav.subNavs) {
                     const thirdClickHandler = buildThirdClickHandler(nav, subNav, thirdNav);
                     const thirdNavDisabled = thirdNav.disabled === true;
+                    const thirdDisabledLabel = getNavDisabledLabel(thirdNav);
                     const thirdNavClassName = thirdNavDisabled ? 'file-item third-file-item interaction-nav-disabled' : 'file-item third-file-item';
                     const thirdNavAttrs = thirdNavDisabled
-                        ? 'data-disabled="true" aria-disabled="true" title="Mate 模式下暂不可用"'
+                        ? `data-disabled="true" aria-disabled="true" title="${getNavDisabledTitle(thirdNav)}"`
                         : `onclick="${thirdClickHandler}"`;
                     subFolderContent.append(`
                         <div class="${thirdNavClassName}" data-nav-id="${thirdNav.id}" ${thirdNavAttrs}>
@@ -1759,7 +1783,7 @@ function loadNavBar() {
                                 </i>
                             </div>
                             <span class="file-text">${thirdNav.title}</span>
-                            ${thirdNavDisabled ? '<span class="nav-disabled-badge">Mate</span>' : ''}
+                            ${thirdNavDisabled ? `<span class="nav-disabled-badge">${thirdDisabledLabel}</span>` : ''}
                         </div>
                     `);
                 }
@@ -1767,9 +1791,10 @@ function loadNavBar() {
             }
 
             const subNavDisabled = subNav.disabled === true;
+            const subNavDisabledLabel = getNavDisabledLabel(subNav);
             const subNavClassName = subNavDisabled ? 'file-item interaction-nav-disabled' : 'file-item';
             const subNavAttrs = subNavDisabled
-                ? 'data-disabled="true" aria-disabled="true" title="Mate 模式下暂不可用"'
+                ? `data-disabled="true" aria-disabled="true" title="${getNavDisabledTitle(subNav)}"`
                 : `onclick="${nav.bindfunc}(${nav.id}, ${subNav.id}, event)"`;
             folder_content.append(`
                 <div class="${subNavClassName}" data-nav-id="${subNav.id}" ${subNavAttrs}>
@@ -1779,7 +1804,7 @@ function loadNavBar() {
                         </i>
                     </div>
                     <span class="file-text" >${subNav.title}</span>
-                    ${subNavDisabled ? '<span class="nav-disabled-badge">Mate</span>' : ''}
+                    ${subNavDisabled ? `<span class="nav-disabled-badge">${subNavDisabledLabel}</span>` : ''}
                 </div>
             `);
         }
@@ -1787,36 +1812,51 @@ function loadNavBar() {
 }
 
 function refreshInteractionPublishNavState(isMateMode) {
+    updateInteractionNavItemState(INTERACTION_PUBLISH_NAV_ID, isMateMode === true, 'Mate');
+    updateInteractionNavItemState(INTERACTION_CASCADE_NAV_ID, isMateMode !== true, 'Server');
+}
+
+function updateInteractionNavItemState(navId, disabled, disabledLabel) {
+    let targetSubNav = null;
     for (const nav of promptNavs) {
         if (!Array.isArray(nav.subNavs)) {
             continue;
         }
         for (const subNav of nav.subNavs) {
-            if (subNav && subNav.id === INTERACTION_PUBLISH_NAV_ID) {
-                subNav.disabled = isMateMode === true;
+            if (subNav && subNav.id === navId) {
+                subNav.disabled = disabled;
+                subNav.disabledLabel = disabledLabel;
+                targetSubNav = subNav;
             }
         }
     }
 
-    const publishNavItem = document.querySelector('#nav_body .file-item[data-nav-id="' + INTERACTION_PUBLISH_NAV_ID + '"]');
-    if (!publishNavItem) {
+    const navItem = document.querySelector('#nav_body .file-item[data-nav-id="' + navId + '"]');
+    if (!navItem) {
         return;
     }
 
-    if (isMateMode === true) {
-        publishNavItem.classList.add('interaction-nav-disabled');
-        publishNavItem.setAttribute('data-disabled', 'true');
-        publishNavItem.setAttribute('aria-disabled', 'true');
-        publishNavItem.setAttribute('title', 'Mate 模式下暂不可用');
-        if (!publishNavItem.querySelector('.nav-disabled-badge')) {
-            publishNavItem.insertAdjacentHTML('beforeend', '<span class="nav-disabled-badge">Mate</span>');
+    if (disabled) {
+        navItem.classList.add('interaction-nav-disabled');
+        navItem.setAttribute('data-disabled', 'true');
+        navItem.setAttribute('aria-disabled', 'true');
+        navItem.setAttribute('title', getNavDisabledTitle(targetSubNav || { disabledLabel: disabledLabel }));
+        navItem.removeAttribute('onclick');
+        let badge = navItem.querySelector('.nav-disabled-badge');
+        if (!badge) {
+            navItem.insertAdjacentHTML('beforeend', '<span class="nav-disabled-badge"></span>');
+            badge = navItem.querySelector('.nav-disabled-badge');
+        }
+        if (badge) {
+            badge.textContent = disabledLabel;
         }
     } else {
-        publishNavItem.classList.remove('interaction-nav-disabled');
-        publishNavItem.removeAttribute('data-disabled');
-        publishNavItem.removeAttribute('aria-disabled');
-        publishNavItem.removeAttribute('title');
-        const badge = publishNavItem.querySelector('.nav-disabled-badge');
+        navItem.classList.remove('interaction-nav-disabled');
+        navItem.removeAttribute('data-disabled');
+        navItem.removeAttribute('aria-disabled');
+        navItem.removeAttribute('title');
+        navItem.setAttribute('onclick', 'openInteractionPage(' + INTERACTION_NAV_ID + ', ' + navId + ', event)');
+        const badge = navItem.querySelector('.nav-disabled-badge');
         if (badge) {
             badge.remove();
         }

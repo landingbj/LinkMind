@@ -1,6 +1,7 @@
 package ai.servlet;
 
 import ai.config.ConfigUtil;
+import ai.migrate.service.CascadeConfigService;
 import ai.sevice.SocialChannelService;
 import ai.utils.OkHttpUtil;
 import cn.hutool.core.util.StrUtil;
@@ -20,6 +21,7 @@ public class SocialChannelServlet extends BaseServlet {
     private static final long serialVersionUID = 1L;
     protected Gson gson = new Gson();
     private final SocialChannelService socialChannelService = new SocialChannelService();
+    private final CascadeConfigService cascadeConfigService = new CascadeConfigService();
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
@@ -33,6 +35,9 @@ public class SocialChannelServlet extends BaseServlet {
         switch (method) {
             case "runningMode":
                 this.runningMode(resp);
+                break;
+            case "cascadeConfig":
+                this.getCascadeConfig(resp);
                 break;
             case "listMyChannels":
                 this.listMyChannels(req, resp);
@@ -88,6 +93,9 @@ public class SocialChannelServlet extends BaseServlet {
             case "saveLastLoginUser":
                 this.saveLastLoginUser(req, resp);
                 break;
+            case "cascadeConfig":
+                this.saveCascadeConfig(req, resp);
+                break;
             default:
                 break;
         }
@@ -100,6 +108,9 @@ public class SocialChannelServlet extends BaseServlet {
             return false;
         }
         if ("runningMode".equals(method)) {
+            return false;
+        }
+        if ("cascadeConfig".equals(method)) {
             return false;
         }
         if (!shouldProxyToCascade()) {
@@ -164,6 +175,36 @@ public class SocialChannelServlet extends BaseServlet {
             result.put("isMateMode", "mate".equals(runningMode));
         } catch (Exception e) {
             log.error("runningMode: {}", e.getMessage(), e);
+            result.put("status", "failed");
+            result.put("msg", e.getMessage());
+        }
+        responsePrint(resp, gson.toJson(result));
+    }
+
+    private void getCascadeConfig(HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> result = new HashMap<String, Object>();
+        try {
+            result.put("status", "success");
+            result.put("data", cascadeConfigService.getCascadeConfig());
+        } catch (Exception e) {
+            log.error("get cascade config failed", e);
+            result.put("status", "failed");
+            result.put("msg", e.getMessage());
+        }
+        responsePrint(resp, gson.toJson(result));
+    }
+
+    private void saveCascadeConfig(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> result = new HashMap<String, Object>();
+        try {
+            CascadeConfigRequest body = reqBodyToObj(req, CascadeConfigRequest.class);
+            String serverAddress = body == null ? null : body.serverAddress;
+            result.put("status", "success");
+            result.put("data", cascadeConfigService.saveCascadeConfig(serverAddress));
+        } catch (Exception e) {
+            log.error("save cascade config failed", e);
             result.put("status", "failed");
             result.put("msg", e.getMessage());
         }
@@ -462,5 +503,9 @@ public class SocialChannelServlet extends BaseServlet {
 
     private static class LastLoginUserBody {
         String userId;
+    }
+
+    private static class CascadeConfigRequest {
+        String serverAddress;
     }
 }

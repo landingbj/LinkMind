@@ -7,9 +7,11 @@ const interactionState = {
     username: '',
     recommendedChannels: [],
     publishChannels: [],
+    cascadeServerAddress: '',
     initPromise: null,
     subscribeLoading: false,
-    publishLoading: false
+    publishLoading: false,
+    cascadeLoading: false
 };
 
 let interactionNoticeTimer = 0;
@@ -572,6 +574,89 @@ async function renderInteractionPublishPage() {
     updateInteractionPublishView();
 }
 
+function formatInteractionLabelValue(label, value) {
+    const currentLang = typeof window.getCurrentLang === 'function' ? window.getCurrentLang() : '';
+    return currentLang === 'en-US' ? `${label}: ${value}` : `${label}：${value}`;
+}
+
+function updateInteractionCascadeView(data) {
+    const address = data && data.serverAddress ? String(data.serverAddress) : '';
+    interactionState.cascadeServerAddress = address;
+    $('#interactionCascadeServerInput').val(address);
+    $('#interactionCascadeStatus').text(address
+        ? formatInteractionLabelValue(tTextInteraction('当前服务器'), address)
+        : tTextInteraction('当前未配置服务器地址'));
+}
+
+function getInteractionCascadeErrorMessage(error, fallback) {
+    const message = error && error.message ? String(error.message) : '';
+    if (message.indexOf('serverAddress') >= 0 || message.indexOf('http(s) URL') >= 0) {
+        return tTextInteraction('服务器地址格式不正确');
+    }
+    return message || fallback;
+}
+
+async function renderInteractionCascadePage() {
+    prepareInteractionPage();
+
+    const html = `
+        <div id="interactionPage" class="interaction-page">
+            <div id="interactionPageNotice" class="interaction-page-notice"></div>
+
+            <section class="interaction-section interaction-settings-section">
+                <div class="interaction-section__head">
+                    <div>
+                        <h2>${tTextInteraction('服务器设置')}</h2>
+                        <p>${tTextInteraction('设置互动级联服务器地址')}</p>
+                    </div>
+                </div>
+                <div class="interaction-setting-form">
+                    <label class="interaction-setting-label" for="interactionCascadeServerInput">${tTextInteraction('服务器地址')}</label>
+                    <div class="interaction-setting-row">
+                        <input id="interactionCascadeServerInput" class="interaction-setting-input" type="text" placeholder="https://server.example.com" />
+                        <button type="button" id="interactionCascadeSaveBtn" class="interaction-btn interaction-btn-primary interaction-setting-save-btn">${tTextInteraction('保存设置')}</button>
+                    </div>
+                    <div id="interactionCascadeStatus" class="interaction-setting-status">${tTextInteraction('正在加载...')}</div>
+                </div>
+            </section>
+        </div>
+    `;
+
+    $('#item-content').html(tHtmlInteraction(html));
+    $('#interactionCascadeSaveBtn').on('click', async function () {
+        if (interactionState.cascadeLoading) {
+            return;
+        }
+        const serverAddress = String($('#interactionCascadeServerInput').val() || '').trim();
+        interactionState.cascadeLoading = true;
+        $('#interactionCascadeSaveBtn').prop('disabled', true);
+        try {
+            const res = await interactionPost('cascadeConfig', { serverAddress: serverAddress });
+            updateInteractionCascadeView((res && res.data) || {});
+            showInteractionNotice(tTextInteraction('服务器设置已保存'));
+        } catch (error) {
+            showInteractionNotice(getInteractionCascadeErrorMessage(error, tTextInteraction('保存服务器设置失败')));
+        } finally {
+            interactionState.cascadeLoading = false;
+            $('#interactionCascadeSaveBtn').prop('disabled', false);
+        }
+    });
+    $('#interactionCascadeServerInput').on('keydown', function (event) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            $('#interactionCascadeSaveBtn').trigger('click');
+        }
+    });
+
+    try {
+        const res = await interactionGet('cascadeConfig');
+        updateInteractionCascadeView((res && res.data) || {});
+    } catch (error) {
+        $('#interactionCascadeStatus').text(tTextInteraction('当前未配置服务器地址'));
+        showInteractionNotice(error.message || tTextInteraction('加载服务器设置失败'));
+    }
+}
+
 async function initInteractionUser() {
     if (interactionState.initPromise) {
         return interactionState.initPromise;
@@ -592,6 +677,10 @@ window.openInteractionPage = async function openInteractionPage(navId, subNavId)
         setLeafNavActiveByNavId(subNavId);
     }
     try {
+        if (subNav.key === 'interactionCascade') {
+            await renderInteractionCascadePage();
+            return;
+        }
         await initInteractionUser();
         if (subNav.key === 'interactionPublish') {
             await renderInteractionPublishPage();

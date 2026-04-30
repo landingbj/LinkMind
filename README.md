@@ -170,7 +170,7 @@ LinkMind exposes two route styles:
 
 One current exception is the vector administration namespace, which is still mapped in code as `/v1/vector/*`. Full endpoint documentation is in the [API Reference](docs/API_en.md).
 
-## Secondary Development Interfaces
+## Customization API
 
 LinkMind keeps secondary-development entry points behind object-oriented boundaries so teams can extend behavior without rewriting the main request flow.
 

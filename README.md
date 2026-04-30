@@ -220,7 +220,7 @@ Connect LinkMind to the OpenClaw ecosystem as a plugin-friendly, OpenAI-compatib
 
 To integrate these capabilities into your application via `lagi-core` or REST APIs, see the [Integration Guide](docs/guide_en.md).
 
-<table width="100%">
+<table>
   <tr>
     <td valign="top" width="50%">
       <h2>License</h2>

@@ -25,6 +25,7 @@ public class SqliteAdapter {
         String tomcatPath = System.getProperty("user.dir");
         String dbPath = tomcatPath + "/saas.db";
         url = "jdbc:sqlite:" + dbPath;
+//        url = "jdbc:sqlite:D:\\Tomcat8\\apache-tomcat-9.0.0.M21\\bin\\saas.db";
         Connection conn = null;
         Statement stmt = null;
         try {

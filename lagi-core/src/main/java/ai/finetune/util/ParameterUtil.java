@@ -65,9 +65,23 @@ public class ParameterUtil {
             parseType = "unparsed";
         }
         if(parseType.equals("unparsed")) {
-            return StrUtil.format(cmdPattern, "--name " + taskId + " " + volumes + " " + envs + " " , config.toString());
+            // 创建配置副本，过滤掉不需要传递给容器的字段
+            JSONObject filteredConfig = filterContainerConfig(config);
+            return StrUtil.format(cmdPattern, "--name " + taskId + " " + volumes + " " + envs + " " , filteredConfig.toString());
         }
         return null;
+    }
+
+    private static JSONObject filterContainerConfig(JSONObject originalConfig) {
+        JSONObject filtered = new JSONObject();
+        // 复制所有字段
+        for (String key : originalConfig.keySet()) {
+            // 排除这三个字段
+            if (!"user_id".equals(key) && !"template_id".equals(key) && !"model_name".equals(key)) {
+                filtered.set(key, originalConfig.get(key));
+            }
+        }
+        return filtered;
     }
 
     /**

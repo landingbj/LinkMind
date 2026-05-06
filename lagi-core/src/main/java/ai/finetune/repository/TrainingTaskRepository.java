@@ -400,6 +400,9 @@ public class TrainingTaskRepository {
      * 更新任务状态
      */
     public boolean updateTaskStatus(String taskId, String status, String message) {
+        // 将状态转换为小写，确保一致性
+        status = StrUtil.isNotBlank(status) ? status.toLowerCase() : null;
+
         String sql = "UPDATE ai_training_tasks SET status = ?, error_message = ?, updated_at = ? WHERE task_id = ?";
         try {
             // 先查旧状态 + 任务类型，避免重复触发
@@ -670,8 +673,9 @@ public class TrainingTaskRepository {
                     taskMap.put("epochs", task.get("epochs"));
 
                     String status = (String) task.get("status");
-                    if (status != null && status.contains(";")) {
-                        status = status.split(";")[0];
+                    if (status != null) {
+                        int semicolonIndex = status.indexOf(';');
+                        status = (semicolonIndex >= 0 ? status.substring(0, semicolonIndex) : status).toLowerCase();
                     }
                     taskMap.put("status", status);
                     taskMap.put("progress", task.get("progress"));
@@ -976,7 +980,7 @@ public class TrainingTaskRepository {
                 // 更新taskList中的任务状态
                 for (Map<String, Object> updatedTask : updatedTasks) {
                     String updatedTaskId = (String) updatedTask.get("task_id");
-                    String updatedStatus = (String) updatedTask.get("status");
+                    String updatedStatus = ((String) updatedTask.get("status")).toLowerCase();
 
                     // 在taskList中找到对应的任务并更新状态
                     for (Map<String, Object> taskMap : taskList) {

@@ -503,6 +503,7 @@ public class modelBaseDao {
      * 更新任务状态
      */
     public boolean updateTaskStatus(String taskId, String status, String message) {
+        status = StrUtil.isNotBlank(status) ? status.toLowerCase() : null;
         String sql = "UPDATE ai_training_tasks SET status = ?, error_message = ?, updated_at = ? WHERE task_id = ?";
         try {
             // 先查旧状态 + 任务类型，避免重复触发

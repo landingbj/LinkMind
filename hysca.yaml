@@ -1,0 +1,9 @@
+approaches:
+  #  - maven
+  #  - maven-cmd
+  - jar-files
+
+java:
+  mvn_cmd_options: ["-s", "D:\\ApacheMaven\\apache-maven-3.8.8\\conf\\settings.xml"]
+
+force: true

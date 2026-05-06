@@ -200,13 +200,13 @@ public class PptUtil {
         return result;
     }
     public static void main(String[] args) throws IOException {
-        String filePath = "C:\\Users\\Administrator\\Desktop\\bushu\\RAG\\测试文档\\upload\\大模型交流_0221.pptx";
-//        List<FileChunkResponse.Document> rr= getChunkDocumentPpt(new File(filePath), 512);
-//        for (FileChunkResponse.Document document : rr) {
-//            System.out.println(document.getText());
-//            System.out.println(document.getImages());
-//            System.out.println("------------------------------");
-//        }
+        String filePath = "D:\\LagiMarket\\lagi-web\\target\\ROOT\\upload\\小营股份社(北京·数字经济).pptx";
+        List<FileChunkResponse.Document> rr= getChunkDocumentPpt(new File(filePath), 512);
+        for (FileChunkResponse.Document document : rr) {
+            System.out.println(document.getText());
+            System.out.println(document.getImages());
+            System.out.println("------------------------------");
+        }
         for (SlideInfo slideInfo : readPpt(filePath)) {
             System.out.println(slideInfo.getTextContent().replaceAll("\\n+", "\n"));
             System.out.println(slideInfo.getImagePath());

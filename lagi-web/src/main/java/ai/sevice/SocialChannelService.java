@@ -1,15 +1,25 @@
 package ai.sevice;
 
+import ai.config.ContextLoader;
 import ai.dto.SocialChannel;
 import ai.dto.SocialChannelMessage;
 import ai.dto.SocialUser;
+import ai.llm.service.CompletionsService;
 import ai.migrate.dao.SocialChannelDao;
+import ai.openai.pojo.ChatCompletionRequest;
+import ai.openai.pojo.ChatCompletionResult;
+import ai.openai.pojo.ChatMessage;
+import ai.utils.I18nFieldUtil;
+import com.google.common.collect.Lists;
 
 import java.io.IOException;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 public class SocialChannelService {
     private final SocialChannelDao socialChannelDao = new SocialChannelDao();
+    private final String translateModel = resolveTranslateModel();
 
     private static boolean isBlank(String s) {
         return s == null || s.trim().isEmpty();
@@ -132,10 +142,108 @@ public class SocialChannelService {
     }
 
     public List<SocialChannel> listPublicChannels(int limit) throws IOException {
+        return listPublicChannels(limit, null);
+    }
+
+    public List<SocialChannel> listPublicChannels(int limit, String preferLang) throws IOException {
         try {
-            return socialChannelDao.listPublicChannels(limit);
+            return socialChannelDao.listPublicChannels(limit, preferLang);
         } catch (Exception e) {
             throw new IOException("list public channels failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Translates the channel's name and description into the target language
+     * via the configured LLM and persists the result alongside any existing
+     * translations. Returns the resolved values for the caller to display.
+     */
+    public Map<String, String> translateChannel(long channelId, String targetLang) throws IOException {
+        String normalized = I18nFieldUtil.normalizeLang(targetLang);
+        if (normalized == null) {
+            throw new IOException("lang is required");
+        }
+        try {
+            Map<String, String> raw = socialChannelDao.findChannelRawI18n(channelId);
+            if (raw == null) {
+                throw new IOException("channel not found");
+            }
+            I18nFieldUtil.I18nValue nameValue = I18nFieldUtil.parse(raw.get("name"));
+            I18nFieldUtil.I18nValue descValue = I18nFieldUtil.parse(raw.get("description"));
+            String nameToPersist = nameValue.has(normalized)
+                    ? null
+                    : translateText(nameValue.getDefaultValue(), normalized);
+            String descToPersist = descValue.has(normalized)
+                    ? null
+                    : translateText(descValue.getDefaultValue(), normalized);
+            if (nameToPersist != null || descToPersist != null) {
+                socialChannelDao.updateChannelTranslation(channelId, normalized, nameToPersist, descToPersist);
+            }
+            String translatedName = nameValue.has(normalized)
+                    ? nameValue.resolve(normalized)
+                    : (nameToPersist != null ? nameToPersist : nameValue.getDefaultValue());
+            String translatedDesc = descValue.has(normalized)
+                    ? descValue.resolve(normalized)
+                    : (descToPersist != null ? descToPersist : descValue.getDefaultValue());
+            Map<String, String> result = new LinkedHashMap<String, String>();
+            result.put("name", translatedName);
+            result.put("description", translatedDesc);
+            return result;
+        } catch (IOException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IOException("translate channel failed: " + e.getMessage(), e);
+        }
+    }
+
+    private static String resolveTranslateModel() {
+        try {
+            if (ContextLoader.configuration == null
+                    || ContextLoader.configuration.getFunctions() == null
+                    || ContextLoader.configuration.getFunctions().getTranslate() == null
+                    || ContextLoader.configuration.getFunctions().getTranslate().isEmpty()) {
+                return null;
+            }
+            return ContextLoader.configuration.getFunctions().getTranslate().get(0).getModel();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String translateText(String source, String targetLang) {
+        if (source == null || source.trim().isEmpty()) {
+            return "";
+        }
+        String langName = "en-US".equalsIgnoreCase(targetLang) ? "English" : "Simplified Chinese";
+        String prompt = "Translate the following text into " + langName + "."
+                + " Return only the translation, without any quotes, explanations, or extra punctuation."
+                + " If the text is already in " + langName + ", return it unchanged.\n\nText:\n" + source;
+        ChatCompletionRequest request = new ChatCompletionRequest();
+        request.setTemperature(0.2);
+        request.setMax_tokens(512);
+        request.setStream(false);
+        request.setModel(translateModel);
+        ChatMessage message = new ChatMessage();
+        message.setRole("user");
+        message.setContent(prompt);
+        request.setMessages(Lists.newArrayList(message));
+        try {
+            CompletionsService completionsService = new CompletionsService();
+            ChatCompletionResult result = completionsService.completions(request);
+            if (result == null || result.getChoices() == null || result.getChoices().isEmpty()) {
+                return null;
+            }
+            String content = result.getChoices().get(0).getMessage().getContent();
+            if (content == null) {
+                return null;
+            }
+            String trimmed = content.trim();
+            if (trimmed.isEmpty()) {
+                return null;
+            }
+            return trimmed;
+        } catch (Exception e) {
+            return null;
         }
     }
 

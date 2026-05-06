@@ -142,10 +142,39 @@ function toRecommendedChannel(channel, joinedMap) {
     };
 }
 
+function getInteractionPreferredLang() {
+    if (typeof window.getCurrentLang === 'function') {
+        const lang = window.getCurrentLang();
+        if (lang) {
+            return lang;
+        }
+    }
+    if (navigator && navigator.language) {
+        const navLang = String(navigator.language);
+        if (navLang.toLowerCase().indexOf('zh') === 0) {
+            return 'zh-CN';
+        }
+        return 'en-US';
+    }
+    return 'zh-CN';
+}
+
+function detectInteractionLang(text) {
+    const value = String(text == null ? '' : text);
+    for (let i = 0; i < value.length; i++) {
+        const code = value.charCodeAt(i);
+        if (code >= 0x4e00 && code <= 0x9fff) {
+            return 'zh-CN';
+        }
+    }
+    return 'en-US';
+}
+
 async function loadInteractionSubscribeData() {
     await ensureInteractionUserReady();
+    const preferredLang = getInteractionPreferredLang();
     const responses = await Promise.all([
-        interactionGet('listPublicChannels', { limit: 100 }),
+        interactionGet('listPublicChannels', { limit: 100, lang: preferredLang }),
         interactionGet('listMyChannels', { userId: interactionState.userId })
     ]);
     const publicChannels = (responses[0] && responses[0].data) || [];
@@ -375,6 +404,56 @@ async function renderInteractionSubscribePage() {
         showInteractionNotice(error.message || tTextInteraction('加载频道失败'));
     }
     updateInteractionSubscribeView();
+    // After the initial render, asynchronously translate any channel whose
+    // name or description doesn't match the user's preferred language.
+    translateMismatchedChannelsAsync();
+}
+
+function translateMismatchedChannelsAsync() {
+    const preferredLang = getInteractionPreferredLang();
+    const channels = (interactionState.recommendedChannels || []).slice();
+    channels.forEach(function (channel) {
+        if (!channel || !channel.id) {
+            return;
+        }
+        const rawName = channel.joinedInfo && channel.joinedInfo.name ? channel.joinedInfo.name : '';
+        const description = channel.description || '';
+        const nameLang = detectInteractionLang(rawName);
+        const descLang = detectInteractionLang(description);
+        if (nameLang === preferredLang && descLang === preferredLang) {
+            return;
+        }
+        interactionPost('translateChannel', {
+            channelId: Number(channel.id),
+            lang: preferredLang
+        }).then(function (res) {
+            const data = (res && res.data) || {};
+            const newName = String(data.name == null ? '' : data.name).trim();
+            const newDesc = String(data.description == null ? '' : data.description).trim();
+            const target = interactionState.recommendedChannels.find(function (item) {
+                return item.id === channel.id;
+            });
+            if (!target) {
+                return;
+            }
+            if (newName) {
+                const normalized = newName.indexOf('#') === 0 ? newName.substring(1) : newName;
+                target.tag = '#' + normalized;
+                if (target.joinedInfo) {
+                    target.joinedInfo.name = normalized;
+                }
+            }
+            if (newDesc) {
+                target.description = newDesc;
+                if (target.joinedInfo) {
+                    target.joinedInfo.latest = newDesc;
+                }
+            }
+            updateInteractionSubscribeView();
+        }).catch(function () {
+            // Ignore translation errors; keep showing the original content.
+        });
+    });
 }
 
 function buildPublishChannelsHtml(channels) {

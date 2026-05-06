@@ -96,6 +96,9 @@ public class SocialChannelServlet extends BaseServlet {
             case "cascadeConfig":
                 this.saveCascadeConfig(req, resp);
                 break;
+            case "translateChannel":
+                this.translateChannel(req, resp);
+                break;
             default:
                 break;
         }
@@ -358,8 +361,9 @@ public class SocialChannelServlet extends BaseServlet {
             if (limitStr != null && !limitStr.trim().isEmpty()) {
                 limit = Integer.parseInt(limitStr.trim());
             }
+            String lang = req.getParameter("lang");
             result.put("status", "success");
-            result.put("data", socialChannelService.listPublicChannels(limit));
+            result.put("data", socialChannelService.listPublicChannels(limit, lang));
         } catch (Exception e) {
             log.error("listPublicChannels: {}", e.getMessage(), e);
             result.put("status", "failed");
@@ -452,6 +456,27 @@ public class SocialChannelServlet extends BaseServlet {
         responsePrint(resp, gson.toJson(result));
     }
 
+    private void translateChannel(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> result = new HashMap<String, Object>();
+        try {
+            TranslateChannelBody body = reqBodyToObj(req, TranslateChannelBody.class);
+            if (body == null || body.channelId == null) {
+                throw new IOException("channelId is required");
+            }
+            if (body.lang == null || body.lang.trim().isEmpty()) {
+                throw new IOException("lang is required");
+            }
+            result.put("status", "success");
+            result.put("data", socialChannelService.translateChannel(body.channelId, body.lang));
+        } catch (Exception e) {
+            log.error("translateChannel: {}", e.getMessage(), e);
+            result.put("status", "failed");
+            result.put("msg", e.getMessage());
+        }
+        responsePrint(resp, gson.toJson(result));
+    }
+
     private void deleteChannel(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json;charset=utf-8");
         Map<String, Object> result = new HashMap<String, Object>();
@@ -507,5 +532,10 @@ public class SocialChannelServlet extends BaseServlet {
 
     private static class CascadeConfigRequest {
         String serverAddress;
+    }
+
+    private static class TranslateChannelBody {
+        Long channelId;
+        String lang;
     }
 }

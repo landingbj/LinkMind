@@ -4,6 +4,7 @@ import ai.common.db.HikariDS;
 import ai.dto.SocialChannel;
 import ai.dto.SocialChannelMessage;
 import ai.dto.SocialUser;
+import ai.utils.I18nFieldUtil;
 
 import java.sql.*;
 import java.util.ArrayList;
@@ -192,6 +193,10 @@ public class SocialChannelDao {
             throw new SQLException("name is required");
         }
         String desc = description == null ? "" : description;
+        // Wrap name/description as multilingual JSON, marking the original input
+        // as the default language version for future translations.
+        String nameJson = I18nFieldUtil.wrapAsDefault(name.trim(), null);
+        String descJson = I18nFieldUtil.wrapAsDefault(desc, null);
         try (Connection conn = HikariDS.getConnection("saas")) {
             conn.setAutoCommit(false);
             try {
@@ -199,8 +204,8 @@ public class SocialChannelDao {
                         "VALUES(?,?,?,1,datetime('now', '+8 hours'))";
                 long channelId;
                 try (PreparedStatement ps = conn.prepareStatement(insertCh, Statement.RETURN_GENERATED_KEYS)) {
-                    ps.setString(1, name.trim());
-                    ps.setString(2, desc);
+                    ps.setString(1, nameJson);
+                    ps.setString(2, descJson);
                     ps.setString(3, owner);
                     ps.executeUpdate();
                     try (ResultSet keys = ps.getGeneratedKeys()) {
@@ -338,6 +343,10 @@ public class SocialChannelDao {
     }
 
     public List<SocialChannel> listPublicChannels(int limit) throws SQLException {
+        return listPublicChannels(limit, null);
+    }
+
+    public List<SocialChannel> listPublicChannels(int limit, String preferLang) throws SQLException {
         ensureTables();
         int lim = limit <= 0 ? 50 : Math.min(limit, 200);
         List<SocialChannel> list = new ArrayList<SocialChannel>();
@@ -348,11 +357,63 @@ public class SocialChannelDao {
             ps.setInt(1, lim);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    list.add(mapChannel(rs));
+                    list.add(mapChannel(rs, preferLang));
                 }
             }
         }
         return list;
+    }
+
+    /**
+     * Returns the raw stored JSON (or legacy plain text) for the channel's
+     * multilingual fields. The map keys are "name" and "description".
+     */
+    public Map<String, String> findChannelRawI18n(long channelId) throws SQLException {
+        ensureTables();
+        String sql = "SELECT name,description FROM social_channels WHERE id = ?";
+        try (Connection conn = HikariDS.getConnection("saas");
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, channelId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    Map<String, String> raw = new LinkedHashMap<String, String>();
+                    raw.put("name", rs.getString("name"));
+                    raw.put("description", rs.getString("description"));
+                    return raw;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Stores the supplied translation for the given language, leaving the
+     * original default value untouched. Pass null to skip a particular field.
+     */
+    public int updateChannelTranslation(long channelId, String lang, String translatedName, String translatedDescription) throws SQLException {
+        ensureTables();
+        String normalized = I18nFieldUtil.normalizeLang(lang);
+        if (normalized == null) {
+            return 0;
+        }
+        Map<String, String> raw = findChannelRawI18n(channelId);
+        if (raw == null) {
+            return 0;
+        }
+        String newName = translatedName == null
+                ? raw.get("name")
+                : I18nFieldUtil.upsertTranslation(raw.get("name"), normalized, translatedName);
+        String newDesc = translatedDescription == null
+                ? raw.get("description")
+                : I18nFieldUtil.upsertTranslation(raw.get("description"), normalized, translatedDescription);
+        String sql = "UPDATE social_channels SET name = ?, description = ? WHERE id = ?";
+        try (Connection conn = HikariDS.getConnection("saas");
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, newName);
+            ps.setString(2, newDesc);
+            ps.setLong(3, channelId);
+            return ps.executeUpdate();
+        }
     }
 
     public List<SocialChannel> listOwnerChannels(String userId) throws SQLException {
@@ -480,10 +541,15 @@ public class SocialChannelDao {
     }
 
     private static SocialChannel mapChannel(ResultSet rs) throws SQLException {
+        return mapChannel(rs, null);
+    }
+
+    private static SocialChannel mapChannel(ResultSet rs, String preferLang) throws SQLException {
         SocialChannel c = new SocialChannel();
         c.setId(rs.getLong("id"));
-        c.setName(rs.getString("name"));
-        c.setDescription(rs.getString("description"));
+        // name/description may be stored as JSON to support multiple languages.
+        c.setName(I18nFieldUtil.resolve(rs.getString("name"), preferLang));
+        c.setDescription(I18nFieldUtil.resolve(rs.getString("description"), preferLang));
         c.setOwnerUserId(rs.getString("owner_user_id"));
         c.setEnabled(rs.getInt("status") != 0);
         c.setCreatedAt(rs.getTimestamp("created_at"));

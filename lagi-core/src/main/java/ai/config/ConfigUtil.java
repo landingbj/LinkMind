@@ -93,6 +93,9 @@ public class ConfigUtil {
     }
 
     public static String getBaseUrl() {
+        if (getAppHost() == null) {
+            return "http";
+        }
         return "http://" + getAppHost() + ":" + getAppPort();
     }
 }

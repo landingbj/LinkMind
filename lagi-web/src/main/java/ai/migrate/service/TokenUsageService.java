@@ -4,6 +4,7 @@ import ai.common.utils.LRUCache;
 import ai.openai.pojo.ChatCompletionResult;
 import ai.openai.pojo.Usage;
 import ai.utils.AiGlobal;
+import ai.utils.ApikeyUtil;
 import ai.utils.OkHttpUtil;
 import ai.utils.OkHttpUtil.HttpPostResult;
 import com.google.gson.Gson;
@@ -43,6 +44,9 @@ public class TokenUsageService {
     }
 
     public void recordUsage(String id, String apiKey, String modelName, Usage usage) {
+        if (!ApikeyUtil.isLandingKey(apiKey)) {
+            return;
+        }
         if (usageCache.get(id) != null) {
             return;
         }

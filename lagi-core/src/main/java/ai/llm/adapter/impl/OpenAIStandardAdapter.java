@@ -28,7 +28,7 @@ import java.util.concurrent.atomic.AtomicReference;
 @LLM(modelNames = {"*"})
 public class OpenAIStandardAdapter extends ModelService implements ILlmAdapter {
     private static final Logger logger = LoggerFactory.getLogger(OpenAIStandardAdapter.class);
-    private static final int HTTP_TIMEOUT = 30 * 1000;
+    private static final int HTTP_TIMEOUT = 30;
     private static final ResponseSessionManager SESSION_MANAGER = ResponseSessionManager.getInstance();
 
     @Override

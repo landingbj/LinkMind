@@ -22,7 +22,7 @@ import java.util.*;
 public class SenseChatAdapter extends ModelService implements ILlmAdapter {
     private static final Logger logger = LoggerFactory.getLogger(SenseChatAdapter.class);
     private static final String COMPLETIONS_URL = "https://api.sensenova.cn/compatible-mode/v1/chat/completions";
-    private static final int HTTP_TIMEOUT = 15 * 1000;
+    private static final int HTTP_TIMEOUT = 15;
 
     @Override
     public boolean verify() {

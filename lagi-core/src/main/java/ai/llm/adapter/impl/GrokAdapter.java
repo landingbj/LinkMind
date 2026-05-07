@@ -25,7 +25,7 @@ public class GrokAdapter extends ModelService implements ILlmAdapter {
     private static final Logger logger = LoggerFactory.getLogger(GrokAdapter.class);
     private static final String COMPLETIONS_URL = "https://api.x.ai/v1/chat/completions";
     private static final String RESPONSES_URL = "https://api.x.ai/v1/responses";
-    private static final int HTTP_TIMEOUT = 15 * 1000;
+    private static final int HTTP_TIMEOUT = 15;
     private static final ResponseSessionManager SESSION_MANAGER = ResponseSessionManager.getInstance();
 
     @Override

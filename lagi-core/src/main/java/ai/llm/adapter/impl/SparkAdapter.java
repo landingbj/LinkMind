@@ -18,7 +18,7 @@ import org.slf4j.LoggerFactory;
 public class SparkAdapter extends ModelService implements ILlmAdapter {
     private static final Logger logger = LoggerFactory.getLogger(SparkAdapter.class);
     private static final String COMPLETIONS_URL = "https://spark-api-open.xf-yun.com/v1/chat/completions";
-    private static final int HTTP_TIMEOUT = 15 * 1000;
+    private static final int HTTP_TIMEOUT = 15;
 
     @Override
     public ChatCompletionResult completions(ChatCompletionRequest chatCompletionRequest) {

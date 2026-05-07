@@ -92,7 +92,7 @@ public class DeerFlowSyncServiceImpl extends BaseSyncServiceImpl {
         modelConfig.put("display_name", "linkmind-pro("+backend.getModel()+")");
         modelConfig.put("use", "langchain_openai:ChatOpenAI");
         modelConfig.put("model", backend.getModel());
-        modelConfig.put("api_key", "sk-test");
+        modelConfig.put("api_key", "");
         modelConfig.put("base_url", path);
         modelConfig.put("request_timeout", 600.0);
         modelConfig.put("max_retries", 2);

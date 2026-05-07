@@ -32,5 +32,6 @@ public class ChatCompletionRequest {
     private transient Boolean enableAfter = true;
     private Boolean store;
     private String apiKey;
+    @JsonAlias({"chat_template_kwargs"})
     private Map<String, Object> chat_template_kwargs;
 }

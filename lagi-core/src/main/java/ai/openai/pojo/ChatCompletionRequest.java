@@ -32,4 +32,5 @@ public class ChatCompletionRequest {
     private transient Boolean enableAfter = true;
     private Boolean store;
     private String apiKey;
+    private Map<String, Object> chat_template_kwargs;
 }

@@ -38,6 +38,7 @@ import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.bean.copier.CopyOptions;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Lists;
 import io.reactivex.Observable;
@@ -420,6 +421,7 @@ public class LlmApiServlet extends BaseServlet {
         ModelPreferenceDto preference = JSONUtil.toBean((String) session.getAttribute("preference"), ModelPreferenceDto.class);
         String json = requestToJson(req);
 //        System.out.println("ChatCompletionRequest json: " + json);
+        objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         ChatCompletionRequest chatCompletionRequest = objectMapper.readValue(json, ChatCompletionRequest.class);
         if (chatCompletionRequest.getModel() == null
                 && preference != null

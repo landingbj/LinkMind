@@ -13,7 +13,7 @@ public class ChatCompletionRequest {
     @JsonAlias({"extra_body"})
     private ExtraBody extraBody;
     private String model;
-    private double temperature;
+    private double temperature = 1;
     private Integer max_tokens;
     private Integer max_completion_tokens;
     private String category;

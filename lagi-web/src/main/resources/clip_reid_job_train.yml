@@ -3,7 +3,7 @@ kind: Job
 metadata:
   name: k8strain-20260205145954-0f7fde01
 spec:
-  backoffLimit: 3
+  backoffLimit: 0
   activeDeadlineSeconds: 86400
   completions: 1
   parallelism: 1
@@ -11,7 +11,7 @@ spec:
     spec:
       containers:
         - name: clip-reid-trainer
-          image: 192.168.200.26/trainer_images/clip_reid:v1
+          image: clip_reid:v1
           imagePullPolicy: IfNotPresent
           env:
             - name: CONFIG
@@ -19,10 +19,10 @@ spec:
           resources:
             limits:
 #              nvidia.com/gpu: 1
-              memory: 8Gi
+              memory: 16Gi
             requests:
 #              nvidia.com/gpu: 1
-              memory: 8Gi
+              memory: 16Gi
       # 核心新增：添加容忍策略，匹配节点的GPU污点
       tolerations:
         - key: "nvidia.com/gpu"       # 对应节点污点的key（步骤1查到的）

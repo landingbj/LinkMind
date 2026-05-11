@@ -209,19 +209,7 @@ public class ModelTrainingServlet extends BaseServlet {
             InputStream fileInputStream = null;
             try {
                 fileInputStream = fileItem.getInputStream();
-                String host = "103.85.179.118";
-                int port = 40022;
-                String username = "tongguoshan";
-                String password = "Hezuo@123";
                 uploadSuccess = uploadFileToRemoteServer(
-                        host,
-                        port,
-                        username ,
-                        password ,
-//                        sshConfig.getHost(),
-//                        sshConfig.getPort(),
-//                        sshConfig.getUsername(),
-//                        sshConfig.getPassword(),
                         fileInputStream,
                         remoteFilePath
                 );
@@ -282,8 +270,7 @@ public class ModelTrainingServlet extends BaseServlet {
     /**
      * 使用本地文件写入替代原 SFTP 上传（K8s 模式推荐挂载共享卷）
      */
-    private boolean uploadFileToRemoteServer(String host, int port, String username,
-                                             String password, InputStream fileInputStream,
+    private boolean uploadFileToRemoteServer( InputStream fileInputStream,
                                              String remoteFilePath) {
         try {
             Path target = java.nio.file.Paths.get(remoteFilePath);

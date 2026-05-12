@@ -1,11 +1,11 @@
-package ai.sevice;
+package ai.agent.service;
 
 import ai.config.ContextLoader;
-import ai.dto.SocialChannel;
-import ai.dto.SocialChannelMessage;
-import ai.dto.SocialUser;
+import ai.agent.pojo.SocialChannel;
+import ai.agent.pojo.SocialChannelMessage;
+import ai.agent.pojo.SocialUser;
 import ai.llm.service.CompletionsService;
-import ai.migrate.dao.SocialChannelDao;
+import ai.agent.dao.SocialChannelDao;
 import ai.openai.pojo.ChatCompletionRequest;
 import ai.openai.pojo.ChatCompletionResult;
 import ai.openai.pojo.ChatMessage;

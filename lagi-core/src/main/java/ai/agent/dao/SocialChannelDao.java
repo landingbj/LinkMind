@@ -1,9 +1,9 @@
-package ai.migrate.dao;
+package ai.agent.dao;
 
 import ai.common.db.HikariDS;
-import ai.dto.SocialChannel;
-import ai.dto.SocialChannelMessage;
-import ai.dto.SocialUser;
+import ai.agent.pojo.SocialChannel;
+import ai.agent.pojo.SocialChannelMessage;
+import ai.agent.pojo.SocialUser;
 import ai.utils.I18nFieldUtil;
 
 import java.sql.*;

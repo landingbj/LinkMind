@@ -1,4 +1,4 @@
-package ai.dto;
+package ai.agent.pojo;
 
 import lombok.Data;
 

@@ -4,7 +4,7 @@ import ai.config.ConfigUtil;
 import ai.config.ContextLoader;
 import ai.config.pojo.GeneralConfig;
 import ai.migrate.service.CascadeConfigService;
-import ai.sevice.SocialChannelService;
+import ai.agent.service.SocialChannelService;
 import ai.utils.OkHttpUtil;
 import cn.hutool.core.util.StrUtil;
 import com.google.gson.Gson;

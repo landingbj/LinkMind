@@ -1,5 +1,6 @@
 package ai.starter;
 
+import ai.utils.AiGlobal;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -27,8 +28,8 @@ public final class OpenClawInjector {
 
     public static final String OPENCLAW_LINKMIND_SET_DEFAULT_PROPERTY = "openclaw.linkmind.setDefault";
 
-    private static final String PROVIDER_NAME = "linkmind";
-    public static final String DEFAULT_MODEL_ID = "linkmind-pro";
+    private static final String PROVIDER_NAME = AiGlobal.DEFAULT_PROVIDER_NAME;
+    public static final String DEFAULT_MODEL_ID = AiGlobal.DEFAULT_MODEL_ID;
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 

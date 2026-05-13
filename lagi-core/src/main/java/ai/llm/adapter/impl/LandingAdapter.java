@@ -91,8 +91,10 @@ public class LandingAdapter extends OpenAIStandardAdapter {
         } else {
             extraBody = request.getExtraBody();
         }
+        String userApiKey = request.getUserApiKey();
         super.setDefaultField(request);
         request.setExtraBody(extraBody);
+        request.setUserApiKey(userApiKey);
     }
 
     private String extractOrigin(String apiAddress) {

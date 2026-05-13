@@ -13,6 +13,12 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+/**
+ * AfterModel hook that persists every LLM call's token usage to the local
+ * {@link TokenStatisticsDao} for in-process analytics / dashboards. This
+ * hook is purely a recorder; SaaS-side metering / billing is handled
+ * separately by {@link TokenChargeImpl}.
+ */
 @Order(3)
 @Component
 public class TokenStatisticsImpl implements AfterModel {

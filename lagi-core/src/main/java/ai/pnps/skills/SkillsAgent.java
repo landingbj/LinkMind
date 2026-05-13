@@ -1,6 +1,8 @@
 package ai.pnps.skills;
 
 import ai.common.exception.RRException;
+import ai.llm.hook.impl.TokenChargeImpl;
+import ai.llm.hook.impl.TokenStatisticsImpl;
 import ai.llm.service.CompletionsService;
 import ai.openai.pojo.ChatCompletionChoice;
 import ai.openai.pojo.ChatCompletionRequest;
@@ -90,6 +92,7 @@ public class SkillsAgent {
         CompletionsService completionsService = new CompletionsService();
         int llmRounds = 0;
         ChatCompletionResult lastResult = null;
+        String userApiKey = request.getUserApiKey();
         while (true) {
             if (chatMessages.isEmpty()) {
                 return new SkillsAgentResult(false, null, "messages is empty", null, null, null);
@@ -141,7 +144,10 @@ public class SkillsAgent {
             }
 
             try {
-
+                request.setEnableAfter(true);
+                request.setUserApiKey(userApiKey);
+                request.enableOnlyHook(TokenStatisticsImpl.class);
+                request.enableOnlyHook(TokenChargeImpl.class);
                 lastResult = completionsService.completions(request);
                 if (lastResult == null
                         || lastResult.getChoices() == null

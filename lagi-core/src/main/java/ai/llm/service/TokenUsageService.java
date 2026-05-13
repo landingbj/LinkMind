@@ -1,6 +1,8 @@
-package ai.migrate.service;
+package ai.llm.service;
 
 import ai.common.utils.LRUCache;
+import ai.config.ContextLoader;
+import ai.openai.pojo.ChatCompletionRequest;
 import ai.openai.pojo.ChatCompletionResult;
 import ai.openai.pojo.Usage;
 import ai.utils.AiGlobal;
@@ -15,7 +17,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 
 @Slf4j
@@ -41,6 +42,71 @@ public class TokenUsageService {
 
     public static TokenUsageService getInstance() {
         return INSTANCE;
+    }
+
+    /**
+     * Convenience entry point that gates on the global {@code chat.tokenCharge}
+     * flag, sanitises the apiKey, and resolves the model name from the request
+     * (falling back to the response). Used by all chat-completion sites that
+     * want to bill the caller for an LLM call.
+     *
+     * @param apiKey  caller-provided apiKey; when blank, falls back to
+     *                {@code request.getApiKey()}
+     * @param request the original chat completion request (for model / fallback apiKey)
+     * @param result  the LLM response carrying {@code id}, {@code model}, and {@code usage}
+     */
+    public void recordUsage(String apiKey, ChatCompletionRequest request, ChatCompletionResult result) {
+        String effectiveApiKey = apiKey;
+        if (isBlank(effectiveApiKey) && request != null) {
+            effectiveApiKey = request.getApiKey();
+        }
+        ApikeyUtil.removeInvalidApiKey(effectiveApiKey);
+        if (!isTokenChargeEnabled()) {
+            log.debug("recordUsage skipped: tokenCharge disabled");
+            return;
+        }
+        if (result.getUsage() == null) {
+            log.debug("recordUsage skipped: result or usage is null");
+            return;
+        }
+        String modelName = resolveModelName(request, result);
+        if (isBlank(modelName)) {
+            log.debug("[{}] recordUsage skipped: model name is blank (id={})", effectiveApiKey, result.getId());
+            return;
+        }
+        log.info("[{}] recordUsage id={}, model={}, promptTokens={}, completionTokens={}",effectiveApiKey,
+                result.getId(), modelName,
+                result.getUsage().getPrompt_tokens(),
+                result.getUsage().getCompletion_tokens());
+        recordUsage(result.getId(), effectiveApiKey, modelName, result.getUsage());
+    }
+
+    /**
+     * Overload for callers that bill the apiKey carried by the request itself
+     * (typical for internally synthesised agent requests).
+     */
+    public void recordUsage(ChatCompletionRequest request, ChatCompletionResult result) {
+        recordUsage(null, request, result);
+    }
+
+    private boolean isTokenChargeEnabled() {
+        try {
+            Boolean tokenCharge = ContextLoader.configuration.getFunctions().getChat().getTokenCharge();
+            return Boolean.TRUE.equals(tokenCharge);
+        } catch (Exception e) {
+            // Configuration not loaded yet (e.g. unit tests): treat as disabled.
+            return false;
+        }
+    }
+
+    private String resolveModelName(ChatCompletionRequest request, ChatCompletionResult result) {
+        if (request != null && !isBlank(request.getModel())) {
+            return request.getModel().trim();
+        }
+        if (result != null && !isBlank(result.getModel())) {
+            return result.getModel().trim();
+        }
+        return null;
     }
 
     public void recordUsage(String id, String apiKey, String modelName, Usage usage) {

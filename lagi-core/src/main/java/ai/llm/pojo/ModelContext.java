@@ -22,4 +22,5 @@ public class ModelContext {
     private Observable<ChatCompletionResult> streamResult;
     private List<ChatMessage> originalMessages;
     private List<SkillEntry> skills;
+    private String userApiKey;
 }

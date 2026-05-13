@@ -1,7 +1,9 @@
 package ai.common.utils;
 
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -82,6 +84,33 @@ public class LRUCache<K, V> {
         try {
             timestampMap.remove(key);
             return map.remove(key);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * Returns a snapshot of the current keys. Safe to iterate without holding
+     * the cache lock; expired entries are skipped (and removed) if expiration
+     * is enabled.
+     */
+    public List<K> keys() {
+        lock.lock();
+        try {
+            List<K> snapshot = new ArrayList<>(map.size());
+            if (expirationTimeInMillis == -1) {
+                snapshot.addAll(map.keySet());
+                return snapshot;
+            }
+            for (K key : new ArrayList<>(map.keySet())) {
+                if (isExpired(key)) {
+                    map.remove(key);
+                    timestampMap.remove(key);
+                } else {
+                    snapshot.add(key);
+                }
+            }
+            return snapshot;
         } finally {
             lock.unlock();
         }

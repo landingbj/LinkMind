@@ -1,5 +1,6 @@
 package ai.servlet;
 
+import ai.agent.service.AgentSocialService;
 import ai.config.ConfigUtil;
 import ai.config.ContextLoader;
 import ai.config.pojo.GeneralConfig;
@@ -24,6 +25,10 @@ public class SocialChannelServlet extends BaseServlet {
     protected Gson gson = new Gson();
     private final SocialChannelService socialChannelService = new SocialChannelService();
     private final CascadeConfigService cascadeConfigService = new CascadeConfigService();
+
+    static {
+        AgentSocialService.getInstance().start();
+    }
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {

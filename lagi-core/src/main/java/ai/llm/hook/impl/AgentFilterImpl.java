@@ -1,6 +1,8 @@
 package ai.llm.hook.impl;
 
+import ai.agent.service.AgentMessageQueueService;
 import ai.annotation.Component;
+import ai.annotation.ConditionalOnProperty;
 import ai.annotation.Order;
 import ai.llm.hook.AfterModel;
 import ai.llm.hook.BeforeModel;
@@ -15,6 +17,7 @@ import java.util.List;
 
 @Order(-1)
 @Component
+@ConditionalOnProperty(name = "skills.enable", havingValue = "true")
 public class AgentFilterImpl implements BeforeModel, AfterModel {
 
     @Override
@@ -23,11 +26,7 @@ public class AgentFilterImpl implements BeforeModel, AfterModel {
         List<ChatMessage> chatMessages = request.getMessages();
 
         List<ChatMessage> systemMessages = ChatCompletionUtil.getSystemMessages(chatMessages);
-        List<ChatMessage> historyMessages = ChatCompletionUtil.getHistoryMessages(chatMessages);
-        List<ChatMessage> incrementMessages = ChatCompletionUtil.getIncrementMessages(chatMessages);
-        System.out.println("systemMessages:" + systemMessages);
-        System.out.println("historyMessages:" + historyMessages);
-        System.out.println("incrementMessages:" + incrementMessages);
+        AgentMessageQueueService.getInstance().cacheSystemMessages(request, systemMessages);
         return request;
     }
 

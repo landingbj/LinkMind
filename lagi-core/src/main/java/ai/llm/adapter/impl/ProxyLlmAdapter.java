@@ -52,7 +52,7 @@ public class ProxyLlmAdapter extends ModelService implements ILlmAdapter {
         if (Boolean.TRUE.equals(request.getEnableAfter())) {
             request.setEnableAfter(null);
             context.setResult(completions);
-            return hookService != null ? hookService.AfterModel(context) : completions;
+            return hookService != null ? hookService.afterModel(context) : completions;
         }
         return completions;
     }
@@ -60,7 +60,11 @@ public class ProxyLlmAdapter extends ModelService implements ILlmAdapter {
     @Override
     public ChatCompletionResult completions(ChatCompletionRequest request) {
         // Prevent stack overflow caused by calling large models within the hook function
-        ModelContext context = ModelContext.builder().request(request).adapter(this.llmAdapter).build();
+        ModelContext context = ModelContext.builder()
+                .request(request)
+                .adapter(this.llmAdapter)
+                .userApiKey(resolveCallerApiKey(request))
+                .build();
         if (Boolean.TRUE.equals(request.getEnableHook())) {
             request.setEnableHook(null);
             if (hookService != null) {
@@ -97,7 +101,11 @@ public class ProxyLlmAdapter extends ModelService implements ILlmAdapter {
     @Override
     public Observable<ChatCompletionResult> streamCompletions(ChatCompletionRequest chatCompletionRequest) {
         // Prevent stack overflow caused by calling large models within the hook function
-        ModelContext context = ModelContext.builder().request(chatCompletionRequest).adapter(this.llmAdapter).build();
+        ModelContext context = ModelContext.builder()
+                .request(chatCompletionRequest)
+                .adapter(this.llmAdapter)
+                .userApiKey(resolveCallerApiKey(chatCompletionRequest))
+                .build();
         if (Boolean.TRUE.equals(chatCompletionRequest.getEnableHook())) {
             chatCompletionRequest.setEnableHook(null);
             if (hookService != null) {
@@ -142,6 +150,24 @@ public class ProxyLlmAdapter extends ModelService implements ILlmAdapter {
                 this.priorityLock.unlock(priority);
             }
         }
+    }
+
+    /**
+     * Resolve the caller-owned apiKey used for billing. The regular
+     * {@code apiKey} field is mutated downstream (LandingAdapter rewrites it
+     * to a backend key, ModelService#setDefaultField nulls it, key-pool
+     * routing replaces it, etc.). {@code userApiKey} is the sticky copy set
+     * at the public entry point and is preferred when present.
+     */
+    private String resolveCallerApiKey(ChatCompletionRequest request) {
+        if (request == null) {
+            return null;
+        }
+        String userApiKey = request.getUserApiKey();
+        if (userApiKey != null && !userApiKey.isEmpty()) {
+            return userApiKey;
+        }
+        return request.getApiKey();
     }
 
     private ChatCompletionResult delegateCompletions(ChatCompletionRequest request) {

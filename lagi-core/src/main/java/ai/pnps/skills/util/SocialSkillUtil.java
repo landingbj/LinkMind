@@ -82,7 +82,7 @@ public final class SocialSkillUtil {
             return channels;
         }
         try {
-            Class<?> daoClass = Class.forName("ai.migrate.dao.SocialChannelDao");
+            Class<?> daoClass = Class.forName("ai.agent.dao.SocialChannelDao");
             Object dao = daoClass.getDeclaredConstructor().newInstance();
             @SuppressWarnings("unchecked")
             List<Map<String, Object>> result = (List<Map<String, Object>>) daoClass

@@ -25,6 +25,9 @@ public class HookService {
             return request;
         }
         for (BeforeModel beforeModel : BeanManageUtil.getBeansByType(BeforeModel.class)) {
+            if (!isHookEnabled(request, beforeModel)) {
+                continue;
+            }
             try {
                 ChatCompletionRequest next = beforeModel.beforeModel(context);
                 if (next != null) {
@@ -37,13 +40,17 @@ public class HookService {
         return request;
     }
 
-    public ChatCompletionResult AfterModel(ModelContext context) {
+    public ChatCompletionResult afterModel(ModelContext context) {
         ChatCompletionResult result = context.getResult();
         if (result == null || BeanManageUtil.getBeansByType(AfterModel.class) == null) {
             return result;
         }
+        ChatCompletionRequest request = context.getRequest();
         context.setResult(result);
         for (AfterModel afterModel : BeanManageUtil.getBeansByType(AfterModel.class)) {
+            if (!isHookEnabled(request, afterModel)) {
+                continue;
+            }
             try {
                 ChatCompletionResult next = afterModel.apply(context);
                 if (next != null) {
@@ -62,8 +69,12 @@ public class HookService {
         if (result == null || BeanManageUtil.getBeansByType(AfterModel.class) == null) {
             return result;
         }
+        ChatCompletionRequest request = context.getRequest();
         context.setStreamResult(result);
         for (AfterModel afterModel : BeanManageUtil.getBeansByType(AfterModel.class)) {
+            if (!isHookEnabled(request, afterModel)) {
+                continue;
+            }
             try {
                 Observable<ChatCompletionResult> next = afterModel.stream(context);
                 if (next != null) {
@@ -75,6 +86,13 @@ public class HookService {
             }
         }
         return result;
+    }
+
+    private boolean isHookEnabled(ChatCompletionRequest request, Object hook) {
+        if (request == null || hook == null) {
+            return true;
+        }
+        return request.isHookEnabled(hook.getClass());
     }
 
 }

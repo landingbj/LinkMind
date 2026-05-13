@@ -23,10 +23,10 @@ import ai.medusa.MedusaService;
 import ai.medusa.pojo.CacheItem;
 import ai.medusa.pojo.PromptInput;
 import ai.medusa.utils.PromptInputUtil;
-import ai.migrate.service.TokenUsageService;
 import ai.openai.pojo.*;
 import ai.router.pojo.LLmRequest;
 import ai.servlet.BaseServlet;
+import ai.utils.AiGlobal;
 import ai.utils.ApikeyUtil;
 import ai.utils.ClientIpAddressUtil;
 import ai.utils.MigrateGlobal;
@@ -54,7 +54,6 @@ import java.io.PrintWriter;
 import java.util.*;
 import java.util.stream.Collectors;
 
-import static ai.starter.OpenClawInjector.DEFAULT_MODEL_ID;
 
 public class LlmApiServlet extends BaseServlet {
     private static final long serialVersionUID = 1L;
@@ -69,12 +68,9 @@ public class LlmApiServlet extends BaseServlet {
     private Boolean RAG_ENABLE = null;
     private Boolean MEDUSA_ENABLE = null;
     private final Boolean enableQueueHandle = ContextLoader.configuration.getFunctions().getChat().getEnableQueueHandle();
-    private final Boolean tokenCharge = ContextLoader.configuration.getFunctions().getChat().getTokenCharge();
     private final QueueSchedule queueSchedule = enableQueueHandle ? new QueueSchedule() : null;
     private final DefaultWorker defaultWorker = new DefaultWorker();
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final TokenUsageService tokenUsageService = TokenUsageService.getInstance();
-
     private static MedusaMonitor medusaMonitor;
 
     static {
@@ -258,7 +254,6 @@ public class LlmApiServlet extends BaseServlet {
             chatCompletionResult = medusaService.locate(promptInput);
             if (chatCompletionResult != null) {
                 outPrintChatCompletion(resp, chatCompletionRequest, chatCompletionResult);
-                enqueueUsageRecord(apiKey, chatCompletionRequest, chatCompletionResult);
                 logger.info("Cache hit: {}", PromptInputUtil.getNewestPrompt(promptInput));
                 promptInput.getMedusaMetadata().setCacheHit(true);
                 medusaService.triggerCachePutAndDiversify(promptInput, true);
@@ -334,7 +329,6 @@ public class LlmApiServlet extends BaseServlet {
                     medusaMonitor.put(medusaService.getPromptInput(chatCompletionRequest), result);
                 }
                 responsePrint(resp, toJson(result));
-                enqueueUsageRecord(apiKey, chatCompletionRequest, result);
             } catch (RRException e) {
                 handleCompletionException(resp, chatCompletionRequest, mateUrl, e);
             }
@@ -428,11 +422,14 @@ public class LlmApiServlet extends BaseServlet {
                 && preference.getLlm() != null) {
             chatCompletionRequest.setModel(preference.getLlm());
         }
-        if (chatCompletionRequest.getModel() != null && chatCompletionRequest.getModel().equals(DEFAULT_MODEL_ID)) {
+        if (chatCompletionRequest.getModel() != null && chatCompletionRequest.getModel().equals(AiGlobal.DEFAULT_MODEL_ID)) {
             chatCompletionRequest.setModel(null);
         }
         String apikey = ApikeyUtil.extractBearerToken(req.getHeader("Authorization"));
         chatCompletionRequest.setApiKey(apikey);
+        if (chatCompletionRequest.getUserApiKey() == null) {
+            chatCompletionRequest.setUserApiKey(apikey);
+        }
         return chatCompletionRequest;
     }
 
@@ -491,7 +488,6 @@ public class LlmApiServlet extends BaseServlet {
                         return;
                     }
                     extracted(lastResult, indexSearchDataList, context, out);
-                    enqueueUsageRecord(apiKey, chatCompletionRequest, lastResult[0]);
                     out.flush();
                     out.close();
                     if (medusaMonitor != null && promptInput != null && lastResult[0] != null) {
@@ -500,26 +496,6 @@ public class LlmApiServlet extends BaseServlet {
                     }
                 }
         );
-    }
-
-    private void enqueueUsageRecord(String apiKey, ChatCompletionRequest request, ChatCompletionResult result) {
-        ApikeyUtil.removeInvalidApiKey(apiKey);
-        if (!Boolean.TRUE.equals(tokenCharge) || result == null || result.getUsage() == null) {
-            return;
-        }
-        String modelName = resolveModelNameForUsage(request, result);
-        if (StrUtil.isBlank(modelName)) {
-            return;
-        }
-        tokenUsageService.recordUsage(result.getId(), apiKey, modelName, result.getUsage());
-    }
-
-    private String resolveModelNameForUsage(ChatCompletionRequest request, ChatCompletionResult result) {
-        String requestModel = null;
-        if (request != null && StrUtil.isNotBlank(request.getModel())) {
-            requestModel = request.getModel().trim();
-        }
-        return requestModel;
     }
 
     private void outputChunk(PrintWriter out, String msg) {

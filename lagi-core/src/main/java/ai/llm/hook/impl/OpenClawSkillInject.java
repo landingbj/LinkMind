@@ -262,6 +262,7 @@ public class OpenClawSkillInject implements BeforeModel, AfterModel {
             }
             chatMessages.add(assistantMessage);
             request.setMessages(chatMessages);
+            request.setUserApiKey(context.getUserApiKey());
             SkillsAgent skillsAgent = new SkillsAgent();
             SkillsAgentResult run = skillsAgent.run(request);
             return run.getOriginalResult();
@@ -399,6 +400,7 @@ public class OpenClawSkillInject implements BeforeModel, AfterModel {
             ChatMessage assistantMessage = buildAssistantToolMessage(lastChunk, mergedToolCalls);
             chatMessages.add(assistantMessage);
             request.setMessages(chatMessages);
+            request.setUserApiKey(context.getUserApiKey());
             SkillsAgent skillsAgent = new SkillsAgent();
             Future<SkillsAgentResult> skillsAgentResultFuture = skillsAgent.runAsync(request);
             while (!skillsAgentResultFuture.isDone()) {

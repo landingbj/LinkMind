@@ -1247,21 +1247,40 @@ function maintenance() {
 let currentPromptDialog;
 
 function loadModelSelect(nav) {
-    if (nav &&  nav.models !== undefined && Array.isArray(nav.models)) {
-        $('#model-selects').empty();
+    if (nav && nav.models !== undefined && Array.isArray(nav.models)) {
+        const $container = $('#model-selects');
+        $container.empty();
         $('#model-prefences').show();
-        for (let i = 0; i < nav.models.length; i++) {
-            let selectHtml = '';
-            let modelType = nav.models[i];
-            let modelInfos = getModeList(modelType);
-            selectHtml = `
+        // Fetch every model type in parallel, then render in original order
+        // so the rendered <select> sequence matches nav.models.
+        const tasks = nav.models.map(function (modelType) {
+            return getModeList(modelType);
+        });
+        return Promise.all(tasks).then(function (results) {
+            console.log('Models loaded:', results);
+            for (let i = 0; i < nav.models.length; i++) {
+                const modelType = nav.models[i];
+                // Keep only entries whose model name contains a forward slash,
+                // then sort alphabetically by model name for a stable order.
+                const modelInfos = Array.isArray(results[i])
+                    ? results[i]
+                        .filter(function (info) {
+                            return info && typeof info.model === 'string' && info.model.indexOf('/') !== -1;
+                        })
+                        .sort(function (a, b) {
+                            return a.model.localeCompare(b.model);
+                        })
+                    : results[i];
+                const selectHtml = `
             <select class = "model-select" name="${modelType}">
                 ${genModelOptions(modelInfos)}
             </select>
             `;
-            $('#model-selects').append(selectHtml);
-        }
+                $container.append(selectHtml);
+            }
+        });
     }
+    return Promise.resolve();
 }
 
 function genModelOptions(modelInfos) {
@@ -1285,27 +1304,28 @@ function genModelOptions(modelInfos) {
 }
 
 function getModeList(type) {
-    let res;
-    let params = {
+    const params = {
         'type': type,
         'userId': window.finger
     };
-    $.ajax({
-        type: "GET",
-        contentType: "application/json;charset=utf-8",
-        url: "preference/getModels",
-        async: false,
-        data: params,
-        success: function (reponse) {
-            if (reponse.code !== 0) {
-                return;
+    return new Promise(function (resolve) {
+        $.ajax({
+            type: "GET",
+            contentType: "application/json;charset=utf-8",
+            url: "preference/getModels",
+            data: params,
+            success: function (reponse) {
+                if (reponse.code !== 0) {
+                    resolve(undefined);
+                    return;
+                }
+                resolve(reponse.data);
+            },
+            error: function () {
+                resolve(undefined);
             }
-            res = reponse.data;
-        },
-        error: function () {
-        }
+        });
     });
-    return res;
 }
 
 let currentNav = null;

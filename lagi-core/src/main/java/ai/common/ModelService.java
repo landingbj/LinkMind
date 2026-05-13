@@ -104,5 +104,6 @@ public class ModelService implements ModelVerify {
             request.setParallel_tool_calls(null);
         }
         request.setExtraBody(null);
+        request.setUserApiKey(null);
     }
 }

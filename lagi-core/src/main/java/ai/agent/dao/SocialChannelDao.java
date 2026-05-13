@@ -1,6 +1,7 @@
 package ai.agent.dao;
 
 import ai.common.db.HikariDS;
+import ai.common.db.SqliteRetry;
 import ai.agent.pojo.SocialChannel;
 import ai.agent.pojo.SocialChannelMessage;
 import ai.agent.pojo.SocialUser;
@@ -121,13 +122,17 @@ public class SocialChannelDao {
         if (username == null || username.trim().isEmpty()) {
             throw new SQLException("username is required");
         }
-        String sql = "INSERT OR IGNORE INTO social_users(user_id,username,created_at) VALUES(?,?,datetime('now', '+8 hours'))";
-        try (Connection conn = HikariDS.getConnection("saas");
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, userId.trim());
-            ps.setString(2, username.trim());
-            return ps.executeUpdate() > 0;
-        }
+        final String sql = "INSERT OR IGNORE INTO social_users(user_id,username,created_at) VALUES(?,?,datetime('now', '+8 hours'))";
+        final String uid = userId.trim();
+        final String uname = username.trim();
+        return SqliteRetry.execute(() -> {
+            try (Connection conn = HikariDS.getConnection("saas");
+                 PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, uid);
+                ps.setString(2, uname);
+                return ps.executeUpdate() > 0;
+            }
+        });
     }
 
     // ---------- Channels ----------
@@ -195,42 +200,45 @@ public class SocialChannelDao {
         String desc = description == null ? "" : description;
         // Wrap name/description as multilingual JSON, marking the original input
         // as the default language version for future translations.
-        String nameJson = I18nFieldUtil.wrapAsDefault(name.trim(), null);
-        String descJson = I18nFieldUtil.wrapAsDefault(desc, null);
-        try (Connection conn = HikariDS.getConnection("saas")) {
-            conn.setAutoCommit(false);
-            try {
-                String insertCh = "INSERT INTO social_channels(name,description,owner_user_id,status,created_at) " +
-                        "VALUES(?,?,?,1,datetime('now', '+8 hours'))";
-                long channelId;
-                try (PreparedStatement ps = conn.prepareStatement(insertCh, Statement.RETURN_GENERATED_KEYS)) {
-                    ps.setString(1, nameJson);
-                    ps.setString(2, descJson);
-                    ps.setString(3, owner);
-                    ps.executeUpdate();
-                    try (ResultSet keys = ps.getGeneratedKeys()) {
-                        if (!keys.next()) {
-                            throw new SQLException("failed to obtain channel id");
+        final String nameJson = I18nFieldUtil.wrapAsDefault(name.trim(), null);
+        final String descJson = I18nFieldUtil.wrapAsDefault(desc, null);
+        final String ownerFinal = owner;
+        return SqliteRetry.execute(() -> {
+            try (Connection conn = HikariDS.getConnection("saas")) {
+                conn.setAutoCommit(false);
+                try {
+                    String insertCh = "INSERT INTO social_channels(name,description,owner_user_id,status,created_at) " +
+                            "VALUES(?,?,?,1,datetime('now', '+8 hours'))";
+                    long channelId;
+                    try (PreparedStatement ps = conn.prepareStatement(insertCh, Statement.RETURN_GENERATED_KEYS)) {
+                        ps.setString(1, nameJson);
+                        ps.setString(2, descJson);
+                        ps.setString(3, ownerFinal);
+                        ps.executeUpdate();
+                        try (ResultSet keys = ps.getGeneratedKeys()) {
+                            if (!keys.next()) {
+                                throw new SQLException("failed to obtain channel id");
+                            }
+                            channelId = keys.getLong(1);
                         }
-                        channelId = keys.getLong(1);
                     }
+                    String insertSub = "INSERT OR IGNORE INTO social_channel_subscriptions(user_id,channel_id,subscribed_at) " +
+                            "VALUES(?,?,datetime('now', '+8 hours'))";
+                    try (PreparedStatement ps = conn.prepareStatement(insertSub)) {
+                        ps.setString(1, ownerFinal);
+                        ps.setLong(2, channelId);
+                        ps.executeUpdate();
+                    }
+                    conn.commit();
+                    return channelId;
+                } catch (SQLException e) {
+                    conn.rollback();
+                    throw e;
+                } finally {
+                    conn.setAutoCommit(true);
                 }
-                String insertSub = "INSERT OR IGNORE INTO social_channel_subscriptions(user_id,channel_id,subscribed_at) " +
-                        "VALUES(?,?,datetime('now', '+8 hours'))";
-                try (PreparedStatement ps = conn.prepareStatement(insertSub)) {
-                    ps.setString(1, owner);
-                    ps.setLong(2, channelId);
-                    ps.executeUpdate();
-                }
-                conn.commit();
-                return channelId;
-            } catch (SQLException e) {
-                conn.rollback();
-                throw e;
-            } finally {
-                conn.setAutoCommit(true);
             }
-        }
+        });
     }
 
     // ---------- Subscriptions ----------
@@ -240,14 +248,18 @@ public class SocialChannelDao {
         if (userId == null || userId.trim().isEmpty()) {
             return false;
         }
-        String sql = "INSERT OR IGNORE INTO social_channel_subscriptions(user_id,channel_id,subscribed_at) " +
+        final String sql = "INSERT OR IGNORE INTO social_channel_subscriptions(user_id,channel_id,subscribed_at) " +
                 "VALUES(?,?,datetime('now', '+8 hours'))";
-        try (Connection conn = HikariDS.getConnection("saas");
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, userId.trim());
-            ps.setLong(2, channelId);
-            return ps.executeUpdate() > 0;
-        }
+        final String uid = userId.trim();
+        final long cid = channelId;
+        return SqliteRetry.execute(() -> {
+            try (Connection conn = HikariDS.getConnection("saas");
+                 PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, uid);
+                ps.setLong(2, cid);
+                return ps.executeUpdate() > 0;
+            }
+        });
     }
 
     public int removeSubscription(String userId, long channelId) throws SQLException {
@@ -255,13 +267,17 @@ public class SocialChannelDao {
         if (userId == null || userId.trim().isEmpty()) {
             return 0;
         }
-        String sql = "DELETE FROM social_channel_subscriptions WHERE user_id = ? AND channel_id = ?";
-        try (Connection conn = HikariDS.getConnection("saas");
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, userId.trim());
-            ps.setLong(2, channelId);
-            return ps.executeUpdate();
-        }
+        final String sql = "DELETE FROM social_channel_subscriptions WHERE user_id = ? AND channel_id = ?";
+        final String uid = userId.trim();
+        final long cid = channelId;
+        return SqliteRetry.execute(() -> {
+            try (Connection conn = HikariDS.getConnection("saas");
+                 PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, uid);
+                ps.setLong(2, cid);
+                return ps.executeUpdate();
+            }
+        });
     }
 
     public List<SocialChannel> listSubscribedChannels(String userId) throws SQLException {
@@ -406,14 +422,19 @@ public class SocialChannelDao {
         String newDesc = translatedDescription == null
                 ? raw.get("description")
                 : I18nFieldUtil.upsertTranslation(raw.get("description"), normalized, translatedDescription);
-        String sql = "UPDATE social_channels SET name = ?, description = ? WHERE id = ?";
-        try (Connection conn = HikariDS.getConnection("saas");
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, newName);
-            ps.setString(2, newDesc);
-            ps.setLong(3, channelId);
-            return ps.executeUpdate();
-        }
+        final String sql = "UPDATE social_channels SET name = ?, description = ? WHERE id = ?";
+        final String nameFinal = newName;
+        final String descFinal = newDesc;
+        final long cid = channelId;
+        return SqliteRetry.execute(() -> {
+            try (Connection conn = HikariDS.getConnection("saas");
+                 PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, nameFinal);
+                ps.setString(2, descFinal);
+                ps.setLong(3, cid);
+                return ps.executeUpdate();
+            }
+        });
     }
 
     public List<SocialChannel> listOwnerChannels(String userId) throws SQLException {
@@ -438,23 +459,30 @@ public class SocialChannelDao {
 
     public int updateChannelStatus(long channelId, boolean enabled) throws SQLException {
         ensureTables();
-        String sql = "UPDATE social_channels SET status = ? WHERE id = ?";
-        try (Connection conn = HikariDS.getConnection("saas");
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setInt(1, enabled ? 1 : 0);
-            ps.setLong(2, channelId);
-            return ps.executeUpdate();
-        }
+        final String sql = "UPDATE social_channels SET status = ? WHERE id = ?";
+        final int statusFlag = enabled ? 1 : 0;
+        final long cid = channelId;
+        return SqliteRetry.execute(() -> {
+            try (Connection conn = HikariDS.getConnection("saas");
+                 PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setInt(1, statusFlag);
+                ps.setLong(2, cid);
+                return ps.executeUpdate();
+            }
+        });
     }
 
     public int deleteChannel(long channelId) throws SQLException {
         ensureTables();
-        String sql = "DELETE FROM social_channels WHERE id = ?";
-        try (Connection conn = HikariDS.getConnection("saas");
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setLong(1, channelId);
-            return ps.executeUpdate();
-        }
+        final String sql = "DELETE FROM social_channels WHERE id = ?";
+        final long cid = channelId;
+        return SqliteRetry.execute(() -> {
+            try (Connection conn = HikariDS.getConnection("saas");
+                 PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setLong(1, cid);
+                return ps.executeUpdate();
+            }
+        });
     }
 
     // ---------- Messages ----------
@@ -516,6 +544,28 @@ public class SocialChannelDao {
         return list;
     }
 
+    /**
+     * Loads a single message joined with channel/user info, or null when not found.
+     */
+    public SocialChannelMessage findMessageById(long messageId) throws SQLException {
+        ensureTables();
+        String sql = "SELECT m.id,m.channel_id,c.name AS channel_name,m.user_id,u.username AS user_name,m.content,m.created_at "
+                + "FROM social_channel_messages m "
+                + "INNER JOIN social_channels c ON c.id = m.channel_id "
+                + "LEFT JOIN social_users u ON u.user_id = m.user_id "
+                + "WHERE m.id = ?";
+        try (Connection conn = HikariDS.getConnection("saas");
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, messageId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return mapMessage(rs);
+                }
+            }
+        }
+        return null;
+    }
+
     public long insertMessage(long channelId, String userId, String content) throws SQLException {
         ensureTables();
         if (userId == null || userId.trim().isEmpty()) {
@@ -524,21 +574,26 @@ public class SocialChannelDao {
         if (content == null || content.trim().isEmpty()) {
             throw new SQLException("content is required");
         }
-        String sql = "INSERT INTO social_channel_messages(channel_id,user_id,content,created_at) " +
+        final String sql = "INSERT INTO social_channel_messages(channel_id,user_id,content,created_at) " +
                 "VALUES(?,?,?,datetime('now', '+8 hours'))";
-        try (Connection conn = HikariDS.getConnection("saas");
-             PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-            ps.setLong(1, channelId);
-            ps.setString(2, userId.trim());
-            ps.setString(3, content.trim());
-            ps.executeUpdate();
-            try (ResultSet keys = ps.getGeneratedKeys()) {
-                if (keys.next()) {
-                    return keys.getLong(1);
+        final long cid = channelId;
+        final String uid = userId.trim();
+        final String body = content.trim();
+        return SqliteRetry.execute(() -> {
+            try (Connection conn = HikariDS.getConnection("saas");
+                 PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+                ps.setLong(1, cid);
+                ps.setString(2, uid);
+                ps.setString(3, body);
+                ps.executeUpdate();
+                try (ResultSet keys = ps.getGeneratedKeys()) {
+                    if (keys.next()) {
+                        return keys.getLong(1);
+                    }
                 }
             }
-        }
-        return -1;
+            return -1L;
+        });
     }
 
     // ---------- Temp ----------
@@ -548,15 +603,17 @@ public class SocialChannelDao {
         if (userId == null || userId.trim().isEmpty()) {
             throw new SQLException("userId is required");
         }
-        String normalizedUserId = userId.trim();
-        try (Connection conn = HikariDS.getConnection("saas")) {
-            String upsertSql = "INSERT OR REPLACE INTO social_temp(k,v,updated_at) VALUES(?, ?, datetime('now', '+8 hours'))";
-            try (PreparedStatement ps = conn.prepareStatement(upsertSql)) {
-                ps.setString(1, "last_login_user_id");
-                ps.setString(2, normalizedUserId);
-                ps.executeUpdate();
+        final String normalizedUserId = userId.trim();
+        SqliteRetry.run(() -> {
+            try (Connection conn = HikariDS.getConnection("saas")) {
+                String upsertSql = "INSERT OR REPLACE INTO social_temp(k,v,updated_at) VALUES(?, ?, datetime('now', '+8 hours'))";
+                try (PreparedStatement ps = conn.prepareStatement(upsertSql)) {
+                    ps.setString(1, "last_login_user_id");
+                    ps.setString(2, normalizedUserId);
+                    ps.executeUpdate();
+                }
             }
-        }
+        });
     }
 
     // ---------- Mapping ----------

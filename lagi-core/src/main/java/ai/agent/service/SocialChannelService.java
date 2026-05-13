@@ -268,6 +268,30 @@ public class SocialChannelService {
         return listMessages(userId, channelId, limit, beforeMessageId, null, null);
     }
 
+    /**
+     * Lists the latest messages of a channel without enforcing a per-user
+     * subscription check. Intended for internal/background agents that need
+     * full channel context.
+     */
+    public List<SocialChannelMessage> listLatestMessages(long channelId, int limit, Long beforeMessageId) throws IOException {
+        try {
+            return socialChannelDao.listMessages(channelId, limit, beforeMessageId);
+        } catch (Exception e) {
+            throw new IOException("list latest messages failed: " + e.getMessage(), e);
+        }
+    }
+
+    public boolean isSubscribed(String userId, long channelId) throws IOException {
+        if (isBlank(userId)) {
+            return false;
+        }
+        try {
+            return socialChannelDao.isSubscribed(userId, channelId);
+        } catch (Exception e) {
+            throw new IOException("check subscription failed: " + e.getMessage(), e);
+        }
+    }
+
     public List<SocialChannelMessage> listMessages(String userId, long channelId, int limit, Long beforeMessageId,
                                                    String startTime, String endTime) throws IOException {
         if (isBlank(userId)) {
@@ -286,10 +310,19 @@ public class SocialChannelService {
     }
 
     public long sendMessage(String userId, long channelId, String content) throws IOException {
-        return sendMessage(userId, Long.valueOf(channelId), null, content);
+        return sendMessage(userId, channelId, content, false);
+    }
+
+    public long sendMessage(String userId, long channelId, String content, boolean agentAutoSent) throws IOException {
+        return sendMessage(userId, Long.valueOf(channelId), null, content, agentAutoSent);
     }
 
     public long sendMessage(String userId, Long channelId, String channelName, String content) throws IOException {
+        return sendMessage(userId, channelId, channelName, content, false);
+    }
+
+    public long sendMessage(String userId, Long channelId, String channelName, String content,
+                            boolean agentAutoSent) throws IOException {
         if (isBlank(userId)) {
             throw new IOException("userId is required");
         }
@@ -321,7 +354,13 @@ public class SocialChannelService {
             if (!socialChannelDao.isSubscribed(userId, resolvedChannelId)) {
                 throw new IOException("not subscribed to this channel");
             }
-            return socialChannelDao.insertMessage(resolvedChannelId, userId, content);
+            long messageId = socialChannelDao.insertMessage(resolvedChannelId, userId, content);
+            SocialChannelMessage queued = socialChannelDao.findMessageById(messageId);
+            if (queued != null) {
+                queued.setAgentAutoSent(agentAutoSent);
+                AgentMessageQueueService.getInstance().offerSentMessage(queued);
+            }
+            return messageId;
         } catch (IOException e) {
             throw e;
         } catch (Exception e) {

@@ -2,6 +2,47 @@ let queryLock = false;
 var PromptDialog = 0;
 const tTextQuery = window.tText || ((s) => s);
 
+// Renders the chain-of-thought reasoning content (reasoning_content) as a
+// collapsible block above the final answer. Returns empty string if no
+// reasoning text is present.
+function ensureReasoningBlockStyles() {
+    if (document.getElementById('reasoning-block-styles')) {
+        return;
+    }
+    var style = document.createElement('style');
+    style.id = 'reasoning-block-styles';
+    style.textContent = ''
+        + '.reasoning-block > summary { list-style: none; }'
+        + '.reasoning-block > summary::-webkit-details-marker { display: none; }'
+        + '.reasoning-block > summary::marker { content: ""; }'
+        + '.reasoning-block .reasoning-arrow { display:inline-block; width:0; height:0; margin-right:6px; vertical-align:middle;'
+        + ' border-left:5px solid currentColor; border-top:4px solid transparent; border-bottom:4px solid transparent;'
+        + ' transition: transform 0.18s ease; }'
+        + '.reasoning-block[open] > summary .reasoning-arrow { transform: rotate(90deg); }';
+    document.head.appendChild(style);
+}
+
+function buildReasoningBlockHtml(reasoningText, openByDefault) {
+    if (!reasoningText) {
+        return '';
+    }
+    ensureReasoningBlockStyles();
+    var rendered;
+    try {
+        rendered = (typeof marked !== 'undefined' && marked.parse)
+            ? marked.parse(String(reasoningText))
+            : String(reasoningText).replace(/\n/g, '<br>');
+    } catch (e) {
+        rendered = String(reasoningText).replace(/\n/g, '<br>');
+    }
+    var openAttr = openByDefault ? ' open' : '';
+    var title = tTextQuery('思考过程');
+    return `<details class="reasoning-block"${openAttr} style="margin:0 0 10px 0;padding:8px 12px;background:#f5f7fb;border-left:3px solid #c7d2fe;border-radius:6px;color:#4b5563;font-size:13px;">`
+        + `<summary style="cursor:pointer;color:#6366f1;font-weight:600;outline:none;user-select:none;display:flex;align-items:center;"><span class="reasoning-arrow"></span><span>${title}</span></summary>`
+        + `<div class="reasoning-block__content" style="margin-top:6px;line-height:1.6;white-space:normal;word-break:break-word;">${rendered}</div>`
+        + `</details>`;
+}
+
 const words = [
     "股票", "天气", "油价", "新闻", "财经", "健康", "医疗",
     "教育", "游戏", "购物", "电影推荐", "美食", "食谱",
@@ -484,7 +525,12 @@ async function generalOutput(paras, question, robootAnswerJq) {
                     isFirst = false;
                 }
             }
+            var reasoningText = chatMessage.reasoning_content;
+            var reasoningHtml = buildReasoningBlockHtml(reasoningText, false);
             if (chatMessage.content === undefined) {
+                if (reasoningHtml) {
+                    robootAnswerJq.html(reasoningHtml);
+                }
                 if (typeof ensureChatBottomBarVisible === 'function') {
                     ensureChatBottomBarVisible();
                 }
@@ -493,6 +539,7 @@ async function generalOutput(paras, question, robootAnswerJq) {
             var fullText = chatMessage.content;
             fullText = fullText.replaceAll("\n", "<br>");
             result = `
+                        ${reasoningHtml}
                         ${fullText} <br>
                         ${chatMessage.imageList && chatMessage.imageList.length > 0 ? chatMessage.imageList.map(image => `<img src='${image}' alt='Image' style="max-width:100%; height:auto; margin-bottom:10px;">`).join('') : "" }                        
                         ${chatMessage.filename !== undefined ? `<div style="display: flex;"><div style="width:50px;flex:1">${tTextQuery('附件:')}</div><div style="width:600px;flex:17 padding-left:5px">${a}</div></div><br>` : ""}
@@ -524,7 +571,181 @@ async function generalOutput(paras, question, robootAnswerJq) {
     $.ajax(ajaxOpts);
 }
 
+// Prepend a system message carrying an empty <available_skills> block so the
+// server-side hook can merge configured skills into the system prompt.
+const SKILLS_SYSTEM_PROMPT = ''
+    + '\n\nThe following skills provide specialized instructions for specific tasks.\n'
+    + "Use the read tool to load a skill's file when the task matches its description.\n"
+    + 'When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n'
+    + '<available_skills>\n'
+    + '</available_skills>\n';
+
+const SKILLS_TOOLS = [
+    {
+        type: 'function',
+        function: {
+            name: 'read',
+            description: 'Read the contents of a file. Supports text files and images (jpg, png, gif, webp). Images are sent as attachments. For text files, output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.',
+            strict: true,
+            parameters: {
+                type: 'object',
+                properties: {
+                    path: {
+                        type: 'string',
+                        description: 'Path to the file to read (relative or absolute)',
+                        schemaExtensions: {}
+                    },
+                    offset: {
+                        type: 'number',
+                        description: 'Line number to start reading from (1-indexed)',
+                        schemaExtensions: {}
+                    },
+                    limit: {
+                        type: 'number',
+                        description: 'Maximum number of lines to read',
+                        schemaExtensions: {}
+                    },
+                    file_path: {
+                        type: 'string',
+                        description: 'Path to the file to read (relative or absolute)',
+                        schemaExtensions: {}
+                    },
+                    filePath: {
+                        type: 'string',
+                        description: 'Path to the file to read (relative or absolute)',
+                        schemaExtensions: {}
+                    },
+                    file: {
+                        type: 'string',
+                        description: 'Path to the file to read (relative or absolute)',
+                        schemaExtensions: {}
+                    }
+                },
+                required: [],
+                additionalProperties: false,
+                schemaExtensions: {}
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'exec',
+            description: 'Execute shell commands with background continuation. Use yieldMs/background to continue later via process tool. Use pty=true for TTY-required commands (terminal UIs, coding agents).',
+            strict: true,
+            parameters: {
+                type: 'object',
+                properties: {
+                    command: {
+                        type: 'string',
+                        description: 'Shell command to execute',
+                        schemaExtensions: {}
+                    },
+                    workdir: {
+                        type: 'string',
+                        description: 'Working directory (defaults to cwd)',
+                        schemaExtensions: {}
+                    },
+                    env: {
+                        type: 'object',
+                        schemaExtensions: {
+                            patternProperties: {
+                                '^(.*)$': { type: 'string' }
+                            }
+                        }
+                    },
+                    yieldMs: {
+                        type: 'number',
+                        description: 'Milliseconds to wait before backgrounding (default 10000)',
+                        schemaExtensions: {}
+                    },
+                    background: {
+                        type: 'boolean',
+                        description: 'Run in background immediately',
+                        schemaExtensions: {}
+                    },
+                    timeout: {
+                        type: 'number',
+                        description: 'Timeout in seconds (optional, kills process on expiry)',
+                        schemaExtensions: {}
+                    },
+                    pty: {
+                        type: 'boolean',
+                        description: 'Run in a pseudo-terminal (PTY) when available (TTY-required CLIs, coding agents)',
+                        schemaExtensions: {}
+                    },
+                    elevated: {
+                        type: 'boolean',
+                        description: 'Run on the host with elevated permissions (if allowed)',
+                        schemaExtensions: {}
+                    },
+                    host: {
+                        type: 'string',
+                        description: 'Exec host (sandbox|gateway|node).',
+                        schemaExtensions: {}
+                    },
+                    security: {
+                        type: 'string',
+                        description: 'Exec security mode (deny|allowlist|full).',
+                        schemaExtensions: {}
+                    },
+                    ask: {
+                        type: 'string',
+                        description: 'Exec ask mode (off|on-miss|always).',
+                        schemaExtensions: {}
+                    },
+                    node: {
+                        type: 'string',
+                        description: 'Node id/name for host=node.',
+                        schemaExtensions: {}
+                    }
+                },
+                required: ['command'],
+                additionalProperties: false,
+                schemaExtensions: {}
+            }
+        }
+    }
+];
+
+function getCurrentUserId() {
+    var fromCookie = (typeof getCookie === 'function' ? getCookie('userId') : '') || '';
+    if (fromCookie) {
+        return fromCookie;
+    }
+    try {
+        return localStorage.getItem('userId') || '';
+    } catch (e) {
+        return '';
+    }
+}
+
+function ensureSystemSkillsPrompt(paras) {
+    if (!paras || !Array.isArray(paras.messages)) {
+        return;
+    }
+    var userId = getCurrentUserId();
+    if (userId) {
+        paras.extraBody = Object.assign({}, paras.extraBody || {}, { userId: String(userId) });
+    }
+    if (!Array.isArray(paras.tools) || paras.tools.length === 0) {
+        paras.tools = SKILLS_TOOLS;
+    }
+    var hasSystem = paras.messages.some(function (m) {
+        return m && m.role === 'system';
+    });
+    if (hasSystem) {
+        return;
+    }
+    paras.messages = [{
+        role: 'system',
+        content: SKILLS_SYSTEM_PROMPT
+    }].concat(paras.messages);
+}
+
 function streamOutput(paras, question, robootAnswerJq) {
+    ensureSystemSkillsPrompt(paras);
+
     function isJsonString(str) {
         try {
             JSON.parse(str);
@@ -570,6 +791,7 @@ function streamOutput(paras, question, robootAnswerJq) {
         let buffer = '';
         let sourceContent = '';
         let pageContent = '';
+        let reasoningContent = '';
         robootAnswerJq.html('<p></p>');
         while (flag) {
             const {value, done} = await reader.read();
@@ -611,7 +833,17 @@ function streamOutput(paras, question, robootAnswerJq) {
                         a += `<a class="filename" style="list-style:none;color: #666;text-decoration: none;display: inline-block; " href="uploadFile/downloadFile?filePath=${chatMessage.filepath[i]}&fileName=${chatMessage.filename[i]}">${chatMessage.filename[i]}</a></br>`;
                     }
                 }
-                if (chatMessage.content === undefined) {
+                if (chatMessage.reasoning_content) {
+                    reasoningContent += chatMessage.reasoning_content;
+                    // Only render the reasoning-only block while the final answer
+                    // hasn't started streaming yet. Otherwise we would overwrite
+                    // already-rendered content with just the reasoning block.
+                    if (!pageContent) {
+                        let reasoningOnlyHtml = buildReasoningBlockHtml(reasoningContent, true);
+                        robootAnswerJq.html(reasoningOnlyHtml + '<p></p>');
+                    }
+                }
+                if (chatMessage.content === undefined || chatMessage.content === null || chatMessage.content === '') {
                     continue;
                 }
                 // console.log("content:", chatMessage);
@@ -622,7 +854,9 @@ function streamOutput(paras, question, robootAnswerJq) {
                 let temp = pageContent;
                 temp = marked.parse(temp);
                 fullText = temp + '<br/>';
+                let reasoningHtmlStream = buildReasoningBlockHtml(reasoningContent, false);
                 result = `
+                        ${reasoningHtmlStream}
                         ${fullText}
                         ${chatMessage.imageList && chatMessage.imageList.length > 0 ? chatMessage.imageList.map(image => `<img src='${image}' alt='Image' style="max-width:100%; height:auto; margin-bottom:10px;">`).join('') : ""}                        
                         ${chatMessage.filename !== undefined ? `<div style="display: flex;"><div style="width:50px;flex:1">${tTextQuery('附件:')}</div><div style="width:600px;flex:17 padding-left:5px">${a}</div></div>` : ""}

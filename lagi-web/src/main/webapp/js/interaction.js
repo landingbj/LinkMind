@@ -115,10 +115,28 @@ async function ensureInteractionUserReady() {
     if (!interactionState.username) {
         interactionState.username = getInteractionUsername();
     }
-    await interactionPost('registerUser', {
-        userId: interactionState.userId,
-        username: interactionState.username
-    });
+}
+
+// Triggered once right after the user's login session is confirmed
+// (cookie-based auth or successful login). Registers the user with the
+// interaction backend and best-effort saves the last-login record.
+// Always overwrites userId/username so account switching cannot leak the
+// previous session's values into the registration call.
+async function registerInteractionUserOnLogin() {
+    const userId = getInteractionUserId();
+    if (!userId) {
+        return;
+    }
+    interactionState.userId = userId;
+    interactionState.username = getInteractionUsername();
+    try {
+        await interactionPost('registerUser', {
+            userId: interactionState.userId,
+            username: interactionState.username
+        });
+    } catch (error) {
+        return;
+    }
     try {
         await interactionPost('saveLastLoginUser', {
             userId: interactionState.userId,
@@ -128,6 +146,8 @@ async function ensureInteractionUserReady() {
         // Ignore temp-save failure because user registration has succeeded.
     }
 }
+
+window.registerInteractionUserOnLogin = registerInteractionUserOnLogin;
 
 function toRecommendedChannel(channel, joinedMap) {
     const channelId = channel && channel.id != null ? String(channel.id) : '';

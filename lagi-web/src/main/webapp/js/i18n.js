@@ -402,7 +402,8 @@
         '已更新': 'Updated',
         '加载消息失败': 'Failed to load messages',
         '未知用户': 'Unknown user',
-        'Agent': 'Agent'
+        'Agent': 'Agent',
+        '思考过程': 'Reasoning'
         ,
         '平台用量概览（基于已有 Token 统计数据聚合）': 'Platform usage overview (aggregated from existing token statistics).',
         '按天用量趋势': 'Daily usage trend',

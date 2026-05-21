@@ -159,6 +159,9 @@ function authLoginCookie(onComplete) {
                     userImg.src = 'images/avatar.jpg';
                     userimgStatus.style.visibility = 'visible';
                     setUserMenuVisible(true);
+                    if (typeof window.registerInteractionUserOnLogin === 'function') {
+                        window.registerInteractionUserOnLogin();
+                    }
                 } else {
                     setUserMenuVisible(false);
                 }

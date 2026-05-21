@@ -132,11 +132,6 @@
                         <div id="model-prefences" class="w-full h-16 pl-10 absolute left-0 top-0" style="z-index:1000">
                             <div id="model-selects" class="inline-block model-selects float-left">
                             </div>
-                            <div class="model-btns w-20 flex-1 inline-block">
-                                <button id="modelClearBtn" class="inline-block" onclick="clearPreference()" data-i18n="model.resetAll">重置所有
-                                </button>
-                                <button id="modelSaveBtn" class="inline-block" onclick="savePerference()" data-i18n="common.save">保存</button>
-                            </div>
                         </div>
                     </div>
                     <div role="presentation" class="flex h-full">

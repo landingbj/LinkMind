@@ -29,7 +29,7 @@ public class AgentMessageQueueService {
 
     private static final AgentMessageQueueService INSTANCE = new AgentMessageQueueService();
 
-    private final LRUCache<String, CachedChatParams> systemMessageCache = new LRUCache<>(SYSTEM_MESSAGE_CACHE_CAPACITY);
+    private final LRUCache<String, CachedChatParams> systemMessageCache = new LRUCache<>(SYSTEM_MESSAGE_CACHE_CAPACITY, 72, TimeUnit.HOURS);
 
     private final LRUCache<Long, Queue<SocialChannelMessage>> sentMessageQueueCache = new LRUCache<>(SENT_MESSAGE_QUEUE_CACHE_CAPACITY);
 

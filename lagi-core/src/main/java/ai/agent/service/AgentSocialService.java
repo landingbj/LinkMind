@@ -540,7 +540,7 @@ public class AgentSocialService {
             try {
                 f.get(REPLY_GENERATION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
             } catch (ExecutionException e) {
-                log.warn("AgentSocialService reply task on channel {} failed", channelId, e.getCause() != null ? e.getCause() : e);
+                log.warn("AgentSocialService reply task on channel {} failed, {}", channelId, e.getCause() != null ? e.getCause() : e);
             } catch (Exception e) {
                 log.warn("AgentSocialService reply task on channel {} timed out or interrupted", channelId, e);
                 f.cancel(true);
@@ -611,6 +611,9 @@ public class AgentSocialService {
                     userId, channelId, result.end);
         }
         if (result.end && session.endedUsers.add(userId)) {
+            if (!latest.isEmpty()) {
+                AgentMessageQueueService.getInstance().offerSocialNotice(latest.get(0));
+            }
             log.info("AgentSocialService channel {} user {} marked as ended; will resume only after a human message",
                     channelId, userId);
         }
@@ -746,6 +749,8 @@ public class AgentSocialService {
                 return null;
             }
             String content = out.getContent();
+            log.info("llm request: {}", new Gson().toJson(request));
+            log.info("llm response: {}", content);
             log.info("AgentSocialService completion succeeded for user {} reply {}", replyUserId, new Gson().toJson(out));
             return parseReplyResult(content);
         } catch (Exception e) {

@@ -61,6 +61,9 @@ public class SocialChannelServlet extends BaseServlet {
             case "getChannel":
                 this.getChannel(req, resp);
                 break;
+            case "listUsers":
+                this.listUsers(req, resp);
+                break;
             default:
                 break;
         }
@@ -105,6 +108,12 @@ public class SocialChannelServlet extends BaseServlet {
                 break;
             case "translateChannel":
                 this.translateChannel(req, resp);
+                break;
+            case "deleteMessages":
+                this.deleteMessages(req, resp);
+                break;
+            case "deleteUser":
+                this.deleteUser(req, resp);
                 break;
             default:
                 break;
@@ -523,6 +532,88 @@ public class SocialChannelServlet extends BaseServlet {
         responsePrint(resp, gson.toJson(result));
     }
 
+    private void listUsers(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> result = new HashMap<String, Object>();
+        try {
+            int pageNumber = 1;
+            int pageSize = 50;
+            String pageNumberStr = req.getParameter("pageNumber");
+            if (pageNumberStr != null && !pageNumberStr.trim().isEmpty()) {
+                pageNumber = Integer.parseInt(pageNumberStr.trim());
+            }
+            String pageSizeStr = req.getParameter("pageSize");
+            if (pageSizeStr != null && !pageSizeStr.trim().isEmpty()) {
+                pageSize = Integer.parseInt(pageSizeStr.trim());
+            }
+            if (pageNumber <= 0) {
+                pageNumber = 1;
+            }
+            if (pageSize <= 0) {
+                pageSize = 50;
+            } else if (pageSize > 500) {
+                pageSize = 500;
+            }
+            int totalRow = socialChannelService.countUsers();
+            int totalPage = pageSize <= 0 ? 0 : (int) Math.ceil((double) totalRow / pageSize);
+            result.put("status", "success");
+            result.put("totalRow", totalRow);
+            result.put("totalPage", totalPage);
+            result.put("pageNumber", pageNumber);
+            result.put("pageSize", pageSize);
+            result.put("data", socialChannelService.listUsers(pageNumber, pageSize));
+        } catch (Exception e) {
+            log.error("listUsers: {}", e.getMessage(), e);
+            result.put("status", "failed");
+            result.put("msg", e.getMessage());
+        }
+        responsePrint(resp, gson.toJson(result));
+    }
+
+    private void deleteUser(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> result = new HashMap<String, Object>();
+        try {
+            DeleteUserBody body = reqBodyToObj(req, DeleteUserBody.class);
+            if (body == null || (StrUtil.isBlank(body.userId) && StrUtil.isBlank(body.username))) {
+                throw new IOException("userId or username is required");
+            }
+            socialChannelService.deleteUser(body.userId, body.username);
+            result.put("status", "success");
+            result.put("msg", "deleted");
+        } catch (Exception e) {
+            log.error("deleteUser: {}", e.getMessage(), e);
+            result.put("status", "failed");
+            result.put("msg", e.getMessage());
+        }
+        responsePrint(resp, gson.toJson(result));
+    }
+
+    private void deleteMessages(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> result = new HashMap<String, Object>();
+        try {
+            DeleteMessagesBody body = reqBodyToObj(req, DeleteMessagesBody.class);
+            if (body == null) {
+                throw new IOException("at least one of userId, channelId, messageId, startTime or endTime is required");
+            }
+            int deleted = socialChannelService.deleteMessages(
+                    body.userId,
+                    body.channelId,
+                    body.messageId,
+                    body.startTime,
+                    body.endTime
+            );
+            result.put("status", "success");
+            result.put("deleted", deleted);
+        } catch (Exception e) {
+            log.error("deleteMessages: {}", e.getMessage(), e);
+            result.put("status", "failed");
+            result.put("msg", e.getMessage());
+        }
+        responsePrint(resp, gson.toJson(result));
+    }
+
     private static class RegisterUserBody {
         String userId;
         String username;
@@ -564,5 +655,18 @@ public class SocialChannelServlet extends BaseServlet {
     private static class TranslateChannelBody {
         Long channelId;
         String lang;
+    }
+
+    private static class DeleteUserBody {
+        String userId;
+        String username;
+    }
+
+    private static class DeleteMessagesBody {
+        String userId;
+        Long channelId;
+        Long messageId;
+        String startTime;
+        String endTime;
     }
 }

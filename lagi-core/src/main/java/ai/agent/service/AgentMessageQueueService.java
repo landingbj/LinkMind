@@ -8,6 +8,7 @@ import ai.openai.pojo.ChatMessage;
 import ai.openai.pojo.ExtraBody;
 import lombok.Value;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -25,11 +26,15 @@ public class AgentMessageQueueService {
 
     private static final int SYSTEM_MESSAGE_CACHE_CAPACITY = 1024;
 
+    private static final int SOCIAL_NOTICE_CACHE_CAPACITY = 1024;
+
     private static final int SENT_MESSAGE_QUEUE_CACHE_CAPACITY = 1024;
 
     private static final AgentMessageQueueService INSTANCE = new AgentMessageQueueService();
 
     private final LRUCache<String, CachedChatParams> systemMessageCache = new LRUCache<>(SYSTEM_MESSAGE_CACHE_CAPACITY, 72, TimeUnit.HOURS);
+
+    private final LRUCache<String, Queue<SocialChannelMessage>> socialNoticeCache = new LRUCache<>(SOCIAL_NOTICE_CACHE_CAPACITY);
 
     private final LRUCache<Long, Queue<SocialChannelMessage>> sentMessageQueueCache = new LRUCache<>(SENT_MESSAGE_QUEUE_CACHE_CAPACITY);
 
@@ -69,11 +74,6 @@ public class AgentMessageQueueService {
         return systemMessageCache.get(userId);
     }
 
-    public List<ChatMessage> getCachedSystemMessages(String userId) {
-        CachedChatParams params = getCachedChatParams(userId);
-        return params == null ? null : params.getSystemMessages();
-    }
-
     public LRUCache<String, CachedChatParams> getSystemMessageCache() {
         return systemMessageCache;
     }
@@ -108,6 +108,33 @@ public class AgentMessageQueueService {
         queue.offer(message);
     }
 
+    public void offerSocialNotice(SocialChannelMessage message) {
+        if (!AgentSocialUtil.isSocialChannelSkillEnabled()) {
+            return;
+        }
+        if (message == null || isBlank(message.getUserId())) {
+            return;
+        }
+        Queue<SocialChannelMessage> queue = getOrCreateSocialNoticeQueue(message.getUserId().trim());
+        queue.offer(message);
+    }
+
+    public List<SocialChannelMessage> pollSocialNotice(String userId) {
+        if (!AgentSocialUtil.isSocialChannelSkillEnabled() || isBlank(userId)) {
+            return null;
+        }
+        Queue<SocialChannelMessage> queue = socialNoticeCache.get(userId.trim());
+        if (queue == null || queue.isEmpty()) {
+            return null;
+        }
+        List<SocialChannelMessage> drained = new ArrayList<>();
+        SocialChannelMessage message;
+        while ((message = queue.poll()) != null) {
+            drained.add(message);
+        }
+        return drained;
+    }
+
     /**
      * Returns the queue for the given channelId, or {@code null} if no queue
      * has been created (or it has expired from the cache).
@@ -118,6 +145,21 @@ public class AgentMessageQueueService {
 
     public LRUCache<Long, Queue<SocialChannelMessage>> getSentMessageQueueCache() {
         return sentMessageQueueCache;
+    }
+
+    private Queue<SocialChannelMessage> getOrCreateSocialNoticeQueue(String userId) {
+        Queue<SocialChannelMessage> queue = socialNoticeCache.get(userId);
+        if (queue != null) {
+            return queue;
+        }
+        synchronized (socialNoticeCache) {
+            queue = socialNoticeCache.get(userId);
+            if (queue == null) {
+                queue = new ConcurrentLinkedQueue<>();
+                socialNoticeCache.put(userId, queue);
+            }
+            return queue;
+        }
     }
 
     private Queue<SocialChannelMessage> getOrCreateChannelQueue(long channelId) {

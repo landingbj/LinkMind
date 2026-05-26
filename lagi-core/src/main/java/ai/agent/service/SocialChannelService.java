@@ -407,4 +407,63 @@ public class SocialChannelService {
             throw new IOException("delete channel failed: " + e.getMessage(), e);
         }
     }
+
+    public int countUsers() throws IOException {
+        try {
+            return socialChannelDao.countUsers();
+        } catch (Exception e) {
+            throw new IOException("count users failed: " + e.getMessage(), e);
+        }
+    }
+
+    public List<SocialUser> listUsers(int pageNumber, int pageSize) throws IOException {
+        try {
+            return socialChannelDao.listUsers(pageNumber, pageSize);
+        } catch (Exception e) {
+            throw new IOException("list users failed: " + e.getMessage(), e);
+        }
+    }
+
+    public void deleteUser(String userId, String username) throws IOException {
+        if (isBlank(userId) && isBlank(username)) {
+            throw new IOException("userId or username is required");
+        }
+        try {
+            String resolvedUserId = isBlank(userId) ? null : userId.trim();
+            if (resolvedUserId == null) {
+                SocialUser user = socialChannelDao.findUserByUsername(username.trim());
+                if (user == null) {
+                    throw new IOException("user not found");
+                }
+                resolvedUserId = user.getUserId();
+            } else if (!socialChannelDao.userExists(resolvedUserId)) {
+                throw new IOException("user not found");
+            }
+            int deleted = socialChannelDao.deleteUser(resolvedUserId);
+            if (deleted <= 0) {
+                throw new IOException("user not found");
+            }
+        } catch (IOException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IOException("delete user failed: " + e.getMessage(), e);
+        }
+    }
+
+    public int deleteMessages(String userId, Long channelId, Long messageId,
+                              String startTime, String endTime) throws IOException {
+        boolean hasUser = !isBlank(userId);
+        boolean hasChannel = channelId != null && channelId > 0;
+        boolean hasMessage = messageId != null && messageId > 0;
+        boolean hasStart = !isBlank(startTime);
+        boolean hasEnd = !isBlank(endTime);
+        if (!hasUser && !hasChannel && !hasMessage && !hasStart && !hasEnd) {
+            throw new IOException("at least one of userId, channelId, messageId, startTime or endTime is required");
+        }
+        try {
+            return socialChannelDao.deleteMessages(userId, channelId, messageId, startTime, endTime);
+        } catch (Exception e) {
+            throw new IOException("delete messages failed: " + e.getMessage(), e);
+        }
+    }
 }

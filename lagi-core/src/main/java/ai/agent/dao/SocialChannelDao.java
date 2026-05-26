@@ -95,6 +95,90 @@ public class SocialChannelDao {
         return null;
     }
 
+    public SocialUser findUserByUsername(String username) throws SQLException {
+        if (username == null || username.trim().isEmpty()) {
+            return null;
+        }
+        ensureTables();
+        String sql = "SELECT user_id,username,created_at FROM social_users WHERE username = ?";
+        try (Connection conn = HikariDS.getConnection("saas");
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, username.trim());
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return mapUser(rs);
+                }
+            }
+        }
+        return null;
+    }
+
+    public int countUsers() throws SQLException {
+        ensureTables();
+        String sql = "SELECT COUNT(*) FROM social_users";
+        try (Connection conn = HikariDS.getConnection("saas");
+             PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            if (rs.next()) {
+                return rs.getInt(1);
+            }
+        }
+        return 0;
+    }
+
+    public List<SocialUser> listUsers(int pageNumber, int pageSize) throws SQLException {
+        ensureTables();
+        int page = pageNumber <= 0 ? 1 : pageNumber;
+        int size = pageSize <= 0 ? 50 : Math.min(pageSize, 500);
+        int offset = (page - 1) * size;
+        List<SocialUser> list = new ArrayList<SocialUser>();
+        String sql = "SELECT user_id,username,created_at FROM social_users ORDER BY created_at DESC LIMIT ? OFFSET ?";
+        try (Connection conn = HikariDS.getConnection("saas");
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, size);
+            ps.setInt(2, offset);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    list.add(mapUser(rs));
+                }
+            }
+        }
+        return list;
+    }
+
+    public int deleteUser(String userId) throws SQLException {
+        ensureTables();
+        if (userId == null || userId.trim().isEmpty()) {
+            return 0;
+        }
+        final String uid = userId.trim();
+        return SqliteRetry.execute(() -> {
+            try (Connection conn = HikariDS.getConnection("saas")) {
+                conn.setAutoCommit(false);
+                try {
+                    try (PreparedStatement ps = conn.prepareStatement(
+                            "DELETE FROM social_channel_messages WHERE user_id = ?")) {
+                        ps.setString(1, uid);
+                        ps.executeUpdate();
+                    }
+                    int deleted;
+                    try (PreparedStatement ps = conn.prepareStatement(
+                            "DELETE FROM social_users WHERE user_id = ?")) {
+                        ps.setString(1, uid);
+                        deleted = ps.executeUpdate();
+                    }
+                    conn.commit();
+                    return deleted;
+                } catch (SQLException e) {
+                    conn.rollback();
+                    throw e;
+                } finally {
+                    conn.setAutoCommit(true);
+                }
+            }
+        });
+    }
+
     public boolean userExists(String userId) throws SQLException {
         if (userId == null || userId.trim().isEmpty()) {
             return false;
@@ -564,6 +648,68 @@ public class SocialChannelDao {
             }
         }
         return null;
+    }
+
+    /**
+     * Deletes messages matching the supplied filters. At least one filter must be
+     * provided by the caller. {@code startTime} and {@code endTime} are inclusive
+     * bounds in the same format used by the DB (e.g. "yyyy-MM-dd HH:mm:ss").
+     */
+    public int deleteMessages(String userId, Long channelId, Long messageId,
+                              String startTime, String endTime) throws SQLException {
+        ensureTables();
+        boolean hasUser = userId != null && !userId.trim().isEmpty();
+        boolean hasChannel = channelId != null && channelId > 0;
+        boolean hasMessage = messageId != null && messageId > 0;
+        boolean hasStart = startTime != null && !startTime.trim().isEmpty();
+        boolean hasEnd = endTime != null && !endTime.trim().isEmpty();
+        if (!hasUser && !hasChannel && !hasMessage && !hasStart && !hasEnd) {
+            throw new SQLException("at least one filter is required");
+        }
+        StringBuilder sql = new StringBuilder("DELETE FROM social_channel_messages WHERE 1=1 ");
+        if (hasUser) {
+            sql.append("AND user_id = ? ");
+        }
+        if (hasChannel) {
+            sql.append("AND channel_id = ? ");
+        }
+        if (hasMessage) {
+            sql.append("AND id = ? ");
+        }
+        if (hasStart) {
+            sql.append("AND created_at >= ? ");
+        }
+        if (hasEnd) {
+            sql.append("AND created_at <= ? ");
+        }
+        final String sqlFinal = sql.toString();
+        final String userFinal = hasUser ? userId.trim() : null;
+        final Long channelFinal = hasChannel ? channelId : null;
+        final Long messageFinal = hasMessage ? messageId : null;
+        final String startFinal = hasStart ? startTime.trim() : null;
+        final String endFinal = hasEnd ? endTime.trim() : null;
+        return SqliteRetry.execute(() -> {
+            try (Connection conn = HikariDS.getConnection("saas");
+                 PreparedStatement ps = conn.prepareStatement(sqlFinal)) {
+                int idx = 1;
+                if (hasUser) {
+                    ps.setString(idx++, userFinal);
+                }
+                if (hasChannel) {
+                    ps.setLong(idx++, channelFinal);
+                }
+                if (hasMessage) {
+                    ps.setLong(idx++, messageFinal);
+                }
+                if (hasStart) {
+                    ps.setString(idx++, startFinal);
+                }
+                if (hasEnd) {
+                    ps.setString(idx++, endFinal);
+                }
+                return ps.executeUpdate();
+            }
+        });
     }
 
     public long insertMessage(long channelId, String userId, String content) throws SQLException {

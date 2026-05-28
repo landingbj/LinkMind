@@ -25,6 +25,7 @@ import java.util.Set;
 public class AgentFilterImpl implements BeforeModel, AfterModel {
 
     private static final String SOCIAL_NEW_MESSAGE_NOTICE = "您的社交频道有新消息，请查看。";
+    private static final String[] AGENT_SYSTEM_TAG = {"LinkMind", "OpenClaw", "Hermes", "DeerFlow"};
 
     @Override
     public ChatCompletionRequest beforeModel(ModelContext context) {
@@ -32,7 +33,9 @@ public class AgentFilterImpl implements BeforeModel, AfterModel {
         List<ChatMessage> chatMessages = request.getMessages();
 
         List<ChatMessage> systemMessages = ChatCompletionUtil.getSystemMessages(chatMessages);
-        AgentMessageQueueService.getInstance().cacheSystemMessages(request, systemMessages);
+        if (containsAgentSystemTag(systemMessages)) {
+            AgentMessageQueueService.getInstance().cacheSystemMessages(request, systemMessages);
+        }
         return request;
     }
 
@@ -69,6 +72,27 @@ public class AgentFilterImpl implements BeforeModel, AfterModel {
                             ? Observable.empty()
                             : Observable.just(buildNoticeStreamChunk(context, noticeText));
                 }));
+    }
+
+    private static boolean containsAgentSystemTag(List<ChatMessage> systemMessages) {
+        if (systemMessages == null || systemMessages.isEmpty()) {
+            return false;
+        }
+        for (ChatMessage message : systemMessages) {
+            if (message == null) {
+                continue;
+            }
+            String content = message.getContent();
+            if (isBlank(content)) {
+                continue;
+            }
+            for (String tag : AGENT_SYSTEM_TAG) {
+                if (tag != null && content.contains(tag)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static void appendSocialNotice(ChatCompletionResult result, String userId) {

@@ -574,7 +574,7 @@ async function generalOutput(paras, question, robootAnswerJq) {
 // Prepend a system message carrying an empty <available_skills> block so the
 // server-side hook can merge configured skills into the system prompt.
 const SKILLS_SYSTEM_PROMPT = ''
-    + '\n\nThe following skills provide specialized instructions for specific tasks.\n'
+    + 'You are LinkMind, an open-source AI middleware.\n\nThe following skills provide specialized instructions for specific tasks.\n'
     + "Use the read tool to load a skill's file when the task matches its description.\n"
     + 'When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n'
     + '<available_skills>\n'

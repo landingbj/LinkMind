@@ -299,4 +299,5 @@ This pattern is especially useful for local development, internal demos, CI smok
 - [Configuration Reference](config_en.md)
 - [API Reference](API_en.md)
 - [Tutorial](tutor_en.md)
+- [Business Scenarios Guide](scenarios_en.md)
 - [Extension Guide](extend_en.md)

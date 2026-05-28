@@ -161,6 +161,8 @@ More setup details are in the [Installation Guide](docs/install_en.md). For a gu
 
 After LinkMind is running, use the [Configuration Guide](docs/config_en.md) to enable providers, routes, filters, RAG, and other runtime settings in `lagi.yml`.
 
+To choose a LinkMind deployment shape by business scenario, see the [Business Scenarios Guide](docs/scenarios_en.md).
+
 ## API Surface
 
 LinkMind exposes two route styles:

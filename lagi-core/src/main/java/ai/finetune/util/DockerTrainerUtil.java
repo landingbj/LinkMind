@@ -137,11 +137,13 @@ public class DockerTrainerUtil {
         StringBuilder errorOutput = new StringBuilder();
         Session session = null;
         ChannelExec channelExec = null;
+        boolean sessionFromPool = false;
 
         try {
             // 使用SSH连接管理器获取或创建连接（复用连接池）
             SSHConnectionManager connectionManager = SSHConnectionManager.getInstance();
             session = connectionManager.getSession(sshHost, sshPort, sshUsername, sshPassword);
+            sessionFromPool = true;
             log.debug("使用SSH连接池中的连接: {}:{}", sshHost, sshPort);
 
             // 打开执行通道
@@ -191,9 +193,13 @@ public class DockerTrainerUtil {
         } catch (JSchException | IOException e) {
             throw new RuntimeException(e.getMessage());
         } finally {
-            // 只关闭ChannelExec，不关闭Session（保留在连接池中复用）
+            // 关闭ChannelExec
             if (channelExec != null && channelExec.isConnected()) {
                 channelExec.disconnect();
+            }
+            // 如果Session不是从连接池获取的，需要手动关闭
+            if (!sessionFromPool && session != null && session.isConnected()) {
+                session.disconnect();
             }
         }
     }

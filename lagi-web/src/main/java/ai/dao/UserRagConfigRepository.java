@@ -1,11 +1,10 @@
 package ai.dao;
 
-
-
 import ai.servlet.dto.UserRagConfig;
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -13,16 +12,36 @@ import java.sql.Timestamp;
 
 public class UserRagConfigRepository {
     private static final String DB_URL = "jdbc:sqlite:saas.db";
+    private static HikariDataSource dataSource;
 
     static {
         try {
-            Class.forName("org.sqlite.JDBC");
-            try (Connection conn = DriverManager.getConnection(DB_URL)) {
-                conn.close();
-            }
+            initializeDataSource();
         } catch (Exception e) {
             throw new RuntimeException("Failed to initialize SQLite driver", e);
         }
+    }
+
+    private synchronized static void initializeDataSource() {
+        if (dataSource == null) {
+            HikariConfig config = new HikariConfig();
+            config.setJdbcUrl(DB_URL);
+            config.setDriverClassName("org.sqlite.JDBC");
+            config.setMaximumPoolSize(10);
+            config.setMinimumIdle(2);
+            config.setConnectionTimeout(30000);
+            config.setIdleTimeout(600000);
+            config.setMaxLifetime(1800000);
+            config.setLeakDetectionThreshold(60000);
+            dataSource = new HikariDataSource(config);
+        }
+    }
+
+    private static Connection getConnection() throws SQLException {
+        if (dataSource == null) {
+            initializeDataSource();
+        }
+        return dataSource.getConnection();
     }
 
     // 根据用户ID和知识库ID查找 RAG 配置
@@ -31,7 +50,7 @@ public class UserRagConfigRepository {
                      "wenben_chunk_size, biaoge_chunk_size, tuwen_chunk_size, similarity_top_k, similarity_cutoff, " +
                      "created_at, updated_at " +
                      "FROM user_rag_config WHERE user_id = ? AND knowledge_base_id = ?";
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, userId);
             ps.setLong(2, knowledgeBaseId);
@@ -54,7 +73,7 @@ public class UserRagConfigRepository {
                 : "UPDATE user_rag_config SET user_id = ?, knowledge_base_id = ?, enable_fulltext = ?, enable_graph = ?, " +
                   "enable_text2qa = ?, wenben_chunk_size = ?, biaoge_chunk_size = ?, tuwen_chunk_size = ?, " +
                   "similarity_top_k = ?, similarity_cutoff = ?, updated_at = ? WHERE id = ?";
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, config.getUserId());
             ps.setLong(2, config.getKnowledgeBaseId());
@@ -83,7 +102,7 @@ public class UserRagConfigRepository {
     // 删除 RAG 配置
     public void deleteById(Long id) {
         String sql = "DELETE FROM user_rag_config WHERE id = ?";
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, id);
             ps.executeUpdate();

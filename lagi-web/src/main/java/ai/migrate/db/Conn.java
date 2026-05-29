@@ -356,20 +356,8 @@ public class Conn implements Serializable, IConn {
 
 	private static Connection initUseproxool(String dbDriver, String connStr) {
 	    Logger logger = LoggerFactory.getLogger(Conn.class);
-		try {
-			Class.forName(dbDriver);
-		} catch (java.lang.ClassNotFoundException e) {
-			logger.error("警告:Class not found exception occur. Message is:");
-			logger.error(e.getMessage());
-		}
-
-		try {
-			return DriverManager.getConnection(connStr);
-		} catch (SQLException e) {
-			logger.error("SQL Exception occur. Message is:");
-			logger.error(e.getMessage());
-		}
-		return null;
+		logger.warn("PROXOOL_DB_POOL is deprecated, using HikariCP instead");
+		return initUseHikari(connStr);
 	}
 
 	private static Connection initUseHikari(String conname) {

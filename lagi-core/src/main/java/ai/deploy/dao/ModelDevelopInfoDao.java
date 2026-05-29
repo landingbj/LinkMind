@@ -1,36 +1,66 @@
 package ai.deploy.dao;
+
 import ai.deploy.pojo.DeployInfo;
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 
 public class ModelDevelopInfoDao {
+    private static final Logger log = LoggerFactory.getLogger(ModelDevelopInfoDao.class);
     private static final String DB_URL = "jdbc:sqlite:saas.db";
+    private static HikariDataSource dataSource;
 
-    static  {
+    static {
         try {
-            Class.forName("org.sqlite.JDBC");
-            // 创建数据库连接
-            Connection conn = DriverManager.getConnection(DB_URL);
-            String sql = "CREATE TABLE IF NOT EXISTS model_develop_info (\n" +
-                    "  id INTEGER PRIMARY KEY AUTOINCREMENT,\n" +
-                    "  user_id varchar(64),\n" +
-                    "  model_path varchar(200),\n" +
-                    "  template varchar(64),\n" +
-                    "  adapter_path varchar(200),\n" +
-                    "  finetuning_type varchar(64),\n" +
-                    "  port varchar(20),\n" +
-                    "  running INTEGER\n" +
-                    "  inference_id varchar(64)\n" +
-                    "  api_address varchar(200)\n" +
-                    ");";
-            PreparedStatement pstmt = conn.prepareStatement(sql);
-            pstmt.executeUpdate();
-            conn.close();
+            initializeDataSource();
+            // 创建数据库表
+            try (Connection conn = getConnection();
+                 PreparedStatement pstmt = conn.prepareStatement(
+                         "CREATE TABLE IF NOT EXISTS model_develop_info (\n" +
+                         "  id INTEGER PRIMARY KEY AUTOINCREMENT,\n" +
+                         "  user_id varchar(64),\n" +
+                         "  model_path varchar(200),\n" +
+                         "  template varchar(64),\n" +
+                         "  adapter_path varchar(200),\n" +
+                         "  finetuning_type varchar(64),\n" +
+                         "  port varchar(20),\n" +
+                         "  running INTEGER,\n" +
+                         "  inference_id varchar(64),\n" +
+                         "  api_address varchar(200)\n" +
+                         ");")) {
+                pstmt.executeUpdate();
+            }
+            log.info("ModelDevelopInfoDao initialized successfully");
         } catch (Exception e) {
-
+            log.error("Failed to initialize ModelDevelopInfoDao", e);
         }
+    }
+
+    private synchronized static void initializeDataSource() {
+        if (dataSource == null) {
+            HikariConfig config = new HikariConfig();
+            config.setJdbcUrl(DB_URL);
+            config.setDriverClassName("org.sqlite.JDBC");
+            config.setMaximumPoolSize(10);
+            config.setMinimumIdle(2);
+            config.setConnectionTimeout(30000);
+            config.setIdleTimeout(600000);
+            config.setMaxLifetime(1800000);
+            config.setLeakDetectionThreshold(60000);
+            dataSource = new HikariDataSource(config);
+        }
+    }
+
+    private static Connection getConnection() throws SQLException {
+        if (dataSource == null) {
+            initializeDataSource();
+        }
+        return dataSource.getConnection();
     }
 
     // 插入数据
@@ -38,7 +68,7 @@ public class ModelDevelopInfoDao {
         String sql = "INSERT INTO model_develop_info (user_id, model_path, template, adapter_path, finetuning_type, port, running, inference_id, api_address) " +
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?,?)";
 
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             pstmt.setString(1, modelDevelopInfo.getUserId());
             pstmt.setString(2, modelDevelopInfo.getModelPath());
@@ -68,7 +98,7 @@ public class ModelDevelopInfoDao {
         String sql = "UPDATE model_develop_info SET " +
                 "user_id = ?, model_path = ?, template = ?, adapter_path = ?, finetuning_type = ?, port = ?, running = ? , inference_id = ?, api_address = ? " +
                 " WHERE id = ?";
-        try ( Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, modelDevelopInfo.getUserId());
             pstmt.setString(2, modelDevelopInfo.getModelPath());
@@ -90,7 +120,7 @@ public class ModelDevelopInfoDao {
     // 删除数据
     public int delete(int id) {
         String sql = "DELETE FROM model_develop_info WHERE id = ?";
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setInt(1, id);
             return pstmt.executeUpdate();
@@ -104,7 +134,7 @@ public class ModelDevelopInfoDao {
     public List<DeployInfo> findAll() {
         String sql = "SELECT * FROM model_develop_info";
         List<DeployInfo> modelDevelopInfos = new ArrayList<>();
-        try ( Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
             while (rs.next()) {
@@ -131,7 +161,7 @@ public class ModelDevelopInfoDao {
     public List<DeployInfo> findByUserId(String  userId) {
         String sql = "SELECT * FROM model_develop_info WHERE user_id = ?";
         List<DeployInfo> modelDevelopInfos = new ArrayList<>();
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
               PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, userId);
             ResultSet rs = pstmt.executeQuery();
@@ -158,7 +188,7 @@ public class ModelDevelopInfoDao {
     public DeployInfo findById(Integer id) {
         String sql = "SELECT * FROM model_develop_info WHERE id = ?";
         DeployInfo modelDevelopInfo = null;
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setInt(1, id);
             ResultSet rs = pstmt.executeQuery();
@@ -184,7 +214,7 @@ public class ModelDevelopInfoDao {
     public int countPort(String port) {
         String sql = "SELECT count(1) FROM model_develop_info WHERE port = ? and running=1";
         int count = 0;
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
               PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, port);
             ResultSet rs = pstmt.executeQuery();
@@ -201,7 +231,7 @@ public class ModelDevelopInfoDao {
     public List<String> runningPort(String port) {
         String sql = "SELECT port FROM model_develop_info WHERE port = ? and running= 1";
         List<String> ports = new ArrayList<>();
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
               PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, port);
             ResultSet rs = pstmt.executeQuery();

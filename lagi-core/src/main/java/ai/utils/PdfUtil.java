@@ -63,9 +63,16 @@ public class PdfUtil {
 
         processBuilder.redirectErrorStream(true);
 
-        Process process = processBuilder.start();
-        int exitCode = process.waitFor();
-        return exitCode;
+        Process process = null;
+        try {
+            process = processBuilder.start();
+            int exitCode = process.waitFor();
+            return exitCode;
+        } finally {
+            if (process != null) {
+                process.destroy();
+            }
+        }
     }
 
 

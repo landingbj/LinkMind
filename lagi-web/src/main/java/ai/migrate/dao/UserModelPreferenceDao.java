@@ -2,6 +2,8 @@ package ai.migrate.dao;
 
 import ai.dto.ModelPreferenceDto;
 import ai.migrate.db.Conn;
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -13,6 +15,7 @@ public class UserModelPreferenceDao {
 
     private final Logger log = LoggerFactory.getLogger(UserModelPreferenceDao.class);
     private static final String DB_URL = "jdbc:sqlite:preference2.db";
+    private static HikariDataSource dataSource;
 
     static {
         String sql = "CREATE TABLE IF NOT EXISTS lagi_user_preference (\n" +
@@ -30,19 +33,43 @@ public class UserModelPreferenceDao {
                 "    videoTrack TEXT\n" +
                 ")";
 
-        try (Connection conn = DriverManager.getConnection(DB_URL);
-             Statement stmt = conn.createStatement()) {
-            stmt.execute(sql);
+        try {
+            initializeDataSource();
+            try (Connection conn = getConnection();
+                 Statement stmt = conn.createStatement()) {
+                stmt.execute(sql);
+            }
         } catch (SQLException e) {
             e.printStackTrace();
         }
     }
 
+    private synchronized static void initializeDataSource() {
+        if (dataSource == null) {
+            HikariConfig config = new HikariConfig();
+            config.setJdbcUrl(DB_URL);
+            config.setDriverClassName("org.sqlite.JDBC");
+            config.setMaximumPoolSize(10);
+            config.setMinimumIdle(2);
+            config.setConnectionTimeout(30000);
+            config.setIdleTimeout(600000);
+            config.setMaxLifetime(1800000);
+            config.setLeakDetectionThreshold(60000);
+            dataSource = new HikariDataSource(config);
+        }
+    }
+
+    private static Connection getConnection() throws SQLException {
+        if (dataSource == null) {
+            initializeDataSource();
+        }
+        return dataSource.getConnection();
+    }
+
     public ModelPreferenceDto getUserModelPreference(String finger)  {
         String sqlCheck = "SELECT finger, llm, tts, asr, img2Text, imgGen, imgEnhance, img2Video, text2Video, videoEnhance, videoTrack  FROM lagi_user_preference WHERE finger = ?";
-        try (Connection conn = DriverManager.getConnection(DB_URL)){
-            // 获取数据库连接
-            PreparedStatement ps = conn.prepareStatement(sqlCheck);
+        try (Connection conn = getConnection();
+             PreparedStatement ps = conn.prepareStatement(sqlCheck)) {
             ps.setString(1, finger);
             ResultSet rs = ps.executeQuery();
             ModelPreferenceDto modelPreferenceDto = new ModelPreferenceDto();
@@ -64,15 +91,12 @@ public class UserModelPreferenceDao {
         return null;
     }
 
-
-
-
     // 根据finger查询所有记录
     public List<ModelPreferenceDto> findByFinger(String finger) {
         List<ModelPreferenceDto> result = new ArrayList<>();
         String sql = "SELECT * FROM lagi_user_preference WHERE finger = ?";
 
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
             pstmt.setString(1, finger);
@@ -104,7 +128,7 @@ public class UserModelPreferenceDao {
     public int deleteByFinger(String finger) {
         String sql = "DELETE FROM lagi_user_preference WHERE finger = ?";
 
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
             pstmt.setString(1, finger);
@@ -127,7 +151,7 @@ public class UserModelPreferenceDao {
     // 检查记录是否存在
     private boolean exists(String finger) {
         String sql = "SELECT COUNT(*) FROM lagi_user_preference WHERE finger = ?";
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
             pstmt.setString(1, finger);
@@ -147,7 +171,7 @@ public class UserModelPreferenceDao {
                 "imgGen, imgEnhance, img2Video, text2Video, videoEnhance, videoTrack) " +
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
             pstmt.setString(1, dto.getFinger());
@@ -228,7 +252,7 @@ public class UserModelPreferenceDao {
         sqlBuilder.append(" WHERE finger = ?");
         params.add(dto.getFinger());
 
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sqlBuilder.toString())) {
 
             for (int i = 0; i < params.size(); i++) {

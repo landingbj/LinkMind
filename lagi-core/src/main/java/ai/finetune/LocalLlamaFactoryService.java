@@ -91,14 +91,14 @@ public class LocalLlamaFactoryService {
         log.warn("run cmd : {}" , cmd);
         ObservableList<String> stringObservableList = new ObservableList<>();
         executor.submit(() -> {
+            Process process = null;
             try {
                 ProcessBuilder processBuilder = new ProcessBuilder(cmd);
                 processBuilder.directory(Paths.get(this.llamaFactoryDir).toFile());
-                Process process = processBuilder.start();
+                process = processBuilder.start();
                 try (InputStream inputStream = process.getInputStream();
                      BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream))) {
                     String line;
-//                    process.destroyForcibly();
                     while ((line = reader.readLine()) != null) {
                         stringObservableList.add(line);
                     }
@@ -112,6 +112,9 @@ public class LocalLlamaFactoryService {
             } catch (InterruptedException e) {
                log.error("Error waiting for process to complete :{} " , e.getMessage());
             } finally {
+                if (process != null) {
+                    process.destroy();
+                }
                 stringObservableList.onComplete();
             }
         });
@@ -194,8 +197,9 @@ public class LocalLlamaFactoryService {
             String[] split = script.split(" ");
             ProcessBuilder processBuilder = new ProcessBuilder(split);
             processBuilder.directory(Paths.get(this.llamaFactoryDir).toFile());
+            Process process = null;
             try {
-                Process process = processBuilder.start();
+                process = processBuilder.start();
                 if(wait) {
                     int exitCode = process.waitFor();
                     System.out.println("退出码: " + exitCode);
@@ -217,6 +221,10 @@ public class LocalLlamaFactoryService {
                 }
             } catch (IOException | InterruptedException e) {
                 e.printStackTrace();
+            } finally {
+                if (process != null) {
+                    process.destroy();
+                }
             }
             return -1;
         });

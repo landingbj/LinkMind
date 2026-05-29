@@ -495,9 +495,13 @@ public abstract class DockerTrainerAbstract {
             errorResult.put("server", sshHost + ":" + sshPort);
             return errorResult.toString();
         } finally {
-            // 只关闭ChannelExec，不关闭Session（保留在连接池中复用）
+            // 关闭ChannelExec
             if (channelExec != null && channelExec.isConnected()) {
                 channelExec.disconnect();
+            }
+            // 如果Session不是从连接池获取的，需要手动关闭
+            if (!sessionFromPool && session != null && session.isConnected()) {
+                session.disconnect();
             }
         }
     }

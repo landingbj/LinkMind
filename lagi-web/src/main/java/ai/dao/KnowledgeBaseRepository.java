@@ -1,37 +1,54 @@
 package ai.dao;
 
-
-
 import ai.servlet.dto.KnowledgeBase;
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
-import java.util.ArrayList;
-import java.util.List;
 
 public class KnowledgeBaseRepository {
     private static final String DB_URL = "jdbc:sqlite:saas.db";
+    private static HikariDataSource dataSource;
 
     static {
         try {
-            Class.forName("org.sqlite.JDBC");
-            try (Connection conn = DriverManager.getConnection(DB_URL)) {
-                conn.close();
-            }
+            initializeDataSource();
         } catch (Exception e) {
             throw new RuntimeException("Failed to initialize SQLite driver", e);
         }
+    }
+
+    private synchronized static void initializeDataSource() {
+        if (dataSource == null) {
+            HikariConfig config = new HikariConfig();
+            config.setJdbcUrl(DB_URL);
+            config.setDriverClassName("org.sqlite.JDBC");
+            config.setMaximumPoolSize(10);
+            config.setMinimumIdle(2);
+            config.setConnectionTimeout(30000);
+            config.setIdleTimeout(600000);
+            config.setMaxLifetime(1800000);
+            config.setLeakDetectionThreshold(60000);
+            dataSource = new HikariDataSource(config);
+        }
+    }
+
+    private static Connection getConnection() throws SQLException {
+        if (dataSource == null) {
+            initializeDataSource();
+        }
+        return dataSource.getConnection();
     }
 
     // 根据用户ID和分类查找知识库
     public KnowledgeBase findByUserIdAndCategory(String userId, String category) {
         String sql = "SELECT id, user_id, name, description, category, is_public, is_active, created_at, updated_at " +
                      "FROM knowledge_base WHERE user_id = ? AND category = ?";
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, userId);
             ps.setString(2, category);
@@ -49,7 +66,7 @@ public class KnowledgeBaseRepository {
     public KnowledgeBase findByUserIdAndIsActive(String userId, boolean isActive) {
         String sql = "SELECT id, user_id, name, description, category, is_public, is_active, created_at, updated_at " +
                      "FROM knowledge_base WHERE user_id = ? AND is_active = ?";
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, userId);
             ps.setBoolean(2, isActive);
@@ -67,7 +84,7 @@ public class KnowledgeBaseRepository {
     public KnowledgeBase findFirstByUserId(String userId) {
         String sql = "SELECT id, user_id, name, description, category, is_public, is_active, created_at, updated_at " +
                      "FROM knowledge_base WHERE user_id = ? ORDER BY created_at ASC LIMIT 1";
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, userId);
             ResultSet rs = ps.executeQuery();
@@ -83,7 +100,7 @@ public class KnowledgeBaseRepository {
     // 将用户的所有知识库设置为非活跃
     public void updateAllIsActiveToFalse(String userId) {
         String sql = "UPDATE knowledge_base SET is_active = ? WHERE user_id = ?";
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setBoolean(1, false);
             ps.setString(2, userId);
@@ -96,7 +113,7 @@ public class KnowledgeBaseRepository {
     // 更新指定知识库的活跃状态
     public void updateIsActive(String userId, Long knowledgeBaseId, boolean isActive) {
         String sql = "UPDATE knowledge_base SET is_active = ? WHERE user_id = ? AND id = ?";
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setBoolean(1, isActive);
             ps.setString(2, userId);
@@ -116,7 +133,7 @@ public class KnowledgeBaseRepository {
                 ? "INSERT INTO knowledge_base (user_id, name, description, category, is_public, is_active, created_at, updated_at) " +
                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
                 : "UPDATE knowledge_base SET user_id = ?, name = ?, description = ?, category = ?, is_public = ?, is_active = ?, updated_at = ? WHERE id = ?";
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, kb.getUserId());
             ps.setString(2, kb.getName());
@@ -141,7 +158,7 @@ public class KnowledgeBaseRepository {
     // 删除知识库
     public void deleteById(Long id) {
         String sql = "DELETE FROM knowledge_base WHERE id = ?";
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, id);
             ps.executeUpdate();
@@ -165,7 +182,7 @@ public class KnowledgeBaseRepository {
 
     public KnowledgeBase findDefaultByUserId(String userId) {
         String sql = "SELECT * FROM knowledge_base WHERE user_id = ? AND is_default = 1 LIMIT 1";
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, userId);
             ResultSet rs = ps.executeQuery();

@@ -107,8 +107,9 @@ public class LocalLlamaFactoryImpl implements ModelDeployment {
             String[] split = script.split(" ");
             ProcessBuilder processBuilder = new ProcessBuilder(split);
             processBuilder.directory(Paths.get(this.llamaFactoryDir).toFile());
+            Process process = null;
             try {
-                Process process = processBuilder.start();
+                process = processBuilder.start();
                 if(wait) {
                     int exitCode = process.waitFor();
                     System.out.println("退出码: " + exitCode);
@@ -130,6 +131,10 @@ public class LocalLlamaFactoryImpl implements ModelDeployment {
                 }
             } catch (IOException | InterruptedException e) {
                 e.printStackTrace();
+            } finally {
+                if (process != null) {
+                    process.destroy();
+                }
             }
             return -1;
         });

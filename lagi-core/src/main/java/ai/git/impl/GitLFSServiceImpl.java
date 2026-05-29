@@ -245,19 +245,25 @@ public class GitLFSServiceImpl implements GitLFSService {
         if (workingDir != null) processBuilder.directory(new File(workingDir));
         processBuilder.redirectErrorStream(true);
         
-        Process process = processBuilder.start();
-        
-        // 读取命令输出
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                logger.debug("Command output: {}", line);
+        Process process = null;
+        try {
+            process = processBuilder.start();
+            // 读取命令输出
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    logger.debug("Command output: {}", line);
+                }
             }
-        }
-        
-        int exitCode = process.waitFor();
-        if (exitCode != 0) {
-            throw new RuntimeException("Command failed with exit code: " + exitCode + ", command: " + String.join(" ", command));
+            
+            int exitCode = process.waitFor();
+            if (exitCode != 0) {
+                throw new RuntimeException("Command failed with exit code: " + exitCode + ", command: " + String.join(" ", command));
+            }
+        } finally {
+            if (process != null) {
+                process.destroy();
+            }
         }
     }
 

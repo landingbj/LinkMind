@@ -1,6 +1,8 @@
 package ai.database.impl;
 
 import ai.database.pojo.TableColumnInfo;
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -16,6 +18,7 @@ public class SqliteAdapter {
     private String url;
     public String model;
     private static final Logger log = LoggerFactory.getLogger(SqliteAdapter.class);
+    private static HikariDataSource dataSource;
 
     public SqliteAdapter() {
         init();
@@ -25,11 +28,14 @@ public class SqliteAdapter {
         String tomcatPath = System.getProperty("user.dir");
         String dbPath = tomcatPath + "/saas.db";
         url = "jdbc:sqlite:" + dbPath;
-//        url = "jdbc:sqlite:D:\\Tomcat8\\apache-tomcat-9.0.0.M21\\bin\\saas.db";
+        
+        // 初始化连接池
+        initializeDataSource();
+        
         Connection conn = null;
         Statement stmt = null;
         try {
-            conn = getCon(url);
+            conn = getCon();
             stmt = conn.createStatement();
             DatabaseMetaData dbm = conn.getMetaData();
             ResultSet tables = dbm.getTables(null, null, "table_info", null);
@@ -59,31 +65,54 @@ public class SqliteAdapter {
         } catch (SQLException e) {
             log.error("An error occurred while checking or creating tables.", e);
         } finally {
-            try {
-                if (stmt != null) stmt.close();
-                if (conn != null) conn.close();
-            } catch (SQLException e) {
-                e.printStackTrace();
-            }
+            close(conn, stmt);
+        }
+    }
+
+    /**
+     * 初始化连接池
+     */
+    private synchronized void initializeDataSource() {
+        if (dataSource == null) {
+            HikariConfig config = new HikariConfig();
+            config.setJdbcUrl(url);
+            config.setDriverClassName("org.sqlite.JDBC");
+            config.setMaximumPoolSize(10);
+            config.setMinimumIdle(2);
+            config.setConnectionTimeout(30000);
+            config.setIdleTimeout(600000);
+            config.setMaxLifetime(1800000);
+            config.setLeakDetectionThreshold(60000);
+            dataSource = new HikariDataSource(config);
+            log.info("SQLite connection pool initialized successfully");
         }
     }
 
     public Connection getCon() {
-        return getCon(url);
+        Connection con = null;
+        try {
+            if (dataSource == null) {
+                initializeDataSource();
+            }
+            con = dataSource.getConnection();
+        } catch (SQLException e) {
+            log.error("Failed to get connection from pool", e);
+        }
+        return con;
     }
 
     /**
-     * 打开连接
+     * 打开连接（保留用于兼容性，使用连接池）
      */
     public Connection getCon(String url) {
-        Connection con = null;
-        try {
-            Class.forName("org.sqlite.JDBC");
-            con = DriverManager.getConnection(url);
-        } catch (Exception e) {
-            e.printStackTrace();
+        // 更新URL并重新初始化连接池
+        this.url = url;
+        if (dataSource != null) {
+            dataSource.close();
+            dataSource = null;
         }
-        return con;
+        initializeDataSource();
+        return getCon();
     }
 
     /**
@@ -91,6 +120,17 @@ public class SqliteAdapter {
      */
     public void close(Connection con) {
         try {
+            if (con != null)
+                con.close();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void close(Connection con, Statement stmt) {
+        try {
+            if (stmt != null)
+                stmt.close();
             if (con != null)
                 con.close();
         } catch (SQLException e) {

@@ -10,10 +10,35 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class FileUtils {
+    public static String sha256sum(File file) {
+        return sha256sum(file.getAbsolutePath());
+    }
+
+    public static String sha256sum(String file) {
+        try (FileInputStream fis = new FileInputStream(file)) {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[4096];
+            int bytesRead;
+            while ((bytesRead = fis.read(buffer)) != -1) {
+                md.update(buffer, 0, bytesRead);
+            }
+            byte[] mdBytes = md.digest();
+            StringBuilder sb = new StringBuilder();
+            for (byte b : mdBytes) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (IOException | NoSuchAlgorithmException e) {
+            throw new RuntimeException("Error computing SHA-256 hash", e);
+        }
+    }
+
+    @Deprecated
     public static String md5sum(File file) {
         return md5sum(file.getAbsolutePath());
     }
 
+    @Deprecated
     public static String md5sum(String file) {
         try (FileInputStream fis = new FileInputStream(file)) {
             MessageDigest md = MessageDigest.getInstance("MD5");

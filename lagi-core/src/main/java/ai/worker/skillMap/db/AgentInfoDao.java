@@ -1,5 +1,7 @@
 package ai.worker.skillMap.db;
 
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 import lombok.*;
 import lombok.extern.slf4j.Slf4j;
 
@@ -12,6 +14,7 @@ import java.util.List;
 public class AgentInfoDao {
 
     private static final String DB_URL = "jdbc:sqlite:skillMap.db";
+    private static HikariDataSource dataSource;
 
     @Data
     @AllArgsConstructor
@@ -26,30 +29,50 @@ public class AgentInfoDao {
 
     static {
         try {
-            Class.forName("org.sqlite.JDBC");
-            // 创建数据库连接
-            Connection conn = DriverManager.getConnection(DB_URL);
+            initializeDataSource();
             // 创建表
-            String sql = "CREATE TABLE IF NOT EXISTS agent (" +
-                    "id INTEGER PRIMARY KEY AUTOINCREMENT," +
-                    "agent_id INTEGER NOT NULL," +
-                    "agent_describe TEXT NOT NULL," +
-                    "UNIQUE (agent_id)"+
-                    ");";
-            PreparedStatement pstmt = conn.prepareStatement(sql);
-            pstmt.executeUpdate();
-            conn.close();
+            try (Connection conn = getConnection();
+                 PreparedStatement pstmt = conn.prepareStatement(
+                         "CREATE TABLE IF NOT EXISTS agent (" +
+                         "id INTEGER PRIMARY KEY AUTOINCREMENT," +
+                         "agent_id INTEGER NOT NULL," +
+                         "agent_describe TEXT NOT NULL," +
+                         "UNIQUE (agent_id)" +
+                         ");")) {
+                pstmt.executeUpdate();
+            }
+            log.info("AgentInfoDao initialized successfully");
         } catch (SQLException e) {
             log.error("Error connecting to database", e);
-        } catch (ClassNotFoundException e) {
-            throw new RuntimeException(e);
         }
+    }
+
+    private synchronized static void initializeDataSource() {
+        if (dataSource == null) {
+            HikariConfig config = new HikariConfig();
+            config.setJdbcUrl(DB_URL);
+            config.setDriverClassName("org.sqlite.JDBC");
+            config.setMaximumPoolSize(10);
+            config.setMinimumIdle(2);
+            config.setConnectionTimeout(30000);
+            config.setIdleTimeout(600000);
+            config.setMaxLifetime(1800000);
+            config.setLeakDetectionThreshold(60000);
+            dataSource = new HikariDataSource(config);
+        }
+    }
+
+    private static Connection getConnection() throws SQLException {
+        if (dataSource == null) {
+            initializeDataSource();
+        }
+        return dataSource.getConnection();
     }
 
 
     public static void addAgentInfo(AgentInfo agentInfo) {
         String sql = "INSERT INTO agent(agent_id, agent_describe) VALUES(?, ?)";
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setInt(1, agentInfo.getAgentId());
             pstmt.setString(2, agentInfo.getAgentDescribe());
@@ -62,7 +85,7 @@ public class AgentInfoDao {
 
     public static void deleteAgentInfoByAgentId(int agentId) {
         String sql = "DELETE FROM agent WHERE agent_id = ?";
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setInt(1, agentId);
             pstmt.executeUpdate();
@@ -74,7 +97,7 @@ public class AgentInfoDao {
 
     public static void updateAgentInfo(AgentInfo agentInfo) {
         String sql = "UPDATE agent SET agent_describe = ? WHERE agent_id = ?";
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, agentInfo.getAgentDescribe());
             pstmt.setInt(2, agentInfo.getAgentId());
@@ -94,7 +117,7 @@ public class AgentInfoDao {
         String inClause = String.join(",", Collections.nCopies(agentIds.size(), "?"));
         String sql = "SELECT id, agent_id, agent_describe FROM agent WHERE agent_id IN (" + inClause + ")";
 
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
             for (int i = 0; i < agentIds.size(); i++) {
@@ -119,7 +142,7 @@ public class AgentInfoDao {
 
     public static void saveOrUpdate(AgentInfo agentInfo) {
         String checkExistSql = "SELECT COUNT(*) FROM agent WHERE agent_id = ?";
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement checkStmt = conn.prepareStatement(checkExistSql)) {
 
             checkStmt.setInt(1, agentInfo.getAgentId());
@@ -150,7 +173,7 @@ public class AgentInfoDao {
 
     public static AgentInfo getByAgentId(int agentId) {
         String sql = "SELECT id, agent_id, agent_describe FROM agent WHERE agent_id = ?";
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
             pstmt.setInt(1, agentId);

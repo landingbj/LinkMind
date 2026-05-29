@@ -35,19 +35,25 @@ public class GitServiceImpl implements GitService {
         if (workingDir != null) processBuilder.directory(new File(workingDir));
         processBuilder.redirectErrorStream(true);
 
-        Process process = processBuilder.start();
-
-        // 读取命令输出
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                // 静默处理输出
+        Process process = null;
+        try {
+            process = processBuilder.start();
+            // 读取命令输出
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    // 静默处理输出
+                }
             }
-        }
 
-        int exitCode = process.waitFor();
-        if (exitCode != 0) {
-            throw new RuntimeException("Command failed with exit code: " + exitCode + ", command: " + String.join(" ", command));
+            int exitCode = process.waitFor();
+            if (exitCode != 0) {
+                throw new RuntimeException("Command failed with exit code: " + exitCode + ", command: " + String.join(" ", command));
+            }
+        } finally {
+            if (process != null) {
+                process.destroy();
+            }
         }
     }
 

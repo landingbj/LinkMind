@@ -16,7 +16,7 @@ public class CryptTools {
 
     public static final String HMAC_SHA256 = "HmacSHA256";
 
-    private static final char[] md5String = {
+    private static final char[] hexString = {
             '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
             'a', 'b', 'c', 'd', 'e', 'f'};
 
@@ -48,16 +48,44 @@ public class CryptTools {
     }
 
     /**
-     * Md5加密
+     * SHA-256加密（推荐使用，替代MD5）
      *
      * @param pstr 加密字符串
      * @return
-     * @throws NoSuchAlgorithmException
+     * @throws SignatureException
      */
+    public static String sha256Encrypt(String pstr) throws SignatureException {
+        try {
+            byte[] btInput = pstr.getBytes(StandardCharsets.UTF_8);
+            MessageDigest mdInst = MessageDigest.getInstance("SHA-256");
+            mdInst.update(btInput);
+            byte[] md = mdInst.digest();
+            int j = md.length;
+            char[] str = new char[j * 2];
+            int k = 0;
+            for (byte byte0 : md) {
+                str[k++] = hexString[byte0 >>> 4 & 0xF];
+                str[k++] = hexString[byte0 & 0xF];
+            }
+            return new String(str);
+        } catch (NoSuchAlgorithmException e) {
+            throw new SignatureException("NoSuchAlgorithmException:" + e.getMessage());
+        }
+    }
+
+    /**
+     * Md5加密（已废弃，仅用于兼容旧代码，新代码请使用sha256Encrypt）
+     *
+     * @param pstr 加密字符串
+     * @return
+     * @throws SignatureException
+     * @deprecated Use {@link #sha256Encrypt(String)} instead
+     */
+    @Deprecated
     public static String md5Encrypt(String pstr) throws SignatureException {
 
         try {
-            byte[] btInput = pstr.getBytes();
+            byte[] btInput = pstr.getBytes(StandardCharsets.UTF_8);
             MessageDigest mdInst = MessageDigest.getInstance("MD5");
             mdInst.update(btInput);
             byte[] md = mdInst.digest();
@@ -65,8 +93,8 @@ public class CryptTools {
             char[] str = new char[j * 2];
             int k = 0;
             for (byte byte0 : md) {
-                str[k++] = md5String[byte0 >>> 4 & 0xF];
-                str[k++] = md5String[byte0 & 0xF];
+                str[k++] = hexString[byte0 >>> 4 & 0xF];
+                str[k++] = hexString[byte0 & 0xF];
             }
             return new String(str);
         } catch (NoSuchAlgorithmException e) {

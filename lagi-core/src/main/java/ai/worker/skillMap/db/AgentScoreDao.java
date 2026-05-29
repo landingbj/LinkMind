@@ -5,6 +5,8 @@ import ai.dao.IConn;
 import ai.index.BaseIndex;
 import ai.worker.pojo.AgentIntentScore;
 import ai.worker.pojo.UserRagVector;
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 import lombok.extern.slf4j.Slf4j;
 
 import java.sql.*;
@@ -14,47 +16,68 @@ import java.util.*;
 public class AgentScoreDao {
 
     private static final String DB_URL = "jdbc:sqlite:skillMap.db";
+    private static HikariDataSource dataSource;
 
     static {
         try {
-            Class.forName("org.sqlite.JDBC");
-            // 创建数据库连接
-            Connection conn = DriverManager.getConnection(DB_URL);
+            initializeDataSource();
             // 创建表
-            String sql = "CREATE TABLE IF NOT EXISTS agent_scores (" +
-                    "id INTEGER PRIMARY KEY AUTOINCREMENT," +
-                    "agent_id INTEGER NOT NULL," +
-                    "agent_name TEXT NOT NULL," +
-                    "keyword TEXT NOT NULL," +
-                    "question TEXT," +
-                    "score REAL NOT NULL," +
-                    "UNIQUE (agent_id, keyword)"+
-                    ");";
+            try (Connection conn = getConnection()) {
+                String sql = "CREATE TABLE IF NOT EXISTS agent_scores (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT," +
+                        "agent_id INTEGER NOT NULL," +
+                        "agent_name TEXT NOT NULL," +
+                        "keyword TEXT NOT NULL," +
+                        "question TEXT," +
+                        "score REAL NOT NULL," +
+                        "UNIQUE (agent_id, keyword)" +
+                        ");";
 
+                String sqlAgentKeywordLog = "CREATE TABLE IF NOT EXISTS agent_keyword_log (" +
+                        "agent_id INTEGER NOT NULL," +
+                        "keyword TEXT NOT NULL," +
+                        "PRIMARY KEY (agent_id, keyword)" +
+                        ");";
 
-            String sqlAgentKeywordLog = "CREATE TABLE IF NOT EXISTS agent_keyword_log (" +
-                    "agent_id INTEGER NOT NULL," +
-                    "keyword TEXT NOT NULL," +
-                    "PRIMARY KEY (agent_id, keyword)" +
-                    ");";
+                try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                    pstmt.executeUpdate();
+                }
 
-            PreparedStatement pstmt = conn.prepareStatement(sql);
-            pstmt.executeUpdate();
-
-            PreparedStatement pstmtAgentKeywordLog = conn.prepareStatement(sqlAgentKeywordLog);
-            pstmtAgentKeywordLog.executeUpdate();
-
-            conn.close();
+                try (PreparedStatement pstmtAgentKeywordLog = conn.prepareStatement(sqlAgentKeywordLog)) {
+                    pstmtAgentKeywordLog.executeUpdate();
+                }
+            }
+            log.info("AgentScoreDao initialized successfully");
         } catch (SQLException e) {
             log.error("Error connecting to database", e);
-        } catch (ClassNotFoundException e) {
-            throw new RuntimeException(e);
         }
+    }
+
+    private synchronized static void initializeDataSource() {
+        if (dataSource == null) {
+            HikariConfig config = new HikariConfig();
+            config.setJdbcUrl(DB_URL);
+            config.setDriverClassName("org.sqlite.JDBC");
+            config.setMaximumPoolSize(10);
+            config.setMinimumIdle(2);
+            config.setConnectionTimeout(30000);
+            config.setIdleTimeout(600000);
+            config.setMaxLifetime(1800000);
+            config.setLeakDetectionThreshold(60000);
+            dataSource = new HikariDataSource(config);
+        }
+    }
+
+    private static Connection getConnection() throws SQLException {
+        if (dataSource == null) {
+            initializeDataSource();
+        }
+        return dataSource.getConnection();
     }
 
     public void saveScore(Integer agentId, String agentName, String keyword, String question, Double score) {
         String sql = "INSERT INTO agent_scores(agent_id, agent_name,keyword, question, score) VALUES(?, ?, ?, ?, ?)";
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setInt(1, agentId);
             pstmt.setString(2, agentName);
@@ -75,7 +98,7 @@ public class AgentScoreDao {
                 "    keyword = excluded.keyword, \n" +
                 "    question = excluded.question, \n" +
                 "    score = excluded.score;";
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setInt(1, agentId);
             pstmt.setString(2, agentName);
@@ -91,7 +114,7 @@ public class AgentScoreDao {
     public List<AgentIntentScore> getAgentScore(String keyword) {
         String sql = "SELECT agent_id, agent_name, keyword, question, score FROM agent_scores WHERE keyword = ? and score > 0";
         List<AgentIntentScore> scores = new ArrayList<>();
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, keyword);
             ResultSet rs = pstmt.executeQuery();
@@ -126,7 +149,7 @@ public class AgentScoreDao {
 
         String sql = sqlBuilder.toString();
         double totalScore = 0.0;
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setInt(1, agentId);
             for (int i = 0; i < keywords.size(); i++) {
@@ -146,7 +169,7 @@ public class AgentScoreDao {
         String checkSql = "SELECT COUNT(*) FROM agent_keyword_log WHERE agent_id = ? AND keyword = ?";
         String insertSql = "INSERT INTO agent_keyword_log(agent_id, keyword) VALUES(?, ?)";
 
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement checkStmt = conn.prepareStatement(checkSql);
              PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
             checkStmt.setInt(1, agentId);
@@ -167,7 +190,7 @@ public class AgentScoreDao {
     public Set<Integer> getAgentIdsByKeyword(String keyword) {
         String sql = "SELECT agent_id FROM agent_keyword_log WHERE keyword = ?";
         Set<Integer> agentIds = new HashSet<>();
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, keyword);
             ResultSet rs = pstmt.executeQuery();
@@ -195,7 +218,7 @@ public class AgentScoreDao {
 
         String sql = sqlBuilder.toString();
         Set<Integer> agentIds = new HashSet<>();
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             for (int i = 0; i < keywords.size(); i++) {
                 pstmt.setString(i + 1, keywords.get(i));
@@ -227,7 +250,7 @@ public class AgentScoreDao {
 
         String sql = sqlBuilder.toString();
         int count = 0;
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setInt(1, agentId);
             for (int i = 0; i < keywords.size(); i++) {
@@ -246,7 +269,7 @@ public class AgentScoreDao {
     public List<AgentIntentScore> getAgentIdName() {
         String sql = "SELECT distinct agent_id, agent_name FROM agent_scores";
         List<AgentIntentScore> scores = new ArrayList<>();
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             ResultSet rs = pstmt.executeQuery();
             while (rs.next()) {
@@ -264,7 +287,7 @@ public class AgentScoreDao {
 
     public Integer getNameByID(String name) {
         String sql = "SELECT agent_id FROM agent_scores WHERE agent_name = ?";
-        try (Connection conn = DriverManager.getConnection(DB_URL);
+        try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, name);
             ResultSet rs = pstmt.executeQuery();

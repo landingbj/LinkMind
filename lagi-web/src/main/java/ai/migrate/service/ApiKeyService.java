@@ -7,6 +7,7 @@ import ai.dto.ModelApiKey;
 import ai.migrate.dao.ApiKeyDao;
 import ai.utils.AiGlobal;
 import ai.utils.OkHttpUtil;
+import ai.utils.OkHttpUtil.HttpPostResult;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import lombok.extern.slf4j.Slf4j;
@@ -737,5 +738,15 @@ public class ApiKeyService {
             });
         }
         return list != null ? list : new ArrayList<>();
+    }
+
+    /**
+     * Resolves userId by apiKey via SAAS (POST /saas/api/apikey/getUserId).
+     */
+    public HttpPostResult getUserIdByApiKey(String apiKey) throws IOException {
+        Map<String, String> payload = new LinkedHashMap<String, String>();
+        payload.put("apiKey", apiKey == null ? "" : apiKey.trim());
+        String url = SAAS_BASE_URL + "/saas/api/apikey/getUserId";
+        return OkHttpUtil.postJsonWithStatus(url, gson.toJson(payload));
     }
 }

@@ -5,6 +5,7 @@ import ai.dto.ModelApiKey;
 import ai.migrate.service.ApiKeyService;
 import ai.utils.ApikeyUtil;
 import ai.utils.OkHttpUtil;
+import ai.utils.OkHttpUtil.HttpPostResult;
 import cn.hutool.core.util.StrUtil;
 import com.google.gson.Gson;
 import lombok.extern.slf4j.Slf4j;
@@ -60,6 +61,9 @@ public class ApiKeyServlet extends BaseServlet {
                 break;
             case "invalidList":
                 this.invalidList(req, resp);
+                break;
+            case "getUserId":
+                this.getUserId(req, resp);
                 break;
         }
     }
@@ -182,6 +186,30 @@ public class ApiKeyServlet extends BaseServlet {
         responsePrint(resp, gson.toJson(result));
     }
 
+    private void getUserId(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        GetUserIdRequest body = reqBodyToObj(req, GetUserIdRequest.class);
+        String apiKey = body == null ? null : body.apiKey;
+        if (StrUtil.isBlank(apiKey)) {
+            resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            return;
+        }
+        try {
+            HttpPostResult result = apiKeyService.getUserIdByApiKey(apiKey);
+            resp.setStatus(result.getCode());
+            if (StrUtil.isNotBlank(result.getBody())) {
+                responsePrint(resp, result.getBody());
+            }
+        } catch (Exception e) {
+            log.error("Failed to get userId by apiKey: {}", e.getMessage(), e);
+            resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            Map<String, Object> error = new HashMap<>();
+            error.put("status", "failed");
+            error.put("msg", e.getMessage());
+            responsePrint(resp, gson.toJson(error));
+        }
+    }
+
     private void invalidList(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json;charset=utf-8");
         if (shouldProxyToCascade()) {
@@ -271,6 +299,10 @@ public class ApiKeyServlet extends BaseServlet {
             }
             return apikeys;
         }
+    }
+
+    private static class GetUserIdRequest {
+        String apiKey;
     }
 
     private String maskApiKey(String apiKey) {

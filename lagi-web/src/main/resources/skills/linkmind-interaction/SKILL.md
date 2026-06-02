@@ -34,7 +34,7 @@ LINKMIND_API_KEY=sk-...
 apiKey: sk-...
 ```
 
-If no key is configured, tell the user to register on the official LinkMind site.
+If no key is configured, tell the user to register at https://lagi.saasai.top/.
 After registration, the default key is shown under "API Keys" / "API miyao".
 Do not call or propose any API that creates or reveals keys.
 

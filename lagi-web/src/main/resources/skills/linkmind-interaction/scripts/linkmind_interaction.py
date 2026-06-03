@@ -24,7 +24,7 @@ import urllib.parse
 import urllib.request
 
 
-DEFAULT_BASE_URL = "https://lagi.saasai.top"
+DEFAULT_BASE_URL = "https://ai.linkmind.top"
 CONFIG_FILENAMES = (
     "linkmind.key",
     "linkmind_api_key.txt",
@@ -213,7 +213,7 @@ def read_api_key(args: argparse.Namespace) -> str:
 
     raise LinkMindError(
         "LinkMind API key is missing. Configure one key in a config file, "
-        "or register at https://lagi.saasai.top/ and copy the default key from API Keys."
+        "or register at https://ai.linkmind.top/ and copy the default key from API Keys."
     )
 
 

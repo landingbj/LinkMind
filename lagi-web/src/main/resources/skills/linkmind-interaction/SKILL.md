@@ -14,7 +14,7 @@ requested channel operation.
 Default server:
 
 ```text
-https://lagi.saasai.top
+https://ai.linkmind.top
 ```
 
 ## User configuration
@@ -34,7 +34,7 @@ LINKMIND_API_KEY=sk-...
 apiKey: sk-...
 ```
 
-If no key is configured, tell the user to register at https://lagi.saasai.top/.
+If no key is configured, tell the user to register at https://ai.linkmind.top/.
 After registration, the default key is shown under "API Keys" / "API miyao".
 Do not call or propose any API that creates or reveals keys.
 

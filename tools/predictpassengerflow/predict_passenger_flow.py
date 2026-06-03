@@ -22,6 +22,9 @@ import fcntl
 
 warnings.filterwarnings("ignore")
 
+# Preserve current server behavior: C2 uses the average of other channels.
+MOCK_C2 = True
+
 # 配置
 CONFIG = {
     'time_granularity': '15min',
@@ -34,7 +37,8 @@ CONFIG = {
         'database': 'GJ_DW'
     },
     'model_dir': '/home/server/models',
-    'service_end_buffer_minutes': 15
+    'service_end_buffer_minutes': 15,
+    'route_service_cache_ttl_seconds': 300
 }
 # 数据与特征存储目录
 RAW_DIR = '/home/server/data/raw'
@@ -93,6 +97,7 @@ CHANNEL_INDEX = {
 # 缓存目录与文件
 CACHE_DIR = '/home/server/cache'
 PRED_CACHE_FILE = os.path.join(CACHE_DIR, 'predictions.json')
+ROUTE_SERVICE_CACHE = {'expires_at': 0, 'data': {}}
 
 def _ensure_cache_dir():
     try:
@@ -175,6 +180,16 @@ def _write_meta(meta):
     except Exception as e:
         logger.error("写入meta失败: %s", str(e))
 
+def _date_filter_bounds(start_value, end_value, pad_days=1):
+    start_dt = pd.to_datetime(start_value).to_pydatetime() - timedelta(days=pad_days)
+    end_dt = pd.to_datetime(end_value).to_pydatetime() + timedelta(days=pad_days)
+    return {
+        'date_start': start_dt.date(),
+        'date_end': end_dt.date(),
+        'text_start': start_dt.strftime('%Y%m%d'),
+        'text_end': end_dt.strftime('%Y%m%d')
+    }
+
 def incremental_extract_to_parquet(window_days):
     start_time = time.time()
     _ensure_dirs()
@@ -193,16 +208,18 @@ def incremental_extract_to_parquet(window_days):
     last_trade_ts = meta.get('last_trade_ts')
     trade_cond = "trade_time > %s AND trade_time <= %s"
     trade_params = [last_trade_ts or ws, we]
+    trade_bounds = _date_filter_bounds(trade_params[0], trade_params[1])
     logger.info("增量抽取trade，起点: %s", trade_params[0])
     cursor.execute(
         """
         SELECT trade_time::timestamp AS trade_time, stop_id, route_id::text AS route_id
         FROM ods.trade
         WHERE (stop_id = '1001001154' OR off_stop_id = '1001001154')
-          AND trade_time::timestamp > %s::timestamp AND trade_time::timestamp <= %s::timestamp
-        ORDER BY trade_time::timestamp
+          AND trade_date >= %s AND trade_date <= %s
+          AND trade_time > %s AND trade_time <= %s
+        ORDER BY trade_time
         """,
-        trade_params
+        [trade_bounds['text_start'], trade_bounds['text_end']] + trade_params
     )
     trade_df = pd.DataFrame([dict(r) for r in cursor.fetchall()])
     if not trade_df.empty:
@@ -222,15 +239,18 @@ def incremental_extract_to_parquet(window_days):
     last_brd_ts = meta.get('last_broadcast_ts')
     brd_cond = "arrive_time > %s AND arrive_time <= %s"
     brd_params = [last_brd_ts or ws, we]
+    brd_bounds = _date_filter_bounds(brd_params[0], brd_params[1])
     logger.info("增量抽取sim_station，起点: %s", brd_params[0])
     cursor.execute(
         """
         SELECT arrive_time::timestamp AS arrive_time, leave_time::timestamp AS leave_time, stop_id, route_id, board_amount, off_amount
         FROM ods.sim_station
-        WHERE stop_id = '1001001154' AND arrive_time::timestamp > %s::timestamp AND arrive_time::timestamp <= %s::timestamp
-        ORDER BY arrive_time::timestamp
+        WHERE stop_id = '1001001154'
+          AND receive_date >= %s AND receive_date <= %s
+          AND arrive_time > %s AND arrive_time <= %s
+        ORDER BY arrive_time
         """,
-        brd_params
+        [brd_bounds['date_start'], brd_bounds['date_end']] + brd_params
     )
     brd_df = pd.DataFrame([dict(r) for r in cursor.fetchall()])
     if not brd_df.empty:
@@ -250,6 +270,7 @@ def incremental_extract_to_parquet(window_days):
     last_sch_ts = meta.get('last_schedule_ts')
     sch_cond = "dispatch_departure_time > %s AND dispatch_departure_time <= %s"
     sch_params = [last_sch_ts or ws, we]
+    sch_bounds = _date_filter_bounds(sch_params[0], sch_params[1])
     logger.info("增量抽取assign_schedule，起点: %s", sch_params[0])
     cursor.execute(
         """
@@ -258,10 +279,11 @@ def incremental_extract_to_parquet(window_days):
         FROM ods.assign_schedule
         WHERE (origin_id = '1001001154' OR terminal_id = '1001001154')
           AND assign_status = 'RELEASE' AND is_delete = false 
-          AND dispatch_departure_time::timestamp > %s::timestamp AND dispatch_departure_time::timestamp <= %s::timestamp
-        ORDER BY dispatch_departure_time::timestamp
+          AND run_date >= %s AND run_date <= %s
+          AND dispatch_departure_time > %s AND dispatch_departure_time <= %s
+        ORDER BY dispatch_departure_time
         """,
-        sch_params
+        [sch_bounds['date_start'], sch_bounds['date_end']] + sch_params
     )
     sch_df = pd.DataFrame([dict(r) for r in cursor.fetchall()])
     if not sch_df.empty:
@@ -344,7 +366,7 @@ def train_from_materialized(window_days):
     start_time = time.time()
     logger.info("从物化特征层训练模型，窗口: %d天", window_days)
     data, _, _, features = load_materialized()
-    if data is None or not features:
+    if data is None or data.empty or not features:
         logger.warning("物化特征缺失或无特征定义，回退至在线训练")
         trade_data, broadcast_data, schedule_data = fetch_data_from_db(window_days)
         today = datetime.now().strftime('%Y-%m-%d')
@@ -462,34 +484,46 @@ def fetch_route_service_times(route_ids):
     返回: {route_id: service_time_str}
     """
     start_time = time.time()
-    logger.info("开始获取线路服务时间，线路数量: %d", len(route_ids))
-    if not route_ids:
+    normalized_route_ids = sorted({str(rid) for rid in route_ids})
+    logger.info("开始获取线路服务时间，线路数量: %d", len(normalized_route_ids))
+    if not normalized_route_ids:
         logger.warning("线路ID列表为空，跳过服务时间获取")
         return {}
+    now_ts = time.time()
+    cached = ROUTE_SERVICE_CACHE.get('data', {})
+    if now_ts < ROUTE_SERVICE_CACHE.get('expires_at', 0) and all(rid in cached for rid in normalized_route_ids):
+        logger.info("route service times cache hit, route count: %d", len(normalized_route_ids))
+        return {rid: cached.get(rid, '') for rid in normalized_route_ids}
     try:
         conn = psycopg2.connect(**CONFIG['db_config'])
         cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-        logger.info("查询线路服务时间，SQL: SELECT route_id, service_time FROM ods.route_portrai WHERE route_id = ANY(%s)", route_ids)
+        logger.info("查询线路服务时间，SQL: SELECT route_id, service_time FROM ods.route_portrai WHERE route_id = ANY(%s)", normalized_route_ids)
         cursor.execute(
             """
             SELECT route_id, service_time
             FROM ods.route_portrai
             WHERE route_id = ANY(%s)
             """,
-            (list(route_ids),)
+            (normalized_route_ids,)
         )
         rows = cursor.fetchall()
         cursor.close()
         conn.close()
         result = {str(r['route_id']): (r['service_time'] or '') for r in rows}
+        cached = dict(ROUTE_SERVICE_CACHE.get('data', {}))
+        cached.update(result)
+        for rid in normalized_route_ids:
+            cached.setdefault(rid, '')
+        ROUTE_SERVICE_CACHE['data'] = cached
+        ROUTE_SERVICE_CACHE['expires_at'] = time.time() + CONFIG.get('route_service_cache_ttl_seconds', 300)
         logger.info("成功获取 %d 条线路服务时间记录", len(rows))
         for route_id, service_time in result.items():
             logger.info("线路 %s 服务时间: %s", route_id, service_time[:100] + "..." if len(service_time) > 100 else service_time)
         logger.info("线路服务时间获取完成，耗时: %.2f秒", time.time() - start_time)
-        return result
+        return {rid: cached.get(rid, '') for rid in normalized_route_ids}
     except Exception as e:
         logger.error("获取线路服务时间失败: %s", str(e), exc_info=True)
-        return {rid: '' for rid in route_ids}
+        return {rid: '' for rid in normalized_route_ids}
 
 
 def parse_service_windows(service_time_str, target_date, route_id=None):
@@ -715,6 +749,7 @@ def fetch_data_from_db(window_days, time_granularity=None):
         start_date = end_date - timedelta(days=window_days)
         start_date_str = start_date.strftime('%Y-%m-%d %H:%M:%S')
         end_date_str = end_date.strftime('%Y-%m-%d %H:%M:%S')
+        query_bounds = _date_filter_bounds(start_date_str, end_date_str)
 
         # 仅支持 15 分钟聚合（当前配置默认）
         if time_granularity is None:
@@ -734,11 +769,12 @@ def fetch_data_from_db(window_days, time_granularity=None):
             COUNT(*) AS trade_count
         FROM ods.trade
         WHERE (stop_id = '1001001154' OR off_stop_id = '1001001154')
-          AND trade_time::timestamp >= %s::timestamp AND trade_time::timestamp < %s::timestamp
+          AND trade_date >= %s AND trade_date <= %s
+          AND trade_time >= %s AND trade_time < %s
         GROUP BY 1, 2
         ORDER BY 1, 2
         """
-        cursor.execute(query_trade, (start_date_str, end_date_str))
+        cursor.execute(query_trade, (query_bounds['text_start'], query_bounds['text_end'], start_date_str, end_date_str))
         trade_data = pd.DataFrame([dict(row) for row in cursor.fetchall()])
         logger.info("提取交易聚合记录数: %d, 查询耗时: %.2f秒", len(trade_data), time.time() - query_start)
 
@@ -755,11 +791,12 @@ def fetch_data_from_db(window_days, time_granularity=None):
             SUM(off_amount) AS off_amount
         FROM ods.sim_station
         WHERE stop_id = '1001001154'
-          AND arrive_time::timestamp >= %s::timestamp AND arrive_time::timestamp < %s::timestamp
+          AND receive_date >= %s AND receive_date <= %s
+          AND arrive_time >= %s AND arrive_time < %s
         GROUP BY 1, 2
         ORDER BY 1, 2
         """
-        cursor.execute(query_broadcast, (start_date_str, end_date_str))
+        cursor.execute(query_broadcast, (query_bounds['date_start'], query_bounds['date_end'], start_date_str, end_date_str))
         broadcast_data = pd.DataFrame([dict(row) for row in cursor.fetchall()])
         logger.info("提取报站聚合记录数: %d, 查询耗时: %.2f秒", len(broadcast_data), time.time() - query_start)
 
@@ -775,8 +812,8 @@ def fetch_data_from_db(window_days, time_granularity=None):
             COUNT(*) AS dispatch_count,
             AVG(GREATEST(5, LEAST(60, COALESCE(single_trip_duration, 10))))::int AS single_trip_duration
         FROM ods.assign_schedule
-        WHERE (origin_id = 1001001154 OR terminal_id = 1001001154)
-          AND dispatch_departure_time::timestamp >= %s::timestamp AND dispatch_departure_time::timestamp < %s::timestamp
+        WHERE (origin_id = '1001001154' OR terminal_id = '1001001154')
+          AND dispatch_departure_time >= %s AND dispatch_departure_time < %s
           AND assign_status = 'RELEASE' AND is_delete = false
         GROUP BY 1, 2
         ORDER BY 1, 2
@@ -1260,6 +1297,19 @@ def predict_and_validate(data, scaler, enc, weather_data, window_days, time_gran
                 'instationMin60': 1
             })
 
+    if MOCK_C2:
+        other_channels = [p for p in predictions if p['passengewayIndex'] != 2]
+        if other_channels:
+            avg_15 = int(np.mean([p['instationMin15'] for p in other_channels]))
+            avg_30 = int(np.mean([p['instationMin30'] for p in other_channels]))
+            avg_60 = int(np.mean([p['instationMin60'] for p in other_channels]))
+            for p in predictions:
+                if p['passengewayIndex'] == 2:
+                    p['instationMin15'] = avg_15
+                    p['instationMin30'] = avg_30
+                    p['instationMin60'] = avg_60
+                    logger.info("C2 channel uses mock average: 15min=%d, 30min=%d, 60min=%d", avg_15, avg_30, avg_60)
+
     logger.info("通道客流预测结果: %s, 预测耗时: %.2f秒", predictions, time.time() - predict_start)
     logger.info("预测与验证总耗时: %.2f秒", time.time() - start_time)
     return predictions, valid_results_df, metrics
@@ -1281,11 +1331,11 @@ def compute_and_cache_predictions(window_days=None, time_granularity=None):
         try:
             # 从物化层读取，避免在请求路径查库
             data, scaler, enc, features = load_materialized()
-            if data is None or scaler is None or enc is None or not features:
+            if data is None or data.empty or scaler is None or enc is None or not features:
                 logger.warning("物化特征或变换器缺失，尝试触发物化生成")
                 materialize_feature_store(wd, tg)
                 data, scaler, enc, features = load_materialized()
-                if data is None or scaler is None or enc is None or not features:
+                if data is None or data.empty or scaler is None or enc is None or not features:
                     logger.error("物化层仍不可用，取消缓存生成")
                     return None
             # 天气用于未来时间特征构造
@@ -1370,11 +1420,14 @@ def validate_passenger_forecast():
     total_start = time.time()
     try:
         logger.info("接收到客流预测验证请求")
-        trade_data, broadcast_data, schedule_data = fetch_data_from_db(CONFIG['window_days'])
+        data, scaler, enc, features = load_materialized()
         today = datetime.now().strftime('%Y-%m-%d')
         weather_data = fetch_real_time_weather(today, today, CONFIG['time_granularity'])
         preprocess_start = time.time()
-        data, scaler, enc, weather_data, features = preprocess_data(trade_data, broadcast_data, schedule_data, weather_data, CONFIG['time_granularity'])
+        if data is None or data.empty or scaler is None or enc is None or not features:
+            logger.warning("materialized validation data unavailable, falling back to database extraction")
+            trade_data, broadcast_data, schedule_data = fetch_data_from_db(CONFIG['window_days'])
+            data, scaler, enc, weather_data, features = preprocess_data(trade_data, broadcast_data, schedule_data, weather_data, CONFIG['time_granularity'])
         logger.info("数据预处理耗时: %.2f秒", time.time() - preprocess_start)
         models = load_models()
         predictions, valid_results, metrics = predict_and_validate(data, scaler, enc, weather_data, CONFIG['window_days'], CONFIG['time_granularity'], features, models, validate=True)

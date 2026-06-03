@@ -2,11 +2,14 @@
     var tTextLogs = window.tText || function (s) { return s; };
     var tHtmlLogs = window.tHtml || function (s) { return s; };
     var generationRows = [];
+    var generationChartRows = [];
+    var generationTotal = 0;
     var jobRows = [];
     var generationPage = 1;
     var pageSize = 20;
     var currentTab = "generations";
     var generationChart = null;
+    var generationLoadSeq = 0;
 
     function hideChatPartsForStandalonePage() {
         $("#queryBox").hide();
@@ -67,27 +70,84 @@
         return Number(row.createdAt != null ? row.createdAt : row.created_at) || 0;
     }
 
-    function loadGenerationRows(done) {
-        var all = [];
-        var page = 1;
-        var reqSize = 200;
-        function next() {
-            $.getJSON("/v1/token-statistics/details", { range: "all", page: page, pageSize: reqSize })
-                .done(function (data) {
-                    var records = (data && data.records) ? data.records : [];
-                    for (var i = 0; i < records.length; i++) all.push(records[i]);
-                    if (records.length < reqSize || page >= 40) {
-                        done(all);
-                        return;
-                    }
-                    page++;
-                    next();
-                })
-                .fail(function () {
-                    done(all);
-                });
+    function resolveLogsApiRange() {
+        var range = getRangeMs();
+        var days = (range.max - range.min) / 86400000;
+        if (days <= 1.5) {
+            return "today";
         }
-        next();
+        if (days <= 7.5) {
+            return "7d";
+        }
+        if (days <= 30.5) {
+            return "30d";
+        }
+        return "all";
+    }
+
+    function loadGenerationPage(loadId, done) {
+        var apiRange = resolveLogsApiRange();
+        $.getJSON("/v1/token-statistics/details", {
+            range: apiRange,
+            page: generationPage,
+            pageSize: pageSize
+        })
+            .done(function (data) {
+                if (loadId !== generationLoadSeq) {
+                    return;
+                }
+                generationRows = (data && data.records) ? data.records : [];
+                generationTotal = Number(data && data.total != null ? data.total : generationRows.length);
+                if (done) {
+                    done();
+                }
+            })
+            .fail(function () {
+                if (loadId !== generationLoadSeq) {
+                    return;
+                }
+                generationRows = [];
+                generationTotal = 0;
+                if (done) {
+                    done();
+                }
+            });
+    }
+
+    function loadGenerationChartRows(loadId, done) {
+        var apiRange = resolveLogsApiRange();
+        $.getJSON("/v1/token-statistics/details", { range: apiRange, page: 1, pageSize: 200 })
+            .done(function (data) {
+                if (loadId !== generationLoadSeq) {
+                    return;
+                }
+                generationChartRows = (data && data.records) ? data.records : [];
+                if (done) {
+                    done();
+                }
+            })
+            .fail(function () {
+                if (loadId !== generationLoadSeq) {
+                    return;
+                }
+                generationChartRows = [];
+                if (done) {
+                    done();
+                }
+            });
+    }
+
+    function reloadGenerationData(done) {
+        var loadId = ++generationLoadSeq;
+        var pending = 2;
+        function check() {
+            pending--;
+            if (pending === 0 && loadId === generationLoadSeq && done) {
+                done();
+            }
+        }
+        loadGenerationChartRows(loadId, check);
+        loadGenerationPage(loadId, check);
     }
 
     function loadJobRows(done) {
@@ -109,8 +169,9 @@
         });
     }
 
-    function filteredGenerationRows() {
-        return generationRows.filter(function (r) {
+    function filteredGenerationRows(rows) {
+        var source = rows || [];
+        return source.filter(function (r) {
             var ts = pickTs(r);
             return ts ? inRange(ts) : false;
         });
@@ -182,12 +243,12 @@
             return;
         }
 
-        var totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
-        if (generationPage > totalPages) generationPage = totalPages;
-        var start = (generationPage - 1) * pageSize;
-        var pageRows = rows.slice(start, start + pageSize);
-        for (var i = 0; i < pageRows.length; i++) {
-            var row = pageRows[i];
+        var totalPages = Math.max(1, Math.ceil(generationTotal / pageSize));
+        if (generationPage > totalPages) {
+            generationPage = totalPages;
+        }
+        for (var i = 0; i < rows.length; i++) {
+            var row = rows[i];
             var ts = pickTs(row);
             var pt = Number(row.promptTokens || 0);
             var ct = Number(row.completionTokens || 0);
@@ -285,11 +346,29 @@
             '<button id="logsNextBtn" type="button" style="padding:4px 10px;border:1px solid #e5e7eb;border-radius:6px;background:#fff;cursor:pointer;">›</button>' +
             "</div></div>";
         $("#logsTabBody").html(tHtmlLogs(body));
-        $("#logsPrevBtn").on("click", function () { if (generationPage > 1) { generationPage--; renderGenerationsTable(filteredGenerationRows()); } });
-        $("#logsNextBtn").on("click", function () { generationPage++; renderGenerationsTable(filteredGenerationRows()); });
-        var rows = filteredGenerationRows();
-        renderGenerationsChart(rows);
-        renderGenerationsTable(rows);
+        $("#logsPrevBtn").off("click.logsPage").on("click.logsPage", function () {
+            if (generationPage <= 1) {
+                return;
+            }
+            generationPage--;
+            var loadId = ++generationLoadSeq;
+            loadGenerationPage(loadId, function () {
+                renderGenerationsTable(filteredGenerationRows(generationRows));
+            });
+        });
+        $("#logsNextBtn").off("click.logsPage").on("click.logsPage", function () {
+            var totalPages = Math.max(1, Math.ceil(generationTotal / pageSize));
+            if (generationPage >= totalPages) {
+                return;
+            }
+            generationPage++;
+            var loadId = ++generationLoadSeq;
+            loadGenerationPage(loadId, function () {
+                renderGenerationsTable(filteredGenerationRows(generationRows));
+            });
+        });
+        renderGenerationsChart(filteredGenerationRows(generationChartRows));
+        renderGenerationsTable(filteredGenerationRows(generationRows));
     }
 
     function renderTabBody() {
@@ -301,7 +380,8 @@
     }
 
     function bindToolbar() {
-        $(".logs-tab-btn").on("click", function () {
+        $("#request-logs-container").off(".logs");
+        $("#request-logs-container").on("click.logs", ".logs-tab-btn", function () {
             currentTab = String($(this).data("tab"));
             generationPage = 1;
             $(".logs-tab-btn").each(function () {
@@ -310,19 +390,18 @@
             });
             renderTabBody();
         });
-        $("#logsDateFrom,#logsDateTo").on("change", function () {
+        $("#request-logs-container").on("change.logs", "#logsDateFrom,#logsDateTo", function () {
             generationPage = 1;
-            renderTabBody();
+            loadAllDataAndRender();
         });
-        $("#logsRefreshBtn").on("click", function () {
+        $("#request-logs-container").on("click.logs", "#logsRefreshBtn", function () {
             generationPage = 1;
             loadAllDataAndRender();
         });
     }
 
     function loadAllDataAndRender() {
-        loadGenerationRows(function (rows) {
-            generationRows = rows || [];
+        reloadGenerationData(function () {
             loadJobRows(function (jobs) {
                 jobRows = jobs || [];
                 renderTabBody();

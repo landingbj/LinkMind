@@ -6,7 +6,7 @@
 
     <context-param>
         <param-name>version</param-name>
-        <param-value>260522-01</param-value>
+        <param-value>260608-01</param-value>
     </context-param>
 
     <welcome-file-list>

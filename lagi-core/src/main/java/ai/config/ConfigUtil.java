@@ -1,6 +1,6 @@
 package ai.config;
 
-import ai.config.pojo.SkillsConfig;
+import ai.config.pojo.GeneralConfig;
 
 public class ConfigUtil {
     public static String CASCADE_API_ADDRESS;
@@ -62,19 +62,18 @@ public class ConfigUtil {
     public static String getRunningMode() {
         GlobalConfigurations globalConfigurations = ContextLoader.configuration;
         if (globalConfigurations == null) {
-            return MODE_MATE;
-        }
-
-        SkillsConfig skillsConfig = globalConfigurations.getSkills();
-        if (skillsConfig == null) {
-            return MODE_MATE;
-        }
-
-        String rule = skillsConfig.getRule();
-        if (rule != null && MODE_SERVER.equalsIgnoreCase(rule.trim())) {
             return MODE_SERVER;
         }
 
+        GeneralConfig general = globalConfigurations.getGeneral();
+        if (general == null || general.getMode() == null) {
+            return MODE_SERVER;
+        }
+
+        String mode = general.getMode().trim();
+        if (MODE_SERVER.equalsIgnoreCase(mode)) {
+            return MODE_SERVER;
+        }
         return MODE_MATE;
     }
 

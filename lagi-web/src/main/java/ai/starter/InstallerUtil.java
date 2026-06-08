@@ -211,14 +211,15 @@ public class InstallerUtil {
             }
         }
         try {
-            updateSkillsConfig(configPath, "server".equals(runtimeChoice), skillsRoot);
+            updateSkillsConfig(configPath, runtimeChoice, skillsRoot);
         } catch (Exception e) {
             log.error("Skip runtime skills config due to invalid YAML at {}. Please fix this file and retry if needed.", configPath, e);
         }
     }
 
     @SuppressWarnings("unchecked")
-    private static void updateSkillsConfig(Path configPath, boolean enableSkills, Path skillsRoot) throws IOException {
+    private static void updateSkillsConfig(Path configPath, String runtimeMode, Path skillsRoot) throws IOException {
+        boolean enableSkills = "server".equals(runtimeMode);
         // Default YAMLMapper can emit broken single-quoted multiline scalars (e.g. filters.rules), which then fail on re-read.
         YAMLFactory yamlFactory = new YAMLFactory()
                 .disable(YAMLGenerator.Feature.WRITE_DOC_START_MARKER)
@@ -251,6 +252,13 @@ public class InstallerUtil {
             appendSkillItems(skillsMap, discoveryRoot);
         }
         rootMap.put("skills", skillsMap);
+
+        Object generalObj = rootMap.get("general");
+        Map<String, Object> generalMap = generalObj instanceof Map
+                ? new LinkedHashMap<>((Map<String, Object>) generalObj)
+                : new LinkedHashMap<String, Object>();
+        generalMap.put("mode", runtimeMode);
+        rootMap.put("general", generalMap);
 
         if (configPath.getParent() != null) {
             Files.createDirectories(configPath.getParent());

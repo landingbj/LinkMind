@@ -14,18 +14,22 @@ import java.util.*;
 
 public class GetModelConfigUtil {
     private static final String URL = "https://saas.landingbj.com/saas/api/apikey/listModelInfo";
-    private static final String DEFAULT_YML_PATH = "lagi-examples/config/OpenClaw/116/lagi.yml";
+    private static final String[] DEFAULT_YML_PATH = {
+            "lagi-examples/config/OpenClaw/116/lagi.yml",
+            "lagi-examples/config/OpenClaw/release/lagi.yml"
+    };
     private static final Gson GSON = new Gson();
     private static final Set<String> OPEN_ROUTER_PROVIDERS = new HashSet<>(Arrays.asList("google", "openai", "anthropic"));
 
     public static void main(String[] args) {
-        String ymlPath = args.length > 0 ? args[0] : DEFAULT_YML_PATH;
-        try {
-            updateLagiYml(ymlPath);
-            System.out.println("Updated model config in: " + ymlPath);
-        } catch (IOException e) {
-            System.err.println("Failed to update lagi.yml: " + e.getMessage());
-            e.printStackTrace();
+        for (String ymlPath : DEFAULT_YML_PATH) {
+            try {
+                updateLagiYml(ymlPath);
+                System.out.println("Updated model config in: " + ymlPath);
+            } catch (IOException e) {
+                System.err.println("Failed to update lagi.yml: " + e.getMessage());
+                e.printStackTrace();
+            }
         }
     }
 

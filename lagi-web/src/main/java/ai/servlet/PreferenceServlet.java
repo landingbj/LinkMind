@@ -2,8 +2,11 @@ package ai.servlet;
 
 import ai.annotation.*;
 import ai.common.ModelService;
+import ai.config.ContextLoader;
+import ai.config.pojo.ModelFunction;
 import ai.dto.ModelInfo;
 import ai.dto.ModelPreferenceDto;
+import ai.dto.ModelsResponse;
 import ai.llm.adapter.ILlmAdapter;
 import ai.llm.utils.CacheManager;
 import ai.llm.adapter.impl.ProxyLlmAdapter;
@@ -97,7 +100,7 @@ public class PreferenceServlet extends RestfulServlet {
     }
 
     @Get("getModels")
-    public List<ModelInfo> getModels(@Param("type") String type, @Param("userId") String userId, HttpServletRequest request) {
+    public ModelsResponse getModels(@Param("type") String type, @Param("userId") String userId, HttpServletRequest request) {
         ModelPreferenceDto preferenceRequest = loadUserPreference(userId, request);
         List<ModelInfo> orDefault = modelInfoMap.getOrDefault(type, Collections.emptyList()).stream()
                 .map(a->{
@@ -137,7 +140,26 @@ public class PreferenceServlet extends RestfulServlet {
         if("videoTrack".equals(type)) {
             setActivate(orDefault, getModelName(preferenceRequest.getVideoTrack(), getModelService(Video2TrackManager.getInstance())));
         }
-        return orDefault;
+        return ModelsResponse.builder()
+                .models(orDefault)
+                .consoleDefaultModel(getConsoleDefaultModel(type))
+                .build();
+    }
+
+    private String getConsoleDefaultModel(String type) {
+        if (!"llm".equals(type) || ContextLoader.configuration == null
+                || ContextLoader.configuration.getFunctions() == null) {
+            return null;
+        }
+        ModelFunction chat = ContextLoader.configuration.getFunctions().getChat();
+        if (chat == null) {
+            return null;
+        }
+        String consoleDefaultModel = chat.getConsoleDefaultModel();
+        if (consoleDefaultModel == null || consoleDefaultModel.trim().isEmpty()) {
+            return null;
+        }
+        return consoleDefaultModel.trim();
     }
 
     private ModelPreferenceDto loadUserPreference(String fingerId, HttpServletRequest request) {

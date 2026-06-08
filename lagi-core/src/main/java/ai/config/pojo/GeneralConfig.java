@@ -5,6 +5,8 @@ import lombok.Data;
 
 @Data
 public class GeneralConfig {
+    private String mode = "server";
+
     @JsonProperty("local_api_key_editable")
     private Boolean localApiKeyEditable = true;
 

@@ -1246,6 +1246,18 @@ function maintenance() {
 
 let currentPromptDialog;
 
+function parseModelsResult(data) {
+    if (!data) {
+        return { models: [], consoleDefaultModel: '' };
+    }
+    if (Array.isArray(data)) {
+        return { models: data, consoleDefaultModel: '' };
+    }
+    const models = Array.isArray(data.models) ? data.models : [];
+    const consoleDefaultModel = data.console_default_model || data.consoleDefaultModel || '';
+    return { models: models, consoleDefaultModel: consoleDefaultModel };
+}
+
 function loadModelSelect(nav) {
     if (nav && nav.models !== undefined && Array.isArray(nav.models)) {
         const $container = $('#model-selects');
@@ -1260,17 +1272,31 @@ function loadModelSelect(nav) {
             console.log('Models loaded:', results);
             for (let i = 0; i < nav.models.length; i++) {
                 const modelType = nav.models[i];
-                // Keep only entries whose model name contains a forward slash,
-                // then sort alphabetically by model name for a stable order.
-                const modelInfos = Array.isArray(results[i])
-                    ? results[i]
-                        .filter(function (info) {
-                            return info && typeof info.model === 'string' && info.model.indexOf('/') !== -1;
-                        })
-                        .sort(function (a, b) {
-                            return a.model.localeCompare(b.model);
-                        })
-                    : results[i];
+                const parsed = results[i] || { models: [], consoleDefaultModel: '' };
+                const consoleDefaultModel = parsed.consoleDefaultModel;
+                // Put models containing a forward slash first, then sort alphabetically.
+                const modelInfos = parsed.models
+                    .filter(function (info) {
+                        return info && typeof info.model === 'string';
+                    })
+                    .sort(function (a, b) {
+                        const aHasSlash = a.model.indexOf('/') !== -1 ? 0 : 1;
+                        const bHasSlash = b.model.indexOf('/') !== -1 ? 0 : 1;
+                        if (aHasSlash !== bHasSlash) {
+                            return aHasSlash - bHasSlash;
+                        }
+                        return a.model.localeCompare(b.model);
+                    });
+                if (consoleDefaultModel) {
+                    const hasDefault = modelInfos.some(function (info) {
+                        return info.model === consoleDefaultModel;
+                    });
+                    if (hasDefault) {
+                        for (let k = 0; k < modelInfos.length; k++) {
+                            modelInfos[k].activate = modelInfos[k].model === consoleDefaultModel;
+                        }
+                    }
+                }
                 const selectHtml = `
             <select class = "model-select" name="${modelType}">
                 ${genModelOptions(modelInfos)}
@@ -1312,17 +1338,18 @@ function getModeList(type) {
         $.ajax({
             type: "GET",
             contentType: "application/json;charset=utf-8",
+            dataType: "json",
             url: "preference/getModels",
             data: params,
             success: function (reponse) {
-                if (reponse.code !== 0) {
-                    resolve(undefined);
+                if (!reponse || reponse.code !== 0) {
+                    resolve({ models: [], consoleDefaultModel: '' });
                     return;
                 }
-                resolve(reponse.data);
+                resolve(parseModelsResult(reponse.data));
             },
             error: function () {
-                resolve(undefined);
+                resolve({ models: [], consoleDefaultModel: '' });
             }
         });
     });

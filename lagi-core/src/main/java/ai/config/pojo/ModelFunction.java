@@ -32,6 +32,8 @@ public class ModelFunction extends Backend {
     private Boolean enableAuth;
     @JsonProperty("enable_policy")
     private Boolean enablePolicy;
+    @JsonProperty("console_default_model")
+    private String consoleDefaultModel;
 
     @JsonCreator
     public ModelFunction(

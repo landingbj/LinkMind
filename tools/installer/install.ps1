@@ -67,6 +67,19 @@ function Install-LinkMind {
             }
 
             $response = $webRequest.GetResponse()
+            if ($totalRead -gt 0 -and $response.StatusCode -ne [System.Net.HttpStatusCode]::PartialContent) {
+                Write-Host "  Server did not resume the download; restarting from 0 MB ..."
+                $response.Close()
+                Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
+
+                $totalRead = 0
+                $webRequest = [System.Net.HttpWebRequest]::Create($downloadUrl)
+                $webRequest.Timeout = 60000
+                $webRequest.ReadWriteTimeout = 600000
+                $webRequest.KeepAlive = $true
+                $response = $webRequest.GetResponse()
+            }
+
             $totalBytes = $response.ContentLength + $totalRead
             $responseStream = $response.GetResponseStream()
 
@@ -106,6 +119,20 @@ function Install-LinkMind {
             $fileStream.Close()
             $responseStream.Close()
             $response.Close()
+
+            $downloadedBytes = (Get-Item $tempFile).Length
+            if ($totalBytes -gt 0 -and $downloadedBytes -ne $totalBytes) {
+                throw "Incomplete download: expected $totalBytes bytes but got $downloadedBytes bytes."
+            }
+
+            try {
+                Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+                $jar = [System.IO.Compression.ZipFile]::OpenRead($tempFile)
+                $jar.Dispose()
+            } catch {
+                Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
+                throw "Downloaded file is not a valid jar archive: $($_.Exception.Message)"
+            }
 
             break
         } catch {

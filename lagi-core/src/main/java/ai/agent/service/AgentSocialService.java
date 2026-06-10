@@ -2,6 +2,7 @@ package ai.agent.service;
 
 import ai.agent.pojo.SocialChannelMessage;
 import ai.agent.util.AgentSocialUtil;
+import ai.config.ContextLoader;
 import ai.llm.hook.impl.TokenChargeImpl;
 import ai.llm.hook.impl.TokenStatisticsImpl;
 import ai.llm.service.CompletionsService;
@@ -9,6 +10,7 @@ import ai.openai.pojo.ChatCompletionRequest;
 import ai.openai.pojo.ChatCompletionResult;
 import ai.openai.pojo.ChatMessage;
 import ai.utils.AiGlobal;
+import ai.utils.ModelNameUtil;
 import ai.utils.ResourceUtil;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
@@ -709,8 +711,9 @@ public class AgentSocialService {
 
         String model = params != null ? params.getModel() : null;
         if (model != null && model.equals(AiGlobal.DEFAULT_MODEL_ID)) {
-            model = null;
+            model = resolveDefaultChatModel();
         }
+        model = ModelNameUtil.normalizeOpenAiCompatibleModelName(model);
         double temperature = params != null ? params.getTemperature() : 0.7;
 
         ChatCompletionRequest request = new ChatCompletionRequest();
@@ -749,7 +752,6 @@ public class AgentSocialService {
                 return null;
             }
             String content = out.getContent();
-            log.info("llm request: {}", new Gson().toJson(request));
             log.info("llm response: {}", content);
             log.info("AgentSocialService completion succeeded for user {} reply {}", replyUserId, new Gson().toJson(out));
             return parseReplyResult(content);
@@ -821,6 +823,28 @@ public class AgentSocialService {
             s = s.trim();
         }
         return s;
+    }
+
+    private static String resolveDefaultChatModel() {
+        try {
+            if (ContextLoader.configuration == null) {
+                ContextLoader.loadContext();
+            }
+            if (ContextLoader.configuration == null
+                    || ContextLoader.configuration.getFunctions() == null
+                    || ContextLoader.configuration.getFunctions().getChat() == null) {
+                return null;
+            }
+            return normalizeModelName(ContextLoader.configuration.getFunctions().getChat().getConsoleDefaultModel());
+        } catch (Exception e) {
+            log.warn("Failed to resolve default chat model", e);
+            return null;
+        }
+    }
+
+    private static String normalizeModelName(String model) {
+        String normalized = ModelNameUtil.normalizeOpenAiCompatibleModelName(model);
+        return normalized == null || normalized.trim().isEmpty() ? null : normalized;
     }
 
     private static String loadReplyPromptTemplate() {

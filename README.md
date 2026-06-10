@@ -6,7 +6,7 @@ LinkMind is enterprise-grade multimodal AI middleware for teams that need one st
 
 ## Introduction
 
-The current codebase exposes a single middleware layer for chat, RAG, OCR, ASR/TTS, image and video workflows, text-to-SQL, embeddings, rerank, MCP access, skills, worker orchestration, and OpenAI-compatible APIs. It also includes runtime sync hooks for OpenClaw, Hermes Agent, and DeerFlow.
+The current codebase exposes a single middleware layer for chat, RAG, OCR, ASR/TTS, image and video workflows, text-to-SQL, embeddings, rerank, MCP access, skills, worker orchestration, and OpenAI-compatible APIs. It also includes runtime sync hooks for OpenClaw, Hermes Agent, DeerFlow, and OpenHuman.
 
 ### Model And Runtime Ecosystem
 
@@ -51,6 +51,7 @@ The current codebase exposes a single middleware layer for chat, RAG, OCR, ASR/T
   <tr>
     <td><img src="docs/images/logo/img_23.jpg" width="18" alt="DeerFlow"> DeerFlow</td>
     <td><img src="docs/images/logo/img_22.png" width="18" alt="Hermes Agent"> Hermes Agent</td>
+    <td>OpenHuman</td>
     <td><img src="docs/images/logo/img_21.jpg" width="18" alt="OpenClaw"> OpenClaw</td>
   </tr>
 </table>
@@ -89,7 +90,7 @@ Entries are grouped by type and listed alphabetically. These ecosystems are exte
 - Multi-model routing, failover, and orchestration are configured centrally in `lagi.yml`, so business systems do not need provider-specific rewrites.
 - RAG can connect directly to Chroma, Elasticsearch, Milvus, MySQL, Pinecone, SQLite, and graph-style augmentation paths.
 - Medusa cache acceleration, token statistics, filters, and runtime governance are built for real production stability and cost control.
-- OpenClaw, Hermes Agent, and DeerFlow integration hooks make it easier to join existing agent workflows instead of rebuilding them.
+- OpenClaw, Hermes Agent, DeerFlow, and OpenHuman integration hooks make it easier to join existing agent workflows instead of rebuilding them.
 
   <a href="docs/images/img_25.png">
     <img src="docs/images/img_25.png" alt="LinkMind runtime integration overview">
@@ -119,7 +120,7 @@ The installer supports two runtime choices:
 
 | Mode | Use when |
 | --- | --- |
-| `Agent Mate` | You already use OpenClaw, Hermes Agent, or DeerFlow locally and want LinkMind to work as the shared middleware layer |
+| `Agent Mate` | You already use OpenClaw, Hermes Agent, DeerFlow, or OpenHuman locally and want LinkMind to work as the shared middleware layer |
 | <code>Agent&nbsp;Server</code> | You want a standalone LinkMind service first, or you are evaluating the web console and API directly |
 
 ### Option 2. Download Packaged Jar
@@ -187,6 +188,7 @@ This split gives two practical benefits for secondary development: zero-invasive
 - **OpenClaw**: LinkMind can inject itself as an OpenAI-compatible provider and can also load model selections back from OpenClaw into `lagi.yml`.
 - **Hermes Agent**: LinkMind can import and export model settings through `~/.hermes/config.yaml` and `.env`.
 - **DeerFlow**: LinkMind can import and export model settings through DeerFlow `config.yaml` and `.env`.
+- **OpenHuman**: LinkMind can add a local Bearer-auth `linkmind` provider to OpenHuman `config.toml`, bind the `provider:linkmind` auth profile, store the token in OpenHuman's desktop keychain file when available, and import supported OpenAI-compatible providers back into `lagi.yml`.
 
 If you want the shortest evaluation path, start with `Agent Server`, verify the web console and API, then switch to `Agent Mate` when you are ready to connect LinkMind to your existing agent runtime stack.
 

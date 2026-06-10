@@ -26,7 +26,7 @@ During installation, LinkMind asks you to choose a runtime mode:
 
 | Mode | Choose this when |
 | --- | --- |
-| `Agent Mate` | OpenClaw, Hermes Agent, or DeerFlow is already part of your local workflow and you want LinkMind to sit in the middle as the shared AI layer |
+| `Agent Mate` | OpenClaw, Hermes Agent, DeerFlow, or OpenHuman is already part of your local workflow and you want LinkMind to sit in the middle as the shared AI layer |
 | `Agent Server` | You want a standalone LinkMind service first, or you are evaluating the web console and API directly |
 
 If you are only trying LinkMind for the first time, start with `Agent Server`.
@@ -38,7 +38,7 @@ The current installer does more than just download one file:
 1. Creates the LinkMind home directory, usually `%USERPROFILE%\\LinkMind` on Windows or `~/LinkMind` on macOS and Linux.
 2. Downloads `LinkMind.jar` into that directory.
 3. Asks whether LinkMind should run as `Agent Mate` or `Agent Server`.
-4. If you choose `Agent Mate`, it asks which runtime should be injected or synchronized: OpenClaw, DeerFlow, or Hermes. DeerFlow also asks for its install directory.
+4. If you choose `Agent Mate`, it asks which runtime should be injected or synchronized: OpenClaw, DeerFlow, Hermes, or OpenHuman. DeerFlow asks for its install directory; OpenHuman accepts an optional config directory or `config.toml` path and can also auto-detect the default workspace.
 5. If you choose `Agent Server`, it downloads the bundled popular skills package and expands it under `skills/popular_skills`.
 6. Runs the runtime initializer so that the first startup already knows which runtime mode and skill settings to use.
 
@@ -229,6 +229,16 @@ Valid values are `mate` and `server`.
 ```bash
 java -jar LinkMind.jar --deer-flow-path=/path/to/deer-flow
 ```
+
+### Point OpenHuman Sync at a Custom Path
+
+```bash
+java -jar LinkMind.jar --openhuman-path=/path/to/openhuman/config.toml
+```
+
+If this flag is empty, LinkMind checks `OPENHUMAN_WORKSPACE` first and then the default OpenHuman user config under `~/.openhuman/users/<user_id>/config.toml` or `~/.openhuman/users/local/config.toml`.
+
+For OpenHuman, set `LINKMIND_API_KEY` before running the installer or starting `LinkMind.jar`; LinkMind writes the `linkmind` provider as Bearer auth, binds the `provider:linkmind` auth profile, and stores the token in OpenHuman's desktop keychain file when that file is present.
 
 ## What To Configure Next
 

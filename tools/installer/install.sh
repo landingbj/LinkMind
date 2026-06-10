@@ -76,6 +76,7 @@ read_yes_no() {
 runtime_choice="mate"
 inject_agent=0
 deer_flow_path=""
+openhuman_path=""
 
 read_runtime_choice() {
     while true; do
@@ -116,12 +117,30 @@ read_deer_flow_path() {
     done
 }
 
+read_openhuman_path() {
+    while true; do
+        printf "Please enter OpenHuman config directory or config.toml path [auto-detect]: "
+        read -r answer < /dev/tty
+        answer=$(printf "%s" "$answer" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        if [ -z "$answer" ]; then
+            openhuman_path=""
+            return 0
+        fi
+        if [ -d "$answer" ] || [ -f "$answer" ]; then
+            openhuman_path="$answer"
+            return 0
+        fi
+        echo "Path does not exist: $answer"
+    done
+}
+
 read_inject_agent_choice() {
     while true; do
         echo "Inject Agent Framework:"
         echo "  1) openclaw"
         echo "  2) deer-flow"
         echo "  3) hermes"
+        echo "  4) openhuman"
         printf "Please choose [1]: "
         read -r answer < /dev/tty
         answer=$(echo "$answer" | tr '[:upper:]' '[:lower:]' | xargs)
@@ -134,8 +153,11 @@ read_inject_agent_choice() {
         elif [ "$answer" = "3" ] || [ "$answer" = "hermes" ]; then
             inject_agent=$((1 << 2))
             return 0
+        elif [ "$answer" = "4" ] || [ "$answer" = "openhuman" ]; then
+            inject_agent=$((1 << 3))
+            return 0
         fi
-        echo "Invalid choice. Please enter 1, 2 or 3."
+        echo "Invalid choice. Please enter 1, 2, 3 or 4."
     done
 }
 
@@ -143,6 +165,12 @@ if [ "$runtime_choice" = "mate" ]; then
     read_inject_agent_choice
     if [ "$inject_agent" -eq $((1 << 1)) ]; then
         read_deer_flow_path
+    fi
+    if [ "$inject_agent" -eq $((1 << 3)) ]; then
+        read_openhuman_path
+        if [ -z "${LINKMIND_API_KEY:-}" ]; then
+            echo "Tip: set LINKMIND_API_KEY before running this installer so OpenHuman can authenticate to LinkMind."
+        fi
     fi
 fi
 
@@ -194,7 +222,8 @@ java -cp "$JAR_PATH" ai.starter.InstallerUtil \
     "--runtime-choice=$runtime_choice" \
     "--skills-root=$SKILLS_ROOT" \
     "--inject-agent=$inject_agent" \
-    "--deer-flow-path=$deer_flow_path" || {
+    "--deer-flow-path=$deer_flow_path" \
+    "--openhuman-path=$openhuman_path" || {
     rc=$?
     echo "Error: Installer exited with code $rc"
     exit $rc

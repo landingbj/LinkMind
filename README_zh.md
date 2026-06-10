@@ -6,7 +6,7 @@ LinkMind 是面向企业场景的多模态 AI 中间件，用来把业务系统�
 
 ## 项目简介
 
-当前代码已经覆盖统一聊天入口、RAG、OCR、ASR/TTS、图片与视频能力、文档处理、Text-to-SQL、Embedding、Rerank、MCP、Skills、Worker 编排，以及 OpenAI 兼容接口。同时，项目还内置了 OpenClaw、Hermes Agent、DeerFlow 的配置同步能力，便于接入现有 Agent 工作流。
+当前代码已经覆盖统一聊天入口、RAG、OCR、ASR/TTS、图片与视频能力、文档处理、Text-to-SQL、Embedding、Rerank、MCP、Skills、Worker 编排，以及 OpenAI 兼容接口。同时，项目还内置了 OpenClaw、Hermes Agent、DeerFlow、OpenHuman 的配置同步能力，便于接入现有 Agent 工作流。
 
 ### 模型与运行时生态
 
@@ -51,6 +51,7 @@ LinkMind 是面向企业场景的多模态 AI 中间件，用来把业务系统�
   <tr>
     <td><img src="docs/images/logo/img_23.jpg" width="18" alt="DeerFlow"> DeerFlow</td>
     <td><img src="docs/images/logo/img_22.png" width="18" alt="Hermes Agent"> Hermes Agent</td>
+    <td>OpenHuman</td>
     <td><img src="docs/images/logo/img_21.jpg" width="18" alt="OpenClaw"> OpenClaw</td>
   </tr>
 </table>
@@ -89,7 +90,7 @@ LinkMind 是面向企业场景的多模态 AI 中间件，用来把业务系统�
 - 多模型路由、故障切换和编排统一配置在 `lagi.yml` 中，业务系统不用为不同厂商重复改接口。
 - RAG 可以直接接到 Chroma、Elasticsearch、Milvus、MySQL、Pinecone、SQLite 等检索组件，也能继续扩展图谱类增强能力。
 - Medusa 缓存加速、Token 统计、过滤器和运行时治理，都是面向真实生产场景的稳定性与成本问题设计的。
-- OpenClaw、Hermes Agent、DeerFlow 的接入钩子已经内置，适合在现有 Agent 工作流里逐步落地。
+- OpenClaw、Hermes Agent、DeerFlow、OpenHuman 的接入钩子已经内置，适合在现有 Agent 工作流里逐步落地。
 
   <a href="docs/images/img_24.png">
     <img src="docs/images/img_24.png" alt="LinkMind 运行时集成示意图">
@@ -119,7 +120,7 @@ LinkMind 是面向企业场景的多模态 AI 中间件，用来把业务系统�
 
 | 模式 | 适用场景 |
 | --- | --- |
-| `Agent Mate` | 本机已经在使用 OpenClaw、Hermes Agent、DeerFlow，希望 LinkMind 作为统一中间层接入 |
+| `Agent Mate` | 本机已经在使用 OpenClaw、Hermes Agent、DeerFlow、OpenHuman，希望 LinkMind 作为统一中间层接入 |
 | `Agent Server` | 先单独启动 LinkMind，直接体验控制台和 API，或做独立部署评估 |
 
 ### 选项2：下载并运行 JAR 包
@@ -187,6 +188,7 @@ LinkMind 将二次开发能力放在清晰的面向对象边界之后，便于�
 - **OpenClaw**：可以把 LinkMind 注入为 OpenAI 兼容 Provider，也可以把 OpenClaw 的模型选择反向同步回 `lagi.yml`
 - **Hermes Agent**：可以通过 `~/.hermes/config.yaml` 和 `.env` 导入导出模型配置
 - **DeerFlow**：可以通过 DeerFlow 的 `config.yaml` 和 `.env` 导入导出模型配置
+- **OpenHuman**：可以把带 Bearer 鉴权的 LinkMind 写入 OpenHuman `config.toml` 的 `linkmind` provider，绑定 `provider:linkmind` 鉴权 profile，并在 OpenHuman 桌面端 keychain 文件可用时写入 LinkMind token；也可以把支持的 OpenAI 兼容 provider 反向导入 `lagi.yml`
 
 如果你只是首次评估，建议先用 `Agent Server` 跑通控制台与 API；确认稳定后，再切到 `Agent Mate` 接入现有 Agent 运行时。
 

@@ -25,7 +25,7 @@ import java.util.Set;
 public class AgentFilterImpl implements BeforeModel, AfterModel {
 
     private static final String SOCIAL_NEW_MESSAGE_NOTICE = "您的社交频道有新消息，请查看。";
-    private static final String[] AGENT_SYSTEM_TAG = {"LinkMind", "OpenClaw", "Hermes", "DeerFlow"};
+    private static final String[] AGENT_SYSTEM_TAG = {"LinkMind", "OpenClaw", "Hermes", "DeerFlow", "OpenHuman"};
 
     @Override
     public ChatCompletionRequest beforeModel(ModelContext context) {

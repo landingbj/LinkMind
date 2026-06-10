@@ -157,7 +157,7 @@ stores:
 
 ### 1.7 可选：接入 Agent 运行时
 
-如果你的本地工作流已经有 OpenClaw、Hermes Agent 或 DeerFlow：
+如果你的本地工作流已经有 OpenClaw、Hermes Agent、DeerFlow 或 OpenHuman：
 
 1. 以 `Agent Mate` 模式重新安装或重启 LinkMind。
 2. 检查运行时配置路径是否正确。
@@ -302,17 +302,18 @@ functions:
 
 ## 第三部分：智能体客户端接入实操（Agent Mate）
 
-本部分用于指导你把 LinkMind 接入 OpenClaw、Hermes Agent、DeerFlow 三类智能体客户端，并完成从客户端对话到 LinkMind 用量记录的闭环验证。
+本部分用于指导你把 LinkMind 接入 OpenClaw、Hermes Agent、DeerFlow、OpenHuman 四类智能体客户端，并完成从客户端对话到 LinkMind 用量记录的闭环验证。
 
 ### 3.1 接入路径总览
 
-三类客户端的整体逻辑一致：先准备客户端运行环境，再以 `Agent Mate` 模式安装 LinkMind，随后在 LinkMind 中配置额度、API Key 和路由，最后把客户端模型请求指向 LinkMind。
+四类客户端的整体逻辑一致：先准备客户端运行环境，再以 `Agent Mate` 模式安装 LinkMind，随后在 LinkMind 中配置额度、API Key 和路由，最后把客户端模型请求指向 LinkMind。
 
 | 客户端 | 入口/地址 | LinkMind 安装选择 | 核心配置 | 验证方式 |
 | --- | --- | --- | --- | --- |
 | OpenClaw | Web UI：`127.0.0.1:18789` | `Agent Mate`，框架选择 `openclaw` | `lagi.yml`，OpenClaw UI 中选择 LinkMind 中间件 | 切换到 `linkmind-Pro` 后在 OpenClaw 对话 |
 | Hermes Agent | PowerShell/WSL 终端：`hermes` | `Agent Mate`，框架选择 `hermes` | `lagi.yml`，Hermes `config.yaml` | 在 Hermes 控制台直接输入消息 |
 | DeerFlow | 前端：`localhost:3000` 或 `make dev` 输出地址 | `Agent Mate`，框架选择 `deer-flow`，并输入项目绝对路径 | `lagi.yml`，DeerFlow `config.yaml`，`.env` | 在 DeerFlow Chat 页面选择 LinkMind 模型并对话 |
+| OpenHuman | 桌面应用 | `Agent Mate`，框架选择 `openhuman`，可选配置路径 | `lagi.yml`，OpenHuman `config.toml` | 在 OpenHuman 发消息，并确认 LinkMind 收到 `/v1/chat/completions` 请求 |
 
 ### 3.2 准备智能体客户端
 
@@ -381,9 +382,20 @@ make dev
 
 ![图 4 DeerFlow 服务启动后的访问页面](images/linkmind_client_quickstart_04.png)
 
+#### OpenHuman 准备
+
+从 `tinyhumansai/openhuman` 官方桌面 release 安装 OpenHuman；Windows 使用官方 MSI。启动一次并确认工作区已经生成。LinkMind 会按下面顺序发现 OpenHuman 配置：
+
+1. 安装器或 JAR 参数传入的 `--openhuman-path=`。
+2. `OPENHUMAN_WORKSPACE`，包括 workspace 风格路径。
+3. `~/.openhuman/active_user.toml` 指向的 `~/.openhuman/users/<user_id>/config.toml`。
+4. 登录前默认的 `~/.openhuman/users/local/config.toml`。
+
+OpenHuman 主要通过 `[[cloud_providers]]` 和 `chat_provider` 等 workload 字段完成 provider routing，因此不需要额外新增 OpenHuman 专用 servlet。
+
 ### 3.3 安装 LinkMind 并选择接入框架
 
-本节为三类客户端共用步骤。先确认 JDK 8 或以上版本可用，再运行 LinkMind 快速安装脚本：
+本节为四类客户端共用步骤。先确认 JDK 8 或以上版本可用，再运行 LinkMind 快速安装脚本：
 
 ```bash
 java -version
@@ -408,6 +420,7 @@ curl -fsSL https://cdn.linkmind.top/install.sh | bash
 | OpenClaw | `1) as Agent Mate` | `1) openclaw` | 无 |
 | DeerFlow | `1) as Agent Mate` | `2) deer-flow` | 输入 DeerFlow 项目绝对路径，例如 `D:\workspace\code\deer-flow` |
 | Hermes Agent | `1) as Agent Mate` | `3) hermes` | 无；若在 WSL 中使用，后续注意 `base_url` 地址 |
+| OpenHuman | `1) as Agent Mate` | `4) openhuman` | 可输入 OpenHuman 配置目录或 `config.toml`；留空则自动发现 |
 
 安装完成后可以选择立即启动 LinkMind；如果选择暂不启动，后续进入 LinkMind 目录执行：
 
@@ -430,7 +443,7 @@ Get-NetTCPConnection -LocalPort 8080 -State Listen
 
 ### 3.4 配置额度、API Key 与路由
 
-三类客户端都通过 LinkMind 统一转发模型调用。先在 LinkMind 控制台确认额度，再在“设置 / API 密钥”中新建 provider 为 Landing 的配置并启用。启用后，LinkMind 会把可用 Key 写入配置；如手工维护配置，需要确认 `chat.route` 指向 `landing` 后端。
+四类客户端都通过 LinkMind 统一转发模型调用。先在 LinkMind 控制台确认额度，再在“设置 / API 密钥”中新建 provider 为 Landing 的配置并启用。启用后，LinkMind 会把可用 Key 写入配置；如手工维护配置，需要确认 `chat.route` 指向 `landing` 后端。
 
 推荐检查流程：
 
@@ -553,15 +566,42 @@ corepack pnpm run dev
 
 ![图 17 DeerFlow 控制台收到 LinkMind 模型回复](images/linkmind_client_quickstart_17.png)
 
+#### OpenHuman 客户端操作
+
+选择 OpenHuman 安装分支后，安装器会在 OpenHuman `config.toml` 中写入 `linkmind` provider：
+
+```toml
+chat_provider = "linkmind:Alibaba/qwen3.6-plus"
+reasoning_provider = "linkmind:Alibaba/qwen3.6-plus"
+agentic_provider = "linkmind:Alibaba/qwen3.6-plus"
+coding_provider = "linkmind:Alibaba/qwen3.6-plus"
+memory_provider = "linkmind:Alibaba/qwen3.6-plus"
+heartbeat_provider = "linkmind:Alibaba/qwen3.6-plus"
+learning_provider = "linkmind:Alibaba/qwen3.6-plus"
+subconscious_provider = "linkmind:Alibaba/qwen3.6-plus"
+
+[[cloud_providers]]
+id = "p_linkmind_linkmind"
+slug = "linkmind"
+label = "LinkMind"
+endpoint = "http://127.0.0.1:8080/v1"
+auth_style = "bearer"
+default_model = "Alibaba/qwen3.6-plus"
+```
+
+运行安装器或启动 LinkMind 前设置 `LINKMIND_API_KEY`，安装器会在 OpenHuman `auth-profiles.json` 中激活 `provider:linkmind` profile，并在 OpenHuman 桌面端 keychain 文件存在时把同一个 token 写入 keychain。
+
+LinkMind 启动后，如果 OpenHuman 已经打开，请重启 OpenHuman 让新 provider 生效；随后在 OpenHuman 中发送一条消息，并确认 LinkMind 收到 `/v1/chat/completions` 请求。
+
 ### 3.6 对话验证与用量闭环
 
 客户端完成一次对话后，统一回到 LinkMind 控制台验证。验证口径不随客户端变化：看客户端侧返回、LinkMind 调用日志、用量概览、额度中心余额是否出现本次请求对应的变化。
 
-| 验证项 | OpenClaw | Hermes Agent | DeerFlow |
-| --- | --- | --- | --- |
-| 客户端侧 | OpenClaw 对话页返回模型回复 | Hermes 控制台不再停留在 Initializing agent，并返回回复 | DeerFlow Chat 页面显示助手回复 |
-| LinkMind 调用日志 | 出现来自 OpenClaw / `linkmind-Pro` 的调用记录 | 出现 Hermes 对话对应的 Token 记录 | 出现 DeerFlow 对话对应的新增记录 |
-| 额度中心 | 余额发生扣减或交易记录更新 | 余额从对话前基线减少 | 余额与 Records / Total Tokens 均更新 |
+| 验证项 | OpenClaw | Hermes Agent | DeerFlow | OpenHuman |
+| --- | --- | --- | --- | --- |
+| 客户端侧 | OpenClaw 对话页返回模型回复 | Hermes 控制台不再停留在 Initializing agent，并返回回复 | DeerFlow Chat 页面显示助手回复 | OpenHuman 对话返回模型回复 |
+| LinkMind 调用日志 | 出现来自 OpenClaw / `linkmind-Pro` 的调用记录 | 出现 Hermes 对话对应的 Token 记录 | 出现 DeerFlow 对话对应的新增记录 | 出现来自 OpenHuman 的 `/v1/chat/completions` 调用 |
+| 额度中心 | 余额发生扣减或交易记录更新 | 余额从对话前基线减少 | 余额与 Records / Total Tokens 均更新 | 余额或用量记录更新 |
 
 ![图 18 OpenClaw 对话后额度中心余额变化](images/linkmind_client_quickstart_18.png)
 
@@ -611,6 +651,10 @@ uv run uvicorn app.gateway.app:app --host 0.0.0.0 --port 8001
 cd D:\workspace\deer-flow\frontend
 corepack pnpm run dev
 ```
+
+#### OpenHuman
+
+先启动 LinkMind，再打开 OpenHuman 桌面应用。如果安装器修改 `config.toml` 时 OpenHuman 已经在运行，请重启 OpenHuman 以重新加载 `linkmind` provider。
 
 ## 第四部分：AI Agents Project Best Practice 延伸阅读
 

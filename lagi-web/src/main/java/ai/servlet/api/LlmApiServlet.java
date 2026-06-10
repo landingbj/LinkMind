@@ -30,6 +30,7 @@ import ai.utils.AiGlobal;
 import ai.utils.ApikeyUtil;
 import ai.utils.ClientIpAddressUtil;
 import ai.utils.MigrateGlobal;
+import ai.utils.ModelNameUtil;
 import ai.utils.qa.ChatCompletionUtil;
 import ai.vector.VectorCacheLoader;
 import ai.vector.VectorDbService;
@@ -423,14 +424,37 @@ public class LlmApiServlet extends BaseServlet {
             chatCompletionRequest.setModel(preference.getLlm());
         }
         if (chatCompletionRequest.getModel() != null && chatCompletionRequest.getModel().equals(AiGlobal.DEFAULT_MODEL_ID)) {
-            chatCompletionRequest.setModel(null);
+            chatCompletionRequest.setModel(resolveDefaultChatModel());
         }
+        chatCompletionRequest.setModel(ModelNameUtil.normalizeOpenAiCompatibleModelName(chatCompletionRequest.getModel()));
         String apikey = ApikeyUtil.extractBearerToken(req.getHeader("Authorization"));
         chatCompletionRequest.setApiKey(apikey);
         if (chatCompletionRequest.getUserApiKey() == null) {
             chatCompletionRequest.setUserApiKey(apikey);
         }
         return chatCompletionRequest;
+    }
+
+    private String resolveDefaultChatModel() {
+        try {
+            if (ContextLoader.configuration == null) {
+                ContextLoader.loadContext();
+            }
+            if (ContextLoader.configuration == null
+                    || ContextLoader.configuration.getFunctions() == null
+                    || ContextLoader.configuration.getFunctions().getChat() == null) {
+                return null;
+            }
+            return normalizeModelName(ContextLoader.configuration.getFunctions().getChat().getConsoleDefaultModel());
+        } catch (Exception e) {
+            logger.warn("Failed to resolve default chat model", e);
+            return null;
+        }
+    }
+
+    private String normalizeModelName(String model) {
+        String normalized = ModelNameUtil.normalizeOpenAiCompatibleModelName(model);
+        return normalized == null || normalized.trim().isEmpty() ? null : normalized;
     }
 
     private void streamOutPrint(PromptInput promptInput, Observable<ChatCompletionResult> observable,

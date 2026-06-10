@@ -874,5 +874,8 @@ The current codebase also contains configuration sync services for:
 - OpenClaw
 - Hermes Agent
 - DeerFlow
+- OpenHuman
 
 These integrations help synchronize model and runtime settings during install or startup, but the core LinkMind runtime still reads from your local YAML configuration first.
+
+OpenHuman sync writes a `linkmind` entry into `[[cloud_providers]]` with `endpoint = "http://127.0.0.1:<port>/v1"` and `auth_style = "bearer"`, activates `provider:linkmind` in OpenHuman `auth-profiles.json`, stores the LinkMind token in OpenHuman's desktop keychain file when `LINKMIND_API_KEY` or `linkmind.apiKey` is available, then points empty/default/OpenHuman LLM workload routes to `linkmind:Alibaba/qwen3.6-plus`. This includes `chat_provider`, `reasoning_provider`, `agentic_provider`, `coding_provider`, `memory_provider`, `heartbeat_provider`, `learning_provider`, and `subconscious_provider`; embedding routes are left unchanged. On import, LinkMind reads supported OpenAI-compatible OpenHuman providers and skips OpenHuman cloud, LinkMind itself, and Anthropic-only routes.

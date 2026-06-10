@@ -26,7 +26,7 @@
 
 | 模式 | 适用场景 |
 | --- | --- |
-| `Agent Mate` | 本机已经在使用 OpenClaw、Hermes Agent 或 DeerFlow，希望 LinkMind 作为统一 AI 中间层接入 |
+| `Agent Mate` | 本机已经在使用 OpenClaw、Hermes Agent、DeerFlow 或 OpenHuman，希望 LinkMind 作为统一 AI 中间层接入 |
 | `Agent Server` | 先独立启动 LinkMind，直接体验控制台和 API，或做基础部署评估 |
 
 如果你是第一次试用，建议先选 `Agent Server`。
@@ -38,7 +38,7 @@
 1. 创建 LinkMind 主目录，通常是 Windows 下的 `%USERPROFILE%\\LinkMind`，或者 macOS / Linux 下的 `~/LinkMind`。
 2. 将 `LinkMind.jar` 下载到该目录。
 3. 询问你运行模式是 `Agent Mate` 还是 `Agent Server`。
-4. 如果选择 `Agent Mate`，继续询问要接入或同步哪个运行时：OpenClaw、DeerFlow、Hermes。若选择 DeerFlow，还会要求输入安装目录。
+4. 如果选择 `Agent Mate`，继续询问要接入或同步哪个运行时：OpenClaw、DeerFlow、Hermes、OpenHuman。若选择 DeerFlow，会要求输入安装目录；若选择 OpenHuman，可以留空自动发现，也可以输入配置目录或 `config.toml` 文件。
 5. 如果选择 `Agent Server`，会自动下载 popular skills 压缩包，并解压到 `skills/popular_skills`。
 6. 调用运行时初始化逻辑，把首启所需的模式、技能与同步设置写好。
 
@@ -229,6 +229,16 @@ java -jar LinkMind.jar --runtime-choice=server
 ```bash
 java -jar LinkMind.jar --deer-flow-path=/path/to/deer-flow
 ```
+
+### 指定 OpenHuman 同步目录
+
+```bash
+java -jar LinkMind.jar --openhuman-path=/path/to/openhuman/config.toml
+```
+
+OpenHuman 接入前建议先设置 `LINKMIND_API_KEY`；LinkMind 会把 `linkmind` provider 写成 Bearer 鉴权，绑定 `provider:linkmind` 鉴权 profile，并在 OpenHuman 桌面端 keychain 文件存在时把 token 保存进去。
+
+如果该参数为空，LinkMind 会先检查 `OPENHUMAN_WORKSPACE`，再回落到默认的 `~/.openhuman/users/<user_id>/config.toml` 或 `~/.openhuman/users/local/config.toml`。
 
 ## 启动后下一步看什么
 

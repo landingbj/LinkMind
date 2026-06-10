@@ -15,6 +15,7 @@ public class Application {
         boolean devMode = jarFile == null;
 
         InstallerUtil.applyConfigAndDataDir(args, jarFile);
+        InstallerUtil.applyLinkMindApiKey(args);
         SLF4JBridgeHandler.removeHandlersForRootLogger();
         SLF4JBridgeHandler.install();
         int port = InstallerUtil.resolvePort(args);
@@ -24,7 +25,8 @@ public class Application {
         if (!devMode && enableSync) {
 //        if (enableSync) {
             String deerFlowPath = InstallerUtil.parseArg(args, InstallerUtil.DEER_FLOW_PATH);
-            ConfigSyncService configSyncService = new ConfigSyncService(port, new String[] {"", deerFlowPath, ""});
+            String openHumanPath = InstallerUtil.parseArg(args, InstallerUtil.OPENHUMAN_PATH);
+            ConfigSyncService configSyncService = new ConfigSyncService(port, new String[] {"", deerFlowPath, "", openHumanPath});
             configSyncService.sync(configSyncService.getAll(), configSyncService.getAll());
         }
 

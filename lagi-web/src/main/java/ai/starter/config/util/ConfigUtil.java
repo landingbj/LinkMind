@@ -9,7 +9,7 @@ import cn.hutool.core.util.StrUtil;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collections;
+import java.util.ArrayList;
 import java.util.List;
 
 public class ConfigUtil {
@@ -43,7 +43,9 @@ public class ConfigUtil {
             Backend modelBackend = new Backend();
             BeanUtil.copyProperties(sourceBackend, modelBackend, "protocol");
             if (models == null || models.isEmpty()) {
-                config.setModels(Collections.singletonList(modelBackend));
+                List<Backend> newModels = new ArrayList<>();
+                newModels.add(modelBackend);
+                config.setModels(newModels);
                 modelBackend.setBackend(null);
                 modelBackend.setProtocol(null);
             } else {
@@ -61,7 +63,9 @@ public class ConfigUtil {
             chatBackend.setBackend(sourceBackend.getName());
             if (chatBackends == null || chatBackends.isEmpty()) {
                 chat.setRoute(StrUtil.format("best({})", chatBackend.getName()));
-                chat.setBackends(Collections.singletonList(chatBackend));
+                List<Backend> newChatBackends = new ArrayList<>();
+                newChatBackends.add(chatBackend);
+                chat.setBackends(newChatBackends);
                 chatBackend.setName(null);
                 continue;
             }

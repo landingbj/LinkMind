@@ -7,6 +7,7 @@ import ai.openai.pojo.ChatCompletionResult;
 import ai.openai.pojo.Usage;
 import ai.utils.AiGlobal;
 import ai.utils.ApikeyUtil;
+import ai.utils.ModelNameUtil;
 import ai.utils.OkHttpUtil;
 import ai.utils.OkHttpUtil.HttpPostResult;
 import com.google.gson.Gson;
@@ -65,16 +66,16 @@ public class TokenUsageService {
             log.debug("recordUsage skipped: tokenCharge disabled");
             return;
         }
-        if (result.getUsage() == null) {
+        if (result == null || result.getUsage() == null) {
             log.debug("recordUsage skipped: result or usage is null");
             return;
         }
         String modelName = resolveModelName(request, result);
         if (isBlank(modelName)) {
-            log.debug("[{}] recordUsage skipped: model name is blank (id={})", effectiveApiKey, result.getId());
+            log.debug("[{}] recordUsage skipped: model name is blank (id={})", maskApiKey(effectiveApiKey), result.getId());
             return;
         }
-        log.info("[{}] recordUsage id={}, model={}, promptTokens={}, completionTokens={}",effectiveApiKey,
+        log.info("[{}] recordUsage id={}, model={}, promptTokens={}, completionTokens={}", maskApiKey(effectiveApiKey),
                 result.getId(), modelName,
                 result.getUsage().getPrompt_tokens(),
                 result.getUsage().getCompletion_tokens());
@@ -100,13 +101,9 @@ public class TokenUsageService {
     }
 
     private String resolveModelName(ChatCompletionRequest request, ChatCompletionResult result) {
-        if (request != null && !isBlank(request.getModel())) {
-            return request.getModel().trim();
-        }
-        if (result != null && !isBlank(result.getModel())) {
-            return result.getModel().trim();
-        }
-        return null;
+        return ModelNameUtil.resolveBillingModelName(
+                request == null ? null : request.getModel(),
+                result == null ? null : result.getModel());
     }
 
     public void recordUsage(String id, String apiKey, String modelName, Usage usage) {
@@ -135,7 +132,7 @@ public class TokenUsageService {
             String body = buildCalculateUsagePayload(record);
             while (true) {
                 try {
-                    log.info("Sending calculateUsage request: {}", body);
+                    log.info("Sending calculateUsage request: {}", maskApiKeyInPayload(body));
                     HttpPostResult res = OkHttpUtil.postJsonWithStatus(CALCULATE_USAGE_URL, body);
                     if (res.getCode() == 200) {
                         log.debug("calculateUsage success: {}", res.getBody());
@@ -167,6 +164,26 @@ public class TokenUsageService {
 
     private static boolean isBlank(String s) {
         return s == null || s.trim().isEmpty();
+    }
+
+    private static String maskApiKey(String apiKey) {
+        if (isBlank(apiKey)) {
+            return "";
+        }
+        String trimmed = apiKey.trim();
+        int keepPrefix = Math.min(7, trimmed.length());
+        int keepSuffix = Math.min(4, Math.max(0, trimmed.length() - keepPrefix));
+        if (trimmed.length() <= keepPrefix + keepSuffix) {
+            return "***";
+        }
+        return trimmed.substring(0, keepPrefix) + "..." + trimmed.substring(trimmed.length() - keepSuffix);
+    }
+
+    private static String maskApiKeyInPayload(String body) {
+        if (body == null) {
+            return null;
+        }
+        return body.replaceAll("(\"apiKey\"\\s*:\\s*\")([^\"]+)(\")", "$1***$3");
     }
 
     private void sleepSilently(long millis) {

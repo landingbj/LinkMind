@@ -157,7 +157,7 @@ Use the [API Reference](API_en.md) for request examples.
 
 ### 1.7 Optional: Connect An Agent Runtime
 
-If your local workflow already uses OpenClaw, Hermes Agent, or DeerFlow:
+If your local workflow already uses OpenClaw, Hermes Agent, DeerFlow, or OpenHuman:
 
 1. Reinstall or restart LinkMind in `Agent Mate` mode.
 2. Verify that the runtime config path is correct.
@@ -302,17 +302,18 @@ Different file categories are still handled differently:
 
 ## Part 3. Agent Client Hands-On Setup (Agent Mate)
 
-This section shows how to connect LinkMind to OpenClaw, Hermes Agent, and DeerFlow, then verify the full loop from client-side conversation to LinkMind usage records.
+This section shows how to connect LinkMind to OpenClaw, Hermes Agent, DeerFlow, and OpenHuman, then verify the full loop from client-side conversation to LinkMind usage records.
 
 ### 3.1 Integration Path Overview
 
-The overall flow is the same for all three clients: prepare the client runtime, install LinkMind in `Agent Mate` mode, configure LinkMind credits, API keys, and routes, then point the client model request path to LinkMind.
+The overall flow is the same for all four clients: prepare the client runtime, install LinkMind in `Agent Mate` mode, configure LinkMind credits, API keys, and routes, then point the client model request path to LinkMind.
 
 | Client | Entry / URL | LinkMind install choice | Core configuration | Verification |
 | --- | --- | --- | --- | --- |
 | OpenClaw | Web UI: `127.0.0.1:18789` | `Agent Mate`, framework `openclaw` | `lagi.yml`; select LinkMind middleware in the OpenClaw UI | Switch to `linkmind-Pro` and chat in OpenClaw |
 | Hermes Agent | PowerShell/WSL terminal: `hermes` | `Agent Mate`, framework `hermes` | `lagi.yml`, Hermes `config.yaml` | Type a message directly in the Hermes console |
 | DeerFlow | Frontend: `localhost:3000` or the URL printed by `make dev` | `Agent Mate`, framework `deer-flow`, with the project absolute path | `lagi.yml`, DeerFlow `config.yaml`, `.env` | Select the LinkMind model in the DeerFlow Chat page and send a message |
+| OpenHuman | Desktop app | `Agent Mate`, framework `openhuman`, optional config path | `lagi.yml`, OpenHuman `config.toml` | Send a message in OpenHuman and confirm a LinkMind `/v1/chat/completions` call |
 
 ### 3.2 Prepare The Agent Clients
 
@@ -381,9 +382,20 @@ make dev
 
 ![Figure 4 DeerFlow service page after startup](images/linkmind_client_quickstart_04.png)
 
+#### OpenHuman Preparation
+
+Install OpenHuman from the official desktop release for `tinyhumansai/openhuman`; on Windows, use the official MSI. Launch it once and confirm that its workspace exists. LinkMind auto-detects the active OpenHuman config in this order:
+
+1. `--openhuman-path=` when provided by the installer or JAR command.
+2. `OPENHUMAN_WORKSPACE`, including workspace-style paths.
+3. `~/.openhuman/active_user.toml` to `~/.openhuman/users/<user_id>/config.toml`.
+4. `~/.openhuman/users/local/config.toml` before login.
+
+OpenHuman uses provider routing through `[[cloud_providers]]` and workload fields such as `chat_provider`, so no OpenHuman-specific LinkMind servlet is required.
+
 ### 3.3 Install LinkMind And Choose The Target Framework
 
-This step is shared by all three clients. First confirm that JDK 8 or later is available, then run the LinkMind quick installer:
+This step is shared by all four clients. First confirm that JDK 8 or later is available, then run the LinkMind quick installer:
 
 ```bash
 java -version
@@ -408,6 +420,7 @@ Choose `Agent Mate` as the runtime mode. The only difference between clients is 
 | OpenClaw | `1) as Agent Mate` | `1) openclaw` | None |
 | DeerFlow | `1) as Agent Mate` | `2) deer-flow` | DeerFlow project absolute path, for example `D:\workspace\code\deer-flow` |
 | Hermes Agent | `1) as Agent Mate` | `3) hermes` | None; if using WSL, verify the `base_url` later |
+| OpenHuman | `1) as Agent Mate` | `4) openhuman` | Optional OpenHuman config directory or `config.toml`; leave blank for auto-detect |
 
 After installation, you can start LinkMind immediately. If you choose not to start it from the installer, enter the LinkMind directory later and run:
 
@@ -430,7 +443,7 @@ When the service is ready, open `http://localhost:8080`.
 
 ### 3.4 Configure Credits, API Keys, And Routing
 
-All three clients send model calls through LinkMind. First confirm that the LinkMind account has available credits, then create and enable a Landing provider API key under Settings / API Keys. If you maintain the configuration manually, confirm that `chat.route` points to the `landing` backend.
+All four clients send model calls through LinkMind. First confirm that the LinkMind account has available credits, then create and enable a Landing provider API key under Settings / API Keys. If you maintain the configuration manually, confirm that `chat.route` points to the `landing` backend.
 
 Recommended checks:
 
@@ -553,15 +566,42 @@ Select `LinkMind Qwen Plus`, send a test message, and confirm that the page retu
 
 ![Figure 17 DeerFlow receives a LinkMind model response](images/linkmind_client_quickstart_17.png)
 
+#### OpenHuman Client
+
+The OpenHuman installer branch writes a `linkmind` provider to OpenHuman `config.toml`:
+
+```toml
+chat_provider = "linkmind:Alibaba/qwen3.6-plus"
+reasoning_provider = "linkmind:Alibaba/qwen3.6-plus"
+agentic_provider = "linkmind:Alibaba/qwen3.6-plus"
+coding_provider = "linkmind:Alibaba/qwen3.6-plus"
+memory_provider = "linkmind:Alibaba/qwen3.6-plus"
+heartbeat_provider = "linkmind:Alibaba/qwen3.6-plus"
+learning_provider = "linkmind:Alibaba/qwen3.6-plus"
+subconscious_provider = "linkmind:Alibaba/qwen3.6-plus"
+
+[[cloud_providers]]
+id = "p_linkmind_linkmind"
+slug = "linkmind"
+label = "LinkMind"
+endpoint = "http://127.0.0.1:8080/v1"
+auth_style = "bearer"
+default_model = "Alibaba/qwen3.6-plus"
+```
+
+Set `LINKMIND_API_KEY` before running the installer or starting LinkMind so `provider:linkmind` is activated in OpenHuman `auth-profiles.json` and the same token is written to OpenHuman's desktop keychain file when that file is present.
+
+After LinkMind is running, restart OpenHuman if it was already open, send a message in OpenHuman, and confirm that LinkMind receives a `/v1/chat/completions` request.
+
 ### 3.6 Verify Conversation And Usage Records
 
 After a client completes one conversation, return to the LinkMind console. The verification method is the same for all clients: check the client response, LinkMind call logs, usage overview, and credit balance.
 
-| Check | OpenClaw | Hermes Agent | DeerFlow |
-| --- | --- | --- | --- |
-| Client side | OpenClaw chat page returns a model response | Hermes console no longer stays at Initializing agent and returns a response | DeerFlow Chat page shows the assistant response |
-| LinkMind call logs | A call from OpenClaw / `linkmind-Pro` appears | Token records appear for the Hermes conversation | A new DeerFlow conversation record appears |
-| Credits | Balance or transaction records update | Balance decreases from the pre-chat baseline | Balance and Records / Total Tokens both update |
+| Check | OpenClaw | Hermes Agent | DeerFlow | OpenHuman |
+| --- | --- | --- | --- | --- |
+| Client side | OpenClaw chat page returns a model response | Hermes console no longer stays at Initializing agent and returns a response | DeerFlow Chat page shows the assistant response | OpenHuman chat returns a model response |
+| LinkMind call logs | A call from OpenClaw / `linkmind-Pro` appears | Token records appear for the Hermes conversation | A new DeerFlow conversation record appears | A `/v1/chat/completions` call from OpenHuman appears |
+| Credits | Balance or transaction records update | Balance decreases from the pre-chat baseline | Balance and Records / Total Tokens both update | Balance or usage records update |
 
 ![Figure 18 Credit balance after an OpenClaw conversation](images/linkmind_client_quickstart_18.png)
 
@@ -611,6 +651,10 @@ uv run uvicorn app.gateway.app:app --host 0.0.0.0 --port 8001
 cd D:\workspace\deer-flow\frontend
 corepack pnpm run dev
 ```
+
+#### OpenHuman
+
+Start LinkMind first, then open the OpenHuman desktop app. If OpenHuman was running while the installer changed `config.toml`, restart it so the new `linkmind` provider is loaded.
 
 ## Part 4. AI Agents Project Best Practice Reading Materials
 

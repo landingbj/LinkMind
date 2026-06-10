@@ -3,6 +3,7 @@ package ai.starter.config;
 import ai.starter.config.impl.DeerFlowSyncServiceImpl;
 import ai.starter.config.impl.HermesSyncServiceImpl;
 import ai.starter.config.impl.OpenClawSyncServiceImpl;
+import ai.starter.config.impl.OpenHumanSyncServiceImpl;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
@@ -16,6 +17,7 @@ public class ConfigSyncService {
     public static final int OpenClaw = 1;
     public static final int deerFlow = 1 << 1;
     public static final int Hermes = 1 << 2;
+    public static final int OpenHuman = 1 << 3;
 
 
     @Getter
@@ -36,10 +38,18 @@ public class ConfigSyncService {
     }
 
     private void init(String[] paths) {
-        configSyncServices.put(OpenClaw, new OpenClawSyncServiceImpl(paths[0]));
-        configSyncServices.put(deerFlow, new DeerFlowSyncServiceImpl(paths[1]));
-        configSyncServices.put(Hermes, new HermesSyncServiceImpl(paths[2]));
-        all = OpenClaw | deerFlow | Hermes;
+        configSyncServices.put(OpenClaw, new OpenClawSyncServiceImpl(pathAt(paths, 0)));
+        configSyncServices.put(deerFlow, new DeerFlowSyncServiceImpl(pathAt(paths, 1)));
+        configSyncServices.put(Hermes, new HermesSyncServiceImpl(pathAt(paths, 2)));
+        configSyncServices.put(OpenHuman, new OpenHumanSyncServiceImpl(pathAt(paths, 3)));
+        all = OpenClaw | deerFlow | Hermes | OpenHuman;
+    }
+
+    private String pathAt(String[] paths, int index) {
+        if (paths == null || paths.length <= index) {
+            return "";
+        }
+        return paths[index];
     }
 
     public int selected(int [] selected) {

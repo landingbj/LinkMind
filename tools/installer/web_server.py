@@ -3,8 +3,8 @@ import time
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-RATE_LIMIT = 100 * 1024 * 1024
-CHUNK_SIZE = 8 * 1024
+RATE_LIMIT = 1000 * 1024 * 1024
+CHUNK_SIZE = 80 * 1024
 
 # Directory whose files are served (path is URL suffix, e.g. /LinkMind.jar); relative to cwd
 SERVE_DIR = Path("lagi-web/target")

@@ -11,15 +11,25 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.HashSet;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Callable;
 
 @Slf4j
 public class FilterConfigService {
     private static volatile SqliteAdapter sqliteAdapter;
+    private static final Callable<Connection> DEFAULT_CONNECTION_FACTORY = new Callable<Connection>() {
+        @Override
+        public Connection call() throws Exception {
+            return getSqliteAdapter().getCon();
+        }
+    };
+    private static volatile Callable<Connection> connectionFactory = DEFAULT_CONNECTION_FACTORY;
     public static final Map<String, FilterConfig> filterConfigCache = new ConcurrentHashMap<>();
     private static volatile boolean tableInitialized = false;
     private static final Gson GSON = new Gson();
@@ -38,11 +48,15 @@ public class FilterConfigService {
         return adapter;
     }
 
+    private static Connection getConnection() throws Exception {
+        return connectionFactory.call();
+    }
+
     private static synchronized void ensureTableExists() {
         if (tableInitialized) {
             return;
         }
-        try (Connection conn = getSqliteAdapter().getCon();
+        try (Connection conn = getConnection();
              Statement stmt = conn.createStatement()) {
             String sql = "CREATE TABLE IF NOT EXISTS lagi_filter_config (" +
                     "id INTEGER PRIMARY KEY AUTOINCREMENT," +
@@ -54,17 +68,44 @@ public class FilterConfigService {
                     "update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP" +
                     ")";
             stmt.executeUpdate(sql);
+            ensureColumn(stmt, "rules", "TEXT");
+            ensureColumn(stmt, "groups", "TEXT");
+            ensureColumn(stmt, "filter_window_length", "INTEGER DEFAULT 0");
+            ensureColumn(stmt, "create_time", "DATETIME");
+            ensureColumn(stmt, "update_time", "DATETIME");
             tableInitialized = true;
+            loadCacheFromDatabase();
         } catch (Exception e) {
             log.error("init lagi_filter_config table failed", e);
             throw new RuntimeException("init filter config table failed: " + e.getMessage(), e);
         }
-        loadFromDatabase();
+    }
+
+    private static void ensureColumn(Statement stmt, String columnName, String definition) throws Exception {
+        if (getExistingColumns(stmt).contains(columnName)) {
+            return;
+        }
+        stmt.executeUpdate("ALTER TABLE lagi_filter_config ADD COLUMN " + columnName + " " + definition);
+        log.info("migrated lagi_filter_config, added column: {}", columnName);
+    }
+
+    private static Set<String> getExistingColumns(Statement stmt) throws Exception {
+        Set<String> columns = new HashSet<>();
+        try (ResultSet rs = stmt.executeQuery("PRAGMA table_info(lagi_filter_config)")) {
+            while (rs.next()) {
+                columns.add(rs.getString("name"));
+            }
+        }
+        return columns;
     }
 
     public static void loadFromDatabase() {
         ensureTableExists();
-        try (Connection conn = getSqliteAdapter().getCon();
+        loadCacheFromDatabase();
+    }
+
+    private static void loadCacheFromDatabase() {
+        try (Connection conn = getConnection();
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery("SELECT * FROM lagi_filter_config")) {
             filterConfigCache.clear();
@@ -100,7 +141,7 @@ public class FilterConfigService {
         }
 
         String sql = "INSERT INTO lagi_filter_config (name, rules, groups, filter_window_length) VALUES (?, ?, ?, ?)";
-        try (Connection conn = getSqliteAdapter().getCon();
+        try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, config.getName());
             pstmt.setString(2, config.getRules());
@@ -122,7 +163,7 @@ public class FilterConfigService {
         }
 
         String sql = "UPDATE lagi_filter_config SET rules = ?, groups = ?, filter_window_length = ?, update_time = datetime('now') WHERE name = ?";
-        try (Connection conn = getSqliteAdapter().getCon();
+        try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, config.getRules());
             pstmt.setString(2, groupsToJson(config.getGroups()));
@@ -147,7 +188,7 @@ public class FilterConfigService {
         }
 
         String sql = "DELETE FROM lagi_filter_config WHERE name = ?";
-        try (Connection conn = getSqliteAdapter().getCon();
+        try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, name);
             int rows = pstmt.executeUpdate();
@@ -200,5 +241,19 @@ public class FilterConfigService {
             log.warn("parse filter groups JSON failed: {}", groupsJson, e);
         }
         return filterRules;
+    }
+
+    static synchronized void setConnectionFactoryForTests(Callable<Connection> factory) {
+        connectionFactory = factory == null ? DEFAULT_CONNECTION_FACTORY : factory;
+        sqliteAdapter = null;
+        tableInitialized = false;
+        filterConfigCache.clear();
+    }
+
+    static synchronized void resetForTests() {
+        connectionFactory = DEFAULT_CONNECTION_FACTORY;
+        sqliteAdapter = null;
+        tableInitialized = false;
+        filterConfigCache.clear();
     }
 }

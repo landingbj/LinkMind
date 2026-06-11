@@ -3,6 +3,30 @@ let filteredConfigData = [];
 const tTextFilter = window.tText || ((s) => s);
 const tHtmlFilter = window.tHtml || ((s) => s);
 
+function escapeHtmlFilter(value) {
+    return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function escapeJsStringFilter(value) {
+    return String(value == null ? '' : value)
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/\r/g, '\\r')
+        .replace(/\n/g, '\\n');
+}
+
+function getFilterConfigErrorMessage(response, fallback) {
+    if (!response) {
+        return fallback || tTextFilter('未知错误');
+    }
+    return response.errorMsg || response.msg || (response.message && response.message !== 'failed' ? response.message : null) || fallback || tTextFilter('未知错误');
+}
+
 function loadFilterConfigPage() {
     $('#queryBox').hide();
     $('#footer-info').hide();
@@ -20,9 +44,9 @@ function loadFilterConfigPage() {
                     <button onclick="showAddFilterDialog()" style="padding: 8px 16px; background: #1296db; color: white; border: none; border-radius: 4px; cursor: pointer;">新增过滤器</button>
                     <input type="text" id="searchInput" placeholder="搜索过滤器..." style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; flex: 1; min-width: 200px;" onkeyup="filterConfigList()" />
                     <select id="filterType" onchange="filterConfigList()" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
-                        <option value="sensitive_input">sensitive_input</option>
                         <option value="">全部类型</option>
-                        <option value="sensitive">敏感词</option>
+                        <option value="sensitive_input">输入敏感词</option>
+                        <option value="sensitive">输出敏感词</option>
                         <option value="priority">优先级</option>
                         <option value="stopping">停止词</option>
                         <option value="continue">继续词</option>
@@ -38,14 +62,14 @@ function loadFilterConfigPage() {
                 <div style="margin-bottom: 16px;">
                     <label style="display: block; margin-bottom: 8px;">过滤器类型: <span style="color: red;">*</span></label>
                     <select id="filterName" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" onchange="onFilterTypeChange()">
-                        <option value="sensitive_input">sensitive_input</option>
                         <option value="">请选择过滤器类型</option>
-                        <option value="sensitive">敏感词 (sensitive)</option>
+                        <option value="sensitive_input">输入敏感词 (sensitive_input)</option>
+                        <option value="sensitive">输出敏感词 (sensitive)</option>
                         <option value="priority">优先级 (priority)</option>
                         <option value="stopping">停止词 (stopping)</option>
                         <option value="continue">继续词 (continue)</option>
                     </select>
-                    <div style="font-size: 12px; color: #666; margin-top: 4px;">注意：只能选择以上4种系统支持的过滤器类型，自定义名称不会生效</div>
+                    <div style="font-size: 12px; color: #666; margin-top: 4px;">注意：只能选择以上系统支持的过滤器类型，自定义名称不会生效</div>
                 </div>
                 <div id="groupsContainer" style="margin-bottom: 16px;">
                 </div>
@@ -124,17 +148,22 @@ function renderFilterConfigList() {
 
     dataToRender.forEach((filter, index) => {
         const actualIndex = filterConfigData.findIndex(f => f.name === filter.name);
+        const filterName = filter.name || '';
+        const safeFilterName = escapeHtmlFilter(filterName);
+        const safeDeleteName = escapeJsStringFilter(filterName);
+        const groupsHtml = filter.groups ? renderGroups(filter.groups) : '';
+        const rulesHtml = filter.rules ? `<div style="margin-top: 12px;"><strong>规则:</strong> <div style="margin-top: 8px; padding: 8px; background: #fff; border: 1px solid #eee; border-radius: 4px; white-space: pre-wrap;">${escapeHtmlFilter(filter.rules)}</div></div>` : '';
         const card = `
             <div style="background: white; border-radius: 8px; padding: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                    <h3 style="margin: 0;">${filter.name || ''}</h3>
+                    <h3 style="margin: 0;">${safeFilterName}</h3>
                     <div>
                         <button onclick="editFilterConfig(${actualIndex >= 0 ? actualIndex : index})" style="padding: 6px 12px; background: #1296db; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 8px;">编辑</button>
-                        <button onclick="deleteFilterConfig('${filter.name || ''}')" style="padding: 6px 12px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">删除</button>
+                        <button onclick="deleteFilterConfig('${safeDeleteName}')" style="padding: 6px 12px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">删除</button>
                     </div>
                 </div>
-                ${filter.groups ? renderGroups(filter.groups) : ''}
-                ${filter.rules ? `<div style="margin-top: 12px;"><strong>规则:</strong> <div style="margin-top: 8px; padding: 8px; background: #fff; border: 1px solid #eee; border-radius: 4px; white-space: pre-wrap;">${filter.rules}</div></div>` : ''}
+                ${groupsHtml}
+                ${rulesHtml}
             </div>
         `;
         container.append(tHtmlFilter(card));
@@ -146,8 +175,8 @@ function renderGroups(groups) {
     let html = '<div style="margin-top: 12px;"><strong>分组:</strong><div style="margin-top: 8px;">';
     groups.forEach((group, idx) => {
         html += `<div style="padding: 8px; background: #fff; border: 1px solid #eee; border-radius: 4px; margin-bottom: 8px;">
-            <div><strong>级别:</strong> ${group.level || ''}</div>
-            <div style="margin-top: 4px;"><strong>规则:</strong> <div style="margin-top: 4px; white-space: pre-wrap;">${group.rules || ''}</div></div>
+            <div><strong>级别:</strong> ${escapeHtmlFilter(group.level || '')}</div>
+            <div style="margin-top: 4px;"><strong>规则:</strong> <div style="margin-top: 4px; white-space: pre-wrap;">${escapeHtmlFilter(group.rules || '')}</div></div>
         </div>`;
     });
     html += '</div></div>';
@@ -249,7 +278,7 @@ function editFilterConfig(index) {
                     </div>
                     <div>
                         <label style="display: block; margin-bottom: 4px;">规则 (用逗号分隔):</label>
-                        <textarea class="group-rules" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; min-height: 60px;">${(group.rules || '').replace(/"/g, '&quot;')}</textarea>
+                        <textarea class="group-rules" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; min-height: 60px;">${escapeHtmlFilter(group.rules || '')}</textarea>
                     </div>
                 </div>
             `;
@@ -308,10 +337,10 @@ function saveFilterConfig() {
         return;
     }
 
-    // 验证过滤器名称只能是系统支持的4种类型
+    // 验证过滤器名称只能是系统支持的类型
     const validTypes = ['sensitive', 'sensitive_input', 'priority', 'stopping', 'continue'];
     if (!validTypes.includes(name)) {
-        alert(tTextFilter('过滤器类型只能是: sensitive(敏感词)、priority(优先级)、stopping(停止词)、continue(继续词)'));
+        alert(tTextFilter('过滤器类型只能是: sensitive_input(输入敏感词)、sensitive(输出敏感词)、priority(优先级)、stopping(停止词)、continue(继续词)'));
         return;
     }
 
@@ -352,19 +381,17 @@ function saveFilterConfig() {
                 loadFilterConfigs();
                 alert(isEdit ? tTextFilter('编辑成功') : tTextFilter('保存成功'));
             } else {
-                alert(tTextFilter('保存失败') + ': ' + (response && response.message ? response.message : tTextFilter('未知错误')));
+                alert(tTextFilter('保存失败') + ': ' + getFilterConfigErrorMessage(response));
             }
         },
         error: function(xhr, status, error) {
             let errorMsg = tTextFilter('保存失败');
-            if (xhr.responseJSON && xhr.responseJSON.message) {
-                errorMsg += ': ' + xhr.responseJSON.message;
+            if (xhr.responseJSON) {
+                errorMsg += ': ' + getFilterConfigErrorMessage(xhr.responseJSON);
             } else if (xhr.responseText) {
                 try {
                     const errorJson = JSON.parse(xhr.responseText);
-                    if (errorJson.message) {
-                        errorMsg += ': ' + errorJson.message;
-                    }
+                    errorMsg += ': ' + getFilterConfigErrorMessage(errorJson);
                 } catch (e) {
                     errorMsg += ': ' + xhr.responseText.substring(0, 200);
                 }
@@ -417,19 +444,17 @@ function performDelete(name) {
                 loadFilterConfigs();
                 alert(tTextFilter('删除成功'));
             } else {
-                alert(tTextFilter('删除失败') + ': ' + (response.message || tTextFilter('未知错误')));
+                alert(tTextFilter('删除失败') + ': ' + getFilterConfigErrorMessage(response));
             }
         },
         error: function(xhr, status, error) {
             let errorMsg = tTextFilter('删除失败');
-            if (xhr.responseJSON && xhr.responseJSON.message) {
-                errorMsg += ': ' + xhr.responseJSON.message;
+            if (xhr.responseJSON) {
+                errorMsg += ': ' + getFilterConfigErrorMessage(xhr.responseJSON);
             } else if (xhr.responseText) {
                 try {
                     const errorJson = JSON.parse(xhr.responseText);
-                    if (errorJson.message) {
-                        errorMsg += ': ' + errorJson.message;
-                    }
+                    errorMsg += ': ' + getFilterConfigErrorMessage(errorJson);
                 } catch (e) {
                     errorMsg += ': ' + xhr.responseText.substring(0, 200);
                 }

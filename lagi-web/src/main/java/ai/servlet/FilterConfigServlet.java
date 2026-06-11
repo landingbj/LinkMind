@@ -8,6 +8,7 @@ import ai.config.pojo.FiltersConfig;
 import ai.servlet.annotation.Body;
 import ai.servlet.annotation.Get;
 import ai.servlet.annotation.Post;
+import ai.servlet.exceptions.RRException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.dataformat.yaml.YAMLMapper;
@@ -163,6 +164,7 @@ public class FilterConfigServlet extends RestfulServlet {
     @Post("add")
     public Map<String, Object> add(@Body FilterConfig filterConfig) {
         try {
+            normalizeFilterConfig(filterConfig);
             validateFilterConfig(filterConfig);
             String name = filterConfig.getName();
             FilterConfigService.list();
@@ -183,13 +185,14 @@ public class FilterConfigServlet extends RestfulServlet {
             return result;
         } catch (Exception e) {
             log.error("add filter config failed", e);
-            throw new RuntimeException("添加失败: " + e.getMessage(), e);
+            throw businessError("添加失败", e);
         }
     }
 
     @Post("update")
     public Map<String, Object> update(@Body FilterConfig filterConfig) {
         try {
+            normalizeFilterConfig(filterConfig);
             validateFilterConfig(filterConfig);
             String name = filterConfig.getName();
             FilterConfigService.list();
@@ -209,7 +212,7 @@ public class FilterConfigServlet extends RestfulServlet {
             return result;
         } catch (Exception e) {
             log.error("update filter config failed", e);
-            throw new RuntimeException("更新失败: " + e.getMessage(), e);
+            throw businessError("更新失败", e);
         }
     }
 
@@ -237,7 +240,7 @@ public class FilterConfigServlet extends RestfulServlet {
             return result;
         } catch (Exception e) {
             log.error("delete filter config failed", e);
-            throw new RuntimeException("删除失败: " + e.getMessage(), e);
+            throw businessError("删除失败", e);
         }
     }
 
@@ -453,6 +456,55 @@ public class FilterConfigServlet extends RestfulServlet {
         } else {
             throw new RuntimeException("不支持的过滤器类型: " + name);
         }
+    }
+
+    private void normalizeFilterConfig(FilterConfig filterConfig) {
+        if (filterConfig == null) {
+            return;
+        }
+        filterConfig.setName(trimToNull(filterConfig.getName()));
+        filterConfig.setRules(trimToNull(filterConfig.getRules()));
+        if (filterConfig.getGroups() == null) {
+            return;
+        }
+        List<FilterRule> normalizedGroups = new ArrayList<>();
+        for (FilterRule group : filterConfig.getGroups()) {
+            if (group == null) {
+                continue;
+            }
+            group.setLevel(trimToNull(group.getLevel()));
+            group.setRules(trimToNull(group.getRules()));
+            group.setMask(trimToNull(group.getMask()));
+            if (group.getLevel() != null || group.getRules() != null || group.getMask() != null) {
+                normalizedGroups.add(group);
+            }
+        }
+        filterConfig.setGroups(normalizedGroups.isEmpty() ? null : normalizedGroups);
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private RRException businessError(String operation, Exception e) {
+        String message = unwrapMessage(e);
+        return new RRException(operation + (message == null || message.isEmpty() ? "" : ": " + message));
+    }
+
+    private String unwrapMessage(Throwable throwable) {
+        Throwable current = throwable;
+        String message = null;
+        while (current != null) {
+            if (current.getMessage() != null && !current.getMessage().trim().isEmpty()) {
+                message = current.getMessage().trim();
+            }
+            current = current.getCause();
+        }
+        return message;
     }
 
     private void rollbackSavedFilter(String name, FilterConfig oldConfig) {

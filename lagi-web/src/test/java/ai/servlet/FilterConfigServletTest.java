@@ -12,11 +12,17 @@ import org.junit.jupiter.api.io.TempDir;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.Statement;
+import java.util.HashSet;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -36,7 +42,7 @@ class FilterConfigServletTest {
         } else {
             System.setProperty(InstallerUtil.CONFIG_FILE_PROPERTY, previousConfigProperty);
         }
-        FilterConfigService.filterConfigCache.clear();
+        FilterConfigService.resetForTests();
     }
 
     @Test
@@ -136,6 +142,47 @@ class FilterConfigServletTest {
 
         assertEquals("", SensitiveWordUtil.filter("冰毒是什么", SensitiveWordUtil.INPUT_RULE_TYPE));
         assertEquals("***信息", SensitiveWordUtil.filter("冰毒信息", SensitiveWordUtil.OUTPUT_RULE_TYPE));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void addMigratesLegacyFilterTableAndSyncsYaml() throws Exception {
+        Path config = writeConfig("filters:\n  enable: true\n  items: []\n");
+        System.setProperty(InstallerUtil.CONFIG_FILE_PROPERTY, config.toString());
+        Path db = tempDir.resolve("legacy-saas.db");
+        String jdbcUrl = "jdbc:sqlite:" + db.toAbsolutePath().toString().replace('\\', '/');
+        try (Connection conn = DriverManager.getConnection(jdbcUrl);
+             Statement stmt = conn.createStatement()) {
+            stmt.executeUpdate("CREATE TABLE lagi_filter_config ("
+                    + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                    + "name VARCHAR(64) NOT NULL UNIQUE,"
+                    + "rules TEXT,"
+                    + "groups TEXT"
+                    + ")");
+        }
+        FilterConfigService.setConnectionFactoryForTests(() -> DriverManager.getConnection(jdbcUrl));
+
+        FilterConfig priority = new FilterConfig();
+        priority.setName("priority");
+        priority.setRules("weather");
+
+        Map<String, Object> result = newServlet().add(priority);
+
+        assertEquals(Boolean.TRUE, result.get("success"));
+        try (Connection conn = DriverManager.getConnection(jdbcUrl);
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery("PRAGMA table_info(lagi_filter_config)")) {
+            Set<String> columns = new HashSet<>();
+            while (rs.next()) {
+                columns.add(rs.getString("name"));
+            }
+            assertTrue(columns.contains("filter_window_length"));
+            assertTrue(columns.contains("update_time"));
+        }
+        Map<String, Object> root = YmlLoader.loadYamlAsMap(config.toString());
+        Map<String, Object> filters = (Map<String, Object>) root.get("filters");
+        assertTrue(((List<Map<String, Object>>) filters.get("items")).stream()
+                .anyMatch(item -> "priority".equals(item.get("name")) && "weather".equals(item.get("rules"))));
     }
 
     private FilterConfigServlet newServlet() throws Exception {

@@ -74,6 +74,9 @@ public class ProxyLlmAdapter extends ModelService implements ILlmAdapter {
                 }
             }
         }
+        if (request.getLocalCompletionResult() != null) {
+            return request.getLocalCompletionResult();
+        }
         if (!(request instanceof EnhanceChatCompletionRequest)) {
             ChatCompletionResult completions = delegateCompletions(request);
             return applyAfterHookOnce(request, context, completions);
@@ -114,6 +117,9 @@ public class ProxyLlmAdapter extends ModelService implements ILlmAdapter {
                     chatCompletionRequest = afterHook;
                 }
             }
+        }
+        if (chatCompletionRequest.getLocalCompletionResult() != null) {
+            return Observable.just(chatCompletionRequest.getLocalCompletionResult());
         }
         if (!(chatCompletionRequest instanceof EnhanceChatCompletionRequest)) {
             Observable<ChatCompletionResult> chatCompletionResultObservable = delegateStreamCompletions(chatCompletionRequest);

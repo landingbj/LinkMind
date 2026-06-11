@@ -9,112 +9,157 @@ import ai.openai.pojo.ChatMessage;
 import cn.hutool.core.util.StrUtil;
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.HashMap;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @Slf4j
 public class SensitiveWordUtil {
-    private static final Map<String, WordRule> ruleMap = new HashMap<>();
-    private static final Map<String, WordRule> inputRuleMap = new HashMap<>();
-    private static final Map<String, Pattern> patternCache = new HashMap<>();
+    private static volatile RuleState outputRuleState = RuleState.empty();
+    private static volatile RuleState inputRuleState = RuleState.empty();
     private static int filterWindowLength = -1;
 
     public static final String INPUT_RULE_TYPE = "input";
     public static final String OUTPUT_RULE_TYPE = "output";
 
-    /** 监控表 filter_name：输入侧敏感规则 */
+    /** Monitor filter_name for input sensitive rules. */
     public static final String MONITOR_FILTER_INPUT = "sensitive_input";
-    /** 监控表 filter_name：输出侧敏感规则 */
+    /** Monitor filter_name for output sensitive rules. */
     public static final String MONITOR_FILTER_OUTPUT = "sensitive";
-
-    private static String monitorNameForRuleType(String ruleType) {
-        return INPUT_RULE_TYPE.equalsIgnoreCase(ruleType) ? MONITOR_FILTER_INPUT : MONITOR_FILTER_OUTPUT;
-    }
 
     private static final LRUCache<String, String> filterSlidingWindow = new LRUCache<>(10000, 30, TimeUnit.MINUTES);
     private static final LRUCache<String, Boolean> blockMap = new LRUCache<>(10000, 30, TimeUnit.MINUTES);
 
     static {
-        WordRules wordRules = JsonFileLoadUtil.readWordLRulesList("/sensitive_word.json", WordRules.class);
-        WordRules inputWordRules = JsonFileLoadUtil.readWordLRulesList("/sensitive_input.json", WordRules.class);
-        pushWordRule(ruleMap,wordRules);
-        pushWordRule(inputRuleMap,inputWordRules);
+        reloadOutputRules(JsonFileLoadUtil.readWordLRulesList("/sensitive_word.json", WordRules.class));
+        reloadInputRules(JsonFileLoadUtil.readWordLRulesList("/sensitive_input.json", WordRules.class));
     }
 
-    public static void setFilterWindowLength(int length) {
+    public static synchronized void setFilterWindowLength(int length) {
         filterWindowLength = length;
     }
 
-    public static void pushOutputRule( WordRules wordRules) {
-        pushWordRule(ruleMap,wordRules);
+    public static void pushOutputRule(WordRules wordRules) {
+        reloadOutputRules(wordRules);
     }
 
-    public static void pushInputRule( WordRules wordRules) {
-        pushWordRule(inputRuleMap,wordRules);
+    public static void pushInputRule(WordRules wordRules) {
+        reloadInputRules(wordRules);
     }
 
-    private static Map<String, WordRule> getRuleMap(String  type) {
-        if(INPUT_RULE_TYPE.equalsIgnoreCase(type)) {
-            return inputRuleMap;
-        } else {
-            return ruleMap;
+    public static synchronized void reloadOutputRules(WordRules wordRules) {
+        outputRuleState = buildRuleState(wordRules);
+        clearRuntimeState();
+    }
+
+    public static synchronized void reloadInputRules(WordRules wordRules) {
+        inputRuleState = buildRuleState(wordRules);
+        clearRuntimeState();
+    }
+
+    public static synchronized void reloadRules(WordRules outputRules, WordRules inputRules, int windowLength) {
+        RuleState newOutputRuleState = buildRuleState(outputRules);
+        RuleState newInputRuleState = buildRuleState(inputRules);
+        outputRuleState = newOutputRuleState;
+        inputRuleState = newInputRuleState;
+        filterWindowLength = windowLength;
+        clearRuntimeState();
+    }
+
+    public static void validateRules(WordRules wordRules) {
+        buildRuleState(wordRules);
+    }
+
+    public static boolean isInputBlocked(String message) {
+        RuleMatch match = findFirstRuleMatch(message, inputRuleState);
+        return match != null && match.wordRule.getLevel() != null && match.wordRule.getLevel() == 1;
+    }
+
+    private static void clearRuntimeState() {
+        filterSlidingWindow.clear();
+        blockMap.clear();
+    }
+
+    private static String monitorNameForRuleType(String ruleType) {
+        return INPUT_RULE_TYPE.equalsIgnoreCase(ruleType) ? MONITOR_FILTER_INPUT : MONITOR_FILTER_OUTPUT;
+    }
+
+    private static RuleState getRuleState(String type) {
+        if (INPUT_RULE_TYPE.equalsIgnoreCase(type)) {
+            return inputRuleState;
         }
+        return outputRuleState;
     }
 
-    public static void pushWordRule(Map<String,WordRule> ruleMap,  WordRules wordRules) {
-        if (wordRules != null) {
-            if (wordRules.getRules() != null) {
-                wordRules.getRules().stream()
-                        .filter(r -> StrUtil.isNotBlank(r.getRule()))
-                        .peek(r -> {
-                            if (r.getMask() == null) {
-                                r.setMask(wordRules.getMask());
-                            }
-                            if (r.getLevel() == null) {
-                                r.setLevel(wordRules.getLevel());
-                            }
-                        })
-                        .forEach(r -> {
-                            ruleMap.put(r.getRule(), r);
-                        });
+    private static RuleState buildRuleState(WordRules wordRules) {
+        if (wordRules == null || wordRules.getRules() == null) {
+            return RuleState.empty();
+        }
+        Map<String, WordRule> rules = new LinkedHashMap<>();
+        Map<String, Pattern> patterns = new LinkedHashMap<>();
+        for (WordRule originalRule : wordRules.getRules()) {
+            if (originalRule == null || StrUtil.isBlank(originalRule.getRule())) {
+                continue;
             }
+            WordRule rule = copyRuleWithDefaults(originalRule, wordRules);
+            Pattern pattern = Pattern.compile(rule.getRule());
+            rules.put(rule.getRule(), rule);
+            patterns.put(rule.getRule(), pattern);
         }
+        return new RuleState(rules, patterns);
     }
 
+    private static WordRule copyRuleWithDefaults(WordRule originalRule, WordRules defaults) {
+        String mask = originalRule.getMask();
+        if (mask == null) {
+            mask = defaults.getMask();
+        }
+        Integer level = originalRule.getLevel();
+        if (level == null) {
+            level = defaults.getLevel();
+        }
+        return WordRule.builder()
+                .rule(originalRule.getRule())
+                .mask(mask)
+                .level(level)
+                .build();
+    }
 
     public static String filter(String message, String ruleType) {
         return filter(message, Integer.MAX_VALUE, ruleType);
     }
 
     public static String filter(String message, int times, String ruleType) {
+        if (message == null || times <= 0) {
+            return message;
+        }
         int count = 0;
-        Set<String> rules = getRuleMap(ruleType).keySet();
-        for (String rule : rules) {
-            Pattern p = getCompiledPattern(rule);
-            Matcher matcher = p.matcher(message);
+        RuleState state = getRuleState(ruleType);
+        for (Map.Entry<String, Pattern> entry : state.patterns.entrySet()) {
+            String rule = entry.getKey();
+            Matcher matcher = entry.getValue().matcher(message);
             if (matcher.find()) {
                 log.info("sensitive message: {} match group: {} \t rule:{}", message, matcher.group(), rule);
-                WordRule wordRule = getRuleMap(ruleType).get(rule);
+                WordRule wordRule = state.rules.get(rule);
                 if (wordRule != null) {
-                    String filterContent = "匹配规则: " + rule + ", 原始内容: " + (message.length() > 500 ? message.substring(0, 500) : message);
+                    String filterContent = buildFilterContent(rule, message);
                     if (wordRule.getLevel() == 1) {
                         message = "";
                         FilterMonitorUtil.recordFilterAction(monitorNameForRuleType(ruleType), "block", filterContent);
                         break;
                     } else if (wordRule.getLevel() == 2) {
-                        message = message.replaceAll(rule, wordRule.getMask());
+                        message = entry.getValue().matcher(message).replaceAll(Matcher.quoteReplacement(defaultMask(wordRule)));
                         FilterMonitorUtil.recordFilterAction(monitorNameForRuleType(ruleType), "mask", filterContent);
                     } else if (wordRule.getLevel() == 3) {
-                        message = message.replaceAll(rule, "");
+                        message = entry.getValue().matcher(message).replaceAll("");
                         FilterMonitorUtil.recordFilterAction(monitorNameForRuleType(ruleType), "erase", filterContent);
                     }
                     count++;
                 }
-                if(count >= times) {
+                if (count >= times) {
                     break;
                 }
             }
@@ -122,62 +167,106 @@ public class SensitiveWordUtil {
         return message;
     }
 
+    private static String buildFilterContent(String rule, String message) {
+        return "匹配规则: " + rule + ", 原始内容: " + (message.length() > 500 ? message.substring(0, 500) : message);
+    }
 
-    private static final class OutputRuleMatch {
+    private static String defaultMask(WordRule wordRule) {
+        return wordRule.getMask() == null ? "***" : wordRule.getMask();
+    }
+
+    private static final class RuleState {
+        final Map<String, WordRule> rules;
+        final Map<String, Pattern> patterns;
+
+        RuleState(Map<String, WordRule> rules, Map<String, Pattern> patterns) {
+            this.rules = Collections.unmodifiableMap(new LinkedHashMap<>(rules));
+            this.patterns = Collections.unmodifiableMap(new LinkedHashMap<>(patterns));
+        }
+
+        static RuleState empty() {
+            return new RuleState(Collections.emptyMap(), Collections.emptyMap());
+        }
+    }
+
+    private static final class RuleMatch {
+        final String rule;
         final WordRule wordRule;
+        final Pattern pattern;
         final String filterContent;
 
-        OutputRuleMatch(WordRule wordRule, String filterContent) {
+        RuleMatch(String rule, WordRule wordRule, Pattern pattern, String filterContent) {
+            this.rule = rule;
             this.wordRule = wordRule;
+            this.pattern = pattern;
             this.filterContent = filterContent;
         }
     }
 
-    private static OutputRuleMatch findFirstOutputRuleMatch(String message) {
-        Set<String> rules = ruleMap.keySet();
-        for (String rule : rules) {
-            Pattern p = getCompiledPattern(rule);
-            Matcher matcher = p.matcher(message);
+    private static RuleMatch findFirstRuleMatch(String message, RuleState state) {
+        if (message == null) {
+            return null;
+        }
+        for (Map.Entry<String, Pattern> entry : state.patterns.entrySet()) {
+            String rule = entry.getKey();
+            Matcher matcher = entry.getValue().matcher(message);
             if (matcher.find()) {
-                WordRule wordRule = ruleMap.get(rule);
+                WordRule wordRule = state.rules.get(rule);
                 if (wordRule != null) {
-                    String filterContent = "匹配规则: " + rule + ", 原始内容: "
-                            + (message.length() > 500 ? message.substring(0, 500) : message);
-                    return new OutputRuleMatch(wordRule, filterContent);
+                    return new RuleMatch(rule, wordRule, entry.getValue(), buildFilterContent(rule, message));
                 }
             }
         }
         return null;
     }
 
+    private static RuleMatch findFirstOutputRuleMatch(String message) {
+        return findFirstRuleMatch(message, outputRuleState);
+    }
+
     public static String getNullOrReplaceContent(String message) {
-        OutputRuleMatch m = findFirstOutputRuleMatch(message);
-        if (m == null) {
+        RuleMatch match = findFirstOutputRuleMatch(message);
+        if (match == null) {
             return null;
         }
-        Integer level = m.wordRule.getLevel();
+        Integer level = match.wordRule.getLevel();
         if (level == null) {
             return null;
         }
         if (level == 1) {
             return "";
         } else if (level == 2) {
-            return m.wordRule.getMask();
+            return defaultMask(match.wordRule);
         } else if (level == 3) {
             return "";
         }
         return null;
     }
 
+    public static String replaceOutputContent(String message) {
+        RuleMatch match = findFirstOutputRuleMatch(message);
+        if (match == null || match.wordRule.getLevel() == null) {
+            return message;
+        }
+        if (match.wordRule.getLevel() == 1) {
+            return "";
+        } else if (match.wordRule.getLevel() == 2) {
+            return match.pattern.matcher(message).replaceAll(Matcher.quoteReplacement(defaultMask(match.wordRule)));
+        } else if (match.wordRule.getLevel() == 3) {
+            return match.pattern.matcher(message).replaceAll("");
+        }
+        return message;
+    }
+
     /**
-     * 流式输出路径（SecurityFilterImpl）在首次命中输出敏感规则时写入监控，与 {@link #getNullOrReplaceContent} 判定一致。
+     * Streaming output path records monitor data when the first output sensitive rule is hit.
      */
     public static void recordOutputStreamFilter(String message) {
-        OutputRuleMatch m = findFirstOutputRuleMatch(message);
-        if (m == null) {
+        RuleMatch match = findFirstOutputRuleMatch(message);
+        if (match == null) {
             return;
         }
-        Integer level = m.wordRule.getLevel();
+        Integer level = match.wordRule.getLevel();
         if (level == null) {
             return;
         }
@@ -191,20 +280,20 @@ public class SensitiveWordUtil {
         } else {
             return;
         }
-        FilterMonitorUtil.recordFilterAction(MONITOR_FILTER_OUTPUT, action, m.filterContent);
+        FilterMonitorUtil.recordFilterAction(MONITOR_FILTER_OUTPUT, action, match.filterContent);
     }
-
-
 
     public static ChatCompletionResult filter4ChatCompletionResult(ChatCompletionResult chatCompletionResult) {
-        String message = chatCompletionResult.getChoices().get(0).getMessage().getContent();
-        message = filter(message, Integer.MAX_VALUE, OUTPUT_RULE_TYPE);
-        chatCompletionResult.getChoices().get(0).getMessage().setContent(message);
+        if (chatCompletionResult == null
+                || chatCompletionResult.getChoices() == null
+                || chatCompletionResult.getChoices().isEmpty()
+                || chatCompletionResult.getChoices().get(0) == null
+                || chatCompletionResult.getChoices().get(0).getMessage() == null) {
+            return chatCompletionResult;
+        }
+        ChatMessage message = chatCompletionResult.getChoices().get(0).getMessage();
+        message.setContent(filter(message.getContent(), Integer.MAX_VALUE, OUTPUT_RULE_TYPE));
         return chatCompletionResult;
-    }
-
-    private static Pattern getCompiledPattern(String rule) {
-        return patternCache.computeIfAbsent(rule, Pattern::compile);
     }
 
     public static ChatCompletionResult filter(ChatCompletionResult chatCompletionResult) {
@@ -212,79 +301,58 @@ public class SensitiveWordUtil {
     }
 
     public static ChatCompletionResult filter(ChatCompletionResult chatCompletionResult, boolean stream) {
-        if (filterWindowLength <= 0 || chatCompletionResult == null || chatCompletionResult.getChoices() == null || chatCompletionResult.getChoices().isEmpty()) {
+        if (filterWindowLength <= 0
+                || chatCompletionResult == null
+                || chatCompletionResult.getChoices() == null
+                || chatCompletionResult.getChoices().isEmpty()
+                || chatCompletionResult.getChoices().get(0) == null) {
             return chatCompletionResult;
         }
         ChatCompletionChoice chatCompletionChoice = chatCompletionResult.getChoices().get(0);
-        ChatMessage chatMessage;
-
-        if (stream) {
-            if (chatCompletionChoice.getMessage() == null) {
-                return chatCompletionResult;
-            }
-            if (chatCompletionChoice.getMessage().getContent() == null && chatCompletionChoice.getFinish_reason() == null) {
-                return chatCompletionResult;
-            }
-            chatMessage = chatCompletionChoice.getMessage();
-        } else {
-            if (chatCompletionChoice.getMessage() == null) {
-                return chatCompletionResult;
-            }
-            if (chatCompletionChoice.getMessage().getContent() == null && chatCompletionChoice.getFinish_reason() == null) {
-                return chatCompletionResult;
-            }
-            chatMessage = chatCompletionChoice.getMessage();
+        ChatMessage chatMessage = stream ? chatCompletionChoice.getDelta() : chatCompletionChoice.getMessage();
+        if (chatMessage == null || (chatMessage.getContent() == null && chatCompletionChoice.getFinish_reason() == null)) {
+            return chatCompletionResult;
         }
 
-        String finishReason = chatCompletionChoice.getFinish_reason();
         String id = chatCompletionResult.getId();
+        if (id == null) {
+            id = "";
+        }
 
         if (blockMap.containsKey(id)) {
             chatMessage.setContent("");
             return chatCompletionResult;
         }
 
-        if (finishReason != null && stream) {
+        if (chatCompletionChoice.getFinish_reason() != null && stream) {
             if (filterSlidingWindow.containsKey(id)) {
-                if (chatMessage.getContent() != null) {
-                    chatMessage.setContent(filterSlidingWindow.get(id) + chatMessage.getContent());
-                } else {
-                    chatMessage.setContent(filterSlidingWindow.get(id));
-                }
+                chatMessage.setContent(filterSlidingWindow.get(id) + (chatMessage.getContent() == null ? "" : chatMessage.getContent()));
             }
             return chatCompletionResult;
         }
+
         String content = chatMessage.getContent();
+        if (content == null) {
+            return chatCompletionResult;
+        }
         if (filterSlidingWindow.containsKey(id)) {
-            String oldContent = filterSlidingWindow.get(id);
-            chatMessage.setContent(oldContent + content);
+            chatMessage.setContent(filterSlidingWindow.get(id) + content);
         } else {
             filterSlidingWindow.put(id, content);
         }
-        Set<String> rules = ruleMap.keySet();
-        for (String rule : rules) {
-            Pattern p = getCompiledPattern(rule);
-            String message = chatMessage.getContent().toLowerCase();
-            Matcher matcher = p.matcher(message);
-            if (matcher.find()) {
-                log.info("sensitive message: {} match group: {}", message, matcher.group());
-                WordRule wordRule = ruleMap.get(rule);
-                if (wordRule != null) {
-                    String replaceContent = "";
-                    String filterContent = "匹配规则: " + rule + ", 原始内容: " + (message.length() > 500 ? message.substring(0, 500) : message);
-                    if (wordRule.getLevel() == 1) {
-                        FilterMonitorUtil.recordFilterAction(MONITOR_FILTER_OUTPUT, "block", filterContent);
-                        blockMap.put(id, true);
-                        break;
-                    } else if (wordRule.getLevel() == 2) {
-                        replaceContent = message.replaceAll(rule, wordRule.getMask());
-                        FilterMonitorUtil.recordFilterAction(MONITOR_FILTER_OUTPUT, "mask", filterContent);
-                    } else if (wordRule.getLevel() == 3) {
-                        replaceContent = message.replaceAll(rule, "");
-                        FilterMonitorUtil.recordFilterAction(MONITOR_FILTER_OUTPUT, "erase", filterContent);
-                    }
-                    chatMessage.setContent(replaceContent);
-                }
+
+        RuleMatch match = findFirstOutputRuleMatch(chatMessage.getContent());
+        if (match != null && match.wordRule.getLevel() != null) {
+            log.info("sensitive message: {} match group: {}", chatMessage.getContent(), match.rule);
+            if (match.wordRule.getLevel() == 1) {
+                FilterMonitorUtil.recordFilterAction(MONITOR_FILTER_OUTPUT, "block", match.filterContent);
+                blockMap.put(id, true);
+            } else if (match.wordRule.getLevel() == 2) {
+                chatMessage.setContent(match.pattern.matcher(chatMessage.getContent()).replaceAll(Matcher.quoteReplacement(defaultMask(match.wordRule))));
+                FilterMonitorUtil.recordFilterAction(MONITOR_FILTER_OUTPUT, "mask", match.filterContent);
+            } else if (match.wordRule.getLevel() == 3) {
+                chatMessage.setContent(match.pattern.matcher(chatMessage.getContent()).replaceAll(""));
+                FilterMonitorUtil.recordFilterAction(MONITOR_FILTER_OUTPUT, "erase", match.filterContent);
             }
         }
 
@@ -295,6 +363,9 @@ public class SensitiveWordUtil {
 
         if (stream) {
             String tempContent = chatMessage.getContent();
+            if (tempContent == null) {
+                return chatCompletionResult;
+            }
             if (tempContent.length() > filterWindowLength) {
                 chatMessage.setContent(tempContent.substring(0, tempContent.length() - filterWindowLength));
                 filterSlidingWindow.put(id, tempContent.substring(tempContent.length() - filterWindowLength));
@@ -306,11 +377,14 @@ public class SensitiveWordUtil {
         return chatCompletionResult;
     }
 
-    public static void clearRuleMap() {
-        ruleMap.clear();
-        patternCache.clear();
-        filterSlidingWindow.clear();
-        blockMap.clear();
+    public static synchronized void clearRuleMap() {
+        outputRuleState = RuleState.empty();
+        clearRuntimeState();
         filterWindowLength = -1;
+    }
+
+    public static synchronized void clearInputRuleMap() {
+        inputRuleState = RuleState.empty();
+        clearRuntimeState();
     }
 }

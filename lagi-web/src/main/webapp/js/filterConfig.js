@@ -20,6 +20,7 @@ function loadFilterConfigPage() {
                     <button onclick="showAddFilterDialog()" style="padding: 8px 16px; background: #1296db; color: white; border: none; border-radius: 4px; cursor: pointer;">新增过滤器</button>
                     <input type="text" id="searchInput" placeholder="搜索过滤器..." style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; flex: 1; min-width: 200px;" onkeyup="filterConfigList()" />
                     <select id="filterType" onchange="filterConfigList()" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
+                        <option value="sensitive_input">sensitive_input</option>
                         <option value="">全部类型</option>
                         <option value="sensitive">敏感词</option>
                         <option value="priority">优先级</option>
@@ -37,6 +38,7 @@ function loadFilterConfigPage() {
                 <div style="margin-bottom: 16px;">
                     <label style="display: block; margin-bottom: 8px;">过滤器类型: <span style="color: red;">*</span></label>
                     <select id="filterName" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" onchange="onFilterTypeChange()">
+                        <option value="sensitive_input">sensitive_input</option>
                         <option value="">请选择过滤器类型</option>
                         <option value="sensitive">敏感词 (sensitive)</option>
                         <option value="priority">优先级 (priority)</option>
@@ -171,7 +173,7 @@ function onFilterTypeChange() {
     const rulesContainer = $('#rulesContainer');
 
     // 如果是新增模式且选择了敏感词，显示分组配置
-    if (currentEditIndex < 0 && filterType === 'sensitive') {
+    if (currentEditIndex < 0 && isSensitiveFilter(filterType)) {
         if (groupsContainer.find('.group-container').length === 0) {
             groupsContainer.html(tHtmlFilter(`
                 <label style="display: block; margin-bottom: 8px;">分组配置 (敏感词需要配置级别和规则):</label>
@@ -189,7 +191,7 @@ function onFilterTypeChange() {
             `));
         }
         rulesContainer.hide();
-    } else if (filterType === 'sensitive') {
+    } else if (isSensitiveFilter(filterType)) {
         // 编辑模式，保留现有分组
         rulesContainer.hide();
     } else {
@@ -253,10 +255,10 @@ function editFilterConfig(index) {
             `;
             groupsContainer.append(tHtmlFilter(groupDiv));
         });
-        if (filter.name === 'sensitive') {
+        if (isSensitiveFilter(filter.name)) {
             groupsContainer.append(tHtmlFilter('<button type="button" onclick="addGroup()" style="padding: 6px 12px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; margin-bottom: 8px;">添加分组</button>'));
         }
-    } else if (filter.name === 'sensitive') {
+    } else if (isSensitiveFilter(filter.name)) {
         // 敏感词但没有分组，添加一个空分组
         groupsContainer.append(tHtmlFilter('<label style="display: block; margin-bottom: 8px;">分组配置:</label>'));
         const groupDiv = `
@@ -279,7 +281,7 @@ function editFilterConfig(index) {
     }
 
     // 根据过滤器类型显示/隐藏规则和分组
-    if (filter.name === 'sensitive') {
+    if (isSensitiveFilter(filter.name)) {
         $('#rulesContainer').hide();
     } else {
         $('#rulesContainer').show();
@@ -293,6 +295,10 @@ function hideFilterModal() {
     $('#filterModal').css('display', 'none');
 }
 
+function isSensitiveFilter(name) {
+    return name === 'sensitive' || name === 'sensitive_input';
+}
+
 function saveFilterConfig() {
     const name = $('#filterName').val().trim();
     const rules = $('#filterRules').val().trim();
@@ -303,7 +309,7 @@ function saveFilterConfig() {
     }
 
     // 验证过滤器名称只能是系统支持的4种类型
-    const validTypes = ['sensitive', 'priority', 'stopping', 'continue'];
+    const validTypes = ['sensitive', 'sensitive_input', 'priority', 'stopping', 'continue'];
     if (!validTypes.includes(name)) {
         alert(tTextFilter('过滤器类型只能是: sensitive(敏感词)、priority(优先级)、stopping(停止词)、continue(继续词)'));
         return;

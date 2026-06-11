@@ -32,6 +32,10 @@ public class HookService {
                 ChatCompletionRequest next = beforeModel.beforeModel(context);
                 if (next != null) {
                     request = next;
+                    context.setRequest(request);
+                }
+                if (request.getLocalCompletionResult() != null) {
+                    break;
                 }
             } catch (Exception e) {
                 log.error("", e);

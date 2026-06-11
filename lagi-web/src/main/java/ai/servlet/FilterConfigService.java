@@ -3,202 +3,202 @@ package ai.servlet;
 import ai.config.pojo.FilterConfig;
 import ai.config.pojo.FilterRule;
 import ai.database.impl.SqliteAdapter;
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 import lombok.extern.slf4j.Slf4j;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 public class FilterConfigService {
-    private static final SqliteAdapter sqliteAdapter = new SqliteAdapter();
+    private static volatile SqliteAdapter sqliteAdapter;
     public static final Map<String, FilterConfig> filterConfigCache = new ConcurrentHashMap<>();
     private static volatile boolean tableInitialized = false;
+    private static final Gson GSON = new Gson();
+
+    private static SqliteAdapter getSqliteAdapter() {
+        SqliteAdapter adapter = sqliteAdapter;
+        if (adapter == null) {
+            synchronized (FilterConfigService.class) {
+                adapter = sqliteAdapter;
+                if (adapter == null) {
+                    adapter = new SqliteAdapter();
+                    sqliteAdapter = adapter;
+                }
+            }
+        }
+        return adapter;
+    }
 
     private static synchronized void ensureTableExists() {
         if (tableInitialized) {
             return;
         }
-        try {
-            Connection conn = sqliteAdapter.getCon();
+        try (Connection conn = getSqliteAdapter().getCon();
+             Statement stmt = conn.createStatement()) {
             String sql = "CREATE TABLE IF NOT EXISTS lagi_filter_config (" +
-                "id INTEGER PRIMARY KEY AUTOINCREMENT," +
-                "name VARCHAR(64) NOT NULL UNIQUE," +
-                "rules TEXT," +
-                "groups TEXT," +
-                "filter_window_length INTEGER DEFAULT 0," +
-                "create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP," +
-                "update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP" +
-                ")";
-            Statement stmt = conn.createStatement();
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT," +
+                    "name VARCHAR(64) NOT NULL UNIQUE," +
+                    "rules TEXT," +
+                    "groups TEXT," +
+                    "filter_window_length INTEGER DEFAULT 0," +
+                    "create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+                    "update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP" +
+                    ")";
             stmt.executeUpdate(sql);
-            stmt.close();
-            conn.close();
             tableInitialized = true;
-            loadFromDatabase();
         } catch (Exception e) {
-            log.error("初始化 lagi_filter_config 表失败", e);
+            log.error("init lagi_filter_config table failed", e);
+            throw new RuntimeException("init filter config table failed: " + e.getMessage(), e);
         }
+        loadFromDatabase();
     }
 
     public static void loadFromDatabase() {
-        try {
-            ensureTableExists();
-            Connection conn = sqliteAdapter.getCon();
-            String sql = "SELECT * FROM lagi_filter_config";
-            ResultSet rs = conn.createStatement().executeQuery(sql);
-            
+        ensureTableExists();
+        try (Connection conn = getSqliteAdapter().getCon();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery("SELECT * FROM lagi_filter_config")) {
             filterConfigCache.clear();
             while (rs.next()) {
                 FilterConfig config = new FilterConfig();
                 config.setName(rs.getString("name"));
                 config.setRules(rs.getString("rules"));
-                
-                String groupsJson = rs.getString("groups");
-                if (groupsJson != null && !groupsJson.trim().isEmpty()) {
-                    try {
-                        com.google.gson.Gson gson = new com.google.gson.Gson();
-                        List<Map<String, String>> groupsList = gson.fromJson(groupsJson, 
-                            new com.google.gson.reflect.TypeToken<List<Map<String, String>>>(){}.getType());
-                        List<FilterRule> filterRules = new ArrayList<>();
-                        for (Map<String, String> groupMap : groupsList) {
-                            FilterRule rule = new FilterRule();
-                            rule.setLevel(groupMap.get("level"));
-                            rule.setRules(groupMap.get("rules"));
-                            rule.setMask(groupMap.get("mask"));
-                            filterRules.add(rule);
-                        }
-                        config.setGroups(filterRules);
-                    } catch (Exception e) {
-                        log.warn("解析 groups JSON 失败: {}", groupsJson, e);
-                    }
-                }
-                
+                config.setGroups(parseGroups(rs.getString("groups")));
                 config.setFilterWindowLength(rs.getInt("filter_window_length"));
                 filterConfigCache.put(config.getName(), config);
             }
-            rs.close();
-            conn.close();
         } catch (Exception e) {
-            log.error("从数据库加载过滤器配置失败", e);
+            log.error("load filter config from database failed", e);
+            throw new RuntimeException("load filter config failed: " + e.getMessage(), e);
         }
     }
 
     public static List<FilterConfig> list() {
         ensureTableExists();
+        return cachedList();
+    }
+
+    static List<FilterConfig> cachedList() {
         return new ArrayList<>(filterConfigCache.values());
     }
 
     public static void add(FilterConfig config) {
         ensureTableExists();
-        
-        // 如果过滤器已存在，自动转为更新操作（upsert模式）
         if (filterConfigCache.containsKey(config.getName())) {
-            log.info("过滤器 {} 已存在，自动转为更新操作", config.getName());
+            log.info("filter config {} already exists, update instead", config.getName());
             update(config);
             return;
         }
-        
-        try {
-            Connection conn = sqliteAdapter.getCon();
-            String sql = "INSERT INTO lagi_filter_config (name, rules, groups, filter_window_length) VALUES (?, ?, ?, ?)";
-            PreparedStatement pstmt = conn.prepareStatement(sql);
+
+        String sql = "INSERT INTO lagi_filter_config (name, rules, groups, filter_window_length) VALUES (?, ?, ?, ?)";
+        try (Connection conn = getSqliteAdapter().getCon();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, config.getName());
             pstmt.setString(2, config.getRules());
-            
-            String groupsJson = null;
-            if (config.getGroups() != null && !config.getGroups().isEmpty()) {
-                com.google.gson.Gson gson = new com.google.gson.Gson();
-                List<Map<String, String>> groupsList = new ArrayList<>();
-                for (FilterRule rule : config.getGroups()) {
-                    Map<String, String> groupMap = new HashMap<>();
-                    groupMap.put("level", rule.getLevel());
-                    groupMap.put("rules", rule.getRules());
-                    groupMap.put("mask", rule.getMask());
-                    groupsList.add(groupMap);
-                }
-                groupsJson = gson.toJson(groupsList);
-            }
-            pstmt.setString(3, groupsJson);
+            pstmt.setString(3, groupsToJson(config.getGroups()));
             pstmt.setInt(4, config.getFilterWindowLength());
-            
             pstmt.executeUpdate();
-            pstmt.close();
-            conn.close();
-            
             filterConfigCache.put(config.getName(), config);
-            log.info("添加过滤器配置成功: {}", config.getName());
+            log.info("add filter config success: {}", config.getName());
         } catch (Exception e) {
-            log.error("添加过滤器配置失败", e);
-            throw new RuntimeException("添加失败: " + e.getMessage(), e);
+            log.error("add filter config failed", e);
+            throw new RuntimeException("add filter config failed: " + e.getMessage(), e);
         }
     }
 
     public static void update(FilterConfig config) {
         ensureTableExists();
         if (!filterConfigCache.containsKey(config.getName())) {
-            throw new RuntimeException("找不到要更新的过滤器: " + config.getName());
+            throw new RuntimeException("filter config not found: " + config.getName());
         }
-        
-        try {
-            Connection conn = sqliteAdapter.getCon();
-            String sql = "UPDATE lagi_filter_config SET rules = ?, groups = ?, filter_window_length = ?, update_time = datetime('now') WHERE name = ?";
-            PreparedStatement pstmt = conn.prepareStatement(sql);
+
+        String sql = "UPDATE lagi_filter_config SET rules = ?, groups = ?, filter_window_length = ?, update_time = datetime('now') WHERE name = ?";
+        try (Connection conn = getSqliteAdapter().getCon();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, config.getRules());
-            
-            String groupsJson = null;
-            if (config.getGroups() != null && !config.getGroups().isEmpty()) {
-                com.google.gson.Gson gson = new com.google.gson.Gson();
-                List<Map<String, String>> groupsList = new ArrayList<>();
-                for (FilterRule rule : config.getGroups()) {
-                    Map<String, String> groupMap = new HashMap<>();
-                    groupMap.put("level", rule.getLevel());
-                    groupMap.put("rules", rule.getRules());
-                    groupMap.put("mask", rule.getMask());
-                    groupsList.add(groupMap);
-                }
-                groupsJson = gson.toJson(groupsList);
-            }
-            pstmt.setString(2, groupsJson);
+            pstmt.setString(2, groupsToJson(config.getGroups()));
             pstmt.setInt(3, config.getFilterWindowLength());
             pstmt.setString(4, config.getName());
-            
-            pstmt.executeUpdate();
-            pstmt.close();
-            conn.close();
-            
+            int rows = pstmt.executeUpdate();
+            if (rows == 0) {
+                throw new RuntimeException("filter config not found in database: " + config.getName());
+            }
             filterConfigCache.put(config.getName(), config);
-            log.info("更新过滤器配置成功: {}", config.getName());
+            log.info("update filter config success: {}", config.getName());
         } catch (Exception e) {
-            log.error("更新过滤器配置失败", e);
-            throw new RuntimeException("更新失败: " + e.getMessage(), e);
+            log.error("update filter config failed", e);
+            throw new RuntimeException("update filter config failed: " + e.getMessage(), e);
         }
     }
 
     public static void delete(String name) {
         ensureTableExists();
         if (!filterConfigCache.containsKey(name)) {
-            throw new RuntimeException("找不到要删除的过滤器: " + name);
+            throw new RuntimeException("filter config not found: " + name);
         }
-        
-        try {
-            Connection conn = sqliteAdapter.getCon();
-            String sql = "DELETE FROM lagi_filter_config WHERE name = ?";
-            PreparedStatement pstmt = conn.prepareStatement(sql);
+
+        String sql = "DELETE FROM lagi_filter_config WHERE name = ?";
+        try (Connection conn = getSqliteAdapter().getCon();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, name);
-            pstmt.executeUpdate();
-            pstmt.close();
-            conn.close();
-            
+            int rows = pstmt.executeUpdate();
+            if (rows == 0) {
+                throw new RuntimeException("filter config not found in database: " + name);
+            }
             filterConfigCache.remove(name);
-            log.info("删除过滤器配置成功: {}", name);
+            log.info("delete filter config success: {}", name);
         } catch (Exception e) {
-            log.error("删除过滤器配置失败", e);
-            throw new RuntimeException("删除失败: " + e.getMessage(), e);
+            log.error("delete filter config failed", e);
+            throw new RuntimeException("delete filter config failed: " + e.getMessage(), e);
         }
     }
-}
 
+    private static String groupsToJson(List<FilterRule> groups) {
+        if (groups == null || groups.isEmpty()) {
+            return null;
+        }
+        List<Map<String, String>> groupsList = new ArrayList<>();
+        for (FilterRule rule : groups) {
+            Map<String, String> groupMap = new HashMap<>();
+            groupMap.put("level", rule.getLevel());
+            groupMap.put("rules", rule.getRules());
+            groupMap.put("mask", rule.getMask());
+            groupsList.add(groupMap);
+        }
+        return GSON.toJson(groupsList);
+    }
+
+    private static List<FilterRule> parseGroups(String groupsJson) {
+        List<FilterRule> filterRules = new ArrayList<>();
+        if (groupsJson == null || groupsJson.trim().isEmpty()) {
+            return filterRules;
+        }
+        try {
+            List<Map<String, String>> groupsList = GSON.fromJson(groupsJson,
+                    new TypeToken<List<Map<String, String>>>() {
+                    }.getType());
+            if (groupsList == null) {
+                return filterRules;
+            }
+            for (Map<String, String> groupMap : groupsList) {
+                FilterRule rule = new FilterRule();
+                rule.setLevel(groupMap.get("level"));
+                rule.setRules(groupMap.get("rules"));
+                rule.setMask(groupMap.get("mask"));
+                filterRules.add(rule);
+            }
+        } catch (Exception e) {
+            log.warn("parse filter groups JSON failed: {}", groupsJson, e);
+        }
+        return filterRules;
+    }
+}

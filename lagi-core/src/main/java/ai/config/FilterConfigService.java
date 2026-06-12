@@ -37,7 +37,6 @@ import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 @Slf4j
 public class FilterConfigService {
@@ -570,15 +569,47 @@ public class FilterConfigService {
         if (rules == null || rules.trim().isEmpty()) {
             return new ArrayList<>();
         }
-        String escapedCommaPlaceholder = "__LAGI_ESCAPED_COMMA__";
-        String s = rules.replace("\\,", escapedCommaPlaceholder);
-        List<String> collect = Arrays.stream(s.split(","))
-                .map(String::trim)
-                .filter(str -> !str.isEmpty())
-                .collect(Collectors.toList());
-        return collect.stream()
-                .map(temp -> temp.replace(escapedCommaPlaceholder, ","))
-                .collect(Collectors.toList());
+        List<String> result = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        boolean escaping = false;
+        for (int i = 0; i < rules.length(); i++) {
+            char ch = rules.charAt(i);
+            if (escaping) {
+                if (isRuleDelimiter(ch) || ch == '\\') {
+                    current.append(ch);
+                } else {
+                    current.append('\\').append(ch);
+                }
+                escaping = false;
+                continue;
+            }
+            if (ch == '\\') {
+                escaping = true;
+                continue;
+            }
+            if (isRuleDelimiter(ch)) {
+                addRuleToken(result, current);
+                current.setLength(0);
+            } else {
+                current.append(ch);
+            }
+        }
+        if (escaping) {
+            current.append('\\');
+        }
+        addRuleToken(result, current);
+        return result;
+    }
+
+    private static boolean isRuleDelimiter(char ch) {
+        return ch == ',' || ch == '，' || ch == '、' || ch == ';' || ch == '；' || ch == '\n' || ch == '\r';
+    }
+
+    private static void addRuleToken(List<String> result, StringBuilder token) {
+        String value = token.toString().trim();
+        if (!value.isEmpty()) {
+            result.add(value);
+        }
     }
 
     private static int convertLevel(String level) {

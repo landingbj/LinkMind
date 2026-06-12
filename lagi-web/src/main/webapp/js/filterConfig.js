@@ -7,27 +7,27 @@ const FILTER_TYPE_META = {
     sensitive_input: {
         label: '输入敏感词',
         summary: '拦截或处理用户问题，命中 block 时会直接阻止请求。',
-        ruleHint: '在分组里配置规则和级别：1=block，2=mask，3=erase。'
+        ruleHint: '在分组里配置规则和级别：1=block，2=mask，3=erase。多条规则支持英文逗号、中文逗号、顿号、分号或换行分隔。'
     },
     sensitive: {
         label: '输出敏感词',
         summary: '过滤模型回复内容，支持 block、mask、erase。',
-        ruleHint: '在分组里配置规则和级别：1=block，2=mask，3=erase。'
+        ruleHint: '在分组里配置规则和级别：1=block，2=mask，3=erase。多条规则支持英文逗号、中文逗号、顿号、分号或换行分隔。'
     },
     priority: {
         label: '优先词',
         summary: '影响候选答案或检索结果排序，不会拦截请求。',
-        ruleHint: '在规则中填写优先匹配词，多个规则用逗号分隔。'
+        ruleHint: '在规则中填写优先匹配词，支持英文逗号、中文逗号、顿号、分号或换行分隔。'
     },
     stopping: {
         label: '停止词',
         summary: '用于判断新话题和会话边界，命中后不再强行续接上一轮上下文，不会拦截请求。',
-        ruleHint: '在规则中填写表示话题结束或新话题开始的词，多个规则用逗号分隔。'
+        ruleHint: '在规则中填写表示话题结束或新话题开始的词，支持英文逗号、中文逗号、顿号、分号或换行分隔。'
     },
     continue: {
         label: '继续词',
         summary: '用于判断用户想继续上一轮话题，会影响上下文拼接和检索。',
-        ruleHint: '在规则中填写继续追问类词，多个规则用逗号分隔。'
+        ruleHint: '在规则中填写继续追问类词，支持英文逗号、中文逗号、顿号、分号或换行分隔。'
     }
 };
 
@@ -110,9 +110,9 @@ function loadFilterConfigPage() {
                 <div id="groupsContainer" style="margin-bottom: 16px;">
                 </div>
                 <div id="rulesContainer" style="margin-bottom: 16px;">
-                    <label style="display: block; margin-bottom: 8px;">规则 (用逗号分隔):</label>
-                    <textarea id="filterRules" placeholder="例如: car,weather,社*保&#10;多个规则用逗号分隔，支持正则表达式" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; min-height: 100px;"></textarea>
-                    <div id="filterRuleHint" style="font-size: 12px; color: #666; margin-top: 4px;">提示：多个规则用逗号分隔，支持正则表达式。如果是敏感词过滤器，请在“分组”中配置级别和规则。</div>
+                    <label style="display: block; margin-bottom: 8px;">规则 (支持逗号、顿号、分号或换行分隔):</label>
+                    <textarea id="filterRules" placeholder="例如: car,weather,社*保&#10;支持英文逗号、中文逗号、顿号、分号或换行分隔，支持正则表达式" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; min-height: 100px;"></textarea>
+                    <div id="filterRuleHint" style="font-size: 12px; color: #666; margin-top: 4px;">提示：支持英文逗号、中文逗号、顿号、分号或换行分隔，支持正则表达式。如果是敏感词过滤器，请在“分组”中配置级别和规则。</div>
                 </div>
                 <div style="display: flex; gap: 10px; justify-content: flex-end;">
                     <button onclick="hideFilterModal()" style="padding: 8px 16px; background: #ccc; color: white; border: none; border-radius: 4px; cursor: pointer;">取消</button>
@@ -250,7 +250,7 @@ function onFilterTypeChange() {
     const typeMeta = getFilterTypeMeta(filterType);
 
     $('#filterTypeSummary').text(typeMeta.summary ? tTextFilter(typeMeta.summary) : tTextFilter('注意：只能选择以上系统支持的过滤器类型，自定义名称不会生效'));
-    $('#filterRuleHint').text(typeMeta.ruleHint ? tTextFilter(typeMeta.ruleHint) : tTextFilter('提示：多个规则用逗号分隔，支持正则表达式。如果是敏感词过滤器，请在“分组”中配置级别和规则。'));
+    $('#filterRuleHint').text(typeMeta.ruleHint ? tTextFilter(typeMeta.ruleHint) : tTextFilter('提示：支持英文逗号、中文逗号、顿号、分号或换行分隔，支持正则表达式。如果是敏感词过滤器，请在“分组”中配置级别和规则。'));
 
     if (currentEditIndex < 0 && isSensitiveFilter(filterType)) {
         if (groupsContainer.find('.group-container').length === 0) {
@@ -262,7 +262,7 @@ function onFilterTypeChange() {
                         <input type="number" class="group-level" min="1" max="3" value="2" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px;" placeholder="1, 2, 或 3" />
                     </div>
                     <div>
-                        <label style="display: block; margin-bottom: 4px;">规则 (用逗号分隔):</label>
+                        <label style="display: block; margin-bottom: 4px;">规则 (支持逗号、顿号、分号或换行分隔):</label>
                         <textarea class="group-rules" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; min-height: 60px;" placeholder="例如: 维尼熊,敏感词,规则*"></textarea>
                     </div>
                 </div>
@@ -290,7 +290,7 @@ function addGroup() {
                 <input type="number" class="group-level" min="1" max="3" value="2" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px;" placeholder="1, 2, 或 3" />
             </div>
             <div>
-                <label style="display: block; margin-bottom: 4px;">规则 (用逗号分隔):</label>
+                <label style="display: block; margin-bottom: 4px;">规则 (支持逗号、顿号、分号或换行分隔):</label>
                 <textarea class="group-rules" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; min-height: 60px;" placeholder="例如: 维尼熊,敏感词,规则*"></textarea>
             </div>
         </div>
@@ -326,7 +326,7 @@ function editFilterConfig(index) {
                         <input type="number" class="group-level" min="1" max="3" value="${escapeHtmlFilter(group.level || '2')}" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px;" />
                     </div>
                     <div>
-                        <label style="display: block; margin-bottom: 4px;">规则 (用逗号分隔):</label>
+                        <label style="display: block; margin-bottom: 4px;">规则 (支持逗号、顿号、分号或换行分隔):</label>
                         <textarea class="group-rules" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; min-height: 60px;">${escapeHtmlFilter(group.rules || '')}</textarea>
                     </div>
                 </div>
@@ -348,7 +348,7 @@ function editFilterConfig(index) {
                     <input type="number" class="group-level" min="1" max="3" value="2" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px;" />
                 </div>
                 <div>
-                    <label style="display: block; margin-bottom: 4px;">规则 (用逗号分隔):</label>
+                    <label style="display: block; margin-bottom: 4px;">规则 (支持逗号、顿号、分号或换行分隔):</label>
                     <textarea class="group-rules" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; min-height: 60px;" placeholder="例如: 维尼熊,敏感词,规则*"></textarea>
                 </div>
             </div>

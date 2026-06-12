@@ -178,6 +178,26 @@ class FilterConfigServiceTest {
     }
 
     @Test
+    void convertListRulesAcceptsChineseSeparatorsAndKeepsEscapedDelimiters() {
+        assertEquals(Arrays.asList("赌博", "赌博场", "稳赚不赔", "线上堵场", "博彩", "下注", "炸金花"),
+                FilterConfigService.convert2ListRules("赌博，赌博场，稳赚不赔，线上堵场，博彩，下注，炸金花"));
+        assertEquals(Arrays.asList("alpha", "beta", "gamma", "delta", "literal,comma", "literal，comma", "literal、slash"),
+                FilterConfigService.convert2ListRules("alpha、beta\ngamma；delta;literal\\,comma，literal\\，comma、literal\\、slash"));
+    }
+
+    @Test
+    void chineseSeparatedSensitiveInputRulesApplyAfterRuntimeRefresh() throws Exception {
+        useTempDb("chinese-separator-saas.db");
+        FilterConfigService.add(sensitiveConfig("赌博，赌博场，稳赚不赔，线上堵场，博彩，下注，炸金花",
+                "sensitive_input", "block"));
+
+        FilterConfigService.refreshRuntimeFilters();
+
+        assertEquals("", SensitiveWordUtil.filter("炸金花怎么玩", SensitiveWordUtil.INPUT_RULE_TYPE));
+        assertEquals("", SensitiveWordUtil.filter("这是稳赚不赔的吗", SensitiveWordUtil.INPUT_RULE_TYPE));
+    }
+
+    @Test
     void priorityAggregationChangesChoiceOrdering() throws Exception {
         useTempDb("priority-saas.db");
         FilterConfigService.add(simpleConfig("priority", "vip"));

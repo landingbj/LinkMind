@@ -305,99 +305,16 @@ public class GlobalConfigurations extends AbstractConfiguration {
 
 
     private void registerFilter() {
-        if (filters != null && Boolean.TRUE.equals(filters.getEnable()) && filters.getItems() != null) {
-            for (FilterConfig filter : filters.getItems()) {
-                if(filter.getName().equals("sensitive")) {
-                    push2WordRule(filter);
-                } else if(filter.getName().equals("sensitive_input")) {
-                    push2InputWordRule(filter);
-                } else if(filter.getName().equals("priority")) {
-                    PriorityWordUtil.addWords(convert2List(filter));
-                } else if (filter.getName().equals("continue")) {
-                    ContinueWordUtil.addWords(convert2List(filter));
-                } else if (filter.getName().equals("stopping")) {
-                    StoppingWordUtil.addWords(convert2List(filter));
-                } else if(filter.getName().equals("retain")) {
-                    StoppingWordUtil.addWords(convert2List(filter));
-                }
+        if (filters == null || !Boolean.FALSE.equals(filters.getEnable())) {
+            FilterConfigService.initialize(filters);
+            if (filters == null) {
+                filters = new FiltersConfig();
             }
+            filters.setEnable(true);
+            filters.setItems(FilterConfigService.aggregateFilters(FilterConfigService.cachedList()));
         }
     }
 
-
-    private List<String> convert2List(FilterConfig filterItem) {
-        return convert2ListRules(filterItem.getRules());
-    }
-
-
-    private static List<String> convert2ListRules(String rules){
-        String s = rules.replaceAll("\\\\\\\\,", "·regx-dot·");
-        List<String> collect = Arrays.stream(s.split(",")).map(String::trim).collect(Collectors.toList());
-        collect = collect.stream().map(temp -> temp.replaceAll("·regx-dot·", ",")).collect(Collectors.toList());
-        return collect;
-    }
-
-
-    private void push2WordRule(FilterConfig filter) {
-        WordRules wordRules = convert2WordRules(filter);
-        SensitiveWordUtil.pushOutputRule(wordRules);
-    }
-
-    private void push2InputWordRule(FilterConfig filter) {
-        WordRules wordRules = convert2WordRules(filter);
-        SensitiveWordUtil.pushInputRule(wordRules);
-    }
-
-    private WordRules convert2WordRules(FilterConfig filter) {
-        if (filter.getGroups() == null || filter.getGroups().isEmpty()) {
-            return null;
-        }
-        SensitiveWordUtil.setFilterWindowLength(filter.getFilterWindowLength());
-
-        List<WordRule> rules = filter.getGroups().stream()
-                .flatMap(group-> {
-                    if (group.getRules() == null || group.getRules().trim().isEmpty()) {
-                        return java.util.stream.Stream.empty();
-                    }
-                    return convert2ListRules(group.getRules()).stream()
-                            .map(rule -> {
-                                String level = group.getLevel();
-                                String mask = group.getMask();
-                                int levelInt = 0;
-
-                                // 支持数字字符串和单词两种格式
-                                if (level != null) {
-                                    if ("erase".equalsIgnoreCase(level) || "3".equals(level)) {
-                                        levelInt = 3;
-                                    } else if ("block".equalsIgnoreCase(level) || "1".equals(level)) {
-                                        levelInt = 1;
-                                    } else if ("mask".equalsIgnoreCase(level) || "2".equals(level)) {
-                                        levelInt = 2;
-                                    } else {
-                                        // 尝试解析为整数
-                                        try {
-                                            levelInt = Integer.parseInt(level);
-                                            if (levelInt < 1 || levelInt > 3) {
-                                                levelInt = 2; // 默认使用掩码
-                                            }
-                                        } catch (NumberFormatException e) {
-                                            levelInt = 2; // 默认使用掩码
-                                        }
-                                    }
-                                } else {
-                                    levelInt = 2; // 默认使用掩码
-                                }
-
-                                rule = rule.trim();
-                                return WordRule.builder().level(levelInt).mask(mask).rule(rule).build();
-                            });
-                })
-                .collect(Collectors.toList());
-        WordRules wordRules = WordRules.builder()
-                .rules(rules)
-                .build();
-        return wordRules;
-    }
 
     @Override
     public Configuration transformToConfiguration() {

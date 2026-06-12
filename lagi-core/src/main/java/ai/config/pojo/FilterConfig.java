@@ -7,6 +7,7 @@ import java.util.List;
 
 @Data
 public class FilterConfig {
+    private Long id;
     private String name;
     private List<FilterRule> groups;
     private String rules;

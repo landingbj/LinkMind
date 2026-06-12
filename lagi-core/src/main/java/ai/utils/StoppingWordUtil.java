@@ -40,6 +40,9 @@ public class StoppingWordUtil {
     }
 
     public static boolean containsStoppingWorlds(String msg) {
+        if (msg == null || msg.trim().isEmpty()) {
+            return false;
+        }
         for(String pattern : patterns) {
             Pattern p = Pattern.compile(pattern);
             Matcher matcher = p.matcher(msg);
@@ -59,7 +62,8 @@ public class StoppingWordUtil {
         return IntStream.range(0, messages.size())
                 .filter(i-> {
                     ChatMessage chatMessage = messages.get(i);
-                    if(!chatMessage.getRole().equals("user")) {
+                    if (chatMessage == null || !"user".equals(chatMessage.getRole())
+                            || chatMessage.getContent() == null || chatMessage.getContent().trim().isEmpty()) {
                         return false;
                     }
 

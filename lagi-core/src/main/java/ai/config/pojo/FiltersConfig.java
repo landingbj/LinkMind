@@ -1,6 +1,7 @@
 package ai.config.pojo;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import lombok.*;
 
 import java.util.List;
@@ -10,6 +11,7 @@ import java.util.List;
 @NoArgsConstructor
 @ToString
 @Builder
+@JsonDeserialize(using = FiltersConfigDeserializer.class)
 public class FiltersConfig {
     private Boolean enable = true;
     @JsonProperty("items")

@@ -4,7 +4,6 @@ import ai.config.pojo.FilterConfig;
 import ai.config.pojo.FilterRule;
 import ai.starter.InstallerUtil;
 import ai.utils.SensitiveWordUtil;
-import ai.utils.YmlLoader;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -12,19 +11,17 @@ import org.junit.jupiter.api.io.TempDir;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.ResultSet;
-import java.sql.Statement;
-import java.util.HashSet;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.DriverManager;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -43,146 +40,89 @@ class FilterConfigServletTest {
             System.setProperty(InstallerUtil.CONFIG_FILE_PROPERTY, previousConfigProperty);
         }
         FilterConfigService.resetForTests();
+        SensitiveWordUtil.reloadRules(null, null, -1);
     }
 
     @Test
     @SuppressWarnings("unchecked")
-    void syncToYamlPreservesFiltersObjectShape() throws Exception {
-        Path config = writeConfig("filters:\n  enable: false\n  items: []\n");
-        System.setProperty(InstallerUtil.CONFIG_FILE_PROPERTY, config.toString());
-        FilterConfigService.filterConfigCache.clear();
-        FilterConfigService.filterConfigCache.put("sensitive", sensitiveConfig("secret"));
+    void loadFromYamlAcceptsObjectAndLegacyListShape() throws Exception {
+        Path objectConfig = writeConfig("filters:\n  enable: true\n  items:\n    - name: sensitive\n      groups:\n        - level: mask\n          rules: secret\n");
+        System.setProperty(InstallerUtil.CONFIG_FILE_PROPERTY, objectConfig.toString());
+        List<FilterConfig> objectFilters = (List<FilterConfig>) invokePrivate(newServlet(), "loadFromYaml");
+        assertEquals(1, objectFilters.size());
+        assertEquals("sensitive", objectFilters.get(0).getName());
 
-        invokePrivate(newServlet(), "syncToYaml");
-
-        Map<String, Object> root = YmlLoader.loadYamlAsMap(config.toString());
-        Map<String, Object> filters = (Map<String, Object>) root.get("filters");
-        assertEquals(Boolean.FALSE, filters.get("enable"));
-        assertTrue(filters.get("items") instanceof List);
-        Map<String, Object> first = (Map<String, Object>) ((List<?>) filters.get("items")).get(0);
-        assertEquals("sensitive", first.get("name"));
+        Path listConfig = writeConfig("filters:\n  - name: priority\n    rules: weather\n");
+        System.setProperty(InstallerUtil.CONFIG_FILE_PROPERTY, listConfig.toString());
+        List<FilterConfig> listFilters = (List<FilterConfig>) invokePrivate(newServlet(), "loadFromYaml");
+        assertEquals(1, listFilters.size());
+        assertEquals("priority", listFilters.get(0).getName());
     }
 
     @Test
-    @SuppressWarnings("unchecked")
-    void loadFromYamlAcceptsLegacyBrokenListShape() throws Exception {
-        Path config = writeConfig("filters:\n  - name: sensitive\n    groups:\n      - level: mask\n        rules: secret\n");
-        System.setProperty(InstallerUtil.CONFIG_FILE_PROPERTY, config.toString());
-
-        List<FilterConfig> filters = (List<FilterConfig>) invokePrivate(newServlet(), "loadFromYaml");
-
-        assertEquals(1, filters.size());
-        assertEquals("sensitive", filters.get(0).getName());
-        assertEquals("secret", filters.get(0).getGroups().get(0).getRules());
-    }
-
-    @Test
-    @SuppressWarnings("unchecked")
-    void bundledLagiYmlKeepsFiltersObjectShape() {
-        Map<String, Object> root = YmlLoader.readYamlAsMap("lagi.yml");
-
-        assertTrue(root.get("filters") instanceof Map);
-        Map<String, Object> filters = (Map<String, Object>) root.get("filters");
-        assertEquals(Boolean.TRUE, filters.get("enable"));
-        assertTrue(filters.get("items") instanceof List);
-        assertTrue(((List<Map<String, Object>>) filters.get("items")).stream()
-                .anyMatch(item -> "sensitive_input".equals(item.get("name"))));
-    }
-
-    @Test
-    @SuppressWarnings("unchecked")
-    void missingYamlConfigsAddsNewFiltersWithoutOverwritingExistingDatabaseValues() throws Exception {
-        FilterConfigService.filterConfigCache.clear();
-        FilterConfigService.filterConfigCache.put("sensitive", sensitiveConfig("db-secret"));
-        FilterConfig input = sensitiveConfig("blocked");
-        input.setName("sensitive_input");
-
-        List<FilterConfig> missing = (List<FilterConfig>) invokePrivate(
-                newServlet(),
-                "missingYamlConfigs",
-                java.util.Arrays.asList(sensitiveConfig("yaml-secret"), input));
-
-        assertEquals(1, missing.size());
-        assertEquals("db-secret", FilterConfigService.filterConfigCache.get("sensitive").getGroups().get(0).getRules());
-        assertEquals("sensitive_input", missing.get(0).getName());
-        assertEquals("blocked", missing.get(0).getGroups().get(0).getRules());
-    }
-
-    @Test
-    void invalidRegexIsRejectedBeforeSaving() throws Exception {
-        FilterConfig invalid = sensitiveConfig("[");
-
-        assertThrows(Exception.class, () -> invokePrivate(newServlet(), "validateFilterConfig", invalid));
-    }
-
-    @Test
-    @SuppressWarnings("unchecked")
-    void yamlSensitiveInputAndOutputReloadIntoRuntimeRules() throws Exception {
-        Path config = writeConfig("filters:\n"
-                + "  enable: true\n"
-                + "  items:\n"
-                + "    - name: sensitive\n"
-                + "      groups:\n"
-                + "        - level: mask\n"
-                + "          rules: 冰毒\n"
-                + "          mask: '***'\n"
-                + "    - name: sensitive_input\n"
-                + "      groups:\n"
-                + "        - level: block\n"
-                + "          rules: 冰毒\n"
-                + "          mask: '***'\n");
-        System.setProperty(InstallerUtil.CONFIG_FILE_PROPERTY, config.toString());
-        FilterConfigServlet servlet = newServlet();
-        FilterConfigService.filterConfigCache.clear();
-        for (FilterConfig filter : (List<FilterConfig>) invokePrivate(servlet, "loadFromYaml")) {
-            FilterConfigService.filterConfigCache.put(filter.getName(), filter);
-        }
-
-        invokePrivate(servlet, "reloadFilterUtils");
-
-        assertEquals("", SensitiveWordUtil.filter("冰毒是什么", SensitiveWordUtil.INPUT_RULE_TYPE));
-        assertEquals("***信息", SensitiveWordUtil.filter("冰毒信息", SensitiveWordUtil.OUTPUT_RULE_TYPE));
-    }
-
-    @Test
-    @SuppressWarnings("unchecked")
-    void addMigratesLegacyFilterTableAndSyncsYaml() throws Exception {
+    void addUpdateDeleteUseDatabaseAndDoNotModifyYaml() throws Exception {
         Path config = writeConfig("filters:\n  enable: true\n  items: []\n");
         System.setProperty(InstallerUtil.CONFIG_FILE_PROPERTY, config.toString());
-        Path db = tempDir.resolve("legacy-saas.db");
-        String jdbcUrl = "jdbc:sqlite:" + db.toAbsolutePath().toString().replace('\\', '/');
-        try (Connection conn = DriverManager.getConnection(jdbcUrl);
-             Statement stmt = conn.createStatement()) {
-            stmt.executeUpdate("CREATE TABLE lagi_filter_config ("
-                    + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-                    + "name VARCHAR(64) NOT NULL UNIQUE,"
-                    + "rules TEXT,"
-                    + "groups TEXT"
-                    + ")");
-        }
-        FilterConfigService.setConnectionFactoryForTests(() -> DriverManager.getConnection(jdbcUrl));
+        String originalYaml = new String(Files.readAllBytes(config), StandardCharsets.UTF_8);
+        useTempDb("crud-saas.db");
+        FilterConfigServlet servlet = newServlet();
 
-        FilterConfig priority = new FilterConfig();
-        priority.setName("priority");
-        priority.setRules("weather");
+        FilterConfig first = priorityConfig("alpha");
+        FilterConfig second = priorityConfig("beta");
+        assertEquals(Boolean.TRUE, servlet.add(first).get("success"));
+        assertEquals(Boolean.TRUE, servlet.add(second).get("success"));
 
-        Map<String, Object> result = newServlet().add(priority);
+        List<FilterConfig> afterAdd = FilterConfigService.list();
+        assertEquals(2, afterAdd.size());
+        assertTrue(afterAdd.stream().anyMatch(item -> "alpha".equals(item.getRules())));
+        assertTrue(afterAdd.stream().anyMatch(item -> "beta".equals(item.getRules())));
 
-        assertEquals(Boolean.TRUE, result.get("success"));
-        try (Connection conn = DriverManager.getConnection(jdbcUrl);
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery("PRAGMA table_info(lagi_filter_config)")) {
-            Set<String> columns = new HashSet<>();
-            while (rs.next()) {
-                columns.add(rs.getString("name"));
-            }
-            assertTrue(columns.contains("filter_window_length"));
-            assertTrue(columns.contains("update_time"));
-        }
-        Map<String, Object> root = YmlLoader.loadYamlAsMap(config.toString());
-        Map<String, Object> filters = (Map<String, Object>) root.get("filters");
-        assertTrue(((List<Map<String, Object>>) filters.get("items")).stream()
-                .anyMatch(item -> "priority".equals(item.get("name")) && "weather".equals(item.get("rules"))));
+        FilterConfig toUpdate = afterAdd.get(0);
+        toUpdate.setRules("gamma");
+        assertEquals(Boolean.TRUE, servlet.update(toUpdate).get("success"));
+
+        List<FilterConfig> afterUpdate = FilterConfigService.list();
+        assertEquals(2, afterUpdate.size());
+        assertTrue(afterUpdate.stream().anyMatch(item -> "gamma".equals(item.getRules())));
+        assertTrue(afterUpdate.stream().anyMatch(item -> "beta".equals(item.getRules())));
+        assertFalse(afterUpdate.stream().anyMatch(item -> "alpha".equals(item.getRules())));
+
+        Map<String, Object> deleteRequest = new HashMap<>();
+        deleteRequest.put("id", toUpdate.getId());
+        assertEquals(Boolean.TRUE, servlet.delete(deleteRequest).get("success"));
+        List<FilterConfig> afterDelete = FilterConfigService.list();
+        assertEquals(1, afterDelete.size());
+        assertEquals("beta", afterDelete.get(0).getRules());
+
+        assertEquals(originalYaml, new String(Files.readAllBytes(config), StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void addSensitiveRuleReloadsRuntimeImmediately() throws Exception {
+        useTempDb("runtime-saas.db");
+        FilterConfigServlet servlet = newServlet();
+
+        FilterConfig output = sensitiveConfig("secret", "sensitive", "mask");
+        servlet.add(output);
+        FilterConfig input = sensitiveConfig("blocked", "sensitive_input", "block");
+        servlet.add(input);
+
+        assertEquals("*** text", SensitiveWordUtil.filter("secret text", SensitiveWordUtil.OUTPUT_RULE_TYPE));
+        assertEquals("", SensitiveWordUtil.filter("blocked prompt", SensitiveWordUtil.INPUT_RULE_TYPE));
+    }
+
+    @Test
+    void invalidRegexIsRejectedBeforeSavingAndDoesNotPolluteRuntime() throws Exception {
+        useTempDb("invalid-saas.db");
+        FilterConfigServlet servlet = newServlet();
+        servlet.add(sensitiveConfig("safe", "sensitive", "mask"));
+        assertEquals("*** text", SensitiveWordUtil.filter("safe text", SensitiveWordUtil.OUTPUT_RULE_TYPE));
+
+        assertThrows(Exception.class, () -> servlet.add(sensitiveConfig("[", "sensitive", "mask")));
+
+        List<FilterConfig> configs = FilterConfigService.list();
+        assertEquals(1, configs.size());
+        assertEquals("*** text", SensitiveWordUtil.filter("safe text", SensitiveWordUtil.OUTPUT_RULE_TYPE));
     }
 
     private FilterConfigServlet newServlet() throws Exception {
@@ -193,19 +133,32 @@ class FilterConfigServletTest {
         return servlet;
     }
 
-    private FilterConfig sensitiveConfig(String ruleText) {
+    private void useTempDb(String name) {
+        Path db = tempDir.resolve(name);
+        String jdbcUrl = "jdbc:sqlite:" + db.toAbsolutePath().toString().replace('\\', '/');
+        FilterConfigService.setConnectionFactoryForTests(() -> DriverManager.getConnection(jdbcUrl));
+    }
+
+    private FilterConfig priorityConfig(String rules) {
+        FilterConfig config = new FilterConfig();
+        config.setName("priority");
+        config.setRules(rules);
+        return config;
+    }
+
+    private FilterConfig sensitiveConfig(String ruleText, String name, String level) {
         FilterRule rule = new FilterRule();
-        rule.setLevel("mask");
+        rule.setLevel(level);
         rule.setRules(ruleText);
         rule.setMask("***");
         FilterConfig config = new FilterConfig();
-        config.setName("sensitive");
+        config.setName(name);
         config.setGroups(Collections.singletonList(rule));
         return config;
     }
 
     private Path writeConfig(String content) throws Exception {
-        Path config = tempDir.resolve("lagi.yml");
+        Path config = tempDir.resolve("lagi-" + System.nanoTime() + ".yml");
         Files.write(config, content.getBytes(StandardCharsets.UTF_8));
         return config;
     }

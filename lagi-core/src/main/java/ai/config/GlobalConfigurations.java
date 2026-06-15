@@ -58,7 +58,7 @@ public class GlobalConfigurations extends AbstractConfiguration {
     public void init() {
         loadFromPropertiesFromYaml();
         initCascadeApiAddress();
-        validateChatBackends();
+//        validateChatBackends();
         EmbeddingManager.getInstance().register(functions.getEmbedding());
         BigdataManager.getInstance().register(stores.getBigdata());
         OSSManager.getInstance().register(stores.getOss());

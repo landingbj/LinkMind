@@ -874,5 +874,8 @@ filters:
 - OpenClaw
 - Hermes Agent
 - DeerFlow
+- OpenHuman
 
 这些同步逻辑主要用于安装或启动阶段对齐外部运行时配置，但 LinkMind 真正运行时仍然优先读取本地 YAML 配置。
+
+OpenHuman 同步会在 `[[cloud_providers]]` 中写入 `linkmind` provider，`endpoint` 为 `http://127.0.0.1:<port>/v1`，`auth_style` 为 `bearer`；同步会在 OpenHuman `auth-profiles.json` 中激活 `provider:linkmind`，当存在 `LINKMIND_API_KEY` 或 `linkmind.apiKey` 时，会把 LinkMind token 写入 OpenHuman 桌面端 keychain 文件。同步还会把空值、默认值或 OpenHuman 云端 LLM workload 路由指向 `linkmind:Alibaba/qwen3.6-plus`。覆盖范围包括 `chat_provider`、`reasoning_provider`、`agentic_provider`、`coding_provider`、`memory_provider`、`heartbeat_provider`、`learning_provider`、`subconscious_provider`；embedding 路由不改。反向导入时，LinkMind 只读取支持的 OpenAI 兼容 provider，并跳过 OpenHuman 云端、LinkMind 自身以及 Anthropic-only 路由。

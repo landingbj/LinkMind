@@ -14,51 +14,78 @@ import java.util.concurrent.Executors;
 
 @Slf4j
 public class FilterMonitorUtil {
-    private static final SqliteAdapter sqliteAdapter = new SqliteAdapter();
+    private static final String SAAS_CONFIG_PATH = "/hikari-saas.properties";
     private static final ExecutorService executorService = Executors.newSingleThreadExecutor();
+    private static volatile SqliteAdapter sqliteAdapter;
     private static volatile boolean tableInitialized = false;
+    private static volatile boolean monitorUnavailable = false;
     private static final int MAX_RETRY = 3;
+
+    private static SqliteAdapter getSqliteAdapter() {
+        SqliteAdapter adapter = sqliteAdapter;
+        if (adapter == null) {
+            synchronized (FilterMonitorUtil.class) {
+                adapter = sqliteAdapter;
+                if (adapter == null) {
+                    adapter = new SqliteAdapter();
+                    sqliteAdapter = adapter;
+                }
+            }
+        }
+        return adapter;
+    }
 
     private static synchronized void ensureTableExists() {
         if (tableInitialized) {
             return;
         }
         try {
-            Connection conn = sqliteAdapter.getCon();
-            DatabaseMetaData dbm = conn.getMetaData();
-            ResultSet tables = dbm.getTables(null, null, "lagi_filter_monitor", null);
-            if (!tables.next()) {
-                String createTable = "CREATE TABLE IF NOT EXISTS lagi_filter_monitor (" +
-                    "id INTEGER PRIMARY KEY AUTOINCREMENT," +
-                    "filter_name VARCHAR(64) NOT NULL," +
-                    "action_type VARCHAR(32) NOT NULL," +
-                    "content TEXT," +
-                    "create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP" +
-                    ")";
-                conn.createStatement().executeUpdate(createTable);
+            SqliteAdapter adapter = getSqliteAdapter();
+            try (Connection conn = adapter.getCon()) {
+                if (conn == null || conn.isClosed()) {
+                    throw new SQLException("database connection unavailable");
+                }
+                DatabaseMetaData dbm = conn.getMetaData();
+                try (ResultSet tables = dbm.getTables(null, null, "lagi_filter_monitor", null)) {
+                    if (!tables.next()) {
+                        String createTable = "CREATE TABLE IF NOT EXISTS lagi_filter_monitor (" +
+                                "id INTEGER PRIMARY KEY AUTOINCREMENT," +
+                                "filter_name VARCHAR(64) NOT NULL," +
+                                "action_type VARCHAR(32) NOT NULL," +
+                                "content TEXT," +
+                                "create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP" +
+                                ")";
+                        conn.createStatement().executeUpdate(createTable);
+                    }
+                }
             }
-            conn.close();
             tableInitialized = true;
         } catch (Exception e) {
-            log.error("初始化 lagi_filter_monitor 表失败", e);
+            log.error("init filter monitor table failed", e);
+            throw new IllegalStateException("init filter monitor table failed", e);
         }
     }
 
     public static void recordFilterAction(String filterName, String actionType, String content) {
-        // 跳过系统操作类型的记录，如 reload 等，这些不需要写入监控表
         if ("reload".equalsIgnoreCase(actionType)) {
-            log.debug("跳过记录系统操作: filterName={}, actionType={}", filterName, actionType);
+            log.debug("skip system filter action: filterName={}, actionType={}", filterName, actionType);
             return;
         }
-        
+        if (monitorUnavailable || FilterMonitorUtil.class.getResource(SAAS_CONFIG_PATH) == null) {
+            monitorUnavailable = true;
+            log.debug("filter monitor database config is unavailable, skip record");
+            return;
+        }
+
         executorService.submit(() -> {
             try {
                 ensureTableExists();
+                SqliteAdapter adapter = getSqliteAdapter();
                 int retry = 0;
                 while (retry <= MAX_RETRY) {
-                    try (Connection conn = sqliteAdapter.getCon()) {
+                    try (Connection conn = adapter.getCon()) {
                         if (conn == null || conn.isClosed()) {
-                            log.warn("数据库连接不可用，跳过记录过滤操作");
+                            log.warn("database connection unavailable, skip filter monitor record");
                             return;
                         }
 
@@ -66,25 +93,9 @@ public class FilterMonitorUtil {
                         try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
                             pstmt.setString(1, filterName != null ? filterName : "");
                             pstmt.setString(2, actionType != null ? actionType : "");
-
-                            String contentToSave = content;
-                            if (contentToSave != null) {
-                                if (contentToSave.length() > 1000) {
-                                    contentToSave = contentToSave.substring(0, 1000);
-                                }
-                                try {
-                                    byte[] bytes = contentToSave.getBytes(StandardCharsets.UTF_8);
-                                    String utf8Content = new String(bytes, StandardCharsets.UTF_8);
-                                    pstmt.setString(3, utf8Content);
-                                } catch (Exception e) {
-                                    pstmt.setString(3, contentToSave.replaceAll("[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]", ""));
-                                }
-                            } else {
-                                pstmt.setString(3, null);
-                            }
-
+                            pstmt.setString(3, sanitizeContent(content));
                             pstmt.executeUpdate();
-                            log.debug("记录过滤操作: filterName={}, actionType={}", filterName, actionType);
+                            log.debug("record filter action: filterName={}, actionType={}", filterName, actionType);
                             return;
                         }
                     } catch (SQLException e) {
@@ -95,10 +106,38 @@ public class FilterMonitorUtil {
                         sleepQuietly(100L * retry);
                     }
                 }
-            } catch (Exception e) {
-                log.error("记录过滤操作失败: filterName={}, actionType={}", filterName, actionType, e);
+            } catch (Throwable e) {
+                if (isPermanentMonitorFailure(e)) {
+                    monitorUnavailable = true;
+                }
+                log.error("record filter action failed: filterName={}, actionType={}", filterName, actionType, e);
             }
         });
+    }
+
+    private static boolean isPermanentMonitorFailure(Throwable e) {
+        Throwable current = e;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null && message.contains("Cannot find property file")) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return e instanceof LinkageError;
+    }
+
+    private static String sanitizeContent(String content) {
+        if (content == null) {
+            return null;
+        }
+        String contentToSave = content.length() > 1000 ? content.substring(0, 1000) : content;
+        try {
+            byte[] bytes = contentToSave.getBytes(StandardCharsets.UTF_8);
+            return new String(bytes, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            return contentToSave.replaceAll("[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]", "");
+        }
     }
 
     private static boolean isSqliteBusy(SQLException e) {

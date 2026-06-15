@@ -1,6 +1,7 @@
 package ai.openai.pojo;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 
 import java.util.HashSet;
@@ -32,6 +33,8 @@ public class ChatCompletionRequest {
     private Boolean logprobs;
     private transient Boolean enableHook = true;
     private transient Boolean enableAfter = true;
+    @JsonIgnore
+    private transient ChatCompletionResult localCompletionResult;
     /**
      * Optional per-hook allowlist consulted by {@code HookService} for both
      * {@code BeforeModel} and {@code AfterModel} dispatch. When this set is

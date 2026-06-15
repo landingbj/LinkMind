@@ -40,7 +40,10 @@ public class InstallerUtil {
     private static final String EXPORT_TO_OPENCLAW_ARG = "--export-to-openclaw=";
     private static final String IMPORT_FROM_OPENCLAW_ARG = "--import-from-openclaw=";
     private static final String RUNTIME_CHOICE_ARG = "--runtime-choice=";
+    private static final String LINKMIND_API_KEY_ARG = "--linkmind-api-key=";
+    public static final String LINKMIND_API_KEY_PROPERTY = "linkmind.apiKey";
     public static final String DEER_FLOW_PATH = "--deer-flow-path=";
+    public static final String OPENHUMAN_PATH = "--openhuman-path=";
     private static final String SKILLS_ROOT_ARG = "--skills-root=";
     private static final String LAGI_YML = "lagi.yml";
     private static final String SQLITE_RESOURCE_DIR = "sqlite";
@@ -50,9 +53,11 @@ public class InstallerUtil {
     public static void main(String[] args) throws IOException {
         File jarFile = InstallerUtil.getJarFile();
         InstallerUtil.applyConfigAndDataDir(args, jarFile);
+        InstallerUtil.applyLinkMindApiKey(args);
         InstallerUtil.applyRuntimeSkillsConfig(args);
         String deerFlowPath = parseArg(args, DEER_FLOW_PATH);
-        ConfigSyncService configSyncService = new ConfigSyncService(DEFAULT_PORT, new String [] {"", deerFlowPath, "" });
+        String openHumanPath = parseArg(args, OPENHUMAN_PATH);
+        ConfigSyncService configSyncService = new ConfigSyncService(DEFAULT_PORT, new String [] {"", deerFlowPath, "", openHumanPath });
         String injectAgent = parseArg(args, "--inject-agent=");
         int witch = Integer.parseInt(injectAgent == null ? "0" : injectAgent);
         configSyncService.sync(witch, witch);
@@ -195,6 +200,17 @@ public class InstallerUtil {
         return null;
     }
 
+    public static void applyLinkMindApiKey(String[] args) {
+        String apiKey = parseArg(args, LINKMIND_API_KEY_ARG);
+        if (apiKey == null) {
+            apiKey = System.getenv("LINKMIND_API_KEY");
+        }
+        if (apiKey == null || apiKey.trim().isEmpty()) {
+            return;
+        }
+        System.setProperty(LINKMIND_API_KEY_PROPERTY, apiKey.trim());
+    }
+
     private static void applyRuntimeSkillsConfig(String[] args) throws IOException {
         String configFile = System.getProperty(CONFIG_FILE_PROPERTY);
         if (configFile == null || configFile.trim().isEmpty()) {
@@ -203,23 +219,23 @@ public class InstallerUtil {
         }
         Path configPath = Paths.get(configFile).toAbsolutePath().normalize();
         String runtimeChoice = resolveRuntimeChoice(args);
+        boolean serverRuntime = "server".equals(runtimeChoice);
         Path skillsRoot = null;
-        if ("server".equals(runtimeChoice)) {
+        if (serverRuntime) {
             String skillsRootArg = parseArg(args, SKILLS_ROOT_ARG);
             if (skillsRootArg != null && !skillsRootArg.trim().isEmpty()) {
                 skillsRoot = Paths.get(skillsRootArg).toAbsolutePath().normalize();
             }
         }
         try {
-            updateSkillsConfig(configPath, runtimeChoice, skillsRoot);
+            updateSkillsConfig(configPath, runtimeChoice, serverRuntime ? Boolean.TRUE : null, skillsRoot);
         } catch (Exception e) {
             log.error("Skip runtime skills config due to invalid YAML at {}. Please fix this file and retry if needed.", configPath, e);
         }
     }
 
     @SuppressWarnings("unchecked")
-    private static void updateSkillsConfig(Path configPath, String runtimeMode, Path skillsRoot) throws IOException {
-        boolean enableSkills = "server".equals(runtimeMode);
+    private static void updateSkillsConfig(Path configPath, String runtimeMode, Boolean enableSkills, Path skillsRoot) throws IOException {
         // Default YAMLMapper can emit broken single-quoted multiline scalars (e.g. filters.rules), which then fail on re-read.
         YAMLFactory yamlFactory = new YAMLFactory()
                 .disable(YAMLGenerator.Feature.WRITE_DOC_START_MARKER)
@@ -244,7 +260,9 @@ public class InstallerUtil {
         Map<String, Object> skillsMap = skillsObj instanceof Map
                 ? new LinkedHashMap<>((Map<String, Object>) skillsObj)
                 : new LinkedHashMap<String, Object>();
-        skillsMap.put("enable", enableSkills);
+        if (enableSkills != null) {
+            skillsMap.put("enable", enableSkills);
+        }
         if (skillsRoot != null) {
             // roots 里只追加安装器传入的解压目录；内层目录推断仅用于发现 items，避免写入“多出来的错误路径”
             Path discoveryRoot = resolveSkillRootForConfig(skillsRoot);

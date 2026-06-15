@@ -18,7 +18,7 @@
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
         <!-- Path to lagi-core libs: use reactor root so it's correct when plugin runs in any module -->
-        <lagi-core.libs>${session.executionRootDirectory}/lagi-core/libs</lagi-core.libs>
+        <lagi-core.libs>${maven.multiModuleProjectDirectory}/lagi-core/libs</lagi-core.libs>
     </properties>
     <build>
         <plugins>
@@ -53,6 +53,11 @@
                         <configuration><file>${lagi-core.libs}/ai_gather.jar</file><groupId>com.landingbj</groupId><artifactId>gather</artifactId><version>1.0</version><packaging>jar</packaging><generatePom>true</generatePom></configuration>
                     </execution>
                 </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
             </plugin>
         </plugins>
     </build>

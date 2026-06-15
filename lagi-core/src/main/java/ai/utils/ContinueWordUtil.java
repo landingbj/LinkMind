@@ -32,6 +32,9 @@ public class ContinueWordUtil {
     }
 
     public static boolean containsStoppingWorlds(String msg) {
+        if (msg == null || msg.trim().isEmpty()) {
+            return false;
+        }
         msg = msg.trim();
         for(String pattern : patterns) {
             Pattern p = Pattern.compile(pattern);

@@ -44,7 +44,8 @@ public class ModelFunction extends Backend {
             @JsonProperty("context_length") Integer contextLength,
             @JsonProperty("token_charge") Boolean tokenCharge,
             @JsonProperty("enable_auth") Boolean enableAuth,
-            @JsonProperty("enable_policy") Boolean enablePolicy
+            @JsonProperty("enable_policy") Boolean enablePolicy,
+            @JsonProperty("console_default_model") String consoleDefaultModel
     ) {
         this.enableQueueHandle = enableQueueHandle != null && enableQueueHandle;
         this.handle = handle == null ? PolicyConstants.PARALLEL : handle;
@@ -54,5 +55,6 @@ public class ModelFunction extends Backend {
         this.tokenCharge = tokenCharge != null && tokenCharge;
         this.enableAuth = enableAuth != null && enableAuth;
         this.enablePolicy = enablePolicy == null || enablePolicy;
+        this.consoleDefaultModel = consoleDefaultModel;
     }
 }

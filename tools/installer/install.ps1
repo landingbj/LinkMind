@@ -188,6 +188,7 @@ function Install-LinkMind {
     $skillsRoot = ""
     $injectAgent = 0
     $deerFlowPath = ""
+    $openHumanPath = ""
 
     function Read-InjectAgentChoice {
         while ($true) {
@@ -195,6 +196,7 @@ function Install-LinkMind {
             Write-Host "  1) openclaw"
             Write-Host "  2) deer-flow"
             Write-Host "  3) hermes"
+            Write-Host "  4) openhuman"
             $answer = (Read-Host "Please choose [1]").Trim().ToLower()
             if ([string]::IsNullOrEmpty($answer) -or $answer -eq "1" -or $answer -eq "openclaw") {
                 return 1
@@ -205,7 +207,10 @@ function Install-LinkMind {
             if ($answer -eq "3" -or $answer -eq "hermes") {
                 return (1 -shl 2)
             }
-            Write-Host "Invalid choice. Please enter 1, 2 or 3."
+            if ($answer -eq "4" -or $answer -eq "openhuman") {
+                return (1 -shl 3)
+            }
+            Write-Host "Invalid choice. Please enter 1, 2, 3 or 4."
         }
     }
 
@@ -224,10 +229,29 @@ function Install-LinkMind {
         }
     }
 
+    function Read-OpenHumanPath {
+        while ($true) {
+            $answer = (Read-Host "Please enter OpenHuman config directory or config.toml path [auto-detect]").Trim()
+            if ([string]::IsNullOrEmpty($answer)) {
+                return ""
+            }
+            if ((Test-Path $answer -PathType Container) -or (Test-Path $answer -PathType Leaf)) {
+                return $answer
+            }
+            Write-Host "Path does not exist: $answer"
+        }
+    }
+
     if ($runtimeChoice -eq "mate") {
         $injectAgent = Read-InjectAgentChoice
         if ($injectAgent -eq (1 -shl 1)) {
             $deerFlowPath = Read-DeerFlowPath
+        }
+        if ($injectAgent -eq (1 -shl 3)) {
+            $openHumanPath = Read-OpenHumanPath
+            if ([string]::IsNullOrWhiteSpace($env:LINKMIND_API_KEY)) {
+                Write-Host "Tip: set LINKMIND_API_KEY before running this installer so OpenHuman can authenticate to LinkMind."
+            }
         }
     }
 
@@ -252,7 +276,7 @@ function Install-LinkMind {
     Write-Host "Running installer..."
     # "--export-to-openclaw=$exportVal"
     # "--import-from-openclaw=$importVal"
-    java -cp $jarPath ai.starter.InstallerUtil "--runtime-choice=$runtimeChoice" "--skills-root=$skillsRoot" "--inject-agent=$injectAgent" "--deer-flow-path=$deerFlowPath"
+    java -cp $jarPath ai.starter.InstallerUtil "--runtime-choice=$runtimeChoice" "--skills-root=$skillsRoot" "--inject-agent=$injectAgent" "--deer-flow-path=$deerFlowPath" "--openhuman-path=$openHumanPath"
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Error: Installer exited with code $LASTEXITCODE"
         return

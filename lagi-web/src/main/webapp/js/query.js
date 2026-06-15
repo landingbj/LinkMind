@@ -43,6 +43,37 @@ function buildReasoningBlockHtml(reasoningText, openByDefault) {
         + `</details>`;
 }
 
+function getSecurityFilterMessage(content) {
+    var text = (content && String(content).trim())
+        ? String(content).trim()
+        : tTextQuery('该问题触发安全过滤规则，已停止生成回答。请调整提问内容后重试。');
+    if (text === 'Your request was blocked by the security filter.') {
+        return tTextQuery('该问题触发安全过滤规则，已停止生成回答。请调整提问内容后重试。');
+    }
+    return text;
+}
+
+function renderSecurityFilterNotice(jqObj, content) {
+    var message = getSecurityFilterMessage(content)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/\n/g, '<br>');
+    jqObj.removeClass('result-streaming');
+    jqObj.html(
+        '<div style="display:flex;gap:10px;align-items:flex-start;max-width:680px;padding:12px 14px;border:1px solid #f2c9c9;border-radius:8px;background:#fff7f7;color:#7f1d1d;">'
+        + '<div aria-hidden="true" style="width:22px;height:22px;line-height:22px;text-align:center;border-radius:50%;background:#dc2626;color:#fff;font-weight:700;flex:0 0 auto;">!</div>'
+        + '<div style="min-width:0;">'
+        + '<div style="font-weight:600;margin-bottom:4px;">' + tTextQuery('安全过滤已拦截') + '</div>'
+        + '<div style="line-height:1.6;color:#991b1b;word-break:break-word;">' + message + '</div>'
+        + '</div>'
+        + '</div>'
+    );
+    jqObj.parent().children('.better-result').hide();
+}
+
 const words = [
     "股票", "天气", "油价", "新闻", "财经", "健康", "医疗",
     "教育", "游戏", "购物", "电影推荐", "美食", "食谱",
@@ -515,7 +546,18 @@ async function generalOutput(paras, question, robootAnswerJq) {
                 }
                 return;
             }
-            var chatMessage = res.choices[0].message;
+            var choice = res.choices[0] || {};
+            var chatMessage = choice.message || {};
+            if (choice.finish_reason === 'content_filter') {
+                renderSecurityFilterNotice(robootAnswerJq, chatMessage.content);
+                enableQueryBtn();
+                querying = false;
+                queryLock = false;
+                if (typeof ensureChatBottomBarVisible === 'function') {
+                    ensureChatBottomBarVisible();
+                }
+                return;
+            }
             if (chatMessage.filename !== undefined) {
                 var a = '';
                 let isFirst = true;
@@ -792,9 +834,18 @@ function streamOutput(paras, question, robootAnswerJq) {
         let sourceContent = '';
         let pageContent = '';
         let reasoningContent = '';
+        let securityFiltered = false;
         robootAnswerJq.html('<p></p>');
         while (flag) {
             const {value, done} = await reader.read();
+            if (done) {
+                if (pageContent) {
+                    CONVERSATION_CONTEXT.push({"role": "user", "content": question});
+                    CONVERSATION_CONTEXT.push({"role": "assistant", "content": sourceContent || pageContent});
+                }
+                flag = false;
+                break;
+            }
             let res = new TextDecoder().decode(value);
             if (res.startsWith("error:")) {
                 robootAnswerJq.html(res.replaceAll('error:', ''));
@@ -826,7 +877,14 @@ function streamOutput(paras, question, robootAnswerJq) {
                 if (json.choices.length === 0) {
                     continue;
                 }
-                let chatMessage = json.choices[0].delta;
+                let choice = json.choices[0] || {};
+                let chatMessage = choice.delta || choice.message || {};
+                if (choice.finish_reason === 'content_filter') {
+                    securityFiltered = true;
+                    sourceContent = getSecurityFilterMessage(pageContent || chatMessage.content);
+                    renderSecurityFilterNotice(robootAnswerJq, sourceContent);
+                    continue;
+                }
                 let a = '';
                 if (chatMessage.filename) {
                     for (let i = 0; i < chatMessage.filename.length; i++) {
@@ -871,13 +929,15 @@ function streamOutput(paras, question, robootAnswerJq) {
                 robootAnswerJq.html(result);
             }
         }
+        return {securityFiltered: securityFiltered};
     }
 
     generateStream(paras).then(r => {
         if (typeof ensureChatBottomBarVisible === 'function') {
             ensureChatBottomBarVisible();
         }
-        if (CONVERSATION_CONTEXT.length > 0) {
+        var securityFiltered = r && r.securityFiltered;
+        if (!securityFiltered && CONVERSATION_CONTEXT.length > 0) {
             const last = CONVERSATION_CONTEXT[CONVERSATION_CONTEXT.length - 1];
             if (last && last.role === 'assistant' && last.content) {
                 txtTovoice(last.content, "default");
@@ -887,7 +947,11 @@ function streamOutput(paras, question, robootAnswerJq) {
         querying = false;
         queryLock = false;
         let betterResult = robootAnswerJq.parent().children('.better-result')
-        betterResult.show();
+        if (securityFiltered) {
+            betterResult.hide();
+        } else {
+            betterResult.show();
+        }
     }).catch((err) => {
         console.error(err);
         if (typeof ensureChatBottomBarVisible === 'function') {

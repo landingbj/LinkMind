@@ -33,9 +33,11 @@ public final class ResponsesChatCompletionConverter {
         responseRequest.setStream(Boolean.TRUE.equals(request.getStream()));
         responseRequest.setMax_output_tokens(request.getMax_tokens());
         List<ResponseTool> requestTools = toTools(request.getTools(), modelName);
-        responseRequest.setTools(requestTools);
-        responseRequest.setTool_choice(toToolChoice(request.getTool_choice(), requestTools));
-        responseRequest.setParallel_tool_calls(request.getParallel_tool_calls());
+        if (requestTools != null) {
+            responseRequest.setTools(requestTools);
+            responseRequest.setTool_choice(toToolChoice(request.getTool_choice(), requestTools));
+            responseRequest.setParallel_tool_calls(request.getParallel_tool_calls());
+        }
         responseRequest.setText(toText(request.getResponse_format()));
         return responseRequest;
     }

@@ -51,7 +51,7 @@ LinkMind 是面向企业场景的多模态 AI 中间件，用来把业务系统�
   <tr>
     <td><img src="docs/images/logo/img_23.jpg" width="18" alt="DeerFlow"> DeerFlow</td>
     <td><img src="docs/images/logo/img_22.png" width="18" alt="Hermes Agent"> Hermes Agent</td>
-    <td>OpenHuman</td>
+    <td><img src="docs/images/logo/OpenHuman_logo.png" width="18" alt="Hermes Agent">OpenHuman</td>
     <td><img src="docs/images/logo/img_21.jpg" width="18" alt="OpenClaw"> OpenClaw</td>
   </tr>
 </table>

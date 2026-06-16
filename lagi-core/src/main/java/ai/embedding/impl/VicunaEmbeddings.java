@@ -73,8 +73,8 @@ public class VicunaEmbeddings implements Embeddings {
                     result.add(data.getEmbedding());
                 }
             }
-        } catch (IOException e) {
-            e.printStackTrace();
+        } catch (IOException ignored) {
+//            e.printStackTrace();
         }
         if (!result.isEmpty()) {
             cache.put(docs, result);

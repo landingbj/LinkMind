@@ -50,13 +50,13 @@ public class MedusaMonitor {
             } else {
                 ChatCompletionResult lastCompletionResult = result.getChatCompletionResult();
                 ChatCompletionResult completionResult = cacheItem.getChatCompletionResult();
-                String lastContent = getContent(lastCompletionResult);
-                String content = getContent(completionResult);
+                String lastContent = getStreamContent(lastCompletionResult);
+                String content = getStreamContent(completionResult);
                 if (content != null) {
                     if (lastContent != null) {
                         content = lastContent + content;
                     }
-                    completionResult.getChoices().get(0).getMessage().setContent(content);
+                    completionResult.getChoices().get(0).getDelta().setContent(content);
                     result.setChatCompletionResult(completionResult);
                 }
             }
@@ -94,7 +94,7 @@ public class MedusaMonitor {
                 return;
             }
             if (!reasonMonitorMap.containsKey(key)) {
-                String content = getContent(cacheItem.getChatCompletionResult());
+                String content = getStreamContent(cacheItem.getChatCompletionResult());
                 if (content.trim().startsWith("<think>")) {
                     PromptInput promptInput = cacheItem.getPromptInput();
                     promptInput.getMedusaMetadata().setReasoningContent(content.replace("<think>", "").trim());
@@ -136,6 +136,15 @@ public class MedusaMonitor {
         if (completionResult.getChoices() != null && !completionResult.getChoices().isEmpty() &&
                 completionResult.getChoices().get(0).getMessage() != null) {
             content = ChatCompletionUtil.getFirstAnswer(completionResult).trim();
+        }
+        return content;
+    }
+
+    private String getStreamContent(ChatCompletionResult completionResult) {
+        String content = null;
+        if (completionResult.getChoices() != null && !completionResult.getChoices().isEmpty() &&
+                completionResult.getChoices().get(0).getDelta() != null && completionResult.getChoices().get(0).getDelta().getContent() != null) {
+            content = ChatCompletionUtil.getFirstDelta(completionResult).trim();
         }
         return content;
     }

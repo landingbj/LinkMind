@@ -7,6 +7,7 @@ import lombok.Getter;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -98,7 +99,7 @@ public class PromptCacheConfig {
     public static double LCS_RATIO_PROMPT_INPUT = 0.6;
     public static int MEDUSA_PRIORITY = 1;
 
-    public static String CACHE_PERSISTENT_PATH = "./medusa_cache";
+    public static String CACHE_PERSISTENT_PATH = Paths.get(System.getProperty("java.io.tmpdir"), "medusa_cache").toString();
     public static int CACHE_PERSISTENT_BATCH_SIZE = 20;
 
     public static List<Double> TEMPERATURE_TOLERANCE;

@@ -80,7 +80,7 @@ public class MedusaService {
         for (CacheItem cacheItem : cacheItems) {
             PromptInput promptInput = cacheItem.getPromptInput();
             ChatCompletionResult chatCompletionRequest = cacheItem.getChatCompletionResult();
-            cache.put(promptInput, chatCompletionRequest, false, PromptCacheConfig.MEDUSA_FLUSH);
+            cache.syncPut(promptInput, chatCompletionRequest);
         }
         cacheLoader.clearLoadedItems();
     }

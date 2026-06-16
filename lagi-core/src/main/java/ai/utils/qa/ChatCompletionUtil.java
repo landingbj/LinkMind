@@ -118,6 +118,11 @@ public class ChatCompletionUtil {
         return content;
     }
 
+    public static String getFirstDelta(ChatCompletionResult chatCompletionResult) {
+        String content = chatCompletionResult.getChoices().get(0).getDelta().getContent();
+        return content;
+    }
+
     public static String getReasoningContent(ChatCompletionResult chatCompletionResult) {
         String reasoningContent = chatCompletionResult.getChoices().get(0).getMessage().getReasoning_content();
         return reasoningContent;

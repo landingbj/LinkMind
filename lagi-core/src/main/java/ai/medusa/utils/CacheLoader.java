@@ -73,7 +73,7 @@ public class CacheLoader {
                     logger.warn("Failed to parse line {} in file {}: {}", lineNumber, jsonlFilePath, e.getMessage());
                 }
             }
-            logger.info("Successfully loaded {} items from {}", items.size(), jsonlFilePath);
+            logger.debug("Successfully loaded {} items from {}", items.size(), jsonlFilePath);
 
         } catch (IOException e) {
             logger.error("Error reading file: {}", jsonlFilePath, e);

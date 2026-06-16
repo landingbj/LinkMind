@@ -36,7 +36,7 @@ public class VectorStoreManager {
     public void register(List<VectorStoreConfig> vectorStoreConfigs, RAGFunction ragFunction, List<EmbeddingConfig> embeddings) {
         aiMap.clear();
         LagiGlobal.RAG_ENABLE = false;
-        if (vectorStoreConfigs == null || vectorStoreConfigs.isEmpty() || ragFunction == null) {
+        if (vectorStoreConfigs == null || vectorStoreConfigs.isEmpty() || ragFunction == null || embeddings == null || embeddings.isEmpty()) {
             return;
         }
         Map<String, VectorStoreConfig> vectorMap = vectorStoreConfigs.stream().collect(Collectors.toMap(VectorStoreConfig::getName, vectorStoreConfig -> vectorStoreConfig));

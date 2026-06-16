@@ -148,7 +148,7 @@ public class PromptCacheTrigger {
             cachePersistence.addItem(new CacheItem(newPromptInput, chatCompletionResult));
         }
         if (flush) {
-            log.info("current cache size {}, putCache2: {}", promptCache.size(), promptInputs);
+            log.debug("current cache size {}, putCache2: {}", promptCache.size(), promptInputs);
         }
     }
 
@@ -182,7 +182,7 @@ public class PromptCacheTrigger {
             cachePersistence.addItem(new CacheItem(promptInputWithBoundaries, chatCompletionResult));
         }
         if (flush) {
-            log.info("current cache size {}, putCache1: {}", promptCache.size(), promptInputList);
+            log.debug("current cache size {}, putCache1: {}", promptCache.size(), promptInputList);
         }
     }
 

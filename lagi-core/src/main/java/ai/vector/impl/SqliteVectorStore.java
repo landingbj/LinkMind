@@ -1,6 +1,7 @@
 package ai.vector.impl;
 
 import ai.common.db.Conn;
+import ai.common.db.SqliteRetry;
 import ai.common.pojo.VectorStoreConfig;
 import ai.embedding.Embeddings;
 import ai.utils.AiGlobal;
@@ -171,6 +172,35 @@ public class SqliteVectorStore extends BaseVectorStore {
         try (ResultSet rs = conn.executeQuery(
                 "SELECT 1 FROM sqlite_master WHERE name='" + vecTable.replace("'", "''") + "'")) {
             return rs.next();
+        }
+    }
+
+    @FunctionalInterface
+    private interface TransactionAction {
+        void run(Conn conn) throws SQLException;
+    }
+
+    private void runWriteTransaction(TransactionAction action) {
+        try {
+            SqliteRetry.run(() -> {
+                Conn conn = getConn();
+                try {
+                    conn.setAutoCommit(false);
+                    action.run(conn);
+                    conn.commit();
+                } catch (SQLException e) {
+                    try {
+                        conn.rollback();
+                    } catch (SQLException ex) {
+                        logger.error("Rollback failed", ex);
+                    }
+                    throw e;
+                } finally {
+                    conn.close();
+                }
+            });
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
         }
     }
 
@@ -459,9 +489,7 @@ public class SqliteVectorStore extends BaseVectorStore {
                 .collect(Collectors.toList());
         List<List<Float>> embeddings = embeddingFunction.createEmbedding(documents);
 
-        Conn conn = getConn();
-        try {
-            conn.setAutoCommit(false);
+        runWriteTransaction(conn -> {
             ensureCollection(conn, category, embeddings.get(0).size());
 
             String vecTable = vecTableName(category);
@@ -488,13 +516,7 @@ public class SqliteVectorStore extends BaseVectorStore {
 
                 insertMetadata(conn, metaTable, id, record.getMetadata());
             }
-            conn.commit();
-        } catch (SQLException e) {
-            try { conn.rollback(); } catch (SQLException ex) { logger.error("Rollback failed", ex); }
-            throw new RuntimeException(e);
-        } finally {
-            conn.close();
-        }
+        });
     }
 
     @Override
@@ -682,9 +704,7 @@ public class SqliteVectorStore extends BaseVectorStore {
     @Override
     public void delete(List<String> ids, String category) {
         if (ids == null || ids.isEmpty()) return;
-        Conn conn = getConn();
-        try {
-            conn.setAutoCommit(false);
+        runWriteTransaction(conn -> {
             String vecTable = vecTableName(category);
             String metaTable = metadataTableName(category);
             if (!collectionExists(conn, vecTable)) return;
@@ -697,13 +717,7 @@ public class SqliteVectorStore extends BaseVectorStore {
                     ps.executeUpdate();
                 }
             }
-            conn.commit();
-        } catch (SQLException e) {
-            try { conn.rollback(); } catch (SQLException ex) { logger.error("Rollback failed", ex); }
-            throw new RuntimeException(e);
-        } finally {
-            conn.close();
-        }
+        });
     }
 
     @Override
@@ -714,9 +728,7 @@ public class SqliteVectorStore extends BaseVectorStore {
     @Override
     public void deleteWhere(List<Map<String, String>> whereList, String category) {
         if (whereList == null || whereList.isEmpty()) return;
-        Conn conn = getConn();
-        try {
-            conn.setAutoCommit(false);
+        runWriteTransaction(conn -> {
             String vecTable = vecTableName(category);
             String metaTable = metadataTableName(category);
             if (!collectionExists(conn, vecTable)) return;
@@ -734,30 +746,19 @@ public class SqliteVectorStore extends BaseVectorStore {
                     }
                 }
             }
-            conn.commit();
-        } catch (SQLException e) {
-            try { conn.rollback(); } catch (SQLException ex) { logger.error("Rollback failed", ex); }
-            throw new RuntimeException(e);
-        } finally {
-            conn.close();
-        }
+        });
     }
 
     @Override
     public void deleteCollection(String category) {
-        Conn conn = getConn();
-        try {
+        runWriteTransaction(conn -> {
             String vecTable = vecTableName(category);
             String metaTable = metadataTableName(category);
             if (!collectionExists(conn, vecTable)) return;
 
             conn.executeUpdate("DROP TABLE IF EXISTS " + metaTable);
             conn.executeUpdate("DROP TABLE IF EXISTS " + vecTable);
-        } catch (SQLException e) {
-            throw new RuntimeException(e);
-        } finally {
-            conn.close();
-        }
+        });
     }
 
     @Override
@@ -869,9 +870,7 @@ public class SqliteVectorStore extends BaseVectorStore {
         String category = addEmbedding.getCategory() != null
                 ? addEmbedding.getCategory() : config.getDefaultCategory();
 
-        Conn conn = getConn();
-        try {
-            conn.setAutoCommit(false);
+        runWriteTransaction(conn -> {
 
             for (AddEmbedding.AddEmbeddingData data : addEmbedding.getData()) {
                 if (data.getId() == null || data.getId().isEmpty()) {
@@ -900,13 +899,7 @@ public class SqliteVectorStore extends BaseVectorStore {
                 }
                 insertMetadata(conn, metaTable, data.getId(), data.getMetadata());
             }
-            conn.commit();
-        } catch (SQLException e) {
-            try { conn.rollback(); } catch (SQLException ex) { logger.error("Rollback failed", ex); }
-            throw new RuntimeException(e);
-        } finally {
-            conn.close();
-        }
+        });
     }
 
     @Override
@@ -915,9 +908,7 @@ public class SqliteVectorStore extends BaseVectorStore {
         String category = updateEmbedding.getCategory() != null
                 ? updateEmbedding.getCategory() : config.getDefaultCategory();
 
-        Conn conn = getConn();
-        try {
-            conn.setAutoCommit(false);
+        runWriteTransaction(conn -> {
             String vecTable = vecTableName(category);
             String metaTable = metadataTableName(category);
             if (!collectionExists(conn, vecTable)) return;
@@ -974,13 +965,7 @@ public class SqliteVectorStore extends BaseVectorStore {
                 if (data.getMetadata() != null) mergedMetadata.putAll(data.getMetadata());
                 insertMetadata(conn, metaTable, data.getId(), mergedMetadata);
             }
-            conn.commit();
-        } catch (SQLException e) {
-            try { conn.rollback(); } catch (SQLException ex) { logger.error("Rollback failed", ex); }
-            throw new RuntimeException(e);
-        } finally {
-            conn.close();
-        }
+        });
     }
 
     @Override
@@ -989,9 +974,7 @@ public class SqliteVectorStore extends BaseVectorStore {
         String category = deleteEmbedding.getCategory() != null
                 ? deleteEmbedding.getCategory() : config.getDefaultCategory();
 
-        Conn conn = getConn();
-        try {
-            conn.setAutoCommit(false);
+        runWriteTransaction(conn -> {
             String vecTable = vecTableName(category);
             String metaTable = metadataTableName(category);
             if (!collectionExists(conn, vecTable)) return;
@@ -1024,13 +1007,7 @@ public class SqliteVectorStore extends BaseVectorStore {
                     ps.executeUpdate();
                 }
             }
-            conn.commit();
-        } catch (SQLException e) {
-            try { conn.rollback(); } catch (SQLException ex) { logger.error("Rollback failed", ex); }
-            throw new RuntimeException(e);
-        } finally {
-            conn.close();
-        }
+        });
     }
 
     private boolean hasWhereFilter(Map<String, ?> where) {

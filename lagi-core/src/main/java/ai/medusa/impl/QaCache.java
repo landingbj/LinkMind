@@ -9,10 +9,7 @@ import ai.vector.pojo.UpsertRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public class QaCache {
     private static final Logger logger = LoggerFactory.getLogger(QaCache.class);
@@ -27,8 +24,7 @@ public class QaCache {
         if (PromptCacheConfig.MEDUSA_FLUSH) {
             try {
                 vectorStoreService.deleteCollection(MEDUSA_CATEGORY);
-            } catch (Exception e) {
-                logger.error("QaCache :{}", e.getMessage());
+            } catch (Exception ignored) {
             }
         }
     }
@@ -43,10 +39,13 @@ public class QaCache {
 
     public void put(String key, List<PromptInput> value, boolean flush) {
         if (flush) {
-            Map<String, String> metadata = new HashMap<>();
-            metadata.put("category", MEDUSA_CATEGORY);
-            UpsertRecord upsertRecord = UpsertRecord.newBuilder().withDocument(key).withMetadata(metadata).build();
-            vectorStoreService.upsertCustomVectors(Collections.singletonList(upsertRecord), MEDUSA_CATEGORY);
+            try {
+                Map<String, String> metadata = new HashMap<>();
+                metadata.put("category", MEDUSA_CATEGORY);
+                UpsertRecord upsertRecord = UpsertRecord.newBuilder().withDocument(key).withMetadata(metadata).build();
+                vectorStoreService.upsertCustomVectors(Collections.singletonList(upsertRecord), MEDUSA_CATEGORY);
+            } catch (Exception ignored) {
+            }
         }
         cache.put(key, value);
     }
@@ -58,9 +57,12 @@ public class QaCache {
     public String getPromptInVectorDb(String key, double similarityCutoff) {
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("category", MEDUSA_CATEGORY);
-        List<IndexSearchData> indexSearchDataList = vectorStoreService.search(key, QA_SIMILARITY_TOP_K,
-                similarityCutoff, metadata, MEDUSA_CATEGORY);
-
+        List<IndexSearchData> indexSearchDataList = new ArrayList<>();
+        try {
+            indexSearchDataList = vectorStoreService.search(key, QA_SIMILARITY_TOP_K,
+                    similarityCutoff, metadata, MEDUSA_CATEGORY);
+        } catch (Exception ignored) {
+        }
         if (indexSearchDataList.isEmpty()) {
             return null;
         }

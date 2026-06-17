@@ -341,6 +341,8 @@ stores:
     aheads: 1
     producer_thread_num: 1
     consumer_thread_num: 2
+    core_pool_size: 5
+    maximum_pool_size: 30
     cache_persistent_path: medusa_cache
     cache_persistent_batch_size: 2
     flush: false
@@ -360,6 +362,7 @@ stores:
 | `reason_model` | 可选的推理模型 |
 | `aheads` | 预请求数量 |
 | `producer_thread_num` / `consumer_thread_num` | 生产者与消费者线程数 |
+| `core_pool_size` / `maximum_pool_size` | Prompt 缓存写入执行器线程池大小 |
 | `consumeDelay` / `preDelay` | 队列时序控制参数 |
 | `lcsRatioPromptInput` / `similarityCutoff` / `qa_similarity_cutoff` / `dynamicSimilarity` | 缓存命中阈值相关参数 |
 | `cache_persistent_path` | 持久化缓存目录 |

@@ -21,7 +21,9 @@ JAR_NAME="LinkMind.jar"
 DOWNLOADS_HOST="cdn.linkmind.top"
 DOWNLOAD_URL="https://${DOWNLOADS_HOST}/installer/LinkMind.jar"
 POPULAR_SKILLS_URL="https://${DOWNLOADS_HOST}/installer/popular_skills.zip"
+MEDUSA_MODEL_URL="https://${DOWNLOADS_HOST}/installer/medusa.model"
 #DOWNLOAD_URL="http://localhost:8000/LinkMind.jar"
+#MEDUSA_MODEL_URL="http://localhost:8000/medusa.model"
 JAR_PATH="$LINKMIND_DIR/$JAR_NAME"
 SKILLS_ROOT=""
 
@@ -74,6 +76,7 @@ read_yes_no() {
 # export_val="false"
 # import_val="false"
 runtime_choice="mate"
+install_medusa="false"
 inject_agent=0
 deer_flow_path=""
 openhuman_path=""
@@ -175,6 +178,10 @@ if [ "$runtime_choice" = "mate" ]; then
 fi
 
 if [ "$runtime_choice" = "server" ]; then
+    if read_yes_no "Would you like to install Medusa Accelerator? This downloads a large model file (100+ MB)"; then
+        install_medusa="true"
+    fi
+
     POPULAR_SKILLS_ZIP="$LINKMIND_DIR/popular_skills.zip"
     SKILLS_ROOT="$LINKMIND_DIR/skills/popular_skills"
     mkdir -p "$SKILLS_ROOT"
@@ -205,6 +212,44 @@ if [ "$runtime_choice" = "server" ]; then
         echo "Error: unzip is required but was not found."
         exit 1
     fi
+
+    if [ "$install_medusa" = "true" ]; then
+        if ! command -v jar >/dev/null 2>&1; then
+            echo "Error: JDK 8 is required to install Medusa Accelerator, but 'jar' was not found."
+            echo "Please install JDK 8 and make sure 'jar' is available in your PATH."
+            exit 1
+        fi
+
+        MEDUSA_MODEL_PATH="$LINKMIND_DIR/medusa.model"
+        echo "Downloading $MEDUSA_MODEL_URL ..."
+        if command -v curl >/dev/null 2>&1; then
+            if ! curl -kfL --progress-bar -o "$MEDUSA_MODEL_PATH" "$MEDUSA_MODEL_URL"; then
+                echo "Error: Failed to download $MEDUSA_MODEL_URL"
+                exit 1
+            fi
+        elif command -v wget >/dev/null 2>&1; then
+            if ! wget --show-progress -q -O "$MEDUSA_MODEL_PATH" "$MEDUSA_MODEL_URL"; then
+                echo "Error: Failed to download $MEDUSA_MODEL_URL"
+                exit 1
+            fi
+        else
+            echo "Error: Neither curl nor wget is available. Please install one of them."
+            exit 1
+        fi
+
+        JAR_UPDATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/LinkMindJar_XXXXXXXXXX")"
+        cp -f "$MEDUSA_MODEL_PATH" "$JAR_UPDATE_DIR/medusa.model"
+        if ! (
+            cd "$JAR_UPDATE_DIR"
+            jar uf "$JAR_PATH" medusa.model
+        ); then
+            rm -rf "$JAR_UPDATE_DIR"
+            echo "Error: Failed to update $JAR_PATH with medusa.model"
+            exit 1
+        fi
+        rm -rf "$JAR_UPDATE_DIR"
+        echo "Medusa Accelerator model installed into: $JAR_PATH"
+    fi
 fi
 
 # if read_yes_no "Would you like to inject LinkMind into OpenClaw?"; then
@@ -221,6 +266,7 @@ echo "Running installer..."
 java -cp "$JAR_PATH" ai.starter.InstallerUtil \
     "--runtime-choice=$runtime_choice" \
     "--skills-root=$SKILLS_ROOT" \
+    "--install-medusa=$install_medusa" \
     "--inject-agent=$inject_agent" \
     "--deer-flow-path=$deer_flow_path" \
     "--openhuman-path=$openhuman_path" || {

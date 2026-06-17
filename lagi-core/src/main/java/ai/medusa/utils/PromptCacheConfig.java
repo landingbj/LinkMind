@@ -26,6 +26,10 @@ public class PromptCacheConfig {
     public static final int POOL_CACHE_SIZE = 10000;
     public static final int COMPLETION_CACHE_SIZE = 200000;
     public static final int RAW_ANSWER_CACHE_SIZE = 10000;
+    public static final int DEFAULT_CORE_POOL_SIZE = 5;
+    public static final int DEFAULT_MAXIMUM_POOL_SIZE = 30;
+    public static int CORE_POOL_SIZE = DEFAULT_CORE_POOL_SIZE;
+    public static int MAXIMUM_POOL_SIZE = DEFAULT_MAXIMUM_POOL_SIZE;
 
     public static final String DIVERSIFY_PROMPT = "### 任务\n任务：以下提供一个提示词，请根据这个提示词推测用户之后可能输入的提示词。结果只返回提示词本身，" +
             "不需要提供相关描述和分析。如果有多种可能性，最多只返回%d个提示词，并将其以JSON结构输出。\n\n" +
@@ -166,8 +170,22 @@ public class PromptCacheConfig {
         DYNAMIC_SIMILARITY = config.getDynamicSimilarity() != null ? config.getDynamicSimilarity() : DYNAMIC_SIMILARITY;
 
         MEDUSA_FLUSH = config.getFlush() != null ? config.getFlush() : MEDUSA_FLUSH;
+        CORE_POOL_SIZE = normalizeCorePoolSize(config.getCorePoolSize());
+        MAXIMUM_POOL_SIZE = normalizeMaximumPoolSize(config.getMaximumPoolSize(), CORE_POOL_SIZE);
 
         TEMPERATURE_TOLERANCE = cutIntervalByStep(config.getTemperatureTolerance() != null ? config.getTemperatureTolerance() : -1);
+    }
+
+    private static int normalizeCorePoolSize(Integer configured) {
+        if (configured == null || configured <= 0) {
+            return DEFAULT_CORE_POOL_SIZE;
+        }
+        return configured;
+    }
+
+    private static int normalizeMaximumPoolSize(Integer configured, int corePoolSize) {
+        int maximumPoolSize = configured == null || configured <= 0 ? DEFAULT_MAXIMUM_POOL_SIZE : configured;
+        return Math.max(corePoolSize, maximumPoolSize);
     }
 
     private static List<Double> cutIntervalByStep(double step) {

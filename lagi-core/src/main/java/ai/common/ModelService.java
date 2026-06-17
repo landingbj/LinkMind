@@ -52,9 +52,9 @@ public class ModelService implements ModelVerify {
     }
 
     public String getApiKey(ChatCompletionRequest request) {
-        if (request.getApiKey() != null) {
-            return request.getApiKey();
-        }
+//        if (request.getApiKey() != null) {
+//            return request.getApiKey();
+//        }
         return apiKey;
     }
 

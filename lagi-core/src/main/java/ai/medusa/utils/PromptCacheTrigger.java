@@ -33,27 +33,17 @@ public class PromptCacheTrigger {
     private static final Logger log = LoggerFactory.getLogger(PromptCacheTrigger.class);
     private final CompletionsService completionsService = new CompletionsService();
     private final CompletionCache completionCache;
-    private static final ThreadPoolExecutor executorService;
+    private static volatile ThreadPoolExecutor executorService;
     private final VectorDbService vectorStoreService = new VectorDbService();
     private final LRUCache<PromptInput, List<ChatCompletionResult>> promptCache;
     private final QaCache qaCache;
     private final CachePersistence cachePersistence = CachePersistence.getInstance();
-    private static final int CORE_POOL_SIZE = 5;
-    private static final int MAXIMUM_POOL_SIZE = 30;
     private static final int KEEP_ALIVE_TIME = 60;
 
     private static final LRUCache<List<ChatMessage>, String> rawAnswerCache;
 
     static {
         rawAnswerCache = new LRUCache<>(PromptCacheConfig.RAW_ANSWER_CACHE_SIZE);
-        executorService = new ThreadPoolExecutor(
-                CORE_POOL_SIZE,
-                MAXIMUM_POOL_SIZE,
-                KEEP_ALIVE_TIME,
-                TimeUnit.SECONDS,
-                new ArrayBlockingQueue<>(CORE_POOL_SIZE * 1000)
-        );
-        executorService.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
     }
 
     public PromptCacheTrigger(CompletionCache completionCache) {
@@ -73,7 +63,29 @@ public class PromptCacheTrigger {
     }
 
     public void triggerWriteCache(PromptInput promptInput, ChatCompletionResult chatCompletionResult, boolean needPersistent, boolean flush) {
-        executorService.execute(() -> writeCache(promptInput, chatCompletionResult, needPersistent, flush));
+        getExecutorService().execute(() -> writeCache(promptInput, chatCompletionResult, needPersistent, flush));
+    }
+
+    private static ThreadPoolExecutor getExecutorService() {
+        ThreadPoolExecutor executor = executorService;
+        if (executor != null) {
+            return executor;
+        }
+        synchronized (PromptCacheTrigger.class) {
+            if (executorService == null) {
+                int corePoolSize = PromptCacheConfig.CORE_POOL_SIZE;
+                int maximumPoolSize = Math.max(corePoolSize, PromptCacheConfig.MAXIMUM_POOL_SIZE);
+                executorService = new ThreadPoolExecutor(
+                        corePoolSize,
+                        maximumPoolSize,
+                        KEEP_ALIVE_TIME,
+                        TimeUnit.SECONDS,
+                        new ArrayBlockingQueue<>(corePoolSize * 1000)
+                );
+                executorService.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+            }
+            return executorService;
+        }
     }
 
     public void writeCache(PromptInput promptInput, ChatCompletionResult chatCompletionResult, boolean needPersistent, boolean flush) {

@@ -341,6 +341,8 @@ stores:
     aheads: 1
     producer_thread_num: 1
     consumer_thread_num: 2
+    core_pool_size: 5
+    maximum_pool_size: 30
     cache_persistent_path: medusa_cache
     cache_persistent_batch_size: 2
     flush: false
@@ -360,6 +362,7 @@ Common fields:
 | `reason_model` | Optional reasoning model |
 | `aheads` | Number of ahead-of-time requests |
 | `producer_thread_num` / `consumer_thread_num` | Worker thread counts |
+| `core_pool_size` / `maximum_pool_size` | Prompt cache write executor thread pool size |
 | `consumeDelay` / `preDelay` | Optional queue timing controls |
 | `lcsRatioPromptInput` / `similarityCutoff` / `qa_similarity_cutoff` / `dynamicSimilarity` | Cache-match thresholds |
 | `cache_persistent_path` | Persistent cache directory |

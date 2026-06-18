@@ -28,8 +28,10 @@ function Install-LinkMind {
     $downloadsHost = "cdn.linkmind.top"
     $downloadUrl = "https://$downloadsHost/installer/LinkMind.jar"
     $popularSkillsUrl = "https://$downloadsHost/installer/popular_skills.zip"
+    $medusaModelUrl = "https://$downloadsHost/installer/medusa.model"
     # $downloadUrl = "http://localhost:8000/LinkMind.jar"
     # $popularSkillsUrl = "http://localhost:8000/popular_skills.zip"
+    # $medusaModelUrl = "http://localhost:8000/medusa.model"
     $jarPath = Join-Path $linkMindDir $jarName
 
     # 1. Ensure LinkMind directory exists
@@ -186,6 +188,7 @@ function Install-LinkMind {
 
     $runtimeChoice = Read-RuntimeChoice
     $skillsRoot = ""
+    $installMedusa = $false
     $injectAgent = 0
     $deerFlowPath = ""
     $openHumanPath = ""
@@ -256,6 +259,7 @@ function Install-LinkMind {
     }
 
     if ($runtimeChoice -eq "server") {
+        $installMedusa = Read-YesNo "Would you like to install Medusa Accelerator? This downloads a large model file (100+ MB)"
         $popularSkillsZip = Join-Path $linkMindDir "popular_skills.zip"
         $skillsRoot = Join-Path (Join-Path $linkMindDir "skills") "popular_skills"
         Write-Host "Downloading $popularSkillsUrl ..."
@@ -265,6 +269,39 @@ function Install-LinkMind {
         }
         New-Item -ItemType Directory -Path $skillsRoot | Out-Null
         Expand-Archive -Path $popularSkillsZip -DestinationPath $skillsRoot -Force
+
+        if ($installMedusa) {
+            if (-not (Get-Command jar -ErrorAction SilentlyContinue)) {
+                Write-Host "Error: JDK 8 is required to install Medusa Accelerator, but 'jar' was not found."
+                Write-Host "Please install JDK 8 and make sure 'jar' is available in this terminal."
+                return
+            }
+
+            $medusaModelPath = Join-Path $linkMindDir "medusa.model"
+            Write-Host "Downloading $medusaModelUrl ..."
+            Invoke-WebRequest -Uri $medusaModelUrl -OutFile $medusaModelPath -UseBasicParsing
+
+            $jarUpdateDir = Join-Path ([System.IO.Path]::GetTempPath()) "LinkMindJar_$([System.Guid]::NewGuid().ToString('N'))"
+            New-Item -ItemType Directory -Path $jarUpdateDir | Out-Null
+            try {
+                Copy-Item -Path $medusaModelPath -Destination (Join-Path $jarUpdateDir "medusa.model") -Force
+                Push-Location $jarUpdateDir
+                try {
+                    & jar uf $jarPath "medusa.model"
+                } finally {
+                    Pop-Location
+                }
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "Error: Failed to update $jarPath with medusa.model"
+                    return
+                }
+                Write-Host "Medusa Accelerator model installed into: $jarPath"
+            } finally {
+                if (Test-Path $jarUpdateDir) {
+                    Remove-Item -Path $jarUpdateDir -Recurse -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
     }
 
     # $exportToOpenClaw = Read-YesNo "Would you like to inject LinkMind into OpenClaw?"
@@ -276,7 +313,7 @@ function Install-LinkMind {
     Write-Host "Running installer..."
     # "--export-to-openclaw=$exportVal"
     # "--import-from-openclaw=$importVal"
-    java -cp $jarPath ai.starter.InstallerUtil "--runtime-choice=$runtimeChoice" "--skills-root=$skillsRoot" "--inject-agent=$injectAgent" "--deer-flow-path=$deerFlowPath" "--openhuman-path=$openHumanPath"
+    java -cp $jarPath ai.starter.InstallerUtil "--runtime-choice=$runtimeChoice" "--skills-root=$skillsRoot" "--install-medusa=$installMedusa" "--inject-agent=$injectAgent" "--deer-flow-path=$deerFlowPath" "--openhuman-path=$openHumanPath"
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Error: Installer exited with code $LASTEXITCODE"
         return

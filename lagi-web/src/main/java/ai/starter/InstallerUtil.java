@@ -45,6 +45,7 @@ public class InstallerUtil {
     public static final String DEER_FLOW_PATH = "--deer-flow-path=";
     public static final String OPENHUMAN_PATH = "--openhuman-path=";
     private static final String SKILLS_ROOT_ARG = "--skills-root=";
+    private static final String INSTALL_MEDUSA_ARG = "--install-medusa=";
     private static final String LAGI_YML = "lagi.yml";
     private static final String SQLITE_RESOURCE_DIR = "sqlite";
     private static final int DEFAULT_PORT = 8080;
@@ -220,6 +221,7 @@ public class InstallerUtil {
         Path configPath = Paths.get(configFile).toAbsolutePath().normalize();
         String runtimeChoice = resolveRuntimeChoice(args);
         boolean serverRuntime = "server".equals(runtimeChoice);
+        boolean installMedusa = serverRuntime && Boolean.parseBoolean(parseArg(args, INSTALL_MEDUSA_ARG));
         Path skillsRoot = null;
         if (serverRuntime) {
             String skillsRootArg = parseArg(args, SKILLS_ROOT_ARG);
@@ -228,14 +230,14 @@ public class InstallerUtil {
             }
         }
         try {
-            updateSkillsConfig(configPath, runtimeChoice, serverRuntime ? Boolean.TRUE : null, skillsRoot);
+            updateSkillsConfig(configPath, runtimeChoice, serverRuntime ? Boolean.TRUE : null, skillsRoot, serverRuntime, installMedusa);
         } catch (Exception e) {
             log.error("Skip runtime skills config due to invalid YAML at {}. Please fix this file and retry if needed.", configPath, e);
         }
     }
 
     @SuppressWarnings("unchecked")
-    private static void updateSkillsConfig(Path configPath, String runtimeMode, Boolean enableSkills, Path skillsRoot) throws IOException {
+    private static void updateSkillsConfig(Path configPath, String runtimeMode, Boolean enableSkills, Path skillsRoot, boolean serverRuntime, boolean installMedusa) throws IOException {
         // Default YAMLMapper can emit broken single-quoted multiline scalars (e.g. filters.rules), which then fail on re-read.
         YAMLFactory yamlFactory = new YAMLFactory()
                 .disable(YAMLGenerator.Feature.WRITE_DOC_START_MARKER)
@@ -270,6 +272,11 @@ public class InstallerUtil {
             appendSkillItems(skillsMap, discoveryRoot);
         }
         rootMap.put("skills", skillsMap);
+        if (installMedusa) {
+            applyMedusaAcceleratorConfig(rootMap);
+        } else if (serverRuntime) {
+            disableMedusaAcceleratorConfig(rootMap);
+        }
 
         Object generalObj = rootMap.get("general");
         Map<String, Object> generalMap = generalObj instanceof Map
@@ -282,6 +289,37 @@ public class InstallerUtil {
             Files.createDirectories(configPath.getParent());
         }
         yamlMapper.writeValue(configPath.toFile(), rootMap);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void applyMedusaAcceleratorConfig(Map<String, Object> rootMap) {
+        Object storesObj = rootMap.get("stores");
+        Map<String, Object> storesMap = storesObj instanceof Map
+                ? new LinkedHashMap<>((Map<String, Object>) storesObj)
+                : new LinkedHashMap<String, Object>();
+
+        Map<String, Object> medusaMap = new LinkedHashMap<>();
+        medusaMap.put("enable", true);
+        medusaMap.put("algorithm", "hash");
+        medusaMap.put("core_pool_size", 5);
+        medusaMap.put("maximum_pool_size", 30);
+        storesMap.put("medusa", medusaMap);
+        rootMap.put("stores", storesMap);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void disableMedusaAcceleratorConfig(Map<String, Object> rootMap) {
+        Object storesObj = rootMap.get("stores");
+        Map<String, Object> storesMap = storesObj instanceof Map
+                ? new LinkedHashMap<>((Map<String, Object>) storesObj)
+                : new LinkedHashMap<String, Object>();
+        Object medusaObj = storesMap.get("medusa");
+        Map<String, Object> medusaMap = medusaObj instanceof Map
+                ? new LinkedHashMap<>((Map<String, Object>) medusaObj)
+                : new LinkedHashMap<String, Object>();
+        medusaMap.put("enable", false);
+        storesMap.put("medusa", medusaMap);
+        rootMap.put("stores", storesMap);
     }
 
     /**

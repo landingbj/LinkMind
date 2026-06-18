@@ -41,4 +41,8 @@ public class Medusa {
     private Boolean dynamicSimilarity;
     @JsonProperty("temperature_tolerance")
     private Double temperatureTolerance;
+    @JsonProperty("core_pool_size")
+    private Integer corePoolSize;
+    @JsonProperty("maximum_pool_size")
+    private Integer maximumPoolSize;
 }

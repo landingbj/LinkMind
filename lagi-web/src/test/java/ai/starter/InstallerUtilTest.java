@@ -9,9 +9,11 @@ import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class InstallerUtilTest {
 
@@ -107,10 +109,49 @@ class InstallerUtilTest {
         assertEquals(30, medusa.get("maximum_pool_size"));
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void agentServerWritesDiscoverableSkillRootAndItemsFromNestedPopularSkills() throws Exception {
+        Path config = writeConfig("skills:\n  enable: false\n  roots:\n    - classpath:skills\n  items:\n    - name: existing\n      description: existing skill\n");
+        Path outerPopularSkills = tempDir.resolve("skills").resolve("popular_skills");
+        Path innerPopularSkills = outerPopularSkills.resolve("popular_skills");
+        writeSkill(innerPopularSkills.resolve("alpha-skill"), "alpha-skill", "Alpha description");
+        writeSkill(innerPopularSkills.resolve("beta-skill"), "beta-skill", "Beta description");
+        System.setProperty(InstallerUtil.CONFIG_FILE_PROPERTY, config.toString());
+
+        invokeApplyRuntimeSkillsConfig(new String[] {
+                "--runtime-choice=server",
+                "--skills-root=" + outerPopularSkills.toString()
+        });
+
+        Map<String, Object> root = YmlLoader.loadYamlAsMap(config.toString());
+        Map<String, Object> skills = (Map<String, Object>) root.get("skills");
+        List<Object> roots = (List<Object>) skills.get("roots");
+        assertEquals("classpath:skills", roots.get(0));
+        assertEquals(innerPopularSkills.toAbsolutePath().normalize().toString(), roots.get(1));
+
+        List<Map<String, Object>> items = (List<Map<String, Object>>) skills.get("items");
+        assertEquals(3, items.size());
+        assertTrue(items.stream().anyMatch(item -> "alpha-skill".equals(item.get("name"))
+                && "Alpha description".equals(item.get("description"))));
+        assertTrue(items.stream().anyMatch(item -> "beta-skill".equals(item.get("name"))
+                && "Beta description".equals(item.get("description"))));
+    }
+
     private Path writeConfig(String content) throws Exception {
         Path config = tempDir.resolve("lagi.yml");
         Files.write(config, content.getBytes(StandardCharsets.UTF_8));
         return config;
+    }
+
+    private void writeSkill(Path skillDir, String name, String description) throws Exception {
+        Files.createDirectories(skillDir);
+        String content = "---\n"
+                + "name: " + name + "\n"
+                + "description: " + description + "\n"
+                + "---\n"
+                + "# " + name + "\n";
+        Files.write(skillDir.resolve("SKILL.md"), content.getBytes(StandardCharsets.UTF_8));
     }
 
     private void invokeApplyRuntimeSkillsConfig(String[] args) throws Exception {

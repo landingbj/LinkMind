@@ -37,7 +37,13 @@ fi
 
 # 2-3. Download jar to a temp file with progress, then move to target
 TEMP_FILE="$(mktemp "${TMPDIR:-/tmp}/LinkMind_XXXXXXXXXX.jar")"
-cleanup() { rm -f "$TEMP_FILE"; }
+SKILLS_EXTRACT_DIR=""
+cleanup() {
+    rm -f "$TEMP_FILE"
+    if [ -n "${SKILLS_EXTRACT_DIR:-}" ] && [ -d "$SKILLS_EXTRACT_DIR" ]; then
+        rm -rf "$SKILLS_EXTRACT_DIR"
+    fi
+}
 trap cleanup EXIT
 
 echo "Downloading $DOWNLOAD_URL ..."
@@ -63,10 +69,20 @@ echo "Download complete: $JAR_PATH"
 # 4-5. Ask user questions and run InstallerUtil
 read_yes_no() {
     prompt="$1"
-    printf "%s (yes/no) [no]: " "$prompt"
+    default_answer="${2:-no}"
+    if [ "$default_answer" = "yes" ]; then
+        default_label="yes"
+    else
+        default_label="no"
+        default_answer="no"
+    fi
+    printf "%s (yes/no) [%s]: " "$prompt" "$default_label"
     read -r answer < /dev/tty
     answer=$(echo "$answer" | tr '[:upper:]' '[:lower:]' | xargs)
-    if [ "$answer" = "yes" ] || [ "$answer" = "y" ]; then
+    if [ -z "$answer" ]; then
+        [ "$default_answer" = "yes" ]
+        return $?
+    elif [ "$answer" = "yes" ] || [ "$answer" = "y" ]; then
         return 0
     else
         return 1
@@ -77,6 +93,7 @@ read_yes_no() {
 # import_val="false"
 runtime_choice="mate"
 install_medusa="false"
+install_skills="false"
 inject_agent=0
 deer_flow_path=""
 openhuman_path=""
@@ -178,39 +195,60 @@ if [ "$runtime_choice" = "mate" ]; then
 fi
 
 if [ "$runtime_choice" = "server" ]; then
+    if read_yes_no "Would you like to install popular skills? This downloads the popular skills package" "yes"; then
+        install_skills="true"
+    fi
+
     if read_yes_no "Would you like to install Medusa Accelerator? This downloads a large model file (100+ MB)"; then
         install_medusa="true"
     fi
 
-    POPULAR_SKILLS_ZIP="$LINKMIND_DIR/popular_skills.zip"
-    SKILLS_ROOT="$LINKMIND_DIR/skills/popular_skills"
-    mkdir -p "$SKILLS_ROOT"
-    echo "Downloading $POPULAR_SKILLS_URL ..."
-    if command -v curl >/dev/null 2>&1; then
-        if ! curl -kfL --progress-bar -o "$POPULAR_SKILLS_ZIP" "$POPULAR_SKILLS_URL"; then
-            echo "Error: Failed to download $POPULAR_SKILLS_URL"
+    if [ "$install_skills" = "true" ]; then
+        POPULAR_SKILLS_ZIP="$LINKMIND_DIR/popular_skills.zip"
+        SKILLS_ROOT="$LINKMIND_DIR/skills/popular_skills"
+        SKILLS_EXTRACT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/LinkMindSkills_XXXXXXXXXX")"
+        echo "Downloading $POPULAR_SKILLS_URL ..."
+        if command -v curl >/dev/null 2>&1; then
+            if ! curl -kfL --progress-bar -o "$POPULAR_SKILLS_ZIP" "$POPULAR_SKILLS_URL"; then
+                echo "Error: Failed to download $POPULAR_SKILLS_URL"
+                exit 1
+            fi
+        elif command -v wget >/dev/null 2>&1; then
+            if ! wget --show-progress -q -O "$POPULAR_SKILLS_ZIP" "$POPULAR_SKILLS_URL"; then
+                echo "Error: Failed to download $POPULAR_SKILLS_URL"
+                exit 1
+            fi
+        else
+            echo "Error: Neither curl nor wget is available. Please install one of them."
             exit 1
         fi
-    elif command -v wget >/dev/null 2>&1; then
-        if ! wget --show-progress -q -O "$POPULAR_SKILLS_ZIP" "$POPULAR_SKILLS_URL"; then
-            echo "Error: Failed to download $POPULAR_SKILLS_URL"
-            exit 1
-        fi
-    else
-        echo "Error: Neither curl nor wget is available. Please install one of them."
-        exit 1
-    fi
 
-    rm -rf "$SKILLS_ROOT"
-    mkdir -p "$SKILLS_ROOT"
-    if command -v unzip >/dev/null 2>&1; then
-        if ! unzip -o "$POPULAR_SKILLS_ZIP" -d "$SKILLS_ROOT" >/dev/null; then
+        if ! command -v unzip >/dev/null 2>&1; then
+            echo "Error: unzip is required but was not found."
+            exit 1
+        fi
+        if ! unzip -o "$POPULAR_SKILLS_ZIP" -d "$SKILLS_EXTRACT_DIR" >/dev/null; then
             echo "Error: Failed to unzip $POPULAR_SKILLS_ZIP"
             exit 1
         fi
+
+        EXPECTED_SKILLS_ROOT="$LINKMIND_DIR/skills/popular_skills"
+        if [ -z "$SKILLS_ROOT" ] || [ "$SKILLS_ROOT" != "$EXPECTED_SKILLS_ROOT" ]; then
+            echo "Error: Refusing to replace unexpected skills directory: $SKILLS_ROOT"
+            exit 1
+        fi
+        rm -rf "$SKILLS_ROOT"
+        mkdir -p "$SKILLS_ROOT"
+        SKILLS_SOURCE_ROOT="$SKILLS_EXTRACT_DIR"
+        if [ -d "$SKILLS_EXTRACT_DIR/popular_skills" ]; then
+            SKILLS_SOURCE_ROOT="$SKILLS_EXTRACT_DIR/popular_skills"
+        fi
+        cp -R "$SKILLS_SOURCE_ROOT/." "$SKILLS_ROOT/"
+        rm -rf "$SKILLS_EXTRACT_DIR"
+        SKILLS_EXTRACT_DIR=""
+        echo "Popular skills installed into: $SKILLS_ROOT"
     else
-        echo "Error: unzip is required but was not found."
-        exit 1
+        echo "Skipping popular skills installation."
     fi
 
     if [ "$install_medusa" = "true" ]; then

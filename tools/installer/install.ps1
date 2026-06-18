@@ -164,9 +164,13 @@ function Install-LinkMind {
     Write-Host "Download complete: $jarPath"
 
     # 4-5. Ask user questions and run InstallerUtil
-    function Read-YesNo($prompt) {
-        $answer = Read-Host "$prompt (yes/no) [no]"
+    function Read-YesNo($prompt, $defaultAnswer = "no") {
+        $normalizedDefault = if ($defaultAnswer -and $defaultAnswer.Trim().ToLower() -eq "yes") { "yes" } else { "no" }
+        $answer = Read-Host "$prompt (yes/no) [$normalizedDefault]"
         $answer = $answer.Trim().ToLower()
+        if ([string]::IsNullOrEmpty($answer)) {
+            return ($normalizedDefault -eq "yes")
+        }
         return ($answer -eq "yes" -or $answer -eq "y")
     }
 
@@ -189,6 +193,7 @@ function Install-LinkMind {
     $runtimeChoice = Read-RuntimeChoice
     $skillsRoot = ""
     $installMedusa = $false
+    $installSkills = $false
     $injectAgent = 0
     $deerFlowPath = ""
     $openHumanPath = ""
@@ -259,16 +264,46 @@ function Install-LinkMind {
     }
 
     if ($runtimeChoice -eq "server") {
+        $installSkills = Read-YesNo "Would you like to install popular skills? This downloads the popular skills package" "yes"
         $installMedusa = Read-YesNo "Would you like to install Medusa Accelerator? This downloads a large model file (100+ MB)"
-        $popularSkillsZip = Join-Path $linkMindDir "popular_skills.zip"
-        $skillsRoot = Join-Path (Join-Path $linkMindDir "skills") "popular_skills"
-        Write-Host "Downloading $popularSkillsUrl ..."
-        Invoke-WebRequest -Uri $popularSkillsUrl -OutFile $popularSkillsZip -UseBasicParsing
-        if (Test-Path $skillsRoot) {
-            Remove-Item -Path $skillsRoot -Recurse -Force
+
+        if ($installSkills) {
+            $popularSkillsZip = Join-Path $linkMindDir "popular_skills.zip"
+            $skillsRoot = Join-Path (Join-Path $linkMindDir "skills") "popular_skills"
+            $skillsExtractDir = Join-Path ([System.IO.Path]::GetTempPath()) "LinkMindSkills_$([System.Guid]::NewGuid().ToString('N'))"
+            New-Item -ItemType Directory -Path $skillsExtractDir | Out-Null
+            try {
+                Write-Host "Downloading $popularSkillsUrl ..."
+                Invoke-WebRequest -Uri $popularSkillsUrl -OutFile $popularSkillsZip -UseBasicParsing
+                Expand-Archive -Path $popularSkillsZip -DestinationPath $skillsExtractDir -Force
+
+                $expectedSkillsRoot = Join-Path (Join-Path $linkMindDir "skills") "popular_skills"
+                $resolvedSkillsRoot = [System.IO.Path]::GetFullPath($skillsRoot)
+                $resolvedExpectedSkillsRoot = [System.IO.Path]::GetFullPath($expectedSkillsRoot)
+                if ($resolvedSkillsRoot -ne $resolvedExpectedSkillsRoot) {
+                    Write-Host "Error: Refusing to replace unexpected skills directory: $skillsRoot"
+                    return
+                }
+                if (Test-Path $skillsRoot) {
+                    Remove-Item -Path $skillsRoot -Recurse -Force
+                }
+                New-Item -ItemType Directory -Path $skillsRoot | Out-Null
+
+                $skillsSourceRoot = $skillsExtractDir
+                $nestedPopularSkills = Join-Path $skillsExtractDir "popular_skills"
+                if (Test-Path $nestedPopularSkills -PathType Container) {
+                    $skillsSourceRoot = $nestedPopularSkills
+                }
+                Copy-Item -Path (Join-Path $skillsSourceRoot "*") -Destination $skillsRoot -Recurse -Force
+                Write-Host "Popular skills installed into: $skillsRoot"
+            } finally {
+                if (Test-Path $skillsExtractDir) {
+                    Remove-Item -Path $skillsExtractDir -Recurse -Force -ErrorAction SilentlyContinue
+                }
+            }
+        } else {
+            Write-Host "Skipping popular skills installation."
         }
-        New-Item -ItemType Directory -Path $skillsRoot | Out-Null
-        Expand-Archive -Path $popularSkillsZip -DestinationPath $skillsRoot -Force
 
         if ($installMedusa) {
             if (-not (Get-Command jar -ErrorAction SilentlyContinue)) {

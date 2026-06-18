@@ -266,10 +266,10 @@ public class InstallerUtil {
             skillsMap.put("enable", enableSkills);
         }
         if (skillsRoot != null) {
-            // roots 里只追加安装器传入的解压目录；内层目录推断仅用于发现 items，避免写入“多出来的错误路径”
-            Path discoveryRoot = resolveSkillRootForConfig(skillsRoot);
-            skillsMap.put("roots", mergeSkillRoots(skillsMap, skillsRoot));
-            appendSkillItems(skillsMap, discoveryRoot);
+            // Write the root that SkillLoader can scan, even when the archive contains an extra top-level folder.
+            Path skillConfigRoot = resolveSkillRootForConfig(skillsRoot);
+            skillsMap.put("roots", mergeSkillRoots(skillsMap, skillConfigRoot));
+            appendSkillItems(skillsMap, skillConfigRoot);
         }
         rootMap.put("skills", skillsMap);
         if (installMedusa) {

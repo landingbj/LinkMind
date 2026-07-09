@@ -405,7 +405,7 @@
 <script src="js/index.js?ver=${initParam.version}"></script>
 <script src="js/self.js?ver=${initParam.version}"></script>
 <script src="js/apikeys.js?ver=${initParam.version}"></script>
-<script src="js/query.js?ver=${initParam.version}"></script>
+<script src="js/query.js?t=<%=System.currentTimeMillis()%>"></script>
 <script src="js/ball.js?ver=${initParam.version}"></script>
 <script src="js/tokenUsage.js?ver=${initParam.version}"></script>
 <script src="js/logs.js?ver=${initParam.version}"></script>

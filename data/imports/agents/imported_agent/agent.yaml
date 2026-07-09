@@ -1,0 +1,8 @@
+---
+agent_id: "imported_agent"
+display_name: "旅游助手"
+description: "从历史对话导入的智能体"
+system_path: "system.md"
+history_path: "history.jsonl"
+import_mode: "plain_context"
+created_at: "2026-07-09T14:06:12.919+08:00"

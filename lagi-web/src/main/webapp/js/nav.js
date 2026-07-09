@@ -19,6 +19,7 @@ let currentAppId = null;
 
 const MODEL_NAV_ID = 1;
 const AGENT_NAV_ID = 11;
+const AGENT_IMPORT_NAV_ID = -11001;
 const ORCHESTRATION_NAV_ID = 12;
 const FEATURE_NAV_ID = 14;
 const MINE_NAV_ID = 15;
@@ -81,15 +82,111 @@ window.isUserLoggedIn = isUserLoggedIn;
 window.promptLoginIfNotAuthenticated = promptLoginIfNotAuthenticated;
 window.ensureNavLoginAllowed = ensureNavLoginAllowed;
 window.dispatchNavClick = dispatchNavClick;
+window.dispatchAgentImportClick = function (event) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    if (typeof openAgentImportDialog === 'function') {
+        openAgentImportDialog();
+    }
+};
 
 let MODEL_NAV = null;
 let AGENT_NAV = null;
 let ORCHESTRATION_NAV = null;
 let FEATURE_NAV = null;
 let MINE_NAV = null;
+let staticAgentSubNavs = null;
+let agentImportPreview = null;
+const AGENT_ICON_ALIASES = {
+    news: 'hot_news',
+    travel: 'city_travel_route',
+    sogou: 'sogou_search_pictures'
+};
+const AGENT_TITLE_MAP = {
+    stock: '股票助手',
+    exchangeRate: '汇率助手',
+    exchange_rate: '汇率助手',
+    yiYan: '文心助手',
+    yuanQi: '元器助手',
+    xiaohongshu: '红书优选',
+    weather: '天气助手',
+    oil: '油价助手',
+    bmi: '体重指数',
+    calorie: '健康饮食',
+    dishonest: '失信查询',
+    ticket: '高铁助手',
+    history: '历史今日',
+    youdao: '有道翻译',
+    image: '图像生成',
+    KFC_text_generate: '疯狂星期',
+    ip_address_lookup_agent: 'IP归属地',
+    anime_pictures: '动漫图片',
+    constellation_luck: '今日运势',
+    sogou: '搜狗搜图',
+    sogou_search_pictures: '搜狗搜图',
+    belle_pictures: '头像生成',
+    baidu_search_pictures: '百度搜图',
+    gold_today: '今日金价',
+    jokes_generation: '段子生成',
+    meal_suggestion: '美食推荐',
+    countdown_day: '倒数计时',
+    travel: '出行路线',
+    city_travel_route: '出行路线',
+    car_query: '查询车辆',
+    surname_rank: '姓氏排名',
+    investment_income: '收益计算',
+    driving_license_search: '驾考题库',
+    blood_type_calculation: '血型预测',
+    bing_search: '必应搜索',
+    lottery_results: '彩票查询',
+    text_corrector: '文本纠错',
+    text_difference: '文本对比',
+    place_search: '地点搜索',
+    chip_query: '芯片查询',
+    spark_dialog: '星火助手',
+    news: '热点新闻',
+    hot_news: '热点新闻',
+    article_rewrite: '文章续写',
+    recipe_query: '菜谱查询',
+    answer_book: '答案之书',
+    website_ping: '网站测速',
+    text_conversion: '文本转换',
+    population_data: '人口数据',
+    meaning_search: '诗词名言',
+    deepseek_chat: '深度问答',
+    trademark_info: '商标查询',
+    movie_box_office: '票房榜单',
+    historical_figure_info: '历史人物',
+    daily_rumor_refutation: '辟谣前线',
+    google_translate: '谷歌翻译',
+    couplet_generation: '对联生成',
+    text_to_sql_search: '文本转查询',
+    smart_cutout: '智能抠图',
+    background_replacement: '背景替换',
+    target_elimination: '目标消除',
+    conversation_intent_analysis: '意图分析',
+    audio_editing: '音频整理',
+    violation_content_recognition: '违规识别',
+    citic: '小信助手',
+    mcp: '地图助手',
+    qq: 'QQ 助手',
+    wechat: '微信助手',
+    ding: '钉钉助手',
+    zhiPu: '智谱助手'
+};
 const tFnNav = window.t || ((key, fallback) => fallback || key);
 const tTextFnNav = window.tText || ((text) => text);
 const localizeDataDeepFn = window.localizeDataDeep || ((value) => value);
+
+function findIntegrationAgentNav() {
+    const integrationNav = promptNavs.find(nav => nav && nav.key === 'integrationTest');
+    if (!integrationNav || !Array.isArray(integrationNav.subNavs)) {
+        return null;
+    }
+    return integrationNav.subNavs.find(subNav => subNav && subNav.key === 'integrationAgent') || null;
+}
 
 let promptNavs = [
     {
@@ -571,6 +668,13 @@ for (const nav of promptNavs) {
     }
 }
 
+AGENT_NAV = findIntegrationAgentNav() || AGENT_NAV;
+
+if (AGENT_NAV && Array.isArray(AGENT_NAV.subNavs)) {
+    staticAgentSubNavs = cloneAgentSubNavs(AGENT_NAV.subNavs);
+    AGENT_NAV.subNavs = buildAgentSubNavsWithImport(staticAgentSubNavs);
+}
+
 
 function loadNavStatus() {
     $.ajax({
@@ -593,6 +697,201 @@ function loadNavStatus() {
         }
 
     });
+}
+
+function cloneAgentSubNavs(subNavs) {
+    return (subNavs || [])
+        .filter(function (item) {
+            return item && item.id !== AGENT_IMPORT_NAV_ID;
+        })
+        .map(function (item) {
+            return Object.assign({}, item);
+        });
+}
+
+function getAgentImportSubNav() {
+    return {
+        id: AGENT_IMPORT_NAV_ID,
+        key: 'agentImport',
+        agentId: '',
+        title: '导入智能体',
+        templateIssues: '上传 TXT 或粘贴历史对话，创建一个可继续对话的智能体。',
+        icon1: '<svg stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14"></path><path d="M5 12h14"></path><path d="M4 19h16"></path></svg>'
+    };
+}
+
+function getImportedAgentIcon() {
+    return '<svg stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" xmlns="http://www.w3.org/2000/svg"><path d="M12 3l1.8 3.8 4.2.6-3 2.9.7 4.1L12 12.5l-3.7 1.9.7-4.1-3-2.9 4.2-.6L12 3z"></path><path d="M5 18h14"></path><path d="M8 21h8"></path></svg>';
+}
+
+function buildAgentSubNavsWithImport(subNavs) {
+    return [getAgentImportSubNav()].concat(cloneAgentSubNavs(subNavs));
+}
+
+function escapeNavHtml(value) {
+    return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function normalizeAgentIconKey(value) {
+    return String(value == null ? '' : value)
+        .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+        .replace(/[^a-zA-Z0-9]+/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .toLowerCase();
+}
+
+function getAgentIconLookupKeys(agentId) {
+    const keys = [];
+    const raw = String(agentId == null ? '' : agentId);
+    keys.push(raw);
+    if (AGENT_ICON_ALIASES[raw]) {
+        keys.push(AGENT_ICON_ALIASES[raw]);
+    }
+    const normalizedRaw = normalizeAgentIconKey(raw);
+    Object.keys(AGENT_ICON_ALIASES).forEach(function (alias) {
+        if (normalizeAgentIconKey(alias) === normalizedRaw) {
+            keys.push(AGENT_ICON_ALIASES[alias]);
+        }
+    });
+    return keys
+        .map(normalizeAgentIconKey)
+        .filter(function (key, index, arr) {
+            return key && arr.indexOf(key) === index;
+        });
+}
+
+function findStaticAgentSubNav(agentId) {
+    const lookupKeys = getAgentIconLookupKeys(agentId);
+    return (staticAgentSubNavs || []).find(function (item) {
+        return item && lookupKeys.indexOf(normalizeAgentIconKey(item.agentId)) !== -1;
+    }) || null;
+}
+
+function getDefaultAgentIcon() {
+    return (AGENT_NAV && AGENT_NAV.icon1) || '<svg stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" xmlns="http://www.w3.org/2000/svg"><rect width="14" height="10" x="5" y="8" rx="2"></rect><path d="M12 8V4"></path><path d="M8 12h.01"></path><path d="M16 12h.01"></path><path d="M9 16h6"></path></svg>';
+}
+
+function resolveAgentIcons(agent, agentId) {
+    if (agent && (agent.imported === true || agent.source === 'import')) {
+        const importedIcon = getImportedAgentIcon();
+        return {icon1: importedIcon, icon2: importedIcon};
+    }
+    const staticNav = findStaticAgentSubNav(agentId);
+    const icon1 = (staticNav && staticNav.icon1) || getDefaultAgentIcon();
+    const icon2 = (staticNav && (staticNav.icon2 || staticNav.icon1)) || icon1;
+    return {icon1: icon1, icon2: icon2};
+}
+
+function getMappedAgentTitle(agentId) {
+    const lookupKeys = getAgentIconLookupKeys(agentId);
+    for (let i = 0; i < lookupKeys.length; i++) {
+        const lookupKey = lookupKeys[i];
+        const matchedKey = Object.keys(AGENT_TITLE_MAP).find(function (titleKey) {
+            return normalizeAgentIconKey(titleKey) === lookupKey;
+        });
+        if (matchedKey) {
+            return AGENT_TITLE_MAP[matchedKey];
+        }
+    }
+    return '';
+}
+
+function resolveAgentTitle(agent, agentId, staticNav) {
+    if (agent && (agent.imported === true || agent.source === 'import')) {
+        return agent.title || agentId;
+    }
+    return (staticNav && staticNav.title)
+        || getMappedAgentTitle(agentId)
+        || (agent && agent.title)
+        || agentId;
+}
+
+function normalizeAgentNavItems(agents) {
+    return (agents || [])
+        .filter(function (agent) {
+            return agent && agent.agentId;
+        })
+        .map(function (agent, index) {
+            const agentId = String(agent.agentId);
+            const staticNav = findStaticAgentSubNav(agentId);
+            const title = resolveAgentTitle(agent, agentId, staticNav);
+            const icons = resolveAgentIcons(agent, agentId);
+            return {
+                id: 1100000 + index,
+                key: 'agent_' + agentId.replace(/[^a-zA-Z0-9_-]/g, '_'),
+                agentId: agentId,
+                title: title,
+                description: agent.description || '',
+                imported: agent.imported === true,
+                source: agent.source || 'yaml',
+                icon1: icons.icon1,
+                icon2: icons.icon2,
+                templateIssues: agent.templateIssues || (staticNav && staticNav.templateIssues) || ('继续和 ' + title + ' 对话')
+            };
+        });
+}
+
+function refreshAgentNavViews() {
+    if (document.getElementById('nav_body') && $('#nav_body').children().length > 0) {
+        loadNavBar();
+    }
+    if (document.getElementById('conversationsNav') && $('#conversationsNav').children().length > 0) {
+        showPromptNav();
+    }
+}
+
+function loadAgentsNav(selectAgentId) {
+    if (!AGENT_NAV) {
+        return;
+    }
+    $.ajax({
+        type: 'GET',
+        contentType: 'application/json;charset=utf-8',
+        dataType: 'json',
+        url: 'agent/list',
+        success: function (response) {
+            const agents = response && Array.isArray(response.agents) ? response.agents : [];
+            if (agents.length > 0) {
+                AGENT_NAV.subNavs = buildAgentSubNavsWithImport(normalizeAgentNavItems(agents));
+            } else {
+                AGENT_NAV.subNavs = buildAgentSubNavsWithImport(staticAgentSubNavs || []);
+            }
+            refreshAgentNavViews();
+            if (selectAgentId) {
+                selectAgentByAgentId(selectAgentId);
+            }
+        },
+        error: function () {
+            AGENT_NAV.subNavs = buildAgentSubNavsWithImport(staticAgentSubNavs || []);
+            refreshAgentNavViews();
+        }
+    });
+}
+
+function selectAgentByAgentId(agentId) {
+    if (!AGENT_NAV || !Array.isArray(AGENT_NAV.subNavs)) {
+        return;
+    }
+    const nav = AGENT_NAV.subNavs.find(function (item) {
+        return item && item.agentId === agentId;
+    });
+    if (nav) {
+        updateSelectAgent(nav.id);
+    }
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () {
+        loadAgentsNav();
+    });
+} else {
+    loadAgentsNav();
 }
 
 function buildPromptDialogContent(nav) {
@@ -1012,10 +1311,22 @@ function genSettingSubNav(subNavs) {
 function genAgentsNav(subNavs) {
     let subHtml = '<ul class="sub-nav hidden">';
     for (const subNav of subNavs) {
+        if (subNav.id === AGENT_IMPORT_NAV_ID) {
+            subHtml += `
+            <li class="sub-nav-item">
+                <a onclick="dispatchAgentImportClick(event)" class="sub-nav-link flex py-2 px-2 items-center gap-3 rounded-md bg-default-50 hover:bg-default-100 dark:bg-default-900 dark:hover:bg-[#2A2B32]" data-nav-id="${subNav.id}">
+                    ${subNav.icon1 ? `<span class="icon">${subNav.icon1}</span>` : ''}
+                    ${escapeNavHtml(subNav.title)}
+                </a>
+            </li>
+            `;
+            continue;
+        }
         subHtml += `
         <li class="sub-nav-item">
             <a onclick="updateSelectAgent(${subNav.id})" class="sub-nav-link flex py-2 px-2 items-center gap-3 rounded-md bg-default-50 hover:bg-default-100 dark:bg-default-900 dark:hover:bg-[#2A2B32]" data-nav-id="${subNav.id}" data-app-id="${subNav.agentId}">
-                ${subNav.title}
+                ${subNav.icon1 ? `<span class="icon">${subNav.icon1}</span>` : ''}
+                ${escapeNavHtml(subNav.title)}
             </a>
         </li>
         `;
@@ -1024,20 +1335,27 @@ function genAgentsNav(subNavs) {
     return subHtml;
 }
 
-function updateSelectAgent(agentId) {
+function updateSelectAgent(navId) {
     backToChat();
     if (typeof ensureChatBottomBarVisible === 'function') {
         ensureChatBottomBarVisible();
     }
-    currentAppId = agentId;
-    const nav = AGENT_NAV.subNavs.find(n => n.id === agentId);
+    const nav = AGENT_NAV.subNavs.find(n => n.id === navId);
+    if (!nav) {
+        return;
+    }
+    if (nav.id === AGENT_IMPORT_NAV_ID) {
+        window.dispatchAgentImportClick(null);
+        return;
+    }
+    currentAppId = nav.agentId || nav.id;
     currentNav = nav;
     if (!(nav.prompt && nav.operation)) {
         $('#queryContent').val(tTextFnNav(nav.templateIssues));
         resetBallState();
         highlightWord(nav.title);
     }
-    setLeafNavActiveByNavId(agentId);
+    setLeafNavActiveByNavId(navId);
 }
 
 
@@ -1051,7 +1369,11 @@ function updateSelectAgentV2(navId, subNavId, event) {
     if (!nav) {
         return;
     }
-    const agentId =  nav.id;
+    if (nav.id === AGENT_IMPORT_NAV_ID) {
+        window.dispatchAgentImportClick(event);
+        return;
+    }
+    const agentId =  nav.agentId || nav.id;
     currentAppId = agentId;
     currentNav = nav;
     if (!(nav.prompt && nav.operation)) {
@@ -1061,6 +1383,233 @@ function updateSelectAgentV2(navId, subNavId, event) {
     }
     setLeafNavActiveByNavId(subNavId);
 }
+
+function ensureAgentImportDialog() {
+    if (document.getElementById('agent-import-modal')) {
+        return;
+    }
+    const html = `
+    <div id="agent-import-modal" class="agent-import-modal hidden">
+        <div class="agent-import-dialog">
+            <div class="agent-import-header">
+                <div>
+                    <div class="agent-import-title">导入智能体</div>
+                    <div class="agent-import-subtitle">上传 TXT 或粘贴历史对话，生成可继续对话的智能体</div>
+                </div>
+                <button type="button" class="agent-import-close" onclick="closeAgentImportDialog()">×</button>
+            </div>
+            <div class="agent-import-tabs">
+                <button type="button" class="agent-import-tab active" data-mode="paste" onclick="switchAgentImportMode('paste')">粘贴文字</button>
+                <button type="button" class="agent-import-tab" data-mode="file" onclick="switchAgentImportMode('file')">上传 TXT</button>
+            </div>
+            <div id="agent-import-paste-panel" class="agent-import-panel">
+                <textarea id="agent-import-text" class="agent-import-textarea" placeholder="粘贴历史对话或一段背景材料"></textarea>
+            </div>
+            <div id="agent-import-file-panel" class="agent-import-panel hidden">
+                <input id="agent-import-file" class="agent-import-file" type="file" accept=".txt,text/plain">
+            </div>
+            <div class="agent-import-actions">
+                <button type="button" class="agent-import-secondary" onclick="closeAgentImportDialog()">取消</button>
+                <button type="button" id="agent-import-preview-btn" class="agent-import-primary" onclick="previewAgentImport()">预览</button>
+            </div>
+            <div id="agent-import-status" class="agent-import-status"></div>
+            <div id="agent-import-preview" class="agent-import-preview hidden">
+                <div class="agent-import-preview-head">
+                    <span id="agent-import-mode-badge" class="agent-import-badge"></span>
+                    <span id="agent-import-count"></span>
+                </div>
+                <div id="agent-import-warnings" class="agent-import-warnings"></div>
+                <div id="agent-import-samples" class="agent-import-samples"></div>
+                <div class="agent-import-form-grid">
+                    <label>智能体名称
+                        <input id="agent-import-name" type="text">
+                    </label>
+                    <label>agent_id
+                        <input id="agent-import-agent-id" type="text">
+                    </label>
+                </div>
+                <label class="agent-import-system-label">系统提示词
+                    <textarea id="agent-import-system" class="agent-import-system"></textarea>
+                </label>
+                <div class="agent-import-actions">
+                    <button type="button" class="agent-import-secondary" onclick="closeAgentImportDialog()">取消</button>
+                    <button type="button" id="agent-import-commit-btn" class="agent-import-primary" onclick="commitAgentImport()">确认导入</button>
+                </div>
+            </div>
+        </div>
+    </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function openAgentImportDialog() {
+    ensureAgentImportDialog();
+    agentImportPreview = null;
+    $('#agent-import-status').text('');
+    $('#agent-import-preview').addClass('hidden');
+    $('#agent-import-text').val('');
+    $('#agent-import-file').val('');
+    switchAgentImportMode('paste');
+    $('#agent-import-modal').removeClass('hidden');
+}
+
+function closeAgentImportDialog() {
+    $('#agent-import-modal').addClass('hidden');
+}
+
+function switchAgentImportMode(mode) {
+    $('.agent-import-tab').removeClass('active');
+    $(`.agent-import-tab[data-mode="${mode}"]`).addClass('active');
+    $('#agent-import-paste-panel').toggleClass('hidden', mode !== 'paste');
+    $('#agent-import-file-panel').toggleClass('hidden', mode !== 'file');
+    $('#agent-import-preview').addClass('hidden');
+    $('#agent-import-status').text('');
+}
+
+function currentAgentImportMode() {
+    const active = document.querySelector('.agent-import-tab.active');
+    return active ? active.getAttribute('data-mode') : 'paste';
+}
+
+function setAgentImportBusy(busy) {
+    $('#agent-import-preview-btn').prop('disabled', busy);
+    $('#agent-import-commit-btn').prop('disabled', busy);
+}
+
+function setAgentImportStatus(message, isError) {
+    const el = $('#agent-import-status');
+    el.text(message || '');
+    el.toggleClass('error', isError === true);
+}
+
+function previewAgentImport() {
+    const mode = currentAgentImportMode();
+    setAgentImportBusy(true);
+    setAgentImportStatus('正在解析...', false);
+    let ajaxOptions;
+    if (mode === 'file') {
+        const file = document.getElementById('agent-import-file').files[0];
+        if (!file) {
+            setAgentImportBusy(false);
+            setAgentImportStatus('请选择 TXT 文件', true);
+            return;
+        }
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('source', 'txt');
+        ajaxOptions = {
+            type: 'POST',
+            url: 'agent/import/preview',
+            data: formData,
+            processData: false,
+            contentType: false
+        };
+    } else {
+        const text = $('#agent-import-text').val();
+        if (!text || !text.trim()) {
+            setAgentImportBusy(false);
+            setAgentImportStatus('请先粘贴要导入的内容', true);
+            return;
+        }
+        ajaxOptions = {
+            type: 'POST',
+            url: 'agent/import/preview',
+            contentType: 'application/json;charset=utf-8',
+            data: JSON.stringify({ text: text, source: 'paste' })
+        };
+    }
+    ajaxOptions.success = function (preview) {
+        agentImportPreview = preview;
+        renderAgentImportPreview(preview);
+        setAgentImportStatus('', false);
+        setAgentImportBusy(false);
+    };
+    ajaxOptions.error = function (xhr) {
+        setAgentImportBusy(false);
+        setAgentImportStatus(readAgentImportError(xhr, '解析失败'), true);
+    };
+    $.ajax(ajaxOptions);
+}
+
+function renderAgentImportPreview(preview) {
+    const plain = preview && preview.parseMode === 'plain_context';
+    $('#agent-import-mode-badge').text(plain ? '普通历史背景' : '对话轮次');
+    $('#agent-import-count').text('消息 ' + (preview.messageCount || 0) + ' 条，轮次 ' + (preview.turnCount || 0) + ' 个');
+    $('#agent-import-name').val(preview.suggestedName || '导入智能体');
+    $('#agent-import-agent-id').val(preview.suggestedAgentId || 'imported_agent');
+    $('#agent-import-system').val('你是一个从历史对话迁移而来的智能体。请参考导入历史和当前会话上下文，延续原有对话风格，优先直接回答用户当前问题。\n\n除非系统明确提供可调用工具或用户要求实时数据，否则不要只承诺“查询/查找”，应基于已有上下文给出可执行、具体的回答；信息不确定时请说明假设。\n\n如果历史记录里出现仅承诺查询、查找、稍后提供，但没有给出实质内容的回复，请不要模仿这种占位回复，应直接给出当前问题的完整答案。');
+    const warnings = preview.warnings || [];
+    $('#agent-import-warnings').html(warnings.map(function (warning) {
+        return '<div>' + escapeNavHtml(warning) + '</div>';
+    }).join(''));
+    const samples = preview.samples || [];
+    $('#agent-import-samples').html(samples.map(function (sample) {
+        return '<div class="agent-import-sample"><strong>' + escapeNavHtml(sample.role) + '</strong><span>' + escapeNavHtml(sample.content) + '</span></div>';
+    }).join(''));
+    $('#agent-import-preview').removeClass('hidden');
+}
+
+function commitAgentImport() {
+    if (!agentImportPreview || !agentImportPreview.previewId) {
+        setAgentImportStatus('请先预览导入内容', true);
+        return;
+    }
+    const payload = {
+        previewId: agentImportPreview.previewId,
+        agentId: $('#agent-import-agent-id').val(),
+        displayName: $('#agent-import-name').val(),
+        systemPrompt: $('#agent-import-system').val()
+    };
+    setAgentImportBusy(true);
+    setAgentImportStatus('正在导入...', false);
+    $.ajax({
+        type: 'POST',
+        url: 'agent/import/commit',
+        contentType: 'application/json;charset=utf-8',
+        data: JSON.stringify(payload),
+        success: function (agent) {
+            setAgentImportBusy(false);
+            closeAgentImportDialog();
+            loadAgentsNav(agent && agent.agentId ? agent.agentId : payload.agentId);
+            $('#queryContent').val('继续刚才的话题');
+        },
+        error: function (xhr) {
+            setAgentImportBusy(false);
+            setAgentImportStatus(readAgentImportError(xhr, '导入失败'), true);
+        }
+    });
+}
+
+function readAgentImportError(xhr, fallback) {
+    if (xhr && xhr.responseJSON && xhr.responseJSON.message) {
+        return xhr.responseJSON.message;
+    }
+    if (xhr && xhr.responseText) {
+        try {
+            const parsed = JSON.parse(xhr.responseText);
+            if (parsed && parsed.message) {
+                return parsed.message;
+            }
+        } catch (e) {
+        }
+    }
+    return fallback;
+}
+
+document.addEventListener('click', function (event) {
+    const importItem = event.target && event.target.closest && event.target.closest('.agent-import-file-item');
+    if (!importItem) {
+        return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    openAgentImportDialog();
+});
+
+window.openAgentImportDialog = openAgentImportDialog;
+window.closeAgentImportDialog = closeAgentImportDialog;
+window.switchAgentImportMode = switchAgentImportMode;
+window.previewAgentImport = previewAgentImport;
+window.commitAgentImport = commitAgentImport;
 
 
 function getOrchestration(subNavs) {
@@ -1357,6 +1906,11 @@ function getModeList(type) {
 
 let currentNav = null;
 
+function resetChatRouteState() {
+    currentAppId = null;
+    currentPromptDialog = undefined;
+    currentNav = null;
+}
 
 function showBallDiv() {
     const ballDiv = document.getElementById("ball-div");
@@ -1366,6 +1920,7 @@ function showBallDiv() {
 }
 
 function backToChat() {
+    resetChatRouteState();
     $('#conTab').show();
     $('#mytab').hide();
     $('#queryBox').show();
@@ -1453,6 +2008,7 @@ function getPromptDialog(id, subId) {
     // Special pages do not call backToChat(); hide model preference UI when leaving skill/chat flows.
     $('#model-selects').empty();
     $('#model-prefences').hide();
+    resetChatRouteState();
 
     if (subId === 14) {
         loadTokenUsagePage();
@@ -1874,6 +2430,19 @@ function loadNavBar() {
         const folder_content = $(".folder-content:last");
         const subNavs =  nav.subNavs;
         for (const subNav of subNavs) {
+            if (nav.id === AGENT_NAV_ID && subNav.id === AGENT_IMPORT_NAV_ID) {
+                folder_content.append(`
+                    <a href="javascript:void(0)" class="file-item agent-import-file-item" data-nav-id="${subNav.id}" onclick="dispatchAgentImportClick(event)">
+                        <div class="file-icon">
+                            <i class="fa fa-file-code-o">
+                                ${subNav.icon1 || ''}
+                            </i>
+                        </div>
+                        <span class="file-text">${escapeNavHtml(subNav.title)}</span>
+                    </a>
+                `);
+                continue;
+            }
             const hasThirdNav = Array.isArray(subNav.subNavs) && subNav.subNavs.length > 0;
             if (hasThirdNav) {
                 folder_content.append(`
@@ -1887,12 +2456,25 @@ function loadNavBar() {
                             <span class="folder-text">${subNav.title}</span>
                             <div class="expand-icon"></div>
                         </div>
-                        <div class="tree-line folder-content sub-folder-content"></div>
+                        <div class="tree-line folder-content sub-folder-content expanded"></div>
                     </div>
                 `);
 
                 const subFolderContent = folder_content.find(".sub-folder-content:last");
                 for (const thirdNav of subNav.subNavs) {
+                    if (thirdNav.id === AGENT_IMPORT_NAV_ID) {
+                        subFolderContent.append(`
+                            <a href="javascript:void(0)" class="file-item third-file-item agent-import-file-item" data-nav-id="${thirdNav.id}" onclick="dispatchAgentImportClick(event)">
+                                <div class="file-icon">
+                                    <i class="fa fa-file-code-o">
+                                        ${thirdNav.icon1 || ''}
+                                    </i>
+                                </div>
+                                <span class="file-text">${escapeNavHtml(thirdNav.title)}</span>
+                            </a>
+                        `);
+                        continue;
+                    }
                     const thirdClickHandler = buildThirdClickHandler(nav, subNav, thirdNav);
                     const thirdNavDisabled = thirdNav.disabled === true;
                     const thirdDisabledLabel = getNavDisabledLabel(thirdNav);
@@ -1907,7 +2489,7 @@ function loadNavBar() {
                                     ${thirdNav.icon1 || ''}
                                 </i>
                             </div>
-                            <span class="file-text">${thirdNav.title}</span>
+                            <span class="file-text">${escapeNavHtml(thirdNav.title)}</span>
                             ${thirdNavDisabled ? `<span class="nav-disabled-badge">${thirdDisabledLabel}</span>` : ''}
                         </div>
                     `);
@@ -1928,12 +2510,17 @@ function loadNavBar() {
                             ${subNav.icon1 || ''}
                         </i>
                     </div>
-                    <span class="file-text" >${subNav.title}</span>
+                    <span class="file-text" >${escapeNavHtml(subNav.title)}</span>
                     ${subNavDisabled ? `<span class="nav-disabled-badge">${subNavDisabledLabel}</span>` : ''}
                 </div>
             `);
         }
     }
+    $('#nav_body .agent-import-file-item').off('click.agentImport').on('click.agentImport', function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        openAgentImportDialog();
+    });
 }
 
 function refreshInteractionPublishNavState(isMateMode) {

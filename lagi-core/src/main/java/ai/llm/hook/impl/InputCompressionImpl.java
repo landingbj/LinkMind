@@ -28,6 +28,9 @@ public class InputCompressionImpl implements BeforeModel {
             return context.getRequest();
         }
         ChatCompletionRequest request = context.getRequest();
+        if (Boolean.TRUE.equals(request.getPreserveInputMessages())) {
+            return request;
+        }
         List<ChatMessage> merge = mergeConsecutiveMessages(request.getMessages());
         request.setMessages(merge);
         List<ChatMessage> newChatMessages = intentService.detectSegmentationBoundary(request);

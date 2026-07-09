@@ -33,6 +33,7 @@ public class ChatCompletionRequest {
     private Boolean logprobs;
     private transient Boolean enableHook = true;
     private transient Boolean enableAfter = true;
+    private transient Boolean preserveInputMessages;
     @JsonIgnore
     private transient ChatCompletionResult localCompletionResult;
     /**

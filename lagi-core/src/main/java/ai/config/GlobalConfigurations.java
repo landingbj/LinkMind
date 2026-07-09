@@ -9,6 +9,7 @@ import ai.llm.responses.QwenResponseProtocolUtil;
 import ai.llm.responses.ResponseProtocolConstants;
 import ai.llm.responses.ResponseProtocolUtil;
 import ai.manager.*;
+import ai.migrate.service.ImportedAgentStore;
 import ai.medusa.utils.PromptCacheConfig;
 import ai.ocr.OcrConfig;
 import ai.router.Routers;
@@ -68,6 +69,7 @@ public class GlobalConfigurations extends AbstractConfiguration {
         OcrConfig.init(functions.getImage2ocr());
         if(Boolean.TRUE.equals(agents.getEnable())) {
             AgentManager.getInstance().register(agents.getAgents());
+            ImportedAgentStore.ensureExternalAgentsRegistered();
         }
         if(Boolean.TRUE.equals(routers.getEnable())) {
             Routers.getInstance().register(skills.getWorkers(), routers.getRouterItems());

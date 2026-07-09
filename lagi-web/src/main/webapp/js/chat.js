@@ -77,6 +77,11 @@ function addOneChat(questionObj) {
 }
 
 function fillAnswer(lastJqObj, answer) {
-    lastJqObj.text(answer);
+    if (typeof renderAssistantMarkdown === 'function') {
+        lastJqObj.html(renderAssistantMarkdown(answer));
+    } else {
+        lastJqObj.text(answer);
+    }
+    lastJqObj.removeClass('result-streaming');
     // lastJqObj.append(questHtml);
 }

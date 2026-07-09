@@ -3,6 +3,21 @@
 let curConversations = -1;
 const tTextConv = window.tText || ((s) => s);
 const tHtmlConv = window.tHtml || ((s) => s);
+
+function looksLikeTrustedHtmlAnswer(content) {
+    return /<\/?[a-z][\s\S]*>/i.test(String(content || ''));
+}
+
+function renderStoredAssistantAnswer(answer) {
+    const translatedAnswer = tHtmlConv(answer == null ? '' : String(answer));
+    if (translatedAnswer === '') {
+        return '<p></p>';
+    }
+    if (!looksLikeTrustedHtmlAnswer(translatedAnswer) && typeof renderAssistantMarkdown === 'function') {
+        return renderAssistantMarkdown(translatedAnswer);
+    }
+    return translatedAnswer;
+}
 let conversatonsList = [{ title: "你好", dateTime: 500 }, { title: "还行", dateTime: 100 }, { title: "写诗", dateTime: 1500 }]
 
 
@@ -23,6 +38,8 @@ function setCurConvId(convId) {
 
 async function newConversation(conv, questionEnable = true, answerEnable = true) {
     const converation_index =  CONVERSATION_CONTEXT.length;
+    const answerStreamingClass = conv.robot.answer === '' ? ' result-streaming' : '';
+    const answerHtml = renderStoredAssistantAnswer(conv.robot.answer);
     let questionDiv = `
         <div class="w-full" >
             <div class="text-base gap-4 md:gap-6 m-auto md:max-w-2xl lg:max-w-2xl xl:max-w-3xl p-4 md:py-6 flex lg:px-0" >
@@ -39,10 +56,10 @@ async function newConversation(conv, questionEnable = true, answerEnable = true)
     <div class="relative flex w-[calc(100%-50px)] flex-col gap-1 md:gap-3 lg:w-[calc(100%-115px)]">
         <div class="">
             <div class="chat-div">
-                <div class="markdown  w-full break-words  light result-streaming">
-                    ${conv.robot.answer === '' ? '<p></p>' : conv.robot.answer} 
+                <div class="markdown  w-full break-words  light${answerStreamingClass}">
+                    ${answerHtml}
                 </div>
-                <div class="better-result w-full break-words light result-streaming">
+                <div class="better-result w-full break-words light${answerStreamingClass}">
                 </div>
             </div>
         </div>
@@ -215,7 +232,9 @@ async function addUserDialog(userQuestion) {
 }
 
 function addRobotDialog(robotAnswer) {
-    const normalizedAnswer = tHtmlConv(robotAnswer);
+    const normalizedAnswer = robotAnswer == null ? '' : String(robotAnswer);
+    const answerStreamingClass = normalizedAnswer === '' ? ' result-streaming' : '';
+    const answerHtml = renderStoredAssistantAnswer(normalizedAnswer);
     let chatHtml = `
     <div class="robot-return w-full  group ">
 <div class="text-area  text-base gap-4 md:gap-6 m-auto md:max-w-2xl lg:max-w-2xl xl:max-w-3xl p-4 md:py-6 flex lg:px-0">
@@ -223,10 +242,10 @@ function addRobotDialog(robotAnswer) {
     <div class="relative flex w-[calc(100%-50px)] flex-col gap-1 md:gap-3 lg:w-[calc(100%-115px)]">
         <div class="">
             <div class="chat-div ">
-                <div class="markdown  w-full break-words  light result-streaming">
-                    ${normalizedAnswer === '' ? '<p></p>' : normalizedAnswer} 
+                <div class="markdown  w-full break-words  light${answerStreamingClass}">
+                    ${answerHtml}
                 </div>
-                <div class="better-result w-full break-words light result-streaming">
+                <div class="better-result w-full break-words light${answerStreamingClass}">
                 </div>
             </div>
         </div>

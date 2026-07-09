@@ -3,6 +3,7 @@ package ai.worker;
 import ai.agent.Agent;
 import ai.config.pojo.WorkerConfig;
 import ai.manager.AgentManager;
+import ai.migrate.service.ImportedAgentStore;
 import ai.openai.pojo.ChatCompletionRequest;
 import ai.openai.pojo.ChatCompletionResult;
 import ai.router.Route;
@@ -33,6 +34,7 @@ public class DefaultAppointWorker extends RouteWorker {
         this.workerConfig = workerConfig;
 //        String routeName = RouterParser.getRuleName(workerConfig.getRoute());
         this.route = Routers.getInstance().getRoute(workerConfig.getRoute());
+        ImportedAgentStore.ensureExternalAgentsRegistered();
         List<String> agents = RouterParser.getParams(workerConfig.getRoute());
         if(agents.size() == 1 && RouteGlobal.WILDCARD_STRING.equals(agents.get(0))) {
             List<Agent<?, ?>> allAgents = AgentManager.getInstance().agents();
@@ -67,6 +69,13 @@ public class DefaultAppointWorker extends RouteWorker {
     public ChatCompletionResult call(ChatCompletionRequest data) {
         String agentId = (String)BeanUtil.getFieldValue(data, "agentId");
         Agent<ChatCompletionRequest, ChatCompletionResult> trAgent = agentMap.get(agentId);
+        if(trAgent == null) {
+            ImportedAgentStore.ensureExternalAgentsRegistered();
+            trAgent = (Agent<ChatCompletionRequest, ChatCompletionResult>) AgentManager.getInstance().get(agentId);
+            if(trAgent != null && trAgent.getAgentConfig() != null) {
+                agentMap.put(agentId, trAgent);
+            }
+        }
         if(trAgent != null) {
             List<ChatCompletionResult> invoke = route.invokeAgent(data, Lists.newArrayList(trAgent)).getResult();
             if(invoke != null && !invoke.isEmpty()) {

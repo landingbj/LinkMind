@@ -22,19 +22,173 @@ function ensureReasoningBlockStyles() {
     document.head.appendChild(style);
 }
 
+function restoreEscapedMarkdownNewlines(text) {
+    var value = String(text || '');
+    if (value.indexOf('\n') === -1 && /\\n/.test(value)) {
+        return value.replace(/\\r\\n|\\n/g, '\n');
+    }
+    return value;
+}
+
+function normalizeCompactMarkdownTables(text) {
+    var value = String(text || '');
+    value = value.replace(/(^|\n)(#{1,6}[^\n|]*?)\s+(\|[^|\n]+(?:\|[^|\n]+){2,}\|)/g, '$1$2\n\n$3');
+    value = value.replace(/([^\n|])\s+(\|[^|\n]+(?:\|[^|\n]+){2,}\|)/g, '$1\n\n$2');
+    for (var i = 0; i < 4; i++) {
+        value = value
+            .replace(/\|\s+(?=\|[ \t]*:?-{3,}:?[ \t]*(?:\|[ \t]*:?-{3,}:?[ \t]*)+\|)/g, '|\n')
+            .replace(/\|\s+(?=\|[^|\n]*\|[^|\n]*\|)/g, '|\n')
+            .replace(/(\|[^|\n]+(?:\|[^|\n]+){2,}\|)\s+(?=(?:#{1,6}\s+|>{1,3}\s+|(?:[-*+]|\d{1,2}[.)])\s+))/g, '$1\n\n');
+    }
+    return value;
+}
+
+function normalizeAssistantMarkdown(text) {
+    var value = restoreEscapedMarkdownNewlines(text)
+        .replace(/\r\n?/g, '\n')
+        .replace(/([^\n])\s+(#{1,6}\s+)/g, '$1\n\n$2')
+        .replace(/([^\n])\s+(-{3,}\s*)/g, '$1\n$2');
+    value = normalizeCompactMarkdownTables(value)
+        .replace(/([^\n])\s+((?:[-*+]|\d{1,2}[.)])\s+)/g, '$1\n$2');
+    return normalizeCompactMarkdownTables(value).trim();
+}
+
+function escapeAssistantHtml(text) {
+    return String(text || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function isSafeAssistantUrl(url, allowImageData) {
+    var value = String(url || '').trim();
+    if (!value) {
+        return false;
+    }
+    if (value[0] === '#' || value[0] === '/' || value.indexOf('./') === 0 || value.indexOf('../') === 0) {
+        return true;
+    }
+    if (allowImageData && /^data:image\/(png|jpe?g|gif|webp);base64,/i.test(value)) {
+        return true;
+    }
+    try {
+        var parsed = new URL(value, window.location.href);
+        return parsed.protocol === 'http:' || parsed.protocol === 'https:' || parsed.protocol === 'mailto:';
+    } catch (e) {
+        return false;
+    }
+}
+
+function sanitizeAssistantMarkdownHtml(html) {
+    var template = document.createElement('template');
+    template.innerHTML = String(html || '');
+    var allowedTags = new Set([
+        'P', 'BR', 'STRONG', 'B', 'EM', 'I', 'DEL', 'S', 'CODE', 'PRE',
+        'BLOCKQUOTE', 'UL', 'OL', 'LI', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
+        'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD', 'A', 'IMG', 'HR'
+    ]);
+    var dangerousTags = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'LINK', 'META']);
+
+    function cleanNode(node) {
+        Array.from(node.childNodes).forEach(function (child) {
+            if (child.nodeType === Node.COMMENT_NODE) {
+                child.remove();
+                return;
+            }
+            if (child.nodeType !== Node.ELEMENT_NODE) {
+                return;
+            }
+
+            var tagName = child.tagName;
+            if (dangerousTags.has(tagName)) {
+                child.remove();
+                return;
+            }
+            if (!allowedTags.has(tagName)) {
+                var fragment = document.createDocumentFragment();
+                while (child.firstChild) {
+                    fragment.appendChild(child.firstChild);
+                }
+                child.replaceWith(fragment);
+                cleanNode(node);
+                return;
+            }
+
+            Array.from(child.attributes).forEach(function (attr) {
+                var name = attr.name.toLowerCase();
+                var value = attr.value;
+                var keep = false;
+                if (tagName === 'A' && (name === 'href' || name === 'title')) {
+                    keep = name === 'title' || isSafeAssistantUrl(value, false);
+                } else if (tagName === 'IMG' && (name === 'src' || name === 'alt' || name === 'title')) {
+                    keep = name !== 'src' || isSafeAssistantUrl(value, true);
+                } else if (tagName === 'CODE' && name === 'class') {
+                    keep = /^language-[\w-]+$/.test(value);
+                } else if ((tagName === 'TH' || tagName === 'TD') && (name === 'align' || name === 'colspan' || name === 'rowspan')) {
+                    keep = true;
+                }
+                if (!keep) {
+                    child.removeAttribute(attr.name);
+                }
+            });
+            if (tagName === 'A' && child.getAttribute('href')) {
+                child.setAttribute('target', '_blank');
+                child.setAttribute('rel', 'noopener noreferrer');
+            }
+            cleanNode(child);
+        });
+    }
+
+    cleanNode(template.content);
+    return template.innerHTML;
+}
+
+function renderAssistantMarkdown(text) {
+    var markdownText = normalizeAssistantMarkdown(text);
+    if (!markdownText) {
+        return '<p></p>';
+    }
+    try {
+        if (typeof marked !== 'undefined' && marked.parse) {
+            var html = marked.parse(markdownText, {
+                gfm: true,
+                breaks: true
+            });
+            return sanitizeAssistantMarkdownHtml(html);
+        }
+    } catch (e) {
+        console.warn('markdown render failed', e);
+    }
+    return escapeAssistantHtml(markdownText).replace(/\n/g, '<br>');
+}
+
+function scrollChatToBottom() {
+    var itemContent = document.getElementById('item-content');
+    if (itemContent) {
+        itemContent.scrollTop = itemContent.scrollHeight;
+    }
+}
+
+function finishAssistantStreaming(jqObj) {
+    if (!jqObj || !jqObj.length) {
+        return;
+    }
+    jqObj.removeClass('result-streaming');
+    jqObj.parent().children('.better-result').removeClass('result-streaming');
+}
+
+function stripTrailingDecodeArtifacts(text) {
+    return String(text || '').replace(/\uFFFD+$/g, '');
+}
+
 function buildReasoningBlockHtml(reasoningText, openByDefault) {
     if (!reasoningText) {
         return '';
     }
     ensureReasoningBlockStyles();
-    var rendered;
-    try {
-        rendered = (typeof marked !== 'undefined' && marked.parse)
-            ? marked.parse(String(reasoningText))
-            : String(reasoningText).replace(/\n/g, '<br>');
-    } catch (e) {
-        rendered = String(reasoningText).replace(/\n/g, '<br>');
-    }
+    var rendered = renderAssistantMarkdown(reasoningText);
     var openAttr = openByDefault ? ' open' : '';
     var title = tTextQuery('思考过程');
     return `<details class="reasoning-block"${openAttr} style="margin:0 0 10px 0;padding:8px 12px;background:#f5f7fb;border-left:3px solid #c7d2fe;border-radius:6px;color:#4b5563;font-size:13px;">`
@@ -61,7 +215,7 @@ function renderSecurityFilterNotice(jqObj, content) {
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;')
         .replace(/\n/g, '<br>');
-    jqObj.removeClass('result-streaming');
+    finishAssistantStreaming(jqObj);
     jqObj.html(
         '<div style="display:flex;gap:10px;align-items:flex-start;max-width:680px;padding:12px 14px;border:1px solid #f2c9c9;border-radius:8px;background:#fff7f7;color:#7f1d1d;">'
         + '<div aria-hidden="true" style="width:22px;height:22px;line-height:22px;text-align:center;border-radius:50%;background:#dc2626;color:#fff;font-weight:700;flex:0 0 auto;">!</div>'
@@ -409,6 +563,17 @@ async function buildChatCompletionsAuthHeader() {
     return key ? ("Bearer " + key) : null;
 }
 
+function getSelectedChatModel() {
+    return $('#model-select').val() || $('.model-select:visible').first().val() || $('.model-select').first().val();
+}
+
+function applySelectedChatModel(paras) {
+    var selectedModel = getSelectedChatModel();
+    if (selectedModel) {
+        paras.model = selectedModel;
+    }
+}
+
 function getTextResult(question, robootAnswerJq, conversation, agentId) {
     var result = '';
     var paras = {
@@ -421,11 +586,11 @@ function getTextResult(question, robootAnswerJq, conversation, agentId) {
         // "stream": true,
         "stream": true
     };
-    // if (agentId) {
-    //     paras["worker"] = "appointedWorker";
-    //     paras["agentId"] = agentId;
-    //     paras["stream"] = true;
-    // }
+    if (agentId) {
+        paras["worker"] = "appointedWorker";
+        paras["agentId"] = agentId;
+        paras["stream"] = true;
+    }
 
     var queryUrl = "search/detectIntent";
     $.ajax({
@@ -442,6 +607,7 @@ function getTextResult(question, robootAnswerJq, conversation, agentId) {
                         <img src='${res.result}' alt='Image' style="width: 320px;">
                     `
                     robootAnswerJq.html(result);
+                    finishAssistantStreaming(robootAnswerJq);
                     answer = result;
                     let p = robootAnswerJq.parent().parent().parent();
                     p.children('.idx').children('.appendVoice').children('audio').hide();
@@ -452,6 +618,7 @@ function getTextResult(question, robootAnswerJq, conversation, agentId) {
                     var instructions = JSON.stringify(res.instructions, null, 2);
                     result = syntaxHighlight(instructions);
                     robootAnswerJq.html("<pre>" + result + "</pre>");
+                    finishAssistantStreaming(robootAnswerJq);
                     answer = result;
                 }
                 // 判断图生文
@@ -459,6 +626,7 @@ function getTextResult(question, robootAnswerJq, conversation, agentId) {
                     result = tTextQuery("您所上传的图片的意思是：") + "<br><b>" + tTextQuery("类别") + "</b>：" + res.classification + "<br><b>" + tTextQuery("描述") + "</b>：" + res.caption + "<br>" +
                         "<b>" + tTextQuery("分割后的图片") + "</b>：  <img src='" + res.samUrl + "' alt='Image'><br>";
                     robootAnswerJq.html(result);
+                    finishAssistantStreaming(robootAnswerJq);
                     let p = robootAnswerJq.parent().parent().parent();
                     p.children('.idx').children('.appendVoice').children('audio').hide();
                     p.children('.idx').children('.appendVoice').children('select').hide();
@@ -466,18 +634,22 @@ function getTextResult(question, robootAnswerJq, conversation, agentId) {
                 } else if (res.enhanceImageUrl != null) {
                     result = tTextQuery("加强后的图片如下：") + "<br><img src='" + res.enhanceImageUrl + "' alt='Image'><br>";
                     robootAnswerJq.html(result);
+                    finishAssistantStreaming(robootAnswerJq);
                     answer = result;
                 } else if (res.svdVideoUrl != null) {
                     result = "<video id='media' src='" + res.svdVideoUrl + "' controls width='400px' height='400px'></video>";
                     robootAnswerJq.html(result);
+                    finishAssistantStreaming(robootAnswerJq);
                     answer = result;
                 } else if (res.type != null && res.type === 'mot') {
                     result = "<video id='media' src='" + res.data + "' controls width='400px' height='400px'></video>";
                     robootAnswerJq.html(result);
+                    finishAssistantStreaming(robootAnswerJq);
                     answer = result;
                 } else if (res.type != null && res.type === 'mmediting') {
                     result = "<video id='media' src='" + res.data + "' controls width='400px' height='400px'></video>";
                     robootAnswerJq.html(result);
+                    finishAssistantStreaming(robootAnswerJq);
                     answer = result;
                 } else {
                     if (paras["stream"]) {
@@ -488,6 +660,7 @@ function getTextResult(question, robootAnswerJq, conversation, agentId) {
                 }
             } else {
                 robootAnswerJq.html(tTextQuery("调用失败！"));
+                finishAssistantStreaming(robootAnswerJq);
                 answer = tTextQuery('调用失败! ');
             }
             $('#queryBox textarea').val('');
@@ -506,6 +679,7 @@ function getTextResult(question, robootAnswerJq, conversation, agentId) {
             querying = false;
             queryLock = false;
             robootAnswerJq.html(tTextQuery("调用失败！"));
+            finishAssistantStreaming(robootAnswerJq);
             conversation.robot.answer = tTextQuery("调用失败！");
             addConv(conversation);
             if (typeof ensureChatBottomBarVisible === 'function') {
@@ -519,12 +693,7 @@ function getTextResult(question, robootAnswerJq, conversation, agentId) {
 
 async function generalOutput(paras, question, robootAnswerJq) {
     let url = paras.agentId ? 'chat/go' : 'v1/chat/completions';
-    if (!paras.agentId) {
-        var selectedModel = $('#model-select').val() || $('.model-select:visible').first().val() || $('.model-select').first().val();
-        if (selectedModel) {
-            paras.model = selectedModel;
-        }
-    }
+    applySelectedChatModel(paras);
     var ajaxOpts = {
         type: "POST",
         contentType: "application/json;charset=utf-8",
@@ -534,6 +703,7 @@ async function generalOutput(paras, question, robootAnswerJq) {
         success: function (res) {
             if (res.choices === undefined) {
                 queryLock = false;
+                finishAssistantStreaming(robootAnswerJq);
                 robootAnswerJq.html(tTextQuery("调用失败！"));
                 if (typeof ensureChatBottomBarVisible === 'function') {
                     ensureChatBottomBarVisible();
@@ -541,6 +711,7 @@ async function generalOutput(paras, question, robootAnswerJq) {
                 return;
             }
             if (res.choices.length === 0) {
+                finishAssistantStreaming(robootAnswerJq);
                 if (typeof ensureChatBottomBarVisible === 'function') {
                     ensureChatBottomBarVisible();
                 }
@@ -573,21 +744,22 @@ async function generalOutput(paras, question, robootAnswerJq) {
                 if (reasoningHtml) {
                     robootAnswerJq.html(reasoningHtml);
                 }
+                finishAssistantStreaming(robootAnswerJq);
                 if (typeof ensureChatBottomBarVisible === 'function') {
                     ensureChatBottomBarVisible();
                 }
                 return;
             }
-            var fullText = chatMessage.content;
-            fullText = fullText.replaceAll("\n", "<br>");
+            var fullText = renderAssistantMarkdown(chatMessage.content);
             result = `
                         ${reasoningHtml}
-                        ${fullText} <br>
+                        ${fullText}
                         ${chatMessage.imageList && chatMessage.imageList.length > 0 ? chatMessage.imageList.map(image => `<img src='${image}' alt='Image' style="max-width:100%; height:auto; margin-bottom:10px;">`).join('') : "" }                        
                         ${chatMessage.filename !== undefined ? `<div style="display: flex;"><div style="width:50px;flex:1">${tTextQuery('附件:')}</div><div style="width:600px;flex:17 padding-left:5px">${a}</div></div><br>` : ""}
                         ${res.source !== undefined ? `<div style="display: flex;"><div style="width:300px;flex:1"><small>${tTextQuery('来源:')}${res.source}</small></div></div><br>` : ""}
                         `
             robootAnswerJq.html(result);
+            finishAssistantStreaming(robootAnswerJq);
             enableQueryBtn();
             querying = false;
             if (typeof ensureChatBottomBarVisible === 'function') {
@@ -601,6 +773,7 @@ async function generalOutput(paras, question, robootAnswerJq) {
             }
             enableQueryBtn();
             querying = false;
+            finishAssistantStreaming(robootAnswerJq);
             robootAnswerJq.html(tTextQuery("调用失败！"));
         }
     };
@@ -799,12 +972,7 @@ function streamOutput(paras, question, robootAnswerJq) {
 
     async function generateStream(paras) {
         let url = paras.agentId ? 'chat/go' : 'v1/chat/completions';
-        if (!paras.agentId) {
-            var selectedModel = $('#model-select').val() || $('.model-select:visible').first().val() || $('.model-select').first().val();
-            if (selectedModel) {
-                paras.model = selectedModel;
-            }
-        }
+        applySelectedChatModel(paras);
         var streamHeaders = {
             "Content-Type": "application/json",
             "Accept": "text/event-stream",
@@ -827,6 +995,7 @@ function streamOutput(paras, question, robootAnswerJq) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         const reader = response.body.getReader();
+        const decoder = new TextDecoder();
 
         let fullText = '';
         let flag = true;
@@ -835,20 +1004,53 @@ function streamOutput(paras, question, robootAnswerJq) {
         let pageContent = '';
         let reasoningContent = '';
         let securityFiltered = false;
+        let lastStreamMessage = {};
+        let lastStreamJson = {};
         robootAnswerJq.html('<p></p>');
-        while (flag) {
-            const {value, done} = await reader.read();
-            if (done) {
-                if (pageContent) {
-                    CONVERSATION_CONTEXT.push({"role": "user", "content": question});
-                    CONVERSATION_CONTEXT.push({"role": "assistant", "content": sourceContent || pageContent});
+
+        function renderStreamAnswer(chatMessage, json, attachmentHtml) {
+            if (chatMessage !== undefined) {
+                lastStreamMessage = Object.assign({}, chatMessage || {});
+                if (attachmentHtml !== undefined) {
+                    lastStreamMessage.attachmentHtml = attachmentHtml;
                 }
-                flag = false;
-                break;
             }
-            let res = new TextDecoder().decode(value);
+            if (json !== undefined) {
+                lastStreamJson = json || {};
+            }
+            chatMessage = lastStreamMessage || {};
+            json = lastStreamJson || {};
+            fullText = renderAssistantMarkdown(pageContent);
+            let reasoningHtmlStream = buildReasoningBlockHtml(reasoningContent, false);
+            result = `
+                        ${reasoningHtmlStream}
+                        ${fullText}
+                        ${chatMessage.imageList && chatMessage.imageList.length > 0 ? chatMessage.imageList.map(image => `<img src='${image}' alt='Image' style="max-width:100%; height:auto; margin-bottom:10px;">`).join('') : ""}
+                        ${chatMessage.filename !== undefined ? `<div style="display: flex;"><div style="width:50px;flex:1">${tTextQuery('附件:')}</div><div style="width:600px;flex:17 padding-left:5px">${chatMessage.attachmentHtml || ''}</div></div>` : ""}
+                        ${chatMessage.context || chatMessage.contextChunkIds ? `<div class="context-box"><div class="loading-box">${tTextQuery('正在索引文档')}&nbsp;&nbsp;<span></span></div><a style="float: right; cursor: pointer; color:cornflowerblue" onClick="retry(${CONVERSATION_CONTEXT.length + 1})">${tTextQuery('更多通用回答')}</a></div>` : ""}
+                        ${json.source !== undefined ? `<div style="display: flex;"><div style="width:300px;flex:1"><small>${tTextQuery('来源:')}${json.source}</small></div></div><br>` : ""}`
+            robootAnswerJq.html(result);
+            scrollChatToBottom();
+        }
+
+        function finalizeStreamAnswer() {
+            var cleanPageContent = stripTrailingDecodeArtifacts(pageContent);
+            var cleanSourceContent = stripTrailingDecodeArtifacts(sourceContent);
+            if (cleanPageContent !== pageContent || cleanSourceContent !== sourceContent) {
+                pageContent = cleanPageContent;
+                sourceContent = cleanSourceContent;
+                renderStreamAnswer();
+            }
+        }
+
+        function processStreamText(res) {
+            if (!res) {
+                return;
+            }
             if (res.startsWith("error:")) {
+                finishAssistantStreaming(robootAnswerJq);
                 robootAnswerJq.html(res.replaceAll('error:', ''));
+                flag = false;
                 return;
             }
             buffer += res;
@@ -857,8 +1059,9 @@ function streamOutput(paras, question, robootAnswerJq) {
             for (let chunk of chunkArray) {
                 chunk = chunk.replaceAll('data: ', '').trim();
                 if (chunk === "[DONE]") {
+                    finalizeStreamAnswer();
                     CONVERSATION_CONTEXT.push({"role": "user", "content": question});
-                    CONVERSATION_CONTEXT.push({"role": "assistant", "content": sourceContent});
+                    CONVERSATION_CONTEXT.push({"role": "assistant", "content": sourceContent || pageContent});
                     flag = false;
                     break;
                 }
@@ -871,7 +1074,9 @@ function streamOutput(paras, question, robootAnswerJq) {
                 let json = JSON.parse(chunk);
                 if (json.choices === undefined) {
                     queryLock = false;
+                    finishAssistantStreaming(robootAnswerJq);
                     robootAnswerJq.html(tTextQuery("调用失败！"));
+                    flag = false;
                     break
                 }
                 if (json.choices.length === 0) {
@@ -909,30 +1114,36 @@ function streamOutput(paras, question, robootAnswerJq) {
                     sourceContent  +=  chatMessage.content;
                 }
                 pageContent += chatMessage.content;
-                let temp = pageContent;
-                temp = marked.parse(temp);
-                fullText = temp + '<br/>';
-                let reasoningHtmlStream = buildReasoningBlockHtml(reasoningContent, false);
-                result = `
-                        ${reasoningHtmlStream}
-                        ${fullText}
-                        ${chatMessage.imageList && chatMessage.imageList.length > 0 ? chatMessage.imageList.map(image => `<img src='${image}' alt='Image' style="max-width:100%; height:auto; margin-bottom:10px;">`).join('') : ""}                        
-                        ${chatMessage.filename !== undefined ? `<div style="display: flex;"><div style="width:50px;flex:1">${tTextQuery('附件:')}</div><div style="width:600px;flex:17 padding-left:5px">${a}</div></div>` : ""}
-                        ${chatMessage.context || chatMessage.contextChunkIds ? `<div class="context-box"><div class="loading-box">${tTextQuery('正在索引文档')}&nbsp;&nbsp;<span></span></div><a style="float: right; cursor: pointer; color:cornflowerblue" onClick="retry(${CONVERSATION_CONTEXT.length + 1})">${tTextQuery('更多通用回答')}</a></div>` : ""}
-                        ${json.source !== undefined ? `<div style="display: flex;"><div style="width:300px;flex:1"><small>${tTextQuery('来源:')}${json.source}</small></div></div><br>` : ""}`
-                // `;
+                renderStreamAnswer(chatMessage, json, a);
                 if (chatMessage.contextChunkIds) {
                     if (chatMessage.contextChunkIds instanceof Array) {
                         getCropRect(chatMessage.contextChunkIds, fullText, robootAnswerJq);
                     }
                 }
-                robootAnswerJq.html(result);
             }
+        }
+
+        while (flag) {
+            const {value, done} = await reader.read();
+            if (done) {
+                processStreamText(decoder.decode());
+                if (flag) {
+                    finalizeStreamAnswer();
+                    if (pageContent) {
+                        CONVERSATION_CONTEXT.push({"role": "user", "content": question});
+                        CONVERSATION_CONTEXT.push({"role": "assistant", "content": sourceContent || pageContent});
+                    }
+                    flag = false;
+                }
+                break;
+            }
+            processStreamText(decoder.decode(value, {stream: true}));
         }
         return {securityFiltered: securityFiltered};
     }
 
     generateStream(paras).then(r => {
+        finishAssistantStreaming(robootAnswerJq);
         if (typeof ensureChatBottomBarVisible === 'function') {
             ensureChatBottomBarVisible();
         }
@@ -954,6 +1165,7 @@ function streamOutput(paras, question, robootAnswerJq) {
         }
     }).catch((err) => {
         console.error(err);
+        finishAssistantStreaming(robootAnswerJq);
         if (typeof ensureChatBottomBarVisible === 'function') {
             ensureChatBottomBarVisible();
         }

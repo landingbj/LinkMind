@@ -1,0 +1,7 @@
+---
+agents:
+- enable: true
+  name: "imported_agent"
+  wrong_case: "抱歉，我暂时无法处理这个请求"
+  endpoint: "data/imports/agents/imported_agent/agent.yaml"
+  driver: "ai.migrate.agent.ImportedPromptAgent"

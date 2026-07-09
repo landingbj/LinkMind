@@ -165,6 +165,16 @@ public class LlmApiServlet extends BaseServlet {
         resp.setContentType("application/json;charset=utf-8");
         LLmRequest lLmRequest = reqBodyToObj(req, LLmRequest.class);
         ChatCompletionResult work = defaultWorker.work(lLmRequest.getWorker(), lLmRequest);
+        if (work == null || work.getChoices() == null || work.getChoices().isEmpty()) {
+            ChatCompletionResult error = LLMErrorConstants.errorResponse(lLmRequest,
+                    LLMErrorConstants.NO_AVAILABLE_MODEL, "{\"error\":\"agent backend is not available.\"}");
+            if (Boolean.FALSE.equals(lLmRequest.getStream())) {
+                responsePrint(resp, toJson(error));
+            } else {
+                streamOutPrint(resp, error);
+            }
+            return;
+        }
         if (Boolean.FALSE.equals(lLmRequest.getStream())) {
             responsePrint(resp, toJson(work));
             return;

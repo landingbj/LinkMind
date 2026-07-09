@@ -149,6 +149,10 @@
         <servlet-class>ai.servlet.api.LlmApiServlet</servlet-class>
         <load-on-startup>1</load-on-startup>
     </servlet>
+    <servlet>
+        <servlet-name>agentMigrate</servlet-name>
+        <servlet-class>ai.migrate.servlet.AgentMigrateServlet</servlet-class>
+    </servlet>
     <servlet-mapping>
         <servlet-name>llm</servlet-name>
         <url-pattern>/v1/models</url-pattern>
@@ -168,6 +172,10 @@
     <servlet-mapping>
         <servlet-name>llm</servlet-name>
         <url-pattern>/chat/go</url-pattern>
+    </servlet-mapping>
+    <servlet-mapping>
+        <servlet-name>agentMigrate</servlet-name>
+        <url-pattern>/agent/*</url-pattern>
     </servlet-mapping>
     <servlet-mapping>
         <servlet-name>llm</servlet-name>

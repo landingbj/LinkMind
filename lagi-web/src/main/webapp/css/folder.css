@@ -121,6 +121,10 @@
     transition: none;
 }
 
+#nav_body .sub-folder-container {
+    display: block;
+}
+
 .info-text {
     margin-top: 1.5rem;
     font-size: 0.75rem;

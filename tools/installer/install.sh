@@ -89,6 +89,114 @@ read_yes_no() {
     fi
 }
 
+update_jar_entry_from_file() {
+    jar_file="$1"
+    entry_name="$2"
+    source_file="$3"
+
+    if [ ! -f "$jar_file" ]; then
+        echo "Error: Jar file does not exist: $jar_file"
+        return 1
+    fi
+    if [ ! -f "$source_file" ]; then
+        echo "Error: Source file does not exist: $source_file"
+        return 1
+    fi
+
+    jar_dir=$(dirname "$jar_file")
+    staged_jar="$(mktemp "$jar_dir/.LinkMindUpdated_XXXXXXXXXX")"
+    rm -f "$staged_jar"
+
+    if command -v zip >/dev/null 2>&1 && command -v unzip >/dev/null 2>&1; then
+        update_dir="$(mktemp -d "${TMPDIR:-/tmp}/LinkMindJar_XXXXXXXXXX")"
+        entry_dir=$(dirname "$entry_name")
+        if ! cp -f "$jar_file" "$staged_jar"; then
+            rm -f "$staged_jar"
+            rm -rf "$update_dir"
+            echo "Error: Failed to stage $jar_file"
+            return 1
+        fi
+        if [ "$entry_dir" != "." ]; then
+            mkdir -p "$update_dir/$entry_dir"
+        fi
+        if ! cp -f "$source_file" "$update_dir/$entry_name"; then
+            rm -f "$staged_jar"
+            rm -rf "$update_dir"
+            echo "Error: Failed to stage $source_file"
+            return 1
+        fi
+        if ! (
+            cd "$update_dir"
+            zip -q "$staged_jar" "$entry_name"
+        ); then
+            rm -f "$staged_jar"
+            rm -rf "$update_dir"
+            echo "Error: Failed to update $jar_file with $entry_name"
+            return 1
+        fi
+        rm -rf "$update_dir"
+
+        expected_size=$(wc -c < "$source_file" | tr -d '[:space:]')
+        actual_size=$(unzip -l "$staged_jar" "$entry_name" 2>/dev/null | awk -v name="$entry_name" '$NF == name { print $1 }')
+        if [ -z "$actual_size" ] || [ "$actual_size" != "$expected_size" ]; then
+            rm -f "$staged_jar"
+            echo "Error: Updated $entry_name size mismatch in $jar_file"
+            return 1
+        fi
+    else
+        python_bin=""
+        if command -v python3 >/dev/null 2>&1; then
+            python_bin="python3"
+        elif command -v python >/dev/null 2>&1 && python -c 'import sys; sys.exit(0 if sys.version_info[0] >= 3 else 1)' >/dev/null 2>&1; then
+            python_bin="python"
+        fi
+
+        if [ -z "$python_bin" ]; then
+            rm -f "$staged_jar"
+            echo "Error: python3 or zip+unzip is required to install Medusa Accelerator."
+            return 1
+        fi
+
+        if ! "$python_bin" - "$jar_file" "$staged_jar" "$entry_name" "$source_file" <<'PY'
+import os
+import sys
+import zipfile
+
+jar_file, staged_jar, entry_name, source_file = sys.argv[1:]
+expected_size = os.path.getsize(source_file)
+
+with zipfile.ZipFile(jar_file, "r") as source_zip:
+    with zipfile.ZipFile(staged_jar, "w", allowZip64=True) as target_zip:
+        target_zip.comment = source_zip.comment
+        for item in source_zip.infolist():
+            if item.filename == entry_name:
+                continue
+            target_zip.writestr(item, source_zip.read(item))
+        target_zip.write(source_file, entry_name, compress_type=zipfile.ZIP_DEFLATED)
+
+with zipfile.ZipFile(staged_jar, "r") as check_zip:
+    info = check_zip.getinfo(entry_name)
+    if info.file_size != expected_size:
+        raise RuntimeError(
+            "updated %s size mismatch: expected %s bytes but got %s bytes"
+            % (entry_name, expected_size, info.file_size)
+        )
+PY
+        then
+            rm -f "$staged_jar"
+            echo "Error: Failed to update $jar_file with $entry_name"
+            return 1
+        fi
+    fi
+
+    if ! mv -f "$staged_jar" "$jar_file"; then
+        rm -f "$staged_jar"
+        echo "Error: Failed to replace $jar_file after updating $entry_name"
+        return 1
+    fi
+    return 0
+}
+
 # export_val="false"
 # import_val="false"
 runtime_choice="mate"
@@ -252,12 +360,6 @@ if [ "$runtime_choice" = "server" ]; then
     fi
 
     if [ "$install_medusa" = "true" ]; then
-        if ! command -v jar >/dev/null 2>&1; then
-            echo "Error: JDK 8 is required to install Medusa Accelerator, but 'jar' was not found."
-            echo "Please install JDK 8 and make sure 'jar' is available in your PATH."
-            exit 1
-        fi
-
         MEDUSA_MODEL_PATH="$LINKMIND_DIR/medusa.model"
         echo "Downloading $MEDUSA_MODEL_URL ..."
         if command -v curl >/dev/null 2>&1; then
@@ -275,17 +377,9 @@ if [ "$runtime_choice" = "server" ]; then
             exit 1
         fi
 
-        JAR_UPDATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/LinkMindJar_XXXXXXXXXX")"
-        cp -f "$MEDUSA_MODEL_PATH" "$JAR_UPDATE_DIR/medusa.model"
-        if ! (
-            cd "$JAR_UPDATE_DIR"
-            jar uf "$JAR_PATH" medusa.model
-        ); then
-            rm -rf "$JAR_UPDATE_DIR"
-            echo "Error: Failed to update $JAR_PATH with medusa.model"
+        if ! update_jar_entry_from_file "$JAR_PATH" "medusa.model" "$MEDUSA_MODEL_PATH"; then
             exit 1
         fi
-        rm -rf "$JAR_UPDATE_DIR"
         echo "Medusa Accelerator model installed into: $JAR_PATH"
     fi
 fi

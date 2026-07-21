@@ -174,6 +174,68 @@ function Install-LinkMind {
         return ($answer -eq "yes" -or $answer -eq "y")
     }
 
+    function Update-JarEntryFromFile($jarFilePath, $entryName, $sourceFilePath) {
+        if (-not (Test-Path $jarFilePath -PathType Leaf)) {
+            Write-Host "Error: Jar file does not exist: $jarFilePath"
+            return $false
+        }
+        if (-not (Test-Path $sourceFilePath -PathType Leaf)) {
+            Write-Host "Error: Source file does not exist: $sourceFilePath"
+            return $false
+        }
+
+        Add-Type -AssemblyName System.IO.Compression
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+        $stagedJar = Join-Path ([System.IO.Path]::GetTempPath()) "LinkMindUpdated_$([System.Guid]::NewGuid().ToString('N')).jar"
+        try {
+            Copy-Item -Path $jarFilePath -Destination $stagedJar -Force
+            $zip = [System.IO.Compression.ZipFile]::Open($stagedJar, [System.IO.Compression.ZipArchiveMode]::Update)
+            try {
+                $existingEntry = $zip.GetEntry($entryName)
+                if ($existingEntry) {
+                    $existingEntry.Delete()
+                }
+                [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                    $zip,
+                    $sourceFilePath,
+                    $entryName,
+                    [System.IO.Compression.CompressionLevel]::Optimal
+                ) | Out-Null
+            } finally {
+                if ($zip) {
+                    $zip.Dispose()
+                }
+            }
+
+            $expectedLength = (Get-Item $sourceFilePath).Length
+            $zipRead = [System.IO.Compression.ZipFile]::OpenRead($stagedJar)
+            try {
+                $updatedEntry = $zipRead.GetEntry($entryName)
+                if (-not $updatedEntry) {
+                    throw "Updated jar does not contain $entryName"
+                }
+                if ($updatedEntry.Length -ne $expectedLength) {
+                    throw "Updated $entryName size mismatch: expected $expectedLength bytes but got $($updatedEntry.Length) bytes"
+                }
+            } finally {
+                if ($zipRead) {
+                    $zipRead.Dispose()
+                }
+            }
+
+            [System.IO.File]::Copy($stagedJar, $jarFilePath, $true)
+            return $true
+        } catch {
+            Write-Host "Error: Failed to update $jarFilePath with $entryName - $($_.Exception.Message)"
+            return $false
+        } finally {
+            if (Test-Path $stagedJar) {
+                Remove-Item -Path $stagedJar -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
     function Read-RuntimeChoice {
         while ($true) {
             Write-Host "Runtime Choice:"
@@ -306,36 +368,14 @@ function Install-LinkMind {
         }
 
         if ($installMedusa) {
-            if (-not (Get-Command jar -ErrorAction SilentlyContinue)) {
-                Write-Host "Error: JDK 8 is required to install Medusa Accelerator, but 'jar' was not found."
-                Write-Host "Please install JDK 8 and make sure 'jar' is available in this terminal."
-                return
-            }
-
             $medusaModelPath = Join-Path $linkMindDir "medusa.model"
             Write-Host "Downloading $medusaModelUrl ..."
             Invoke-WebRequest -Uri $medusaModelUrl -OutFile $medusaModelPath -UseBasicParsing
 
-            $jarUpdateDir = Join-Path ([System.IO.Path]::GetTempPath()) "LinkMindJar_$([System.Guid]::NewGuid().ToString('N'))"
-            New-Item -ItemType Directory -Path $jarUpdateDir | Out-Null
-            try {
-                Copy-Item -Path $medusaModelPath -Destination (Join-Path $jarUpdateDir "medusa.model") -Force
-                Push-Location $jarUpdateDir
-                try {
-                    & jar uf $jarPath "medusa.model"
-                } finally {
-                    Pop-Location
-                }
-                if ($LASTEXITCODE -ne 0) {
-                    Write-Host "Error: Failed to update $jarPath with medusa.model"
-                    return
-                }
-                Write-Host "Medusa Accelerator model installed into: $jarPath"
-            } finally {
-                if (Test-Path $jarUpdateDir) {
-                    Remove-Item -Path $jarUpdateDir -Recurse -Force -ErrorAction SilentlyContinue
-                }
+            if (-not (Update-JarEntryFromFile $jarPath "medusa.model" $medusaModelPath)) {
+                return
             }
+            Write-Host "Medusa Accelerator model installed into: $jarPath"
         }
     }
 

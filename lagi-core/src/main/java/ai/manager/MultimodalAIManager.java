@@ -125,29 +125,32 @@ public class MultimodalAIManager {
 
     private static  <T> void register(List<String> modelNames, AIManager<T> aiManager, T adapter, List<Backend> functions) {
         try {
-            if(functions == null) {
+            if (functions == null) {
                 return;
             }
-            Map<String, Backend> funcMap = functions.stream().collect(Collectors.toMap(Backend::getBackend, model -> model));
-            ModelService modelService = (ModelService) adapter;
-            Backend func = funcMap.get(modelService.getBackend());
-            AtomicBoolean setDefaultModel = new AtomicBoolean(false);
-            if(func != null) {
-                BeanUtil.copyProperties(func,modelService, CopyOptions.create(null, true));
-                setDefaultModel.set(true);
-            } else {
-                setDefaultModel.set(false);
-            }
-            if(modelService.getPriority() == null) {
-                modelService.setPriority(0);
-            }
-            modelNames.forEach(name->{
-                if(!setDefaultModel.get()) {
-                    ((ModelService) adapter).setModel(name);
-                    setDefaultModel.set(true);
+            ModelService original = (ModelService) adapter;
+            for (String modelName : modelNames) {
+                Backend functionConfig = functions.stream()
+                        .filter(Objects::nonNull)
+                        .filter(func -> Boolean.TRUE.equals(func.getEnable()))
+                        .filter(func -> StrUtil.equals(func.getBackend(), original.getBackend()))
+                        .filter(func -> StrUtil.isBlank(func.getModel()) || StrUtil.equals(func.getModel(), modelName))
+                        .findFirst()
+                        .orElse(null);
+                if (functionConfig == null) {
+                    continue;
                 }
-                aiManager.register(name, adapter);
-            });
+                ModelService cloned = cloneModelService(original);
+                if (cloned == null) {
+                    continue;
+                }
+                BeanUtil.copyProperties(functionConfig, cloned, CopyOptions.create(null, true));
+                cloned.setModel(modelName);
+                if (cloned.getPriority() == null) {
+                    cloned.setPriority(0);
+                }
+                aiManager.register(modelName, (T) cloned);
+            }
 
         } catch (Exception e) {
             log.error("MultimodalAIManager register model error", e);

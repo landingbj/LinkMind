@@ -124,9 +124,18 @@ public final class ResponsesChatCompletionConverter {
                 JsonNode response = root.path("response");
                 ChatCompletionResult result = convertResponse(response, true);
                 if (result.getChoices() != null && !result.getChoices().isEmpty()) {
-                    result.getChoices().get(0).setFinish_reason("response.incomplete".equals(type) ? "length" : "stop");
-                    if (result.getChoices().get(0).getDelta() != null) {
-                        result.getChoices().get(0).getDelta().setContent("");
+                    ChatCompletionChoice choice = result.getChoices().get(0);
+                    if ("response.incomplete".equals(type)) {
+                        choice.setFinish_reason("length");
+                    } else if (choice.getDelta() != null
+                            && choice.getDelta().getTool_calls() != null
+                            && !choice.getDelta().getTool_calls().isEmpty()) {
+                        choice.setFinish_reason("tool_calls");
+                    } else {
+                        choice.setFinish_reason("stop");
+                    }
+                    if (choice.getDelta() != null) {
+                        choice.getDelta().setContent("");
                     }
                 }
                 return result;

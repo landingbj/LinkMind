@@ -81,6 +81,40 @@ class ResponsesChatCompletionConverterTest {
         assertEquals(3, completed.getUsage().getTotal_tokens());
     }
 
+    @Test
+    void shouldUseToolCallsFinishReasonForCompletedResponseWithToolCalls() {
+        String completedEvent = "{\n" +
+                "  \"type\": \"response.completed\",\n" +
+                "  \"response\": {\n" +
+                "    \"id\": \"resp_tool_completed\",\n" +
+                "    \"output\": [{\"type\": \"function_call\", \"call_id\": \"call_1\", \"name\": \"lookup\", \"arguments\": \"{}\"}]\n" +
+                "  }\n" +
+                "}";
+
+        ChatCompletionResult completed = ResponsesChatCompletionConverter.convertStreamEvent(completedEvent);
+
+        assertNotNull(completed);
+        assertEquals("tool_calls", completed.getChoices().get(0).getFinish_reason());
+        assertEquals(1, completed.getChoices().get(0).getDelta().getTool_calls().size());
+    }
+
+    @Test
+    void shouldKeepLengthFinishReasonForIncompleteResponseWithToolCalls() {
+        String incompleteEvent = "{\n" +
+                "  \"type\": \"response.incomplete\",\n" +
+                "  \"response\": {\n" +
+                "    \"id\": \"resp_tool_incomplete\",\n" +
+                "    \"output\": [{\"type\": \"function_call\", \"call_id\": \"call_1\", \"name\": \"lookup\", \"arguments\": \"{}\"}]\n" +
+                "  }\n" +
+                "}";
+
+        ChatCompletionResult incomplete = ResponsesChatCompletionConverter.convertStreamEvent(incompleteEvent);
+
+        assertNotNull(incomplete);
+        assertEquals("length", incomplete.getChoices().get(0).getFinish_reason());
+        assertEquals(1, incomplete.getChoices().get(0).getDelta().getTool_calls().size());
+    }
+
     // Temporarily disabled to unblock Maven packaging.
 //    @Test
     void shouldMapAssistantHistoryToOutputText() {

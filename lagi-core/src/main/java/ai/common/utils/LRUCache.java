@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -18,9 +19,18 @@ public class LRUCache<K, V> {
     private final Map<K, Long> timestampMap;
     private final Lock lock = new ReentrantLock();
     private ScheduledExecutorService executorService;
+    private final AtomicLong hitCount = new AtomicLong();
+    private final AtomicLong missCount = new AtomicLong();
+    private final AtomicLong putCount = new AtomicLong();
+    private final AtomicLong expirationCount = new AtomicLong();
+    private final AtomicLong capacityEvictionCount = new AtomicLong();
+    private final AtomicLong explicitRemovalCount = new AtomicLong();
 
     public LRUCache(int capacity, long expirationTime, TimeUnit timeUnit) {
         this(capacity);
+        if (expirationTime <= 0) {
+            throw new IllegalArgumentException("expirationTime must be greater than zero");
+        }
         this.expirationTimeInMillis = timeUnit.toMillis(expirationTime);
         this.executorService = Executors.newSingleThreadScheduledExecutor();
         this.executorService.scheduleAtFixedRate(this::removeExpiredEntries, expirationTimeInMillis, expirationTimeInMillis, TimeUnit.MILLISECONDS);
@@ -33,7 +43,12 @@ public class LRUCache<K, V> {
 
             @Override
             protected boolean removeEldestEntry(Map.Entry<K, V> eldest) {
-                return this.size() > LRUCache.this.maxCacheSize;
+                boolean shouldEvict = this.size() > LRUCache.this.maxCacheSize;
+                if (shouldEvict) {
+                    timestampMap.remove(eldest.getKey());
+                    capacityEvictionCount.incrementAndGet();
+                }
+                return shouldEvict;
             }
         };
         this.timestampMap = new LinkedHashMap<>();
@@ -45,10 +60,17 @@ public class LRUCache<K, V> {
         lock.lock();
         try {
             if (expirationTimeInMillis != -1 && isExpired(key)) {
-                remove(key);
+                removeExpired(key);
+                missCount.incrementAndGet();
                 return false;
             }
-            return map.containsKey(key);
+            boolean contains = map.containsKey(key);
+            if (contains) {
+                hitCount.incrementAndGet();
+            } else {
+                missCount.incrementAndGet();
+            }
+            return contains;
         } finally {
             lock.unlock();
         }
@@ -58,10 +80,17 @@ public class LRUCache<K, V> {
         lock.lock();
         try {
             if (expirationTimeInMillis != -1 && isExpired(key)) {
-                remove(key);
+                removeExpired(key);
+                missCount.incrementAndGet();
                 return null;
             }
-            return map.get(key);
+            V value = map.get(key);
+            if (value != null || map.containsKey(key)) {
+                hitCount.incrementAndGet();
+            } else {
+                missCount.incrementAndGet();
+            }
+            return value;
         } finally {
             lock.unlock();
         }
@@ -71,6 +100,7 @@ public class LRUCache<K, V> {
         lock.lock();
         try {
             map.put(key, value);
+            putCount.incrementAndGet();
             if (expirationTimeInMillis != -1) {
                 timestampMap.put(key, System.currentTimeMillis());
             }
@@ -83,7 +113,11 @@ public class LRUCache<K, V> {
         lock.lock();
         try {
             timestampMap.remove(key);
-            return map.remove(key);
+            V removed = map.remove(key);
+            if (removed != null) {
+                explicitRemovalCount.incrementAndGet();
+            }
+            return removed;
         } finally {
             lock.unlock();
         }
@@ -104,8 +138,7 @@ public class LRUCache<K, V> {
             }
             for (K key : new ArrayList<>(map.keySet())) {
                 if (isExpired(key)) {
-                    map.remove(key);
-                    timestampMap.remove(key);
+                    removeExpired(key);
                 } else {
                     snapshot.add(key);
                 }
@@ -125,9 +158,21 @@ public class LRUCache<K, V> {
         }
     }
 
+    public CacheStats getStats() {
+        return new CacheStats(hitCount.get(), missCount.get(), putCount.get(), expirationCount.get(),
+                capacityEvictionCount.get(), explicitRemovalCount.get(), size());
+    }
+
     private boolean isExpired(K key) {
         Long insertionTime = timestampMap.get(key);
         return insertionTime == null || (System.currentTimeMillis() - insertionTime >= expirationTimeInMillis);
+    }
+
+    private void removeExpired(K key) {
+        timestampMap.remove(key);
+        if (map.remove(key) != null) {
+            expirationCount.incrementAndGet();
+        }
     }
 
     private void removeExpiredEntries() {
@@ -142,6 +187,7 @@ public class LRUCache<K, V> {
                 if (System.currentTimeMillis() - entry.getValue() >= expirationTimeInMillis) {
                     map.remove(entry.getKey());
                     iterator.remove();
+                    expirationCount.incrementAndGet();
                 }
             }
         } finally {
@@ -162,6 +208,55 @@ public class LRUCache<K, V> {
             timestampMap.clear();
         } finally {
             lock.unlock();
+        }
+    }
+
+    public static final class CacheStats {
+        private final long hits;
+        private final long misses;
+        private final long puts;
+        private final long expirations;
+        private final long capacityEvictions;
+        private final long explicitRemovals;
+        private final int size;
+
+        private CacheStats(long hits, long misses, long puts, long expirations,
+                           long capacityEvictions, long explicitRemovals, int size) {
+            this.hits = hits;
+            this.misses = misses;
+            this.puts = puts;
+            this.expirations = expirations;
+            this.capacityEvictions = capacityEvictions;
+            this.explicitRemovals = explicitRemovals;
+            this.size = size;
+        }
+
+        public long getHits() {
+            return hits;
+        }
+
+        public long getMisses() {
+            return misses;
+        }
+
+        public long getPuts() {
+            return puts;
+        }
+
+        public long getExpirations() {
+            return expirations;
+        }
+
+        public long getCapacityEvictions() {
+            return capacityEvictions;
+        }
+
+        public long getExplicitRemovals() {
+            return explicitRemovals;
+        }
+
+        public int getSize() {
+            return size;
         }
     }
 }

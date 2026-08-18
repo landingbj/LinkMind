@@ -226,6 +226,7 @@ public class SqliteVectorStore extends BaseVectorStore {
                     "PRIMARY KEY (id, key), " +
                     "FOREIGN KEY (id) REFERENCES " + vecTable + "_rowids(id) ON DELETE CASCADE)");
         }
+        ensureMetadataLookupIndex(conn, metaTable);
     }
 
     // ==================== Byte Conversion ====================
@@ -276,6 +277,13 @@ public class SqliteVectorStore extends BaseVectorStore {
                 ps.addBatch();
             }
             ps.executeBatch();
+        }
+    }
+
+    private void ensureMetadataLookupIndex(Conn conn, String metaTable) throws SQLException {
+        try (Statement stmt = conn.createStatement()) {
+            stmt.execute("CREATE INDEX IF NOT EXISTS " + metaTable + "_key_value_idx ON " +
+                    metaTable + "(key, value, id)");
         }
     }
 
@@ -427,6 +435,68 @@ public class SqliteVectorStore extends BaseVectorStore {
                 return ids;
             }
         }
+    }
+
+    /**
+     * Converts the common $and metadata filter shape into indexed SQL lookups.
+     * Returns null when a condition needs the generic in-memory matcher.
+     */
+    @SuppressWarnings("unchecked")
+    private List<String> findIdsByMetadataWhere(Conn conn, String metaTable, Map<String, Object> where)
+            throws SQLException {
+        if (where == null || where.size() != 1 || !(where.get("$and") instanceof List)) {
+            return null;
+        }
+        List<Map<String, Object>> conditions = (List<Map<String, Object>>) where.get("$and");
+        if (conditions.isEmpty()) {
+            return null;
+        }
+
+        StringBuilder sql = new StringBuilder();
+        List<Object> parameters = new ArrayList<>();
+        for (int index = 0; index < conditions.size(); index++) {
+            Map<String, Object> condition = conditions.get(index);
+            if (condition == null || condition.size() != 1) {
+                return null;
+            }
+            Map.Entry<String, Object> entry = condition.entrySet().iterator().next();
+            String key = entry.getKey();
+            Object value = entry.getValue();
+            List<?> values;
+            if (value instanceof Map) {
+                Map<String, Object> operators = (Map<String, Object>) value;
+                if (operators.size() != 1 || !(operators.get("$in") instanceof List)) {
+                    return null;
+                }
+                values = (List<?>) operators.get("$in");
+            } else {
+                values = Collections.singletonList(value);
+            }
+            if (values.isEmpty()) {
+                return Collections.emptyList();
+            }
+            if (index > 0) {
+                sql.append(" INTERSECT ");
+            }
+            sql.append("SELECT id FROM ").append(metaTable).append(" WHERE key = ? AND value IN (");
+            sql.append(values.stream().map(item -> "?").collect(Collectors.joining(",")));
+            sql.append(")");
+            parameters.add(key);
+            parameters.addAll(values);
+        }
+
+        List<String> ids = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(sql.toString())) {
+            for (int index = 0; index < parameters.size(); index++) {
+                ps.setString(index + 1, String.valueOf(parameters.get(index)));
+            }
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    ids.add(rs.getString("id"));
+                }
+            }
+        }
+        return ids;
     }
 
     private List<IndexRecord> fetchRecordsByIds(Conn conn, String vecTable, String metaTable, List<String> ids) throws SQLException {
@@ -805,6 +875,20 @@ public class SqliteVectorStore extends BaseVectorStore {
 
             boolean hasFilter = hasWhereFilter(getEmbedding.getWhere())
                     || hasWhereFilter(getEmbedding.getWhereDocument());
+
+            if ((getEmbedding.getIds() == null || getEmbedding.getIds().isEmpty()) &&
+                    hasWhereFilter(getEmbedding.getWhere())) {
+                ensureMetadataLookupIndex(conn, metaTable);
+                List<String> matchedIds = findIdsByMetadataWhere(conn, metaTable, getEmbedding.getWhere());
+                if (matchedIds != null) {
+                    List<IndexRecord> records = fetchRecordsByIds(conn, vecTable, metaTable, matchedIds);
+                    records = records.stream()
+                            .filter(record -> matchesWhere(getEmbedding.getWhere(), record.getMetadata()) &&
+                                    matchesWhereDocument(getEmbedding.getWhereDocument(), record.getDocument()))
+                            .collect(Collectors.toList());
+                    return applyPagination(records, getEmbedding.getLimit(), getEmbedding.getOffset());
+                }
+            }
 
             if (getEmbedding.getIds() != null && !getEmbedding.getIds().isEmpty()) {
                 String placeholders = getEmbedding.getIds().stream()

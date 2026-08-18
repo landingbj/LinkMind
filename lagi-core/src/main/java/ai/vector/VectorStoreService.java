@@ -538,27 +538,35 @@ public class VectorStoreService {
     }
 
     private List<IndexSearchData> processFutureResults(List<IndexSearchData> indexSearchDataList, String category) {
-        List<Future<List<IndexSearchData>>> futureResultList = indexSearchDataList.stream()
-                .map(indexSearchData -> executor.submit(() -> extendIndexSearchData(indexSearchData, category)))
-                .collect(Collectors.toList());
-        
-        Set<String> seenTexts = ConcurrentHashMap.newKeySet();
-        
-        return futureResultList.stream()
-                .map(future -> {
-                    try {
-                        return future.get();
-                    } catch (InterruptedException | ExecutionException e) {
-                        throw new RuntimeException(e);
-                    }
-                })
-                .filter(dataList -> !dataList.isEmpty())
-                .map(dataList -> dataList.stream()
-                        .filter(data -> seenTexts.add(data.getText()))
-                        .collect(Collectors.toList()))
-                .filter(filteredList -> !filteredList.isEmpty())
-                .map(this::mergeIndexSearchData)
-                .collect(Collectors.toList());
+        long startedAt = System.nanoTime();
+        ContextExpansionSummary summary = new ContextExpansionSummary();
+        List<List<IndexSearchData>> extendedResults = extendIndexSearchDataBatch(indexSearchDataList, category, summary);
+        Set<String> seenTexts = new HashSet<>();
+        List<IndexSearchData> result = new ArrayList<>();
+
+        for (List<IndexSearchData> dataList : extendedResults) {
+            if (dataList == null || dataList.isEmpty()) {
+                continue;
+            }
+            List<IndexSearchData> filteredList = dataList.stream()
+                    .filter(data -> seenTexts.add(data.getText()))
+                    .collect(Collectors.toList());
+            if (!filteredList.isEmpty()) {
+                result.add(mergeIndexSearchData(filteredList));
+            }
+        }
+
+        long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
+        String message = "Vector context expansion completed: category={}, initialHits={}, linkCacheHits={}, " +
+                "linkCacheMisses={}, parentBatchQueries={}, childBatchQueries={}, elapsedMs={}";
+        if (elapsedMs >= 1000) {
+            log.warn(message, category, indexSearchDataList.size(), summary.vectorLinkCacheHits,
+                    summary.vectorLinkCacheMisses, summary.parentBatchQueries, summary.childBatchQueries, elapsedMs);
+        } else {
+            log.debug(message, category, indexSearchDataList.size(), summary.vectorLinkCacheHits,
+                    summary.vectorLinkCacheMisses, summary.parentBatchQueries, summary.childBatchQueries, elapsedMs);
+        }
+        return result;
     }
 
     private IndexSearchData mergeIndexSearchData(List<IndexSearchData> indexSearchDataList) {
@@ -577,13 +585,313 @@ public class VectorStoreService {
         return mergedIndexSearchData;
     }
 
-    private List<IndexSearchData> extendIndexSearchData(IndexSearchData indexSearchData, String category) {
-        List<IndexSearchData> extendedList = vectorCache.getFromVectorLinkCache(indexSearchData.getId());
-        if (extendedList == null) {
-            extendedList = extendText(indexSearchData, category);
-            vectorCache.putToVectorLinkCache(indexSearchData.getId(), extendedList);
+    private List<List<IndexSearchData>> extendIndexSearchDataBatch(List<IndexSearchData> indexSearchDataList,
+                                                                     String category,
+                                                                     ContextExpansionSummary summary) {
+        List<List<IndexSearchData>> results = new ArrayList<>(Collections.nCopies(indexSearchDataList.size(), null));
+        List<ContextExpansion> pendingExpansions = new ArrayList<>();
+
+        for (int index = 0; index < indexSearchDataList.size(); index++) {
+            IndexSearchData data = indexSearchDataList.get(index);
+            List<IndexSearchData> cached = vectorCache.getFromVectorLinkCache(data.getId());
+            if (cached != null) {
+                summary.vectorLinkCacheHits++;
+                results.set(index, cached);
+                continue;
+            }
+            summary.vectorLinkCacheMisses++;
+            pendingExpansions.add(new ContextExpansion(index, data));
         }
-        return extendedList;
+
+        if (pendingExpansions.isEmpty()) {
+            return results;
+        }
+
+        int parentDepth = vectorStore.getConfig().getParentDepth();
+        int childDepth = vectorStore.getConfig().getChildDepth();
+        resolveLlmOrigins(pendingExpansions, category, summary);
+        expandParentNodes(pendingExpansions, parentDepth, category, summary);
+        expandChildNodes(pendingExpansions, parentDepth, childDepth, category, summary);
+
+        for (ContextExpansion expansion : pendingExpansions) {
+            List<IndexSearchData> extended = materializeContext(expansion);
+            vectorCache.putToVectorLinkCache(expansion.requestedData.getId(), extended);
+            results.set(expansion.resultIndex, extended);
+        }
+        return results;
+    }
+
+    private void resolveLlmOrigins(List<ContextExpansion> expansions, String category,
+                                   ContextExpansionSummary summary) {
+        Set<String> originIds = expansions.stream()
+                .filter(expansion -> FILE_CHUNK_SOURCE_LLM.equals(expansion.requestedData.getSource()))
+                .map(expansion -> expansion.requestedData.getParentId())
+                .filter(this::hasText)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<String, IndexSearchData> origins = resolveParentElements(originIds, category, summary);
+
+        for (ContextExpansion expansion : expansions) {
+            if (!FILE_CHUNK_SOURCE_LLM.equals(expansion.requestedData.getSource())) {
+                continue;
+            }
+            IndexSearchData origin = origins.get(expansion.requestedData.getParentId());
+            if (origin == null) {
+                log.warn("Unable to resolve source document for llm vector result: id={}, parentId={}, category={}",
+                        expansion.requestedData.getId(), expansion.requestedData.getParentId(), category);
+                expansion.nextParentId = null;
+                continue;
+            }
+            expansion.originalData = origin;
+            expansion.nextParentId = origin.getParentId();
+        }
+    }
+
+    private void expandParentNodes(List<ContextExpansion> expansions, int parentDepth, String category,
+                                   ContextExpansionSummary summary) {
+        while (true) {
+            Set<String> parentIds = expansions.stream()
+                    .filter(expansion -> expansion.parentCount < parentDepth && hasText(expansion.nextParentId))
+                    .map(expansion -> expansion.nextParentId)
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+            if (parentIds.isEmpty()) {
+                return;
+            }
+
+            Map<String, IndexSearchData> parents = resolveParentElements(parentIds, category, summary);
+            boolean advanced = false;
+            for (ContextExpansion expansion : expansions) {
+                if (expansion.parentCount >= parentDepth || !hasText(expansion.nextParentId)) {
+                    continue;
+                }
+                IndexSearchData parent = parents.get(expansion.nextParentId);
+                if (parent == null) {
+                    expansion.nextParentId = null;
+                    continue;
+                }
+                if (isRawData(parent)) {
+                    expansion.parentNodes.add(0, parent);
+                    expansion.parentCount++;
+                }
+                expansion.nextParentId = parent.getParentId();
+                advanced = true;
+            }
+            if (!advanced) {
+                return;
+            }
+        }
+    }
+
+    private void expandChildNodes(List<ContextExpansion> expansions, int parentDepth, int childDepth,
+                                  String category, ContextExpansionSummary summary) {
+        for (ContextExpansion expansion : expansions) {
+            expansion.targetChildDepth = childDepth + Math.max(0, parentDepth - expansion.parentCount);
+            expansion.nextChildParentId = expansion.originalData.getId();
+        }
+
+        while (true) {
+            Set<String> parentIds = expansions.stream()
+                    .filter(expansion -> expansion.childCount < expansion.targetChildDepth &&
+                            hasText(expansion.nextChildParentId))
+                    .map(expansion -> expansion.nextChildParentId)
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+            if (parentIds.isEmpty()) {
+                return;
+            }
+
+            Map<String, List<IndexSearchData>> childrenByParent = resolveChildElements(parentIds, category, summary);
+            boolean advanced = false;
+            for (ContextExpansion expansion : expansions) {
+                if (expansion.childCount >= expansion.targetChildDepth || !hasText(expansion.nextChildParentId)) {
+                    continue;
+                }
+                IndexSearchData child = selectFirstChild(childrenByParent.get(expansion.nextChildParentId));
+                if (child == null) {
+                    expansion.nextChildParentId = null;
+                    continue;
+                }
+                if (isRawData(child)) {
+                    expansion.childNodes.add(child);
+                    expansion.childCount++;
+                }
+                expansion.nextChildParentId = child.getId();
+                advanced = true;
+            }
+            if (!advanced) {
+                return;
+            }
+        }
+    }
+
+    private Map<String, IndexSearchData> resolveParentElements(Collection<String> ids, String category,
+                                                                 ContextExpansionSummary summary) {
+        Map<String, IndexSearchData> result = new HashMap<>();
+        List<String> cacheMisses = new ArrayList<>();
+        for (String id : ids) {
+            if (!hasText(id)) {
+                continue;
+            }
+            IndexSearchData cached = vectorCache.getFromParentElementCache(id);
+            if (cached == null) {
+                cacheMisses.add(id);
+            } else {
+                result.put(id, cached);
+            }
+        }
+        if (cacheMisses.isEmpty()) {
+            return result;
+        }
+
+        summary.parentBatchQueries++;
+        List<IndexRecord> indexRecords = fetch(cacheMisses, category);
+        if (indexRecords == null) {
+            return result;
+        }
+        for (IndexRecord indexRecord : indexRecords) {
+            IndexSearchData data = toIndexSearchData(indexRecord);
+            if (data != null) {
+                result.put(data.getId(), data);
+                vectorCache.putToParentElementCache(data.getId(), data);
+            }
+        }
+        return result;
+    }
+
+    private Map<String, List<IndexSearchData>> resolveChildElements(Collection<String> parentIds, String category,
+                                                                      ContextExpansionSummary summary) {
+        Map<String, List<IndexSearchData>> result = new HashMap<>();
+        List<String> cacheMisses = new ArrayList<>();
+        for (String parentId : parentIds) {
+            if (!hasText(parentId)) {
+                continue;
+            }
+            List<IndexSearchData> cached = vectorCache.getFromChildElementCache(parentId);
+            if (cached == null) {
+                cacheMisses.add(parentId);
+            } else {
+                result.put(parentId, cached);
+            }
+        }
+        if (cacheMisses.isEmpty()) {
+            return result;
+        }
+
+        summary.childBatchQueries++;
+        Map<String, Object> conditions = new HashMap<>();
+        Map<String, Object> parentIdIn = new HashMap<>();
+        parentIdIn.put("$in", cacheMisses);
+        conditions.put("parent_id", parentIdIn);
+        Map<String, Object> sourceIn = new HashMap<>();
+        sourceIn.put("$in", DEFAULT_SOURCES);
+        conditions.put("source", sourceIn);
+        GetEmbedding getEmbedding = GetEmbedding.builder()
+                .category(category)
+                .where(buildAndQueryCondition(conditions))
+                .build();
+        List<IndexRecord> indexRecords = get(getEmbedding);
+        Map<String, List<IndexSearchData>> loaded = new HashMap<>();
+        if (indexRecords != null) {
+            for (IndexRecord indexRecord : indexRecords) {
+                IndexSearchData data = toIndexSearchData(indexRecord);
+                if (data != null && hasText(data.getParentId())) {
+                    loaded.computeIfAbsent(data.getParentId(), key -> new ArrayList<>()).add(data);
+                }
+            }
+        }
+        for (String parentId : cacheMisses) {
+            List<IndexSearchData> children = loaded.getOrDefault(parentId, Collections.emptyList());
+            List<IndexSearchData> sortedChildren = new ArrayList<>(children);
+            sortedChildren.sort(this::compareChildOrder);
+            result.put(parentId, sortedChildren);
+            vectorCache.putToChildElementCache(parentId, sortedChildren);
+        }
+        return result;
+    }
+
+    private List<IndexSearchData> materializeContext(ContextExpansion expansion) {
+        List<IndexSearchData> sourceNodes = new ArrayList<>();
+        sourceNodes.addAll(expansion.parentNodes);
+        sourceNodes.add(expansion.originalData);
+        sourceNodes.addAll(expansion.childNodes);
+
+        List<IndexSearchData> result = new ArrayList<>(sourceNodes.size());
+        for (IndexSearchData sourceNode : sourceNodes) {
+            IndexSearchData output = new IndexSearchData();
+            BeanUtil.copyProperties(expansion.requestedData, output);
+            output.setText(sourceNode.getText());
+            result.add(output);
+        }
+        return result;
+    }
+
+    private IndexSearchData selectFirstChild(List<IndexSearchData> children) {
+        return children == null || children.isEmpty() ? null : children.get(0);
+    }
+
+    private int compareChildOrder(IndexSearchData left, IndexSearchData right) {
+        int fileIdComparison = compareNullableStrings(left.getFileId(), right.getFileId());
+        if (fileIdComparison != 0) {
+            return fileIdComparison;
+        }
+        int sequenceComparison = Long.compare(left.getSeq() == null ? 0L : left.getSeq(),
+                right.getSeq() == null ? 0L : right.getSeq());
+        if (sequenceComparison != 0) {
+            return sequenceComparison;
+        }
+        return compareNullableStrings(left.getId(), right.getId());
+    }
+
+    private int compareNullableStrings(String left, String right) {
+        if (left == null && right == null) {
+            return 0;
+        }
+        if (left == null) {
+            return -1;
+        }
+        if (right == null) {
+            return 1;
+        }
+        return left.compareTo(right);
+    }
+
+    private boolean hasText(String value) {
+        return !StrUtil.isBlank(value);
+    }
+
+    public void preloadParentAndChildCaches(Collection<String> parentIds, Collection<String> childParentIds,
+                                            String category) {
+        ContextExpansionSummary summary = new ContextExpansionSummary();
+        resolveParentElements(parentIds, category, summary);
+        resolveChildElements(childParentIds, category, summary);
+        log.debug("Vector cache preload batch completed: category={}, parentIds={}, childParentIds={}, " +
+                        "parentBatchQueries={}, childBatchQueries={}",
+                category, parentIds.size(), childParentIds.size(), summary.parentBatchQueries, summary.childBatchQueries);
+    }
+
+    private static class ContextExpansion {
+        private final int resultIndex;
+        private final IndexSearchData requestedData;
+        private IndexSearchData originalData;
+        private String nextParentId;
+        private String nextChildParentId;
+        private int parentCount;
+        private int childCount;
+        private int targetChildDepth;
+        private final List<IndexSearchData> parentNodes = new ArrayList<>();
+        private final List<IndexSearchData> childNodes = new ArrayList<>();
+
+        private ContextExpansion(int resultIndex, IndexSearchData requestedData) {
+            this.resultIndex = resultIndex;
+            this.requestedData = requestedData;
+            this.originalData = requestedData;
+            this.nextParentId = requestedData.getParentId();
+        }
+    }
+
+    private static class ContextExpansionSummary {
+        private int vectorLinkCacheHits;
+        private int vectorLinkCacheMisses;
+        private int parentBatchQueries;
+        private int childBatchQueries;
     }
 
     public List<IndexSearchData> search(String question, int similarity_top_k, double similarity_cutoff,
@@ -644,7 +952,9 @@ public class VectorStoreService {
         IndexSearchData indexSearchData = vectorCache.getFromParentElementCache(parentId);
         if (indexSearchData == null) {
             indexSearchData = toIndexSearchData(this.fetch(parentId, category));
-            vectorCache.putToParentElementCache(parentId, indexSearchData);
+            if (indexSearchData != null) {
+                vectorCache.putToParentElementCache(parentId, indexSearchData);
+            }
         }
         return indexSearchData;
     }
@@ -677,6 +987,7 @@ public class VectorStoreService {
             result = indexRecords.stream()
                     .map(this::toIndexSearchData)
                     .filter(Objects::nonNull)
+                    .sorted(this::compareChildOrder)
                     .collect(Collectors.toList());
             vectorCache.putToChildElementCache(parentId, result);
         }

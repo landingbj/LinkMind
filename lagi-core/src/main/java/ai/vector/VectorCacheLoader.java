@@ -15,6 +15,7 @@ import java.util.*;
 public class VectorCacheLoader {
 
     private static final Logger logger = LoggerFactory.getLogger(VectorCacheLoader.class);
+    private static final int PRELOAD_PAGE_SIZE = 500;
     private static final VectorCache vectorCache = VectorCache.getInstance();
     private static final VectorStoreService vectorStoreService = new VectorStoreService();
     private static final DataStore cacheL2 = new DataStore();
@@ -123,7 +124,7 @@ public class VectorCacheLoader {
     }
 
     public static void load() {
-        new Thread(() -> {
+        Thread loaderThread = new Thread(() -> {
             try {
                 logger.info("VectorCacheLoader started");
                 if (RAG_CONFIG.getPreloadCache() !=null && RAG_CONFIG.getPreloadCache()) {
@@ -134,45 +135,59 @@ public class VectorCacheLoader {
                     loadMedusaCache();
                 }
                 logger.info("VectorCacheLoader initialized");
+                vectorCache.logStats("loader_initialized");
             } catch (Exception e) {
                 logger.error("VectorCacheLoader init error", e);
             }
-        }).start();
+        }, "vector-cache-loader");
+        loaderThread.start();
     }
 
     private static void loadParentChildCache() {
-        logger.info("VectorCacheLoader parent and child preload cache loading");
-        int offset = 0;
-        int limit = 500;
-        String allCategory = RAG_CONFIG.getPreloadCacheCategory();
-        if (allCategory == null) {
-            allCategory = vectorStoreService.getVectorStoreConfig().getDefaultCategory();
+        List<String> categories = VectorCachePreloadCategoryParser.parse(RAG_CONFIG.getPreloadCacheCategory());
+        if (categories.isEmpty()) {
+            logger.warn("Vector cache preload is enabled but rag.preload_cache_category is empty; skip preload");
+            return;
         }
-        String[] categories = allCategory.split(",");
-        for (int i = 0; i < categories.length; i++) {
-            String category = categories[i].trim();
+        logger.info("VectorCacheLoader parent and child preload cache loading: categories={}", categories);
+        for (String category : categories) {
+            long startedAt = System.nanoTime();
+            int offset = 0;
+            int pageCount = 0;
+            int recordCount = 0;
+            boolean stoppedByCapacity = false;
             while (true) {
-                List<IndexRecord> indexRecordList = vectorStoreService.fetch(limit, offset, category);
-                if (indexRecordList.isEmpty() || (
-                        vectorCache.isParentCacheFull() &&
-                                vectorCache.isChildCacheFull())) {
+                if (vectorCache.isParentCacheFull() && vectorCache.isChildCacheFull()) {
+                    stoppedByCapacity = true;
                     break;
                 }
-                for (IndexRecord indexRecord : indexRecordList) {
-                    String id = indexRecord.getId();
-                    String parentId = (String) indexRecord.getMetadata().get("parent_id");
-                    vectorStoreService.getParentIndex(parentId, category);
-                    vectorStoreService.getChildIndex(id, category);
+                List<IndexRecord> indexRecordList = vectorStoreService.fetch(PRELOAD_PAGE_SIZE, offset, category);
+                if (indexRecordList == null || indexRecordList.isEmpty()) {
+                    break;
                 }
-                offset += limit;
+                Set<String> parentIds = new LinkedHashSet<>();
+                Set<String> childParentIds = new LinkedHashSet<>();
+                for (IndexRecord indexRecord : indexRecordList) {
+                    if (indexRecord.getId() != null && !indexRecord.getId().trim().isEmpty()) {
+                        childParentIds.add(indexRecord.getId());
+                    }
+                    if (indexRecord.getMetadata() != null) {
+                        Object parentId = indexRecord.getMetadata().get("parent_id");
+                        if (parentId != null && !parentId.toString().trim().isEmpty()) {
+                            parentIds.add(parentId.toString());
+                        }
+                    }
+                }
+                vectorStoreService.preloadParentAndChildCaches(parentIds, childParentIds, category);
+                recordCount += indexRecordList.size();
+                pageCount++;
+                offset += indexRecordList.size();
             }
-            if (vectorCache.isParentCacheFull() &&
-                    vectorCache.isChildCacheFull()) {
-                break;
-            }
-            offset = 0;
+            long elapsedMs = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
+            logger.info("Vector cache preload completed: category={}, pages={}, records={}, stoppedByCapacity={}, elapsedMs={}",
+                    category, pageCount, recordCount, stoppedByCapacity, elapsedMs);
         }
-        logger.info("VectorCacheLoader parent and child preload cache loaded");
+        vectorCache.logStats("parent_child_preload_completed");
     }
 
 //    private static void loadVectorLinkCache() {

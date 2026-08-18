@@ -75,4 +75,28 @@ class LRUCacheTest {
         cacheWithoutExpiration.remove(1);
         assertEquals(1, cacheWithoutExpiration.size());
     }
+
+    @Test
+    void testCacheStatsTracksHitsMissesAndCapacityEvictions() {
+        cacheWithoutExpiration.put(1, "One");
+        cacheWithoutExpiration.put(2, "Two");
+        assertEquals("One", cacheWithoutExpiration.get(1));
+        assertNull(cacheWithoutExpiration.get(99));
+        cacheWithoutExpiration.put(3, "Three");
+        cacheWithoutExpiration.put(4, "Four");
+        cacheWithoutExpiration.remove(1);
+
+        LRUCache.CacheStats stats = cacheWithoutExpiration.getStats();
+        assertEquals(1, stats.getHits());
+        assertEquals(1, stats.getMisses());
+        assertEquals(4, stats.getPuts());
+        assertEquals(1, stats.getCapacityEvictions());
+        assertEquals(1, stats.getExplicitRemovals());
+    }
+
+    @Test
+    void testExpirationTimeMustBePositive() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new LRUCache<Integer, String>(3, 0, TimeUnit.SECONDS));
+    }
 }

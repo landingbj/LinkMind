@@ -19,6 +19,8 @@ public class RAGFunction {
     private Boolean html;
     @JsonProperty("cache_size")
     private Integer cacheSize;
+    @JsonProperty("cache_expire_seconds")
+    private Long cacheExpireSeconds;
     @JsonProperty("preload_cache")
     private Boolean preloadCache;
     @JsonProperty("preload_cache_category")

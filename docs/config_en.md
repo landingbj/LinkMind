@@ -882,3 +882,96 @@ The current codebase also contains configuration sync services for:
 These integrations help synchronize model and runtime settings during install or startup, but the core LinkMind runtime still reads from your local YAML configuration first.
 
 OpenHuman sync writes a `linkmind` entry into `[[cloud_providers]]` with `endpoint = "http://127.0.0.1:<port>/v1"` and `auth_style = "bearer"`, activates `provider:linkmind` in OpenHuman `auth-profiles.json`, stores the LinkMind token in OpenHuman's desktop keychain file when `LINKMIND_API_KEY` or `linkmind.apiKey` is available, then points empty/default/OpenHuman LLM workload routes to `linkmind:Alibaba/qwen3.6-plus`. This includes `chat_provider`, `reasoning_provider`, `agentic_provider`, `coding_provider`, `memory_provider`, `heartbeat_provider`, `learning_provider`, and `subconscious_provider`; embedding routes are left unchanged. On import, LinkMind reads supported OpenAI-compatible OpenHuman providers and skips OpenHuman cloud, LinkMind itself, and Anthropic-only routes.
+
+## Using the Box as a CLI Model Gateway
+
+A LinkMind box can be the shared model egress point for a trusted LAN. Its currently exposed compatibility surface is OpenAI Chat Completions:
+
+```text
+GET  http://<LINKMIND_BOX_IP>:8080/v1/models
+POST http://<LINKMIND_BOX_IP>:8080/v1/chat/completions
+```
+
+In this section, `LINKMIND_BASE_URL` means `http://<LINKMIND_BOX_IP>:8080/v1`. Replace `<LINKMIND_BOX_IP>` with the box LAN address, for example `192.168.1.50`; do not keep `BASE_URL` or a third-party host from a reference tutorial.
+
+### Make the box reachable on the LAN
+
+LinkMind binds to `localhost` by default. To allow a separate development machine to reach the box, start it on the box with:
+
+```powershell
+cd C:\Users\Hello\LinkMind
+java -jar .\LinkMind.jar --host=0.0.0.0 --port=8080
+```
+
+Expose port `8080` only to a trusted LAN and restrict it in Windows Firewall to the required subnets. Do not publish this port directly to the Internet.
+
+Verify the connection from a development machine:
+
+```bash
+curl http://<LINKMIND_BOX_IP>:8080/v1/models
+```
+
+The request `model` must be enabled in the box `lagi.yml` and registered in `functions.chat.backends`. The current `/v1/models` response is a fixed compatibility list, not a complete dynamic catalog.
+
+### Codex
+
+Codex can connect directly to LinkMind over the OpenAI Chat Completions protocol. After installing Codex, create the following files in `~/.codex/` (or `%USERPROFILE%\.codex\` on Windows).
+
+`auth.json`:
+
+```json
+{
+  "OPENAI_API_KEY": "<LINKMIND_CLIENT_TOKEN>"
+}
+```
+
+`config.toml`:
+
+```toml
+model_provider = "linkmind"
+model = "gpt-5.4"
+preferred_auth_method = "apikey"
+
+[model_providers.linkmind]
+name = "LinkMind Box"
+base_url = "http://<LINKMIND_BOX_IP>:8080/v1"
+wire_api = "chat"
+```
+
+Restart the terminal and run:
+
+```bash
+codex
+```
+
+Use `wire_api = "chat"`. The current LinkMind server does not expose `/v1/responses`, so a tutorial that sets `wire_api = "responses"` cannot be copied unchanged.
+
+### Current Claude Code and Gemini CLI limitation
+
+The following are the correct configuration entry points, but **they do not make the current LinkMind version work directly**:
+
+```bash
+# Claude Code sends POST <ANTHROPIC_BASE_URL>/v1/messages
+export ANTHROPIC_AUTH_TOKEN=<LINKMIND_CLIENT_TOKEN>
+export ANTHROPIC_BASE_URL=http://<LINKMIND_BOX_IP>:8080
+
+# Gemini CLI sends requests to <GOOGLE_GEMINI_BASE_URL>/v1beta/models/...
+export GEMINI_API_KEY=<LINKMIND_CLIENT_TOKEN>
+export GOOGLE_GEMINI_BASE_URL=http://<LINKMIND_BOX_IP>:8080
+```
+
+Claude Code uses the Anthropic Messages protocol and Gemini CLI uses the Gemini `generateContent` protocol. LinkMind currently implements only `/v1/chat/completions`. The referenced gateway tutorials work because those gateways implement the native protocols that LinkMind does not yet expose:
+
+| Client | Required endpoint | Current status |
+| --- | --- | --- |
+| Codex | OpenAI Chat Completions | Directly supported with `wire_api = "chat"` |
+| Claude Code | `POST /v1/messages` | Requires an Anthropic protocol translation layer |
+| Gemini CLI | `POST /v1beta/models/{model}:generateContent` | Requires a Gemini protocol translation layer |
+
+Until native protocol translation is added, Claude and Gemini models can still be called through LinkMind's OpenAI-compatible `/v1/chat/completions`, but Claude Code and Gemini CLI must not be presented as directly supported.
+
+### Authentication and the Token-Pool Boundary
+
+`--linkmind-api-key` and `LINKMIND_API_KEY` currently synchronize LinkMind credentials to external runtimes. The current `/v1/chat/completions` implementation does not validate an incoming `Authorization: Bearer ...` value. The box is therefore a **central model gateway**, but is not yet a safe multi-tenant token pool.
+
+Before issuing distinct tokens to people or development machines, deploy a TLS-enabled reverse proxy or API gateway in front of the box and enforce Bearer-token validation, access control, rate limiting, and audit logging. Only then should `<LINKMIND_CLIENT_TOKEN>` be treated as a real client credential for the CLI tools.

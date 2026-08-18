@@ -882,3 +882,96 @@ filters:
 这些同步逻辑主要用于安装或启动阶段对齐外部运行时配置，但 LinkMind 真正运行时仍然优先读取本地 YAML 配置。
 
 OpenHuman 同步会在 `[[cloud_providers]]` 中写入 `linkmind` provider，`endpoint` 为 `http://127.0.0.1:<port>/v1`，`auth_style` 为 `bearer`；同步会在 OpenHuman `auth-profiles.json` 中激活 `provider:linkmind`，当存在 `LINKMIND_API_KEY` 或 `linkmind.apiKey` 时，会把 LinkMind token 写入 OpenHuman 桌面端 keychain 文件。同步还会把空值、默认值或 OpenHuman 云端 LLM workload 路由指向 `linkmind:Alibaba/qwen3.6-plus`。覆盖范围包括 `chat_provider`、`reasoning_provider`、`agentic_provider`、`coding_provider`、`memory_provider`、`heartbeat_provider`、`learning_provider`、`subconscious_provider`；embedding 路由不改。反向导入时，LinkMind 只读取支持的 OpenAI 兼容 provider，并跳过 OpenHuman 云端、LinkMind 自身以及 Anthropic-only 路由。
+
+## 将盒子作为 CLI 模型网关
+
+LinkMind 盒子可作为局域网内的统一模型出口。当前对外提供的是 OpenAI Chat Completions 兼容接口：
+
+```text
+GET  http://<LINKMIND_BOX_IP>:8080/v1/models
+POST http://<LINKMIND_BOX_IP>:8080/v1/chat/completions
+```
+
+下文的 `LINKMIND_BASE_URL` 固定表示 `http://<LINKMIND_BOX_IP>:8080/v1`。将 `<LINKMIND_BOX_IP>` 替换为盒子的局域网 IP，例如 `192.168.1.50`；不要保留参考教程里的 `BASE_URL` 或第三方站点地址。
+
+### 先让局域网设备能够访问盒子
+
+LinkMind 默认只绑定 `localhost`。要让另一台开发机访问盒子，请在盒子上用以下方式启动：
+
+```powershell
+cd C:\Users\Hello\LinkMind
+java -jar .\LinkMind.jar --host=0.0.0.0 --port=8080
+```
+
+仅在受信任局域网中开放 `8080`，并在 Windows 防火墙中只允许所需网段访问。不要直接将该端口映射到公网。
+
+启动后，可从开发机验证：
+
+```bash
+curl http://<LINKMIND_BOX_IP>:8080/v1/models
+```
+
+请求中的 `model` 必须是盒子 `lagi.yml` 中已启用且已加入 `functions.chat.backends` 的模型。当前 `/v1/models` 返回的是固定兼容列表，不能将它当作完整的动态模型目录。
+
+### Codex
+
+Codex 可以使用 OpenAI Chat Completions 协议直连 LinkMind。先安装 Codex，然后在 `~/.codex/`（Windows 为 `%USERPROFILE%\.codex\`）中创建以下文件。
+
+`auth.json`：
+
+```json
+{
+  "OPENAI_API_KEY": "<LINKMIND_CLIENT_TOKEN>"
+}
+```
+
+`config.toml`：
+
+```toml
+model_provider = "linkmind"
+model = "gpt-5.4"
+preferred_auth_method = "apikey"
+
+[model_providers.linkmind]
+name = "LinkMind Box"
+base_url = "http://<LINKMIND_BOX_IP>:8080/v1"
+wire_api = "chat"
+```
+
+重启终端后执行：
+
+```bash
+codex
+```
+
+这里必须使用 `wire_api = "chat"`。当前 LinkMind 未暴露 `/v1/responses`，因此不能照抄使用 `wire_api = "responses"` 的教程。
+
+### Claude Code 和 Gemini CLI 的当前限制
+
+以下环境变量是两款 CLI 的正确配置入口，但**当前版本 LinkMind 不能仅通过设置它们完成直连**：
+
+```bash
+# Claude Code 会请求 POST <ANTHROPIC_BASE_URL>/v1/messages
+export ANTHROPIC_AUTH_TOKEN=<LINKMIND_CLIENT_TOKEN>
+export ANTHROPIC_BASE_URL=http://<LINKMIND_BOX_IP>:8080
+
+# Gemini CLI 会请求 <GOOGLE_GEMINI_BASE_URL>/v1beta/models/...
+export GEMINI_API_KEY=<LINKMIND_CLIENT_TOKEN>
+export GOOGLE_GEMINI_BASE_URL=http://<LINKMIND_BOX_IP>:8080
+```
+
+原因是 Claude Code 使用 Anthropic Messages 协议，Gemini CLI 使用 Gemini `generateContent` 协议；LinkMind 当前只实现 `/v1/chat/completions`。参考教程中的中转站实现了这些原生协议，LinkMind 目前尚未实现：
+
+| 客户端 | 需要的接口 | 当前状态 |
+| --- | --- | --- |
+| Codex | OpenAI Chat Completions | 可直接对接，使用 `wire_api = "chat"` |
+| Claude Code | `POST /v1/messages` | 需要增加 Anthropic 协议转换层 |
+| Gemini CLI | `POST /v1beta/models/{model}:generateContent` | 需要增加 Gemini 协议转换层 |
+
+在原生协议转换层完成前，可让 Claude/Gemini 模型继续由 LinkMind 的 OpenAI 兼容 `/v1/chat/completions` 调用，但不能宣称 Claude Code 或 Gemini CLI 已直连可用。
+
+### 鉴权与“Token 池”边界
+
+`--linkmind-api-key` 或 `LINKMIND_API_KEY` 目前用于向外部运行时同步 LinkMind 凭据；当前 `/v1/chat/completions` 的实现不会校验客户端请求中的 `Authorization: Bearer ...`。因此，现阶段盒子是**统一模型出口**，但还不是可安全分发独立 Token 的多租户 Token 池。
+
+若需要向多人或多台开发机发放独立 Token，必须先在盒子前部署带 TLS 的反向代理或 API 网关，并实现 Bearer Token 校验、访问控制、限流和审计。完成该层后，`<LINKMIND_CLIENT_TOKEN>` 才应作为各 CLI 的实际访问凭据使用。

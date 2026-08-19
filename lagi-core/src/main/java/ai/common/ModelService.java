@@ -41,7 +41,7 @@ public class ModelService implements ModelVerify {
     protected List<String> apiKeys;
     protected String keyRoute;
     private transient final AtomicInteger keyCounter = new AtomicInteger(-1);
-    private transient final LRUCache<String, String> ipKeyCache = new LRUCache<>(1000, 30, TimeUnit.DAYS);
+    private transient final LRUCache<String, String> sessionKeyCache = new LRUCache<>(1000, 30, TimeUnit.DAYS);
 
     @Override
     public boolean verify() {
@@ -52,20 +52,25 @@ public class ModelService implements ModelVerify {
     }
 
     public String getApiKey(ChatCompletionRequest request) {
-//        if (request.getApiKey() != null) {
-//            return request.getApiKey();
-//        }
+        if (request != null && request.getSelectedBackendApiKey() != null) {
+            return request.getSelectedBackendApiKey();
+        }
         return apiKey;
     }
 
-    public String selectNextKey(ChatCompletionRequest request) {
+    /**
+     * Select one key per conversation and retain that assignment for the
+     * conversation's lifetime. Calls without a session identity retain the
+     * original per-request round-robin behaviour.
+     */
+    public synchronized String selectNextKey(ChatCompletionRequest request) {
         if (apiKeys == null || apiKeys.isEmpty()) {
             return apiKey;
         }
-        String ip = extractIp(request);
-        if (ip != null && !ip.isEmpty()) {
-            String cached = ipKeyCache.get(ip);
-            if (cached != null) {
+        String sessionKey = extractSessionKey(request);
+        if (sessionKey != null) {
+            String cached = sessionKeyCache.get(sessionKey);
+            if (cached != null && apiKeys.contains(cached)) {
                 return cached;
             }
         }
@@ -75,15 +80,23 @@ public class ModelService implements ModelVerify {
             next = (current + 1) % apiKeys.size();
         } while (!keyCounter.compareAndSet(current, next));
         String selected = apiKeys.get(next);
-        if (ip != null && !ip.isEmpty()) {
-            ipKeyCache.put(ip, selected);
+        if (sessionKey != null) {
+            sessionKeyCache.put(sessionKey, selected);
         }
         return selected;
     }
 
-    private String extractIp(ChatCompletionRequest request) {
-        if (request instanceof EnhanceChatCompletionRequest) {
-            return ((EnhanceChatCompletionRequest) request).getIp();
+    private String extractSessionKey(ChatCompletionRequest request) {
+        if (request == null) {
+            return null;
+        }
+        String servletSessionId = request.getKeyPoolSessionId();
+        if (servletSessionId != null && !servletSessionId.trim().isEmpty()) {
+            return servletSessionId;
+        }
+        String sessionId = request.getSessionId();
+        if (sessionId != null && !sessionId.trim().isEmpty()) {
+            return sessionId;
         }
         return null;
     }

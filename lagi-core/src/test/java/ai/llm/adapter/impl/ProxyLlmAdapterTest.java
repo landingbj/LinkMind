@@ -9,7 +9,10 @@ import ai.openai.pojo.ChatMessage;
 import io.reactivex.Observable;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -44,6 +47,57 @@ class ProxyLlmAdapterTest {
         assertEquals(0, delegate.streamCalls);
     }
 
+    @Test
+    void pollingKeyPoolReusesKeyForTheSameSession() {
+        CountingAdapter delegate = new CountingAdapter();
+        delegate.setApiKeys(Arrays.asList("key-1", "key-2"));
+        delegate.setKeyRoute("polling");
+        delegate.setApiKey("configured-default-key");
+        ProxyLlmAdapter proxy = new ProxyLlmAdapter(delegate);
+
+        ChatCompletionRequest first = new ChatCompletionRequest();
+        first.setSessionId("conversation-1");
+        ChatCompletionRequest second = new ChatCompletionRequest();
+        second.setSessionId("conversation-1");
+
+        proxy.completions(first);
+        proxy.completions(second);
+
+        assertEquals(Arrays.asList("key-1", "key-1"), delegate.completionKeys);
+        assertEquals("configured-default-key", delegate.getApiKey());
+    }
+
+    @Test
+    void pollingKeyPoolReusesKeyForStreamingRequestsInTheSameSession() {
+        CountingAdapter delegate = new CountingAdapter();
+        delegate.setApiKeys(Arrays.asList("key-1", "key-2"));
+        delegate.setKeyRoute("polling");
+        ProxyLlmAdapter proxy = new ProxyLlmAdapter(delegate);
+
+        ChatCompletionRequest first = new ChatCompletionRequest();
+        first.setSessionId("conversation-1");
+        ChatCompletionRequest second = new ChatCompletionRequest();
+        second.setSessionId("conversation-1");
+
+        proxy.streamCompletions(first).blockingFirst();
+        proxy.streamCompletions(second).blockingFirst();
+
+        assertEquals(Arrays.asList("key-1", "key-1"), delegate.streamKeys);
+    }
+
+    @Test
+    void pollingKeyPoolStillRoundRobinsWithoutSessionIdentity() {
+        CountingAdapter delegate = new CountingAdapter();
+        delegate.setApiKeys(Arrays.asList("key-1", "key-2"));
+        delegate.setKeyRoute("polling");
+        ProxyLlmAdapter proxy = new ProxyLlmAdapter(delegate);
+
+        proxy.completions(new ChatCompletionRequest());
+        proxy.completions(new ChatCompletionRequest());
+
+        assertEquals(Arrays.asList("key-1", "key-2"), delegate.completionKeys);
+    }
+
     private static ChatCompletionResult messageResult(String content) {
         ChatCompletionChoice choice = new ChatCompletionChoice();
         choice.setMessage(ChatMessage.builder().content(content).build());
@@ -63,16 +117,20 @@ class ProxyLlmAdapterTest {
     private static class CountingAdapter extends ModelService implements ILlmAdapter {
         int completionCalls;
         int streamCalls;
+        List<String> completionKeys = new ArrayList<>();
+        List<String> streamKeys = new ArrayList<>();
 
         @Override
         public ChatCompletionResult completions(ChatCompletionRequest request) {
             completionCalls++;
+            completionKeys.add(getApiKey(request));
             return messageResult("delegate");
         }
 
         @Override
         public Observable<ChatCompletionResult> streamCompletions(ChatCompletionRequest chatCompletionRequest) {
             streamCalls++;
+            streamKeys.add(getApiKey(chatCompletionRequest));
             return Observable.just(deltaResult("delegate"));
         }
     }

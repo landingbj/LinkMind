@@ -51,6 +51,16 @@ public class ChatCompletionRequest {
     private Boolean store;
     private String apiKey;
     private String userApiKey;
+    /**
+     * Server-side session identity used only for key-pool affinity. This is
+     * deliberately separate from {@link #sessionId}, which some providers
+     * forward as their own conversation identifier.
+     */
+    @JsonIgnore
+    private transient String keyPoolSessionId;
+    /** The backend key chosen for this request; never part of the public API. */
+    @JsonIgnore
+    private transient String selectedBackendApiKey;
     @JsonAlias({"chat_template_kwargs"})
     private Map<String, Object> chat_template_kwargs;
 

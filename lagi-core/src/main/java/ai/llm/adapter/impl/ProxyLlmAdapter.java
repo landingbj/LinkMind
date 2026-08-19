@@ -185,11 +185,11 @@ public class ProxyLlmAdapter extends ModelService implements ILlmAdapter {
         } else if (RouteGlobal.POLLING.equals(inner.getKeyRoute())) {
             String selectedKey = inner.selectNextKey(request);
             log.info("Key pool polling selected: {}...{}", selectedKey.substring(0, Math.min(8, selectedKey.length())), selectedKey.substring(Math.max(0, selectedKey.length() - 4)));
-            inner.setApiKey(selectedKey);
+            request.setSelectedBackendApiKey(selectedKey);
             return llmAdapter.completions(request);
         } else if (RouteGlobal.FAILOVER.equals(inner.getKeyRoute())) {
             for (int i = 0; i < keys.size(); i++) {
-                inner.setApiKey(keys.get(i));
+                request.setSelectedBackendApiKey(keys.get(i));
                 log.info("Key pool failover trying key ({}/{})", i + 1, keys.size());
                 try {
                     return llmAdapter.completions(request);
@@ -211,11 +211,11 @@ public class ProxyLlmAdapter extends ModelService implements ILlmAdapter {
         } else if (RouteGlobal.POLLING.equals(inner.getKeyRoute())) {
             String selectedKey = inner.selectNextKey(request);
             log.info("Key pool polling selected: {}...{}", selectedKey.substring(0, Math.min(8, selectedKey.length())), selectedKey.substring(Math.max(0, selectedKey.length() - 4)));
-            inner.setApiKey(selectedKey);
+            request.setSelectedBackendApiKey(selectedKey);
             return llmAdapter.streamCompletions(request);
         } else if (RouteGlobal.FAILOVER.equals(inner.getKeyRoute())) {
             for (int i = 0; i < keys.size(); i++) {
-                inner.setApiKey(keys.get(i));
+                request.setSelectedBackendApiKey(keys.get(i));
                 log.info("Key pool failover trying key ({}/{})", i + 1, keys.size());
                 try {
                     return llmAdapter.streamCompletions(request);

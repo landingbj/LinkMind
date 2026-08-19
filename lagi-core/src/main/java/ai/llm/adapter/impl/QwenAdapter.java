@@ -55,7 +55,7 @@ public class QwenAdapter extends ModelService implements ILlmAdapter {
         setDefaultField(chatCompletionRequest);
         if (ResponseProtocolUtil.isResponseProtocol(this)) {
             ResponseSessionContext sessionContext = SESSION_MANAGER.prepare(chatCompletionRequest, this);
-            LlmApiResponse response = OpenAiResponsesApiUtil.createResponse(getApiKey(), getResponsesApiAddress(), HTTP_TIMEOUT,
+            LlmApiResponse response = OpenAiResponsesApiUtil.createResponse(reqApiKey, getResponsesApiAddress(), HTTP_TIMEOUT,
                     QwenResponsesChatCompletionConverter.toRequest(chatCompletionRequest, sessionContext,
                             Optional.ofNullable(chatCompletionRequest.getModel()).orElse(getModel())),
                     QwenConvert::convertByHttpResponse, defaultHeaders(reqApiKey));

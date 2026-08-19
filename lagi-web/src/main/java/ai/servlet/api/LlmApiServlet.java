@@ -308,6 +308,7 @@ public class LlmApiServlet extends BaseServlet {
                 .ip(ClientIpAddressUtil.getClientIpAddress(req))
                 .build();
         BeanUtil.copyProperties(chatCompletionRequest, enhance);
+        enhance.setKeyPoolSessionId(chatCompletionRequest.getKeyPoolSessionId());
         chatCompletionRequest = enhance;
         if (chatCompletionRequest.getStream() != null && chatCompletionRequest.getStream()) {
             try {
@@ -428,6 +429,12 @@ public class LlmApiServlet extends BaseServlet {
 //        System.out.println("ChatCompletionRequest json: " + json);
         objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         ChatCompletionRequest chatCompletionRequest = objectMapper.readValue(json, ChatCompletionRequest.class);
+        // Servlet worker threads are reused across callers. Carry the stable
+        // HTTP-session identity only when the caller did not provide its own
+        // conversation ID, so the key pool can safely stay sticky.
+        if (StrUtil.isBlank(chatCompletionRequest.getSessionId())) {
+            chatCompletionRequest.setKeyPoolSessionId(session.getId());
+        }
         if (chatCompletionRequest.getModel() == null
                 && preference != null
                 && preference.getLlm() != null) {

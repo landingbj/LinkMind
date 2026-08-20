@@ -911,11 +911,11 @@ Verify the connection from a development machine:
 curl http://<LINKMIND_BOX_IP>:8080/v1/models
 ```
 
-The request `model` must be enabled in the box `lagi.yml` and registered in `functions.chat.backends`. The current `/v1/models` response is a fixed compatibility list, not a complete dynamic catalog.
+The request `model` must be enabled in the box `lagi.yml` and registered in `functions.chat.backends`. `/v1/models` returns the enabled chat models dynamically.
 
 ### Codex
 
-Codex can connect directly to LinkMind over the OpenAI Chat Completions protocol. After installing Codex, create the following files in `~/.codex/` (or `%USERPROFILE%\.codex\` on Windows).
+Codex can use either OpenAI Responses or Chat Completions. Responses is recommended because it is the native Codex protocol; Chat Completions remains available for compatibility.
 
 `auth.json`:
 
@@ -935,7 +935,7 @@ preferred_auth_method = "apikey"
 [model_providers.linkmind]
 name = "LinkMind Box"
 base_url = "http://<LINKMIND_BOX_IP>:8080/v1"
-wire_api = "chat"
+wire_api = "responses"
 ```
 
 Restart the terminal and run:
@@ -944,34 +944,35 @@ Restart the terminal and run:
 codex
 ```
 
-Use `wire_api = "chat"`. The current LinkMind server does not expose `/v1/responses`, so a tutorial that sets `wire_api = "responses"` cannot be copied unchanged.
+This configuration calls `POST /v1/responses`. To retain the legacy integration, set `wire_api = "chat"`, which calls `POST /v1/chat/completions`.
 
-### Current Claude Code and Gemini CLI limitation
+### Claude Code and Gemini CLI
 
-The following are the correct configuration entry points, but **they do not make the current LinkMind version work directly**:
+Claude Code can connect directly through the Anthropic Messages compatibility endpoint:
 
 ```bash
 # Claude Code sends POST <ANTHROPIC_BASE_URL>/v1/messages
 export ANTHROPIC_AUTH_TOKEN=<LINKMIND_CLIENT_TOKEN>
 export ANTHROPIC_BASE_URL=http://<LINKMIND_BOX_IP>:8080
+export ANTHROPIC_MODEL=<ENABLED_LINKMIND_MODEL>
 
 # Gemini CLI sends requests to <GOOGLE_GEMINI_BASE_URL>/v1beta/models/...
 export GEMINI_API_KEY=<LINKMIND_CLIENT_TOKEN>
 export GOOGLE_GEMINI_BASE_URL=http://<LINKMIND_BOX_IP>:8080
 ```
 
-Claude Code uses the Anthropic Messages protocol and Gemini CLI uses the Gemini `generateContent` protocol. LinkMind currently implements only `/v1/chat/completions`. The referenced gateway tutorials work because those gateways implement the native protocols that LinkMind does not yet expose:
+Claude Code uses `POST /v1/messages`; LinkMind converts Messages requests and streaming events to the internal chat pipeline. Gemini CLI uses the Gemini `generateContent` protocol, which is not exposed by LinkMind.
 
 | Client | Required endpoint | Current status |
 | --- | --- | --- |
-| Codex | OpenAI Chat Completions | Directly supported with `wire_api = "chat"` |
-| Claude Code | `POST /v1/messages` | Requires an Anthropic protocol translation layer |
+| Codex | `POST /v1/responses` or `POST /v1/chat/completions` | Directly supported; use `wire_api = "responses"` |
+| Claude Code | `POST /v1/messages` | Directly supported |
 | Gemini CLI | `POST /v1beta/models/{model}:generateContent` | Requires a Gemini protocol translation layer |
 
-Until native protocol translation is added, Claude and Gemini models can still be called through LinkMind's OpenAI-compatible `/v1/chat/completions`, but Claude Code and Gemini CLI must not be presented as directly supported.
+DeepSeek Harness can select `openai-completions`, `openai-responses`, or `anthropic-messages` and point all three at the same LinkMind host. Select the endpoint that matches its configured protocol.
 
 ### Authentication and the Token-Pool Boundary
 
-`--linkmind-api-key` and `LINKMIND_API_KEY` currently synchronize LinkMind credentials to external runtimes. The current `/v1/chat/completions` implementation does not validate an incoming `Authorization: Bearer ...` value. The box is therefore a **central model gateway**, but is not yet a safe multi-tenant token pool.
+`--linkmind-api-key` and `LINKMIND_API_KEY` currently synchronize LinkMind credentials to external runtimes. The Messages endpoint accepts `x-api-key` (or Bearer), while Responses and Chat Completions accept Bearer tokens. They use the existing LinkMind request-key validation behaviour; this is not a tenant-aware token-pool policy.
 
 Before issuing distinct tokens to people or development machines, deploy a TLS-enabled reverse proxy or API gateway in front of the box and enforce Bearer-token validation, access control, rate limiting, and audit logging. Only then should `<LINKMIND_CLIENT_TOKEN>` be treated as a real client credential for the CLI tools.

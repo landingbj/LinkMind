@@ -150,6 +150,11 @@
         <load-on-startup>1</load-on-startup>
     </servlet>
     <servlet>
+        <servlet-name>protocolCompatibility</servlet-name>
+        <servlet-class>ai.servlet.api.ProtocolCompatibilityServlet</servlet-class>
+        <load-on-startup>1</load-on-startup>
+    </servlet>
+    <servlet>
         <servlet-name>agentMigrate</servlet-name>
         <servlet-class>ai.migrate.servlet.AgentMigrateServlet</servlet-class>
     </servlet>
@@ -159,7 +164,27 @@
     </servlet-mapping>
     <servlet-mapping>
         <servlet-name>llm</servlet-name>
+        <url-pattern>/models</url-pattern>
+    </servlet-mapping>
+    <servlet-mapping>
+        <servlet-name>llm</servlet-name>
         <url-pattern>/v1/chat/completions</url-pattern>
+    </servlet-mapping>
+    <servlet-mapping>
+        <servlet-name>protocolCompatibility</servlet-name>
+        <url-pattern>/v1/messages</url-pattern>
+    </servlet-mapping>
+    <servlet-mapping>
+        <servlet-name>protocolCompatibility</servlet-name>
+        <url-pattern>/messages</url-pattern>
+    </servlet-mapping>
+    <servlet-mapping>
+        <servlet-name>protocolCompatibility</servlet-name>
+        <url-pattern>/v1/responses</url-pattern>
+    </servlet-mapping>
+    <servlet-mapping>
+        <servlet-name>protocolCompatibility</servlet-name>
+        <url-pattern>/responses</url-pattern>
     </servlet-mapping>
     <servlet-mapping>
         <servlet-name>llm</servlet-name>

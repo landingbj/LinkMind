@@ -18,6 +18,7 @@ import ai.llm.service.CompletionsService;
 import ai.llm.service.LlmRouterDispatcher;
 import ai.llm.utils.CompletionUtil;
 import ai.llm.utils.LLMErrorConstants;
+import ai.manager.LlmManager;
 import ai.medusa.MedusaMonitor;
 import ai.medusa.MedusaService;
 import ai.medusa.pojo.CacheItem;
@@ -94,8 +95,29 @@ public class LlmApiServlet extends BaseServlet {
         String url = req.getRequestURI();
         if (url.endsWith("/v1/models") || url.endsWith("/models")) {
             PrintWriter out = resp.getWriter();
-            String modelsJson = "{\"object\":\"list\",\"data\":[{\"id\":\"gpt-5.4\",\"object\":\"model\",\"created\":1700000000,\"owned_by\":\"azure\"}]}";
-            out.print(modelsJson);
+            Map<String, Object> models = new LinkedHashMap<>();
+            models.put("object", "list");
+            List<Map<String, Object>> data = new ArrayList<>();
+            Set<String> modelIds = new LinkedHashSet<>();
+            LlmManager.getInstance().getAllAdapters().stream()
+                    .map(adapter -> (ModelService) adapter)
+                    .filter(adapter -> Boolean.TRUE.equals(adapter.getEnable()))
+                    .map(ModelService::getModel)
+                    .filter(Objects::nonNull)
+                    .forEach(configuredModels -> Arrays.stream(configuredModels.split(","))
+                            .map(String::trim)
+                            .filter(model -> !model.isEmpty())
+                            .forEach(modelIds::add));
+            for (String modelId : modelIds) {
+                Map<String, Object> model = new LinkedHashMap<>();
+                model.put("id", modelId);
+                model.put("object", "model");
+                model.put("created", 0);
+                model.put("owned_by", "linkmind");
+                data.add(model);
+            }
+            models.put("data", data);
+            out.print(gson.toJson(models));
             out.flush();
             out.close();
         }
@@ -219,11 +241,20 @@ public class LlmApiServlet extends BaseServlet {
 
 
     private void completions(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        HttpSession session = req.getSession();
+        ChatCompletionRequest chatCompletionRequest = setCustomerModel(req, session);
+        executeCompletion(req, resp, chatCompletionRequest);
+    }
+
+    /**
+     * Runs the normal Chat Completions pipeline for an already-normalized request.
+     * Protocol adapters call this method so every public API surface shares routing,
+     * RAG, queueing, cache, and backend-key selection behaviour.
+     */
+    protected void executeCompletion(HttpServletRequest req, HttpServletResponse resp,
+                                     ChatCompletionRequest chatCompletionRequest) throws IOException {
         resp.setContentType("application/json;charset=utf-8");
         PrintWriter out = resp.getWriter();
-        HttpSession session = req.getSession();
-
-        ChatCompletionRequest chatCompletionRequest = setCustomerModel(req, session);
         String apiKey = chatCompletionRequest.getApiKey();
 
         ExtraBody extraBody = chatCompletionRequest.getExtraBody();
@@ -423,7 +454,7 @@ public class LlmApiServlet extends BaseServlet {
     }
 
 
-    private ChatCompletionRequest setCustomerModel(HttpServletRequest req, HttpSession session) throws IOException {
+    protected ChatCompletionRequest setCustomerModel(HttpServletRequest req, HttpSession session) throws IOException {
         ModelPreferenceDto preference = JSONUtil.toBean((String) session.getAttribute("preference"), ModelPreferenceDto.class);
         String json = requestToJson(req);
 //        System.out.println("ChatCompletionRequest json: " + json);
@@ -452,7 +483,7 @@ public class LlmApiServlet extends BaseServlet {
         return chatCompletionRequest;
     }
 
-    private String resolveDefaultChatModel() {
+    protected String resolveDefaultChatModel() {
         try {
             if (ContextLoader.configuration == null) {
                 ContextLoader.loadContext();

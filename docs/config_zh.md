@@ -911,11 +911,11 @@ java -jar .\LinkMind.jar --host=0.0.0.0 --port=8080
 curl http://<LINKMIND_BOX_IP>:8080/v1/models
 ```
 
-请求中的 `model` 必须是盒子 `lagi.yml` 中已启用且已加入 `functions.chat.backends` 的模型。当前 `/v1/models` 返回的是固定兼容列表，不能将它当作完整的动态模型目录。
+请求中的 `model` 必须是盒子 `lagi.yml` 中已启用且已加入 `functions.chat.backends` 的模型。 `/v1/models` 会动态返回当前启用的聊天模型。
 
 ### Codex
 
-Codex 可以使用 OpenAI Chat Completions 协议直连 LinkMind。先安装 Codex，然后在 `~/.codex/`（Windows 为 `%USERPROFILE%\.codex\`）中创建以下文件。
+Codex 可使用 OpenAI Responses 或 Chat Completions 协议连接 LinkMind。推荐使用 Codex 原生的 Responses 协议；Chat Completions 仍保留用于兼容。
 
 `auth.json`：
 
@@ -935,7 +935,7 @@ preferred_auth_method = "apikey"
 [model_providers.linkmind]
 name = "LinkMind Box"
 base_url = "http://<LINKMIND_BOX_IP>:8080/v1"
-wire_api = "chat"
+wire_api = "responses"
 ```
 
 重启终端后执行：
@@ -944,34 +944,35 @@ wire_api = "chat"
 codex
 ```
 
-这里必须使用 `wire_api = "chat"`。当前 LinkMind 未暴露 `/v1/responses`，因此不能照抄使用 `wire_api = "responses"` 的教程。
+以上配置会调用 `POST /v1/responses`。如需保留旧接入方式，可设置 `wire_api = "chat"`，其会调用 `POST /v1/chat/completions`。
 
-### Claude Code 和 Gemini CLI 的当前限制
+### Claude Code 和 Gemini CLI
 
-以下环境变量是两款 CLI 的正确配置入口，但**当前版本 LinkMind 不能仅通过设置它们完成直连**：
+Claude Code 可通过 Anthropic Messages 兼容接口直接连接：
 
 ```bash
 # Claude Code 会请求 POST <ANTHROPIC_BASE_URL>/v1/messages
 export ANTHROPIC_AUTH_TOKEN=<LINKMIND_CLIENT_TOKEN>
 export ANTHROPIC_BASE_URL=http://<LINKMIND_BOX_IP>:8080
+export ANTHROPIC_MODEL=<ENABLED_LINKMIND_MODEL>
 
 # Gemini CLI 会请求 <GOOGLE_GEMINI_BASE_URL>/v1beta/models/...
 export GEMINI_API_KEY=<LINKMIND_CLIENT_TOKEN>
 export GOOGLE_GEMINI_BASE_URL=http://<LINKMIND_BOX_IP>:8080
 ```
 
-原因是 Claude Code 使用 Anthropic Messages 协议，Gemini CLI 使用 Gemini `generateContent` 协议；LinkMind 当前只实现 `/v1/chat/completions`。参考教程中的中转站实现了这些原生协议，LinkMind 目前尚未实现：
+Claude Code 使用 `POST /v1/messages`；LinkMind 会将 Messages 请求和流式事件转换到内部聊天链路。Gemini CLI 使用 Gemini `generateContent` 协议，LinkMind 暂未暴露该协议。
 
 | 客户端 | 需要的接口 | 当前状态 |
 | --- | --- | --- |
-| Codex | OpenAI Chat Completions | 可直接对接，使用 `wire_api = "chat"` |
-| Claude Code | `POST /v1/messages` | 需要增加 Anthropic 协议转换层 |
+| Codex | `POST /v1/responses` 或 `POST /v1/chat/completions` | 可直接对接，推荐 `wire_api = "responses"` |
+| Claude Code | `POST /v1/messages` | 可直接对接 |
 | Gemini CLI | `POST /v1beta/models/{model}:generateContent` | 需要增加 Gemini 协议转换层 |
 
-在原生协议转换层完成前，可让 Claude/Gemini 模型继续由 LinkMind 的 OpenAI 兼容 `/v1/chat/completions` 调用，但不能宣称 Claude Code 或 Gemini CLI 已直连可用。
+DeepSeek Harness 可选择 `openai-completions`、`openai-responses` 或 `anthropic-messages` 三种协议，并指向同一台 LinkMind 主机；协议配置需与对应接口一致。
 
 ### 鉴权与“Token 池”边界
 
-`--linkmind-api-key` 或 `LINKMIND_API_KEY` 目前用于向外部运行时同步 LinkMind 凭据；当前 `/v1/chat/completions` 的实现不会校验客户端请求中的 `Authorization: Bearer ...`。因此，现阶段盒子是**统一模型出口**，但还不是可安全分发独立 Token 的多租户 Token 池。
+`--linkmind-api-key` 或 `LINKMIND_API_KEY` 目前用于向外部运行时同步 LinkMind 凭据。Messages 接口接受 `x-api-key`（或 Bearer），Responses 与 Chat Completions 接口接受 Bearer Token；它们共用现有 LinkMind 请求密钥校验逻辑，并不是多租户 Token 池策略。
 
 若需要向多人或多台开发机发放独立 Token，必须先在盒子前部署带 TLS 的反向代理或 API 网关，并实现 Bearer Token 校验、访问控制、限流和审计。完成该层后，`<LINKMIND_CLIENT_TOKEN>` 才应作为各 CLI 的实际访问凭据使用。

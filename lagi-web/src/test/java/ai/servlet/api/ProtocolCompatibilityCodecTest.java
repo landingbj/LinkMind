@@ -43,6 +43,29 @@ class ProtocolCompatibilityCodecTest {
     }
 
     @Test
+    void normalizesClaudeCodeInlineSystemMessages() throws Exception {
+        JsonNode request = MAPPER.readTree("{"
+                + "\"model\":\"DeepSeek/deepseek-v4-pro\",\"max_tokens\":512,"
+                + "\"system\":[{\"type\":\"text\",\"text\":\"Base instructions\"}],"
+                + "\"messages\":["
+                + "{\"role\":\"user\",\"content\":\"first request\"},"
+                + "{\"role\":\"system\",\"content\":[{\"type\":\"text\",\"text\":\"Agent tool instructions\"}]},"
+                + "{\"role\":\"assistant\",\"content\":\"acknowledged\"},"
+                + "{\"role\":\"user\",\"content\":\"current request\"}"
+                + "]}");
+
+        ChatCompletionRequest converted = codec.toAnthropicRequest(request);
+
+        assertEquals(4, converted.getMessages().size());
+        assertEquals("system", converted.getMessages().get(0).getRole());
+        assertEquals("Base instructions\n\nAgent tool instructions", converted.getMessages().get(0).getContent());
+        assertEquals("user", converted.getMessages().get(1).getRole());
+        assertEquals("first request", converted.getMessages().get(1).getContent());
+        assertEquals("assistant", converted.getMessages().get(2).getRole());
+        assertEquals("current request", converted.getMessages().get(3).getContent());
+    }
+
+    @Test
     void convertsResponsesInputAndPreviousHistory() throws Exception {
         JsonNode request = MAPPER.readTree("{"
                 + "\"model\":\"gpt-5.4\",\"instructions\":\"Use tools\","

@@ -43,18 +43,26 @@ public final class ProtocolCompatibilityCodec {
             throw new ProtocolException(400, "invalid_request_error", "max_tokens is required");
         }
 
-        List<ChatMessage> messages = new ArrayList<>();
-        String system = contentToText(root.get("system"));
-        if (!system.isEmpty()) {
-            messages.add(message("system", system));
-        }
+        List<String> systemInstructions = new ArrayList<>();
+        addAnthropicSystemInstruction(systemInstructions, root.get("system"));
+        List<ChatMessage> conversationMessages = new ArrayList<>();
         JsonNode sourceMessages = root.get("messages");
         if (sourceMessages == null || !sourceMessages.isArray() || sourceMessages.size() == 0) {
             throw new ProtocolException(400, "invalid_request_error", "messages must be a non-empty array");
         }
         for (JsonNode source : sourceMessages) {
-            appendAnthropicMessage(messages, source);
+            if (source.isObject() && "system".equals(source.path("role").asText())) {
+                addAnthropicSystemInstruction(systemInstructions, source.get("content"));
+            } else {
+                appendAnthropicMessage(conversationMessages, source);
+            }
         }
+
+        List<ChatMessage> messages = new ArrayList<>();
+        if (!systemInstructions.isEmpty()) {
+            messages.add(message("system", String.join("\n\n", systemInstructions)));
+        }
+        messages.addAll(conversationMessages);
 
         ChatCompletionRequest request = new ChatCompletionRequest();
         request.setModel(model);
@@ -246,6 +254,22 @@ public final class ProtocolCompatibilityCodec {
                 message.setTool_calls(toolCalls);
             }
             target.add(message);
+        }
+    }
+
+    /**
+     * Claude Code may send system updates inside messages even though the public
+     * Messages API normally uses the top-level system field. Normalize both
+     * forms into the first internal system message for OpenAI-compatible backends.
+     */
+    private void addAnthropicSystemInstruction(List<String> target, JsonNode content)
+            throws ProtocolException {
+        if (content == null || content.isNull()) {
+            throw new ProtocolException(400, "invalid_request_error", "message content is required");
+        }
+        String instruction = contentToText(content);
+        if (!instruction.isEmpty()) {
+            target.add(instruction);
         }
     }
 

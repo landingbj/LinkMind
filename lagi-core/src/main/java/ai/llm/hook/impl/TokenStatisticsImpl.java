@@ -70,7 +70,8 @@ public class TokenStatisticsImpl implements AfterModel {
         String provider = resolveProvider(context);
         String model = resolveModel(context);
         String sessionId = resolveSessionId(context);
-        ASYNC_SAVE.execute(() -> tokenStatisticsDao.insert(prompt, completion, total, saved, provider, model, sessionId));
+        String userId = resolveAccountUserId(context);
+        ASYNC_SAVE.execute(() -> tokenStatisticsDao.insert(prompt, completion, total, saved, provider, model, sessionId, userId));
     }
 
     private String resolveModel(ModelContext context) {
@@ -99,5 +100,12 @@ public class TokenStatisticsImpl implements AfterModel {
             return null;
         }
         return context.getRequest().getSessionId();
+    }
+
+    private String resolveAccountUserId(ModelContext context) {
+        if (context == null || context.getRequest() == null) {
+            return null;
+        }
+        return context.getRequest().getAccountUserId();
     }
 }

@@ -52,6 +52,13 @@ public class ChatCompletionRequest {
     private String apiKey;
     private String userApiKey;
     /**
+     * Authenticated account identity resolved by LinkMind at the HTTP edge.
+     * This is deliberately kept separate from {@code userApiKey}: the latter
+     * is a caller credential and may be replaced while routing a request.
+     */
+    @JsonIgnore
+    private transient String accountUserId;
+    /**
      * Server-side session identity used only for key-pool affinity. This is
      * deliberately separate from {@link #sessionId}, which some providers
      * forward as their own conversation identifier.

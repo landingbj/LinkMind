@@ -23,7 +23,8 @@ public class LandingAdapter extends OpenAIStandardAdapter {
     public ChatCompletionResult completions(ChatCompletionRequest chatCompletionRequest) {
         if (isFinalServer()) {
             normalizeModelNameIfSlashSeparated(chatCompletionRequest);
-            if (ApikeyUtil.isLandingKey(chatCompletionRequest.getApiKey())) {
+            if (chatCompletionRequest.getAccountUserId() != null
+                    || ApikeyUtil.isLandingKey(chatCompletionRequest.getApiKey())) {
                 chatCompletionRequest.setApiKey(ApikeyUtil.getModelKey(chatCompletionRequest.getModel()));
             }
         }
@@ -34,7 +35,8 @@ public class LandingAdapter extends OpenAIStandardAdapter {
     public Observable<ChatCompletionResult> streamCompletions(ChatCompletionRequest chatCompletionRequest) {
         if (isFinalServer()) {
             normalizeModelNameIfSlashSeparated(chatCompletionRequest);
-            if (ApikeyUtil.isLandingKey(chatCompletionRequest.getApiKey())) {
+            if (chatCompletionRequest.getAccountUserId() != null
+                    || ApikeyUtil.isLandingKey(chatCompletionRequest.getApiKey())) {
                 chatCompletionRequest.setApiKey(ApikeyUtil.getModelKey(chatCompletionRequest.getModel()));
             }
         }

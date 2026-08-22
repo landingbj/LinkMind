@@ -39,11 +39,16 @@ public class TokenStatisticsDao {
             + " saved_tokens INTEGER NOT NULL,"
             + " provider TEXT,"
             + " model TEXT,"
-            + " session_id TEXT"
+            + " session_id TEXT,"
+            + " user_id TEXT"
             + ");";
 
     private static final String INDEX_CREATED_AT = ""
             + "CREATE INDEX IF NOT EXISTS idx_llm_token_statistics_created_at ON llm_token_statistics(created_at);";
+
+    private static final String INDEX_USER_CREATED_AT = ""
+            + "CREATE INDEX IF NOT EXISTS idx_llm_token_statistics_user_created_at "
+            + "ON llm_token_statistics(user_id, created_at);";
 
     static {
         try {
@@ -58,7 +63,12 @@ public class TokenStatisticsDao {
                         "ALTER TABLE llm_token_statistics ADD COLUMN model TEXT");
                 ensureColumnExists(conn, "llm_token_statistics", "session_id",
                         "ALTER TABLE llm_token_statistics ADD COLUMN session_id TEXT");
+                ensureColumnExists(conn, "llm_token_statistics", "user_id",
+                        "ALTER TABLE llm_token_statistics ADD COLUMN user_id TEXT");
                 try (PreparedStatement ps = conn.prepareStatement(INDEX_CREATED_AT)) {
+                    ps.executeUpdate();
+                }
+                try (PreparedStatement ps = conn.prepareStatement(INDEX_USER_CREATED_AT)) {
                     ps.executeUpdate();
                 }
             }
@@ -84,16 +94,26 @@ public class TokenStatisticsDao {
      * Earliest usage timestamp in the table; {@code 0} if there are no rows.
      */
     public long earliestCreatedAtMillis() {
-        String sql = "SELECT MIN(created_at) FROM llm_token_statistics";
+        return earliestCreatedAtMillis(null);
+    }
+
+    public long earliestCreatedAtMillis(String userId) {
+        boolean scoped = hasUserId(userId);
+        String sql = "SELECT MIN(created_at) FROM llm_token_statistics" + (scoped ? " WHERE user_id = ?" : "");
         try (Connection conn = HikariDS.getConnection(AiGlobal.DEFAULT_DB);
              PreparedStatement ps = conn.prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
+        ) {
+            if (scoped) {
+                ps.setString(1, userId.trim());
+            }
+            try (ResultSet rs = ps.executeQuery()) {
             if (rs.next()) {
                 Object o = rs.getObject(1);
                 if (o == null) {
                     return 0L;
                 }
                 return rs.getLong(1);
+            }
             }
         } catch (SQLException e) {
             log.error("query min created_at failed", e);
@@ -124,7 +144,11 @@ public class TokenStatisticsDao {
     }
 
     public TokenStatisticsGuardInfo guardInfo() {
-        long min = earliestCreatedAtMillis();
+        return guardInfo(null);
+    }
+
+    public TokenStatisticsGuardInfo guardInfo(String userId) {
+        long min = earliestCreatedAtMillis(userId);
         if (min <= 0) {
             return TokenStatisticsGuardInfo.builder().guardDays(0L).firstRecordAt(0L).build();
         }
@@ -136,7 +160,12 @@ public class TokenStatisticsDao {
 
     public void insert(long promptTokens, long completionTokens, long totalTokens, long savedTokens,
                        String provider, String model, String sessionId) {
-        String sql = "INSERT INTO llm_token_statistics (created_at, prompt_tokens, completion_tokens, total_tokens, saved_tokens, provider, model, session_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+        insert(promptTokens, completionTokens, totalTokens, savedTokens, provider, model, sessionId, null);
+    }
+
+    public void insert(long promptTokens, long completionTokens, long totalTokens, long savedTokens,
+                       String provider, String model, String sessionId, String userId) {
+        String sql = "INSERT INTO llm_token_statistics (created_at, prompt_tokens, completion_tokens, total_tokens, saved_tokens, provider, model, session_id, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
         int retry = 0;
         while (retry <= MAX_INSERT_RETRY) {
             try (Connection conn = HikariDS.getConnection(AiGlobal.DEFAULT_DB);
@@ -149,6 +178,7 @@ public class TokenStatisticsDao {
                 ps.setString(6, provider);
                 ps.setString(7, model);
                 ps.setString(8, sessionId);
+                ps.setString(9, userId);
                 ps.executeUpdate();
                 return;
             } catch (SQLException e) {
@@ -167,14 +197,23 @@ public class TokenStatisticsDao {
      * Aggregate: total token usage, total saved, daily average (total usage / calendar days in window), row count.
      */
     public TokenStatisticsSummary summarize(TokenStatisticsRange range) {
+        return summarize(range, null);
+    }
+
+    public TokenStatisticsSummary summarize(TokenStatisticsRange range, String userId) {
         long[] bounds = millisBounds(range);
         long start = bounds[0];
         long end = bounds[1];
-        String sql = "SELECT COUNT(1), COALESCE(SUM(total_tokens), 0), COALESCE(SUM(saved_tokens), 0) FROM llm_token_statistics WHERE created_at >= ? AND created_at < ?";
+        boolean scoped = hasUserId(userId);
+        String sql = "SELECT COUNT(1), COALESCE(SUM(total_tokens), 0), COALESCE(SUM(saved_tokens), 0) FROM llm_token_statistics WHERE created_at >= ? AND created_at < ?"
+                + (scoped ? " AND user_id = ?" : "");
         try (Connection conn = HikariDS.getConnection(AiGlobal.DEFAULT_DB);
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, start);
             ps.setLong(2, end);
+            if (scoped) {
+                ps.setString(3, userId.trim());
+            }
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
                     long recordCount = rs.getLong(1);
@@ -207,24 +246,34 @@ public class TokenStatisticsDao {
      * Paginated detail rows, ordered by {@code id} descending (newest first). {@code page} is 1-based.
      */
     public TokenStatisticsPageResult queryDetails(TokenStatisticsRange range, int page, int pageSize) {
+        return queryDetails(range, page, pageSize, null);
+    }
+
+    public TokenStatisticsPageResult queryDetails(TokenStatisticsRange range, int page, int pageSize, String userId) {
         int p = Math.max(1, page);
         int size = Math.min(500, Math.max(1, pageSize));
         long[] bounds = millisBounds(range);
         long start = bounds[0];
         long end = bounds[1];
-        long total = countInRange(start, end);
+        long total = countInRange(start, end, userId);
         if (total == 0) {
             return TokenStatisticsPageResult.empty(range, p, size);
         }
         int offset = (p - 1) * size;
-        String sql = "SELECT id, created_at, prompt_tokens, completion_tokens, total_tokens, saved_tokens, provider, model, session_id FROM llm_token_statistics WHERE created_at >= ? AND created_at < ? ORDER BY id DESC LIMIT ? OFFSET ?";
+        boolean scoped = hasUserId(userId);
+        String sql = "SELECT id, created_at, prompt_tokens, completion_tokens, total_tokens, saved_tokens, provider, model, session_id, user_id FROM llm_token_statistics WHERE created_at >= ? AND created_at < ?"
+                + (scoped ? " AND user_id = ?" : "") + " ORDER BY id DESC LIMIT ? OFFSET ?";
         List<TokenStatisticsDetail> list = new ArrayList<>();
         try (Connection conn = HikariDS.getConnection(AiGlobal.DEFAULT_DB);
-             PreparedStatement ps = conn.prepareStatement(sql)) {
+            PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, start);
             ps.setLong(2, end);
-            ps.setInt(3, size);
-            ps.setInt(4, offset);
+            int index = 3;
+            if (scoped) {
+                ps.setString(index++, userId.trim());
+            }
+            ps.setInt(index++, size);
+            ps.setInt(index, offset);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     list.add(TokenStatisticsDetail.builder()
@@ -237,6 +286,7 @@ public class TokenStatisticsDao {
                             .provider(rs.getString("provider"))
                             .model(rs.getString("model"))
                             .sessionId(rs.getString("session_id"))
+                            .userId(rs.getString("user_id"))
                             .build());
                 }
             }
@@ -257,15 +307,20 @@ public class TokenStatisticsDao {
      */
     public long countDetails(TokenStatisticsRange range) {
         long[] bounds = millisBounds(range);
-        return countInRange(bounds[0], bounds[1]);
+        return countInRange(bounds[0], bounds[1], null);
     }
 
-    private long countInRange(long startMs, long endMsExclusive) {
-        String sql = "SELECT COUNT(1) FROM llm_token_statistics WHERE created_at >= ? AND created_at < ?";
+    private long countInRange(long startMs, long endMsExclusive, String userId) {
+        boolean scoped = hasUserId(userId);
+        String sql = "SELECT COUNT(1) FROM llm_token_statistics WHERE created_at >= ? AND created_at < ?"
+                + (scoped ? " AND user_id = ?" : "");
         try (Connection conn = HikariDS.getConnection(AiGlobal.DEFAULT_DB);
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, startMs);
             ps.setLong(2, endMsExclusive);
+            if (scoped) {
+                ps.setString(3, userId.trim());
+            }
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
                     return rs.getLong(1);
@@ -278,6 +333,10 @@ public class TokenStatisticsDao {
     }
 
     public TokenStatisticsSessionPageResult querySessions(TokenStatisticsRange range, int page, int pageSize, Long startMs, Long endMs) {
+        return querySessions(range, page, pageSize, startMs, endMs, null);
+    }
+
+    public TokenStatisticsSessionPageResult querySessions(TokenStatisticsRange range, int page, int pageSize, Long startMs, Long endMs, String userId) {
         int p = Math.max(1, page);
         int size = Math.min(500, Math.max(1, pageSize));
         long[] bounds = millisBounds(range);
@@ -286,11 +345,12 @@ public class TokenStatisticsDao {
         if (end <= start) {
             end = start + 1;
         }
-        long total = countSessionsInRange(start, end);
+        long total = countSessionsInRange(start, end, userId);
         if (total == 0) {
             return TokenStatisticsSessionPageResult.empty(range, p, size);
         }
         int offset = (p - 1) * size;
+        boolean scoped = hasUserId(userId);
         String sql = "SELECT session_id, COUNT(1) AS request_count, " +
                 "COALESCE(SUM(prompt_tokens),0) AS prompt_tokens, " +
                 "COALESCE(SUM(completion_tokens),0) AS completion_tokens, " +
@@ -298,6 +358,7 @@ public class TokenStatisticsDao {
                 "COALESCE(SUM(saved_tokens),0) AS saved_tokens, " +
                 "MIN(created_at) AS first_request_at, MAX(created_at) AS last_request_at " +
                 "FROM llm_token_statistics WHERE created_at >= ? AND created_at < ? " +
+                (scoped ? "AND user_id = ? " : "") +
                 "AND session_id IS NOT NULL AND session_id <> '' " +
                 "GROUP BY session_id ORDER BY last_request_at DESC LIMIT ? OFFSET ?";
         List<TokenStatisticsSessionItem> list = new ArrayList<>();
@@ -305,8 +366,12 @@ public class TokenStatisticsDao {
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, start);
             ps.setLong(2, end);
-            ps.setInt(3, size);
-            ps.setInt(4, offset);
+            int index = 3;
+            if (scoped) {
+                ps.setString(index++, userId.trim());
+            }
+            ps.setInt(index++, size);
+            ps.setInt(index, offset);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     long totalTokens = rs.getLong("total_tokens");
@@ -351,15 +416,21 @@ public class TokenStatisticsDao {
         return new long[]{startMs, endMs};
     }
 
-    private long countSessionsInRange(long startMs, long endMsExclusive) {
+    private long countSessionsInRange(long startMs, long endMsExclusive, String userId) {
+        boolean scoped = hasUserId(userId);
         String sql = "SELECT COUNT(1) FROM (" +
                 "SELECT session_id FROM llm_token_statistics " +
-                "WHERE created_at >= ? AND created_at < ? AND session_id IS NOT NULL AND session_id <> '' " +
+                "WHERE created_at >= ? AND created_at < ? " +
+                (scoped ? "AND user_id = ? " : "") +
+                "AND session_id IS NOT NULL AND session_id <> '' " +
                 "GROUP BY session_id)";
         try (Connection conn = HikariDS.getConnection(AiGlobal.DEFAULT_DB);
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, startMs);
             ps.setLong(2, endMsExclusive);
+            if (scoped) {
+                ps.setString(3, userId.trim());
+            }
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
                     return rs.getLong(1);
@@ -388,6 +459,10 @@ public class TokenStatisticsDao {
                 ps.executeUpdate();
             }
         }
+    }
+
+    private static boolean hasUserId(String userId) {
+        return userId != null && !userId.trim().isEmpty();
     }
 
     private static boolean isSqliteBusy(SQLException e) {

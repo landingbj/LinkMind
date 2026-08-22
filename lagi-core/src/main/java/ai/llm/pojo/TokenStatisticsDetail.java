@@ -20,4 +20,5 @@ public class TokenStatisticsDetail {
     private String provider;
     private String model;
     private String sessionId;
+    private String userId;
 }

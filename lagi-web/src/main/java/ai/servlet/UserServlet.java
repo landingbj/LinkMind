@@ -1,13 +1,15 @@
 package ai.servlet;
 
+import ai.account.CuihuaAccountService;
+import ai.account.CuihuaUser;
+import ai.account.LinkMindClientToken;
+import ai.account.LinkMindClientTokenService;
 import ai.common.pojo.Configuration;
 import ai.common.pojo.VectorStoreConfig;
 import ai.migrate.service.UserService;
 import ai.servlet.dto.LoginRequest;
 import ai.servlet.dto.LoginResponse;
-import ai.servlet.dto.RegisterRequest;
 import ai.servlet.dto.RegisterResponse;
-import ai.sevice.CookieService;
 import ai.utils.MigrateGlobal;
 import ai.utils.ValidateCodeCreator;
 import ai.vector.VectorStoreService;
@@ -23,181 +25,290 @@ import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
+import java.sql.SQLException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
+/**
+ * LinkMind account endpoints backed by the shared Cuihua {@code users} table.
+ * Cuihua remains the only writer of account and password data.
+ */
 public class UserServlet extends BaseServlet {
     private static final long serialVersionUID = 1L;
+    public static final String SESSION_COOKIE_NAME = "linkmind-session";
+    private static final String LEGACY_COOKIE_NAME = "lagi-auth";
+    private static final int COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
+    private static final long SESSION_LIFETIME_MILLIS = COOKIE_MAX_AGE * 1000L;
+
     protected Gson gson = new Gson();
     private final UserService userService = new UserService();
-    private final CookieService cookieService = new CookieService();
+    private final CuihuaAccountService accountService = new CuihuaAccountService();
+    private final LinkMindClientTokenService clientTokenService = new LinkMindClientTokenService();
     private static final Configuration config = MigrateGlobal.config;
-    private static final String COOKIE_NAME = "lagi-auth";
-    private static final int COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         req.setCharacterEncoding("UTF-8");
-        String url = req.getRequestURI();
-        String method = url.substring(url.lastIndexOf("/") + 1);
-
-        if (method.equals("getRandomCategory")) {
-            this.getRandomCategory(req, resp);
-        } else if (method.equals("getDefaultTitle")) {
-            this.getDefaultTitle(req, resp);
-        } else if (method.equals("getCaptcha")) {
-            this.getCaptcha(req, resp);
+        String method = lastPathSegment(req);
+        if ("getRandomCategory".equals(method)) {
+            getRandomCategory(req, resp);
+        } else if ("getDefaultTitle".equals(method)) {
+            getDefaultTitle(resp);
+        } else if ("getCaptcha".equals(method)) {
+            getCaptcha(req, resp);
+        } else if ("tokens".equals(method)) {
+            listTokens(req, resp);
         }
     }
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         req.setCharacterEncoding("UTF-8");
-        String url = req.getRequestURI();
-        String method = url.substring(url.lastIndexOf("/") + 1);
-
-        if (method.equals("login")) {
-            this.login(req, resp);
-        } else if (method.equals("register")) {
-            this.register(req, resp);
-        } else if (method.equals("authLoginCookie")) {
-            this.authLoginCookie(req, resp);
+        String method = lastPathSegment(req);
+        if ("login".equals(method)) {
+            login(req, resp);
+        } else if ("register".equals(method)) {
+            register(resp);
+        } else if ("authLoginCookie".equals(method)) {
+            authLoginCookie(req, resp);
+        } else if ("logout".equals(method)) {
+            logout(req, resp);
+        } else if ("issueToken".equals(method)) {
+            issueToken(req, resp);
+        } else if ("revokeToken".equals(method)) {
+            revokeToken(req, resp);
         }
     }
 
     private void login(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json;charset=utf-8");
-        LoginResponse loginResponse;
+        LoginResponse response;
         try {
-            LoginRequest loginRequest = reqBodyToObj(req, LoginRequest.class);
-            HttpSession session = req.getSession(true);
-            String sessionCode = (String) session.getAttribute("captcha");
-            if (sessionCode == null || !sessionCode.equalsIgnoreCase(loginRequest.getCaptcha())) {
-                loginResponse = new LoginResponse();
-                loginResponse.setStatus("failed");
-                loginResponse.setMsg("验证码错误");
+            LoginRequest request = reqBodyToObj(req, LoginRequest.class);
+            HttpSession servletSession = req.getSession(true);
+            String captcha = request == null ? null : request.getCaptcha();
+            String expectedCaptcha = (String) servletSession.getAttribute("captcha");
+            if (expectedCaptcha == null || !expectedCaptcha.equalsIgnoreCase(captcha)) {
+                response = failedLogin("invalid captcha");
+            } else if (!accountService.isIntegrationAvailable()) {
+                response = failedLogin("shared Cuihua user database is unavailable");
             } else {
-                loginResponse = userService.login(loginRequest);
-                if (loginResponse != null && "success".equalsIgnoreCase(loginResponse.getStatus())) {
-                    addCookies(req, resp, loginRequest, loginResponse);
+                CuihuaAccountService.LoginResult login = accountService.loginSystemAdmin(
+                        request == null ? null : request.getUsername(),
+                        request == null ? null : request.getPassword(),
+                        SESSION_LIFETIME_MILLIS);
+                if (login == null) {
+                    response = failedLogin("LinkMind access requires an active system_admin account");
+                } else {
+                    response = successLogin(login.getUser());
+                    addLoginCookies(req, resp, login.getUser(), login.getSessionToken());
                 }
             }
+        } catch (SQLException e) {
+            response = failedLogin("shared account service is unavailable");
         } catch (Exception e) {
-            loginResponse = new LoginResponse();
-            loginResponse.setStatus("failed");
-            loginResponse.setMsg("登录服务暂时不可用，请稍后重试");
+            response = failedLogin("login failed");
         }
-        if (loginResponse == null) {
-            loginResponse = new LoginResponse();
-            loginResponse.setStatus("failed");
-            loginResponse.setMsg("登录失败");
-        }
-        responsePrint(resp, gson.toJson(loginResponse));
+        responsePrint(resp, gson.toJson(response));
     }
 
-    private void addCookies(HttpServletRequest req, HttpServletResponse resp, LoginRequest loginRequest, LoginResponse loginResponse) {
-        String encodeValue = cookieService.encodeUser(loginRequest.getUsername(), loginRequest.getPassword());
-        if (loginResponse == null || loginResponse.getData() == null || loginResponse.getData().getUserId() == null) {
-            addCookie(req, resp, COOKIE_NAME, encodeValue);
+    /** Accounts are created and maintained by Cuihua, never by LinkMind. */
+    private void register(HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        RegisterResponse response = new RegisterResponse();
+        response.setStatus("failed");
+        response.setMsg("accounts are managed by Cuihua; please register there");
+        responsePrint(resp, gson.toJson(response));
+    }
+
+    /** Validates the opaque server-side LinkMind session. It never handles a password. */
+    private void authLoginCookie(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        LoginResponse response;
+        try {
+            String token = readSessionCookie(req);
+            if (StrUtil.isBlank(token)) {
+                JsonObject body = reqBodyToObj(req, JsonObject.class);
+                if (body != null && body.has("cookieValue") && !body.get("cookieValue").isJsonNull()) {
+                    token = body.get("cookieValue").getAsString();
+                }
+            }
+            CuihuaUser user = accountService.resolveSession(token);
+            if (user == null || !accountService.isSystemAdmin(user)) {
+                if (user != null) {
+                    accountService.revokeSession(token);
+                }
+                removeCookies(req, resp);
+                response = failedLogin("session is invalid, expired, or no longer has system_admin access");
+            } else {
+                response = successLogin(user);
+                addLoginCookies(req, resp, user, token);
+            }
+        } catch (Exception e) {
+            removeCookies(req, resp);
+            response = failedLogin("session validation failed");
+        }
+        responsePrint(resp, gson.toJson(response));
+    }
+
+    private void logout(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        try {
+            accountService.revokeSession(readSessionCookie(req));
+        } catch (SQLException ignored) {
+            // Clearing the browser cookie still prevents normal use if storage is temporarily unavailable.
+        }
+        removeCookies(req, resp);
+        Map<String, Object> response = new HashMap<String, Object>();
+        response.put("status", "success");
+        responsePrint(resp, gson.toJson(response));
+    }
+
+    /** Lists only the current Cuihua user's LinkMind client tokens. */
+    private void listTokens(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        CuihuaUser user = currentUser(req);
+        if (user == null) {
+            writeUnauthorized(resp);
             return;
         }
-        Map<String, String> cookies = new HashMap<>();
-        cookies.put(COOKIE_NAME, encodeValue);
-        cookies.put("userId", loginResponse.getData().getUserId());
-        for (Map.Entry<String, String> entry : cookies.entrySet()) {
-            addCookie(req, resp, entry.getKey(), entry.getValue());
+        try {
+            List<LinkMindClientToken> tokens = clientTokenService.list(user.getUserId());
+            Map<String, Object> response = new HashMap<String, Object>();
+            response.put("status", "success");
+            response.put("data", tokens);
+            responsePrint(resp, gson.toJson(response));
+        } catch (SQLException e) {
+            writeFailure(resp, "list client tokens failed");
         }
     }
 
-    private void addCookie(HttpServletRequest req, HttpServletResponse resp, String key, String value) {
-        Cookie cookie = new Cookie(key, value);
+    /** Issues a token once; the plaintext value is returned only by this endpoint. */
+    private void issueToken(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        CuihuaUser user = currentUser(req);
+        if (user == null) {
+            writeUnauthorized(resp);
+            return;
+        }
+        try {
+            IssueTokenRequest body = reqBodyToObj(req, IssueTokenRequest.class);
+            LinkMindClientToken token = clientTokenService.issue(
+                    user.getUserId(), body == null ? null : body.name, body == null ? null : body.expiresAt);
+            Map<String, Object> response = new HashMap<String, Object>();
+            response.put("status", "success");
+            response.put("data", token);
+            responsePrint(resp, gson.toJson(response));
+        } catch (IllegalArgumentException e) {
+            writeFailure(resp, e.getMessage());
+        } catch (SQLException e) {
+            writeFailure(resp, "issue client token failed");
+        }
+    }
+
+    private void revokeToken(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        CuihuaUser user = currentUser(req);
+        if (user == null) {
+            writeUnauthorized(resp);
+            return;
+        }
+        try {
+            RevokeTokenRequest body = reqBodyToObj(req, RevokeTokenRequest.class);
+            boolean revoked = body != null && clientTokenService.revoke(body.id, user.getUserId());
+            if (!revoked) {
+                resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
+                writeFailure(resp, "client token was not found");
+                return;
+            }
+            Map<String, Object> response = new HashMap<String, Object>();
+            response.put("status", "success");
+            responsePrint(resp, gson.toJson(response));
+        } catch (SQLException e) {
+            writeFailure(resp, "revoke client token failed");
+        }
+    }
+
+    private CuihuaUser currentUser(HttpServletRequest req) {
+        try {
+            return accountService.resolveSession(readSessionCookie(req));
+        } catch (SQLException e) {
+            return null;
+        }
+    }
+
+    private void addLoginCookies(HttpServletRequest req, HttpServletResponse resp, CuihuaUser user, String sessionToken) {
+        addCookie(resp, SESSION_COOKIE_NAME, sessionToken, true, req.isSecure());
+        addCookie(resp, "userId", user.getUserId(), false, req.isSecure());
+        expireCookie(resp, LEGACY_COOKIE_NAME, false, req.isSecure());
+    }
+
+    private void addCookie(HttpServletResponse resp, String name, String value, boolean httpOnly, boolean secure) {
+        Cookie cookie = new Cookie(name, value);
         cookie.setMaxAge(COOKIE_MAX_AGE);
-        cookie.setDomain(req.getServerName());
         cookie.setPath("/");
+        cookie.setHttpOnly(httpOnly);
+        cookie.setSecure(secure);
+        resp.addCookie(cookie);
+    }
+
+    private void expireCookie(HttpServletResponse resp, String name, boolean httpOnly, boolean secure) {
+        Cookie cookie = new Cookie(name, "");
+        cookie.setMaxAge(0);
+        cookie.setPath("/");
+        cookie.setHttpOnly(httpOnly);
+        cookie.setSecure(secure);
         resp.addCookie(cookie);
     }
 
     private void removeCookies(HttpServletRequest req, HttpServletResponse resp) {
+        boolean secure = req.isSecure();
+        expireCookie(resp, SESSION_COOKIE_NAME, true, secure);
+        expireCookie(resp, LEGACY_COOKIE_NAME, false, secure);
+        expireCookie(resp, "userId", false, secure);
+    }
+
+    private String readSessionCookie(HttpServletRequest req) {
         Cookie[] cookies = req.getCookies();
-        if (cookies != null) {
-            for (Cookie cookie : cookies) {
-                if (COOKIE_NAME.equals(cookie.getName()) || "userId".equals(cookie.getName())) {
-                    cookie.setMaxAge(0);
-                    cookie.setPath("/");
-                    resp.addCookie(cookie);
-                }
+        if (cookies == null) {
+            return null;
+        }
+        for (Cookie cookie : cookies) {
+            if (SESSION_COOKIE_NAME.equals(cookie.getName())) {
+                return cookie.getValue();
             }
         }
+        return null;
     }
 
-    private void register(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        resp.setContentType("application/json;charset=utf-8");
-        RegisterResponse registerResponse;
-        try {
-            RegisterRequest registerRequest = reqBodyToObj(req, RegisterRequest.class);
-            HttpSession session = req.getSession(true);
-            String sessionCode = (String) session.getAttribute("captcha");
-            if (sessionCode == null || !sessionCode.equalsIgnoreCase(registerRequest.getCaptcha())) {
-                registerResponse = new RegisterResponse();
-                registerResponse.setStatus("failed");
-                registerResponse.setMsg("验证码错误");
-            } else {
-                registerResponse = userService.register(registerRequest);
-                if (registerResponse != null && "success".equalsIgnoreCase(registerResponse.getStatus())) {
-                    LoginRequest loginRequest = new LoginRequest();
-                    loginRequest.setUsername(registerRequest.getUsername());
-                    loginRequest.setPassword(registerRequest.getPassword());
-                    try {
-                        LoginResponse loginResponse = userService.login(loginRequest);
-                        if (loginResponse != null && "success".equalsIgnoreCase(loginResponse.getStatus())) {
-                            addCookies(req, resp, loginRequest, loginResponse);
-                        } else {
-                            addCookie(req, resp, COOKIE_NAME, cookieService.encodeUser(
-                                    registerRequest.getUsername(), registerRequest.getPassword()));
-                        }
-                    } catch (IOException e) {
-                        addCookie(req, resp, COOKIE_NAME, cookieService.encodeUser(
-                                registerRequest.getUsername(), registerRequest.getPassword()));
-                    }
-                }
-            }
-        } catch (Exception e) {
-            registerResponse = new RegisterResponse();
-            registerResponse.setStatus("failed");
-            registerResponse.setMsg("注册服务暂时不可用，请稍后重试");
-        }
-        if (registerResponse == null) {
-            registerResponse = new RegisterResponse();
-            registerResponse.setStatus("failed");
-            registerResponse.setMsg("注册失败");
-        }
-        responsePrint(resp, gson.toJson(registerResponse));
+    private LoginResponse successLogin(CuihuaUser user) {
+        LoginResponse response = new LoginResponse();
+        response.setStatus("success");
+        LoginResponse.Data data = new LoginResponse.Data();
+        data.setUsername(user.getUsername());
+        data.setUserId(user.getUserId());
+        response.setData(data);
+        return response;
     }
 
-    private void authLoginCookie(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        resp.setContentType("application/json;charset=utf-8");
-        LoginResponse loginResponse;
-        try {
-            JsonObject jsonObject = reqBodyToObj(req, JsonObject.class);
-            String cookieValue = jsonObject.get("cookieValue").getAsString();
-            LoginRequest loginRequest = cookieService.decodeUser(cookieValue);
-            loginResponse = userService.login(loginRequest);
-            if (loginResponse != null && "success".equalsIgnoreCase(loginResponse.getStatus())) {
-                addCookies(req, resp, loginRequest, loginResponse);
-            } else {
-                removeCookies(req, resp);
-            }
-        } catch (Exception e) {
-            loginResponse = new LoginResponse();
-            loginResponse.setStatus("failed");
-            loginResponse.setMsg("认证失败");
-        }
-        if (loginResponse == null) {
-            loginResponse = new LoginResponse();
-            loginResponse.setStatus("failed");
-            loginResponse.setMsg("认证失败");
-        }
-        responsePrint(resp, gson.toJson(loginResponse));
+    private LoginResponse failedLogin(String message) {
+        LoginResponse response = new LoginResponse();
+        response.setStatus("failed");
+        response.setMsg(message);
+        return response;
+    }
+
+    private void writeUnauthorized(HttpServletResponse resp) throws IOException {
+        resp.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        writeFailure(resp, "authentication required");
+    }
+
+    private void writeFailure(HttpServletResponse resp, String message) throws IOException {
+        Map<String, Object> response = new HashMap<String, Object>();
+        response.put("status", "failed");
+        response.put("msg", message);
+        responsePrint(resp, gson.toJson(response));
     }
 
     private void getRandomCategory(HttpServletRequest req, HttpServletResponse resp) throws IOException {
@@ -213,61 +324,71 @@ public class UserServlet extends BaseServlet {
             category = vectorStoreConfig.getDefaultCategory();
         }
         if (category == null) {
-            if (currentCategory == null || currentCategory.isEmpty()) {
-                category = userService.getRandomCategory();
-            } else {
-                category = currentCategory;
-            }
+            category = currentCategory == null || currentCategory.isEmpty()
+                    ? userService.getRandomCategory() : currentCategory;
         }
-        if(StrUtil.isNotBlank(userId)) {
+        if (StrUtil.isNotBlank(userId)) {
             category = category + "_" + userId;
         }
         data.addProperty("category", category);
-        Map<String, Object> map = new HashMap<>();
+        Map<String, Object> response = new HashMap<String, Object>();
         if (category != null) {
-            map.put("status", "success");
-            map.put("data", data);
+            response.put("status", "success");
+            response.put("data", data);
         } else {
-            map.put("status", "failed");
+            response.put("status", "failed");
         }
-        responsePrint(resp, gson.toJson(map));
+        responsePrint(resp, gson.toJson(response));
     }
 
-    private void getDefaultTitle(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+    private void getDefaultTitle(HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json;charset=utf-8");
-        Map<String, Object> map = new HashMap<>();
-        map.put("status", "success");
-        map.put("data", config.getSystemTitle());
-        responsePrint(resp, gson.toJson(map));
+        Map<String, Object> response = new HashMap<String, Object>();
+        response.put("status", "success");
+        response.put("data", config.getSystemTitle());
+        responsePrint(resp, gson.toJson(response));
     }
 
     private void getCaptcha(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("image/jpeg");
-        int width = 60;
-        int height = 20;
-        int charNum = 4;
-        int fontSize = 18;
-        String num = req.getParameter("charNum");
-        if (num != null) {
-            charNum = Integer.parseInt(num);
+        int width = parsePositiveInt(req.getParameter("width"), 60);
+        int height = parsePositiveInt(req.getParameter("height"), 20);
+        int charNum = parsePositiveInt(req.getParameter("charNum"), 4);
+        int fontSize = parsePositiveInt(req.getParameter("fontSize"), 18);
+        if (req.getParameter("width") == null) {
             width = charNum * 15;
-        }
-        if (req.getParameter("width") != null) {
-            width = Integer.parseInt(req.getParameter("width"));
-        }
-
-        if (req.getParameter("height") != null) {
-            height = Integer.parseInt(req.getParameter("height"));
-        }
-
-        if (req.getParameter("fontSize") != null) {
-            fontSize = Integer.parseInt(req.getParameter("fontSize"));
         }
         String code = ValidateCodeCreator.randomCode(charNum);
         HttpSession session = req.getSession();
         session.setMaxInactiveInterval(30 * 60);
         session.setAttribute("captcha", code);
-        BufferedImage codeImage = ValidateCodeCreator.create(code, width, height, fontSize);
-        ImageIO.write(codeImage, "JPEG", resp.getOutputStream());
+        BufferedImage image = ValidateCodeCreator.create(code, width, height, fontSize);
+        ImageIO.write(image, "JPEG", resp.getOutputStream());
+    }
+
+    private int parsePositiveInt(String raw, int defaultValue) {
+        if (raw == null || raw.trim().isEmpty()) {
+            return defaultValue;
+        }
+        try {
+            int value = Integer.parseInt(raw.trim());
+            return value > 0 ? value : defaultValue;
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
+    }
+
+    private String lastPathSegment(HttpServletRequest req) {
+        String url = req.getRequestURI();
+        return url.substring(url.lastIndexOf('/') + 1);
+    }
+
+    private static class IssueTokenRequest {
+        String name;
+        Long expiresAt;
+    }
+
+    private static class RevokeTokenRequest {
+        long id;
     }
 }

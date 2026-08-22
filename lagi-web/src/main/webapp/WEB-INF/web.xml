@@ -27,7 +27,7 @@
         </init-param>
         <init-param>
             <param-name>cors.supportedHeaders</param-name>
-            <param-value>Accept,Origin,X-Requested-With,Content-Type,Last-Modified</param-value>
+            <param-value>Accept,Origin,X-Requested-With,Content-Type,Last-Modified,Authorization,x-api-key,anthropic-version</param-value>
         </init-param>
         <init-param>
             <param-name>cors.exposedHeaders</param-name>
@@ -215,6 +215,14 @@
         <servlet-name>tokenStatistics</servlet-name>
         <servlet-class>ai.servlet.api.TokenStatisticsApiServlet</servlet-class>
     </servlet>
+    <servlet>
+        <servlet-name>cuihuaIntegration</servlet-name>
+        <servlet-class>ai.servlet.api.CuihuaIntegrationApiServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>cuihuaIntegration</servlet-name>
+        <url-pattern>/v1/integration/users/*</url-pattern>
+    </servlet-mapping>
     <servlet-mapping>
         <servlet-name>tokenStatistics</servlet-name>
         <url-pattern>/v1/token-statistics/overview</url-pattern>

@@ -1,5 +1,7 @@
 package ai.servlet;
 
+import ai.account.CuihuaAccountService;
+import ai.account.CuihuaUser;
 import ai.config.ConfigUtil;
 import ai.dto.ModelApiKey;
 import ai.migrate.service.ApiKeyService;
@@ -11,6 +13,7 @@ import com.google.gson.Gson;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.servlet.ServletException;
+import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
@@ -23,10 +26,14 @@ public class ApiKeyServlet extends BaseServlet {
     private static final long serialVersionUID = 1L;
     protected Gson gson = new Gson();
     private final ApiKeyService apiKeyService = new ApiKeyService();
+    private final CuihuaAccountService accountService = new CuihuaAccountService();
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         req.setCharacterEncoding("UTF-8");
+        if (!requireSystemAdmin(req, resp)) {
+            return;
+        }
         String url = req.getRequestURI();
         String method = url.substring(url.lastIndexOf("/") + 1);
 
@@ -46,6 +53,9 @@ public class ApiKeyServlet extends BaseServlet {
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         req.setCharacterEncoding("UTF-8");
+        if (!requireSystemAdmin(req, resp)) {
+            return;
+        }
         String url = req.getRequestURI();
         String method = url.substring(url.lastIndexOf("/") + 1);
 
@@ -248,6 +258,49 @@ public class ApiKeyServlet extends BaseServlet {
     private boolean shouldProxyToCascade() {
         return ConfigUtil.MODE_MATE.equalsIgnoreCase(ConfigUtil.getRunningMode())
                 && StrUtil.isNotBlank(ConfigUtil.CASCADE_API_ADDRESS);
+    }
+
+    /** Model-provider keys are LinkMind system settings, not ordinary Cuihua user credentials. */
+    private boolean requireSystemAdmin(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        CuihuaUser user = null;
+        try {
+            String sessionToken = readSessionCookie(req);
+            user = accountService.resolveSession(sessionToken);
+        } catch (Exception e) {
+            log.warn("Unable to validate LinkMind management session: {}", e.getMessage());
+        }
+        if (user == null) {
+            resp.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            writeAuthFailure(resp, "LinkMind management login is required");
+            return false;
+        }
+        if (!accountService.isSystemAdmin(user)) {
+            resp.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            writeAuthFailure(resp, "system_admin role is required");
+            return false;
+        }
+        return true;
+    }
+
+    private String readSessionCookie(HttpServletRequest req) {
+        Cookie[] cookies = req.getCookies();
+        if (cookies == null) {
+            return null;
+        }
+        for (Cookie cookie : cookies) {
+            if (UserServlet.SESSION_COOKIE_NAME.equals(cookie.getName())) {
+                return cookie.getValue();
+            }
+        }
+        return null;
+    }
+
+    private void writeAuthFailure(HttpServletResponse resp, String message) throws IOException {
+        resp.setContentType("application/json;charset=utf-8");
+        Map<String, Object> result = new HashMap<>();
+        result.put("status", "failed");
+        result.put("msg", message);
+        responsePrint(resp, gson.toJson(result));
     }
 
     private String buildTargetUrl(String cascadeApiAddress, HttpServletRequest req) {

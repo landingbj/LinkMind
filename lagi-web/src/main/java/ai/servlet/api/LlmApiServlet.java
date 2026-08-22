@@ -5,6 +5,9 @@ import ai.common.exception.RRException;
 import ai.common.pojo.Configuration;
 import ai.common.pojo.IndexSearchData;
 import ai.common.pojo.Medusa;
+import ai.account.CuihuaAccountService;
+import ai.account.CuihuaUser;
+import ai.account.LinkMindClientTokenService;
 import ai.config.ContextLoader;
 import ai.config.pojo.RAGFunction;
 import ai.dto.ModelPreferenceDto;
@@ -27,6 +30,7 @@ import ai.medusa.utils.PromptInputUtil;
 import ai.openai.pojo.*;
 import ai.router.pojo.LLmRequest;
 import ai.servlet.BaseServlet;
+import ai.servlet.UserServlet;
 import ai.utils.AiGlobal;
 import ai.utils.ApikeyUtil;
 import ai.utils.ClientIpAddressUtil;
@@ -51,6 +55,7 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
+import javax.servlet.http.Cookie;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.*;
@@ -73,6 +78,8 @@ public class LlmApiServlet extends BaseServlet {
     private final QueueSchedule queueSchedule = enableQueueHandle ? new QueueSchedule() : null;
     private final DefaultWorker defaultWorker = new DefaultWorker();
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final LinkMindClientTokenService clientTokenService = new LinkMindClientTokenService();
+    private final CuihuaAccountService cuihuaAccountService = new CuihuaAccountService();
     private static MedusaMonitor medusaMonitor;
 
     static {
@@ -84,6 +91,9 @@ public class LlmApiServlet extends BaseServlet {
 
     @Override
     public void init() throws ServletException {
+        if (!clientTokenService.isIntegrationAvailable()) {
+            logger.info("Cuihua account integration is waiting for the shared users table");
+        }
         medusaService.init();
         super.init();
     }
@@ -260,7 +270,7 @@ public class LlmApiServlet extends BaseServlet {
         ExtraBody extraBody = chatCompletionRequest.getExtraBody();
         String mateUrl = extraBody != null ? extraBody.getMateUrl() : null;
 
-        if (!ApikeyUtil.validateModelApiKey(apiKey)) {
+        if (!authorizeClientRequest(req, chatCompletionRequest)) {
             ChatCompletionResult chatCompletionResult = LLMErrorConstants.errorResponse(chatCompletionRequest);
             outPrintChatCompletion(resp, chatCompletionRequest, chatCompletionResult);
             ApikeyUtil.saveInvalidApiKey(apiKey);
@@ -375,6 +385,52 @@ public class LlmApiServlet extends BaseServlet {
             } catch (RRException e) {
                 handleCompletionException(resp, chatCompletionRequest, mateUrl, e);
             }
+        }
+    }
+
+    /**
+     * LinkMind-issued client tokens identify a Cuihua account locally. Other
+     * tokens retain the existing Landing SaaS validation behaviour.
+     */
+    private boolean authorizeClientRequest(HttpServletRequest servletRequest, ChatCompletionRequest request) {
+        String apiKey = request == null ? null : request.getApiKey();
+        LinkMindClientTokenService.AuthenticationResult local = clientTokenService.authenticate(apiKey);
+        if (local.isTokenMatched()) {
+            if (!local.isAuthenticated()) {
+                logger.warn("Rejected LinkMind client token: {}", local.getReason());
+                return false;
+            }
+            request.setAccountUserId(local.getUser().getUserId());
+            return true;
+        }
+        boolean accepted = ApikeyUtil.validateModelApiKey(apiKey);
+        if (accepted) {
+            attachBrowserSessionUser(servletRequest, request);
+        }
+        return accepted;
+    }
+
+    private void attachBrowserSessionUser(HttpServletRequest servletRequest, ChatCompletionRequest request) {
+        if (servletRequest == null || request == null || request.getAccountUserId() != null) {
+            return;
+        }
+        Cookie[] cookies = servletRequest.getCookies();
+        if (cookies == null) {
+            return;
+        }
+        for (Cookie cookie : cookies) {
+            if (!UserServlet.SESSION_COOKIE_NAME.equals(cookie.getName())) {
+                continue;
+            }
+            try {
+                CuihuaUser user = cuihuaAccountService.resolveSession(cookie.getValue());
+                if (user != null) {
+                    request.setAccountUserId(user.getUserId());
+                }
+            } catch (Exception e) {
+                logger.debug("Unable to resolve browser account session for usage attribution: {}", e.getMessage());
+            }
+            return;
         }
     }
 

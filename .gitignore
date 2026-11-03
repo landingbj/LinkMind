@@ -51,3 +51,9 @@ build/
 # Local runtime data
 /lagi-web/saas.db*
 __pycache__/
+
+# Local Codex tooling and generated review/export artifacts
+/.codex-*
+/.codex-tmp/
+/docx_review/
+/outputs/

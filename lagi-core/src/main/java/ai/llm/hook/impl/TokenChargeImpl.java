@@ -1,8 +1,10 @@
 package ai.llm.hook.impl;
 
+import ai.account.LocalUserApiKeyService;
 import ai.annotation.Component;
 import ai.annotation.ConditionalOnProperty;
 import ai.annotation.Order;
+import ai.llm.adapter.impl.LandingAdapter;
 import ai.llm.hook.AfterModel;
 import ai.llm.pojo.ModelContext;
 import ai.llm.service.TokenUsageService;
@@ -20,7 +22,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *
  * <p>The caller's apiKey is read from {@code ModelContext#getUserApiKey()},
  * which is the sticky copy captured at the public entry point before any
- * adapter / route rewrites {@code request.apiKey}.
+ * adapter / route rewrites {@code request.apiKey}. Local admission keys are
+ * billed against the selected Landing backend key, preserving local ownership.
  */
 @Order(4)
 @Component
@@ -60,6 +63,10 @@ public class TokenChargeImpl implements AfterModel {
             return;
         }
         String apiKey = context.getUserApiKey();
+        if (LocalUserApiKeyService.isLocalUserKey(apiKey)
+                && context.getAdapter() instanceof LandingAdapter) {
+            apiKey = ((LandingAdapter) context.getAdapter()).getApiKey(context.getRequest());
+        }
         tokenUsageService.recordUsage(apiKey, context.getRequest(), result);
     }
 }

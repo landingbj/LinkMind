@@ -32,6 +32,12 @@ import java.util.function.Function;
 
 public class OpenAiApiUtil {
 
+    /**
+     * SSE providers may keep a TCP connection open after abandoning a response.
+     * Bound the interval between events without limiting the overall generation time.
+     */
+    static final int MAX_STREAM_IDLE_TIMEOUT_SECONDS = 60;
+
     private static final Gson gson = new Gson();
     private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
     private static final ConnectionPool CONNECTION_POOL = new ConnectionPool(
@@ -307,9 +313,10 @@ public class OpenAiApiUtil {
     }
 
     static OkHttpClient createStreamingClient(Integer timeout, Proxy proxy) {
+        int streamIdleTimeout = Math.min(timeout, MAX_STREAM_IDLE_TIMEOUT_SECONDS);
         OkHttpClient.Builder builder = new OkHttpClient.Builder()
                 .connectTimeout(timeout, TimeUnit.SECONDS)
-                .readTimeout(timeout, TimeUnit.SECONDS)
+                .readTimeout(streamIdleTimeout, TimeUnit.SECONDS)
                 .writeTimeout(timeout, TimeUnit.SECONDS)
                 .connectionPool(CONNECTION_POOL);
         if (proxy != null) {

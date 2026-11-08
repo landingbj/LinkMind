@@ -167,8 +167,15 @@ class OpenAiApiUtilTest {
         OkHttpClient client = OpenAiApiUtil.createStreamingClient(600, null);
 
         assertEquals(600_000, client.connectTimeoutMillis());
-        assertEquals(600_000, client.readTimeoutMillis());
+        assertEquals(60_000, client.readTimeoutMillis());
         assertEquals(600_000, client.writeTimeoutMillis());
+    }
+
+    @Test
+    void preservesShorterProviderIdleTimeout() {
+        OkHttpClient client = OpenAiApiUtil.createStreamingClient(20, null);
+
+        assertEquals(20_000, client.readTimeoutMillis());
     }
 
     @Test

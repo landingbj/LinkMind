@@ -549,12 +549,6 @@
 			"type": "residence_permit"
 		},
 		{
-			"rule": "(?<!\\d)\\d{7,9}(?!\\d)",
-			"level": 2,
-			"mask": "*",
-			"type": "soldier_id"
-		},
-		{
 			"rule": "(?i)\\bsig\\s*[=:：]\\s*[A-Fa-f0-9]{32,64}",
 			"level": 3,
 			"mask": "***",

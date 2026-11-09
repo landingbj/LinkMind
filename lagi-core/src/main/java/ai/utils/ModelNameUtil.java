@@ -24,16 +24,14 @@ public final class ModelNameUtil {
     public static String resolveBillingModelName(String requestModel, String responseModel) {
         String request = trimToNull(requestModel);
         String response = trimToNull(responseModel);
-        if (request != null && request.indexOf('/') >= 0 && response != null) {
-            return response;
-        }
-        if (request != null && request.regionMatches(true, 0, ALIBABA_PREFIX, 0, ALIBABA_PREFIX.length())) {
-            String modelName = request.substring(ALIBABA_PREFIX.length()).trim();
+        if (request != null) {
+            int slash = request.indexOf('/');
+            String modelName = slash >= 0 ? request.substring(slash + 1).trim() : request;
             if (!modelName.isEmpty()) {
                 return modelName;
             }
         }
-        return request != null ? request : response;
+        return response;
     }
 
     private static String trimToNull(String value) {

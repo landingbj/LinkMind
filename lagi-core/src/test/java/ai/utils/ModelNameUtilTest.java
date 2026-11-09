@@ -25,7 +25,7 @@ class ModelNameUtilTest {
     }
 
     @Test
-    void resolvesBillingModelFromProviderResponseWhenRequestHasProviderPrefix() {
+    void resolvesBillingModelFromRequestedProviderQualifiedName() {
         assertEquals("qwen3.6-plus",
                 ModelNameUtil.resolveBillingModelName("Alibaba/qwen3.6-plus", "qwen3.6-plus"));
         assertEquals("qwen3.6-plus",
@@ -34,5 +34,7 @@ class ModelNameUtilTest {
                 ModelNameUtil.resolveBillingModelName("qwen3.6-plus", "qwen3.6-plus"));
         assertEquals("qwen3.6-plus",
                 ModelNameUtil.resolveBillingModelName(null, "qwen3.6-plus"));
+        assertEquals("deepseek-v4-flash",
+                ModelNameUtil.resolveBillingModelName("DeepSeek/deepseek-v4-flash", "deepseek-flash"));
     }
 }

@@ -6,6 +6,7 @@ import ai.common.ModelService;
 import ai.llm.dao.TokenStatisticsDao;
 import ai.llm.hook.AfterModel;
 import ai.llm.pojo.ModelContext;
+import ai.utils.ModelNameUtil;
 import ai.openai.pojo.ChatCompletionResult;
 import ai.openai.pojo.Usage;
 import io.reactivex.Observable;
@@ -78,10 +79,14 @@ public class TokenStatisticsImpl implements AfterModel {
     }
 
     private String resolveModel(ModelContext context) {
-        if (context == null || context.getRequest() == null) {
+        if (context == null) {
             return null;
         }
-        return context.getRequest().getModel();
+        String requested = context.getBillingModel();
+        if (requested == null && context.getRequest() != null) {
+            requested = context.getRequest().getModel();
+        }
+        return ModelNameUtil.resolveBillingModelName(requested, null);
     }
 
     private String resolveProvider(ModelContext context) {

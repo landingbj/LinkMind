@@ -64,6 +64,7 @@ public class ProxyLlmAdapter extends ModelService implements ILlmAdapter {
                 .request(request)
                 .adapter(this.llmAdapter)
                 .userApiKey(resolveCallerApiKey(request))
+                .billingModel(request.getModel())
                 .build();
         if (Boolean.TRUE.equals(request.getEnableHook())) {
             request.setEnableHook(null);
@@ -108,6 +109,7 @@ public class ProxyLlmAdapter extends ModelService implements ILlmAdapter {
                 .request(chatCompletionRequest)
                 .adapter(this.llmAdapter)
                 .userApiKey(resolveCallerApiKey(chatCompletionRequest))
+                .billingModel(chatCompletionRequest.getModel())
                 .build();
         if (Boolean.TRUE.equals(chatCompletionRequest.getEnableHook())) {
             chatCompletionRequest.setEnableHook(null);

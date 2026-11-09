@@ -106,9 +106,9 @@ final class ModelPriceCatalog {
         add(prices, "google", "USD", "0.25", "1.5", "gemini-3.1-flash-lite");
         add(prices, "google", "USD", "2", "12", "gemini-3.1-pro-preview");
 
-        // The official DeepSeek price sheet has peak/off-peak tiers; use peak, cache-miss pricing here.
-        add(prices, "DeepSeek", "USD", "0.44", "1.32", "deepseek-v4-flash");
-        add(prices, "DeepSeek", "USD", "1.32", "3.96", "deepseek-v4-pro");
+        // Keep box estimates aligned with the active SaaS price catalogue.
+        add(prices, "DeepSeek", "CNY", "1", "2", "deepseek-v4-flash");
+        add(prices, "DeepSeek", "CNY", "3", "6", "deepseek-v4-pro");
 
         add(prices, "moonshot", "CNY", "4", "21", "kimi-k2.5");
         add(prices, "moonshot", "CNY", "2", "10", "moonshot-v1-8k", "moonshot-v1-8k-vision-preview");

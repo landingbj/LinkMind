@@ -23,4 +23,6 @@ public class ModelContext {
     private List<ChatMessage> originalMessages;
     private List<SkillEntry> skills;
     private String userApiKey;
+    /** Model selected by the caller, before an adapter rewrites it for transport. */
+    private String billingModel;
 }

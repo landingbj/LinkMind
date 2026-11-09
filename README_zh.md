@@ -8,81 +8,7 @@ LinkMind 是面向企业场景的多模态 AI 中间件，用来把业务系统�
 
 当前代码已经覆盖统一聊天入口、RAG、OCR、ASR/TTS、图片与视频能力、文档处理、Text-to-SQL、Embedding、Rerank、MCP、Skills、Worker 编排，以及 OpenAI 兼容接口。同时，项目还内置了 OpenClaw、Hermes Agent、DeerFlow、OpenHuman 的配置同步能力，便于接入现有 Agent 工作流。
 
-### 模型与运行时生态
 
-**模型与提供方**
-
-<table>
-  <tr>
-    <td><img src="docs/images/logo/model/img_3.jpeg" width="18" alt="Azure OpenAI"> Azure OpenAI</td>
-    <td><img src="docs/images/logo/model/img_9.jpeg" width="18" alt="Baichuan"> Baichuan</td>
-    <td><img src="docs/images/logo/model/img_7.jpg" width="18" alt="ChatGLM"> ChatGLM</td>
-    <td><img src="docs/images/logo/model/img_15.webp" width="18" alt="Claude"> Claude</td>
-  </tr>
-  <tr>
-    <td><img src="docs/images/logo/model/img_14.jpeg" width="18" alt="DeepSeek"> DeepSeek</td>
-    <td><img src="docs/images/logo/model/img_13.png" width="18" alt="Doubao"> Doubao</td>
-    <td><img src="docs/images/logo/model/img_6.png" width="18" alt="ERNIE"> ERNIE</td>
-    <td><img src="docs/images/logo/model/img_2.jpeg" width="18" alt="FastChat / Vicuna"> FastChat / Vicuna</td>
-  </tr>
-  <tr>
-    <td><img src="docs/images/logo/model/img_12.webp" width="18" alt="Gemini"> Gemini</td>
-    <td><img src="docs/images/logo/model/img_17.png" width="18" alt="Grok"> Grok</td>
-    <td><img src="docs/images/logo/img_4.jpeg" width="18" alt="Hunyuan"> Hunyuan</td>
-    <td><img src="docs/images/logo/model/img_10.jpeg" width="18" alt="iFLYTEK Spark"> iFLYTEK Spark</td>
-  </tr>
-  <tr>
-    <td><img src="docs/images/logo/model/img_16.jpg" width="18" alt="MiniMax"> MiniMax</td>
-    <td><img src="docs/images/logo/model/img_8.png" width="18" alt="Moonshot / Kimi"> Moonshot / Kimi</td>
-    <td><img src="docs/images/logo/model/img_4.jpeg" width="18" alt="OpenAI"> OpenAI</td>
-    <td><img src="docs/images/logo/model/img_18.webp" width="18" alt="OpenRouter"> OpenRouter</td>
-  </tr>
-  <tr>
-    <td><img src="docs/images/logo/model/img_5.png" width="18" alt="Qwen"> Qwen</td>
-    <td><img src="docs/images/logo/model/img_11.png" width="18" alt="SenseChat"> SenseChat</td>
-    <td><img src="docs/images/logo/model/img_19.png" width="18" alt="StepFun"> StepFun</td>
-    <td><img src="docs/images/logo/model/img_20.png" width="18" alt="Xiaomi"> Xiaomi</td>
-  </tr>
-</table>
-
-**本地 Agent 框架**
-
-<table>
-  <tr>
-    <td><img src="docs/images/logo/img_23.jpg" width="18" alt="DeerFlow"> DeerFlow</td>
-    <td><img src="docs/images/logo/img_22.png" width="18" alt="Hermes Agent"> Hermes Agent</td>
-    <td><img src="docs/images/logo/OpenHuman_logo.png" width="18" alt="Hermes Agent">OpenHuman</td>
-    <td><img src="docs/images/logo/img_21.jpg" width="18" alt="OpenClaw"> OpenClaw</td>
-  </tr>
-</table>
-
-**云端 Agent 平台**
-
-<table>
-  <tr>
-    <td><img src="docs/images/logo/img_1.png" width="18" alt="Coze"> Coze</td>
-    <td><img src="docs/images/logo/img_4.jpeg" width="18" alt="Hunyuan Agents"> Hunyuan Agents（混元智能体）</td>
-    <td><img src="docs/images/logo/img_2.png" width="18" alt="Wenxin Agents"> Wenxin Agents（文心智能体）</td>
-    <td><img src="docs/images/logo/img_3.png" width="18" alt="Zhipu Agents"> Zhipu Agents（智谱智能体）</td>
-  </tr>
-</table>
-
-**Data & Retrieval（数据与检索）**
-
-<table>
-  <tr>
-    <td><img src="docs/images/logo/img_4.png" width="18" alt="Chroma"> Chroma</td>
-    <td><img src="docs/images/logo/img_5.png" width="18" alt="Elasticsearch"> Elasticsearch</td>
-    <td><img src="docs/images/logo/img_26.png" width="18" alt="Milvus"> Milvus</td>
-  </tr>
-  <tr>
-    <td><img src="docs/images/logo/img_6.png" width="18" alt="MySQL"> MySQL</td>
-    <td><img src="docs/images/logo/img_27.png" width="18" alt="Pinecone"> Pinecone</td>
-    <td><img src="docs/images/logo/img_28.png" width="18" alt="SQLite"> SQLite</td>
-  </tr>
-</table>
-
-以上条目按类型分组，并按英文名称字母顺序排列。新增模型、向量库、适配器或二次开发接口的方式见[扩展开发文档](docs/extend_zh.md)。Chroma 的具体安装与补充说明见[附件](docs/annex_zh.md)。
 
 ## 为什么选 LinkMind
 
@@ -222,6 +148,88 @@ Token Grid 把多个 LinkMind 节点连接成类似“国家电网”的智能�
 把 LinkMind 作为 OpenClaw 生态里可插拔、兼容 OpenAI 的上下文层与 Provider 层来接入，而不是逐个模型分散配置。
 
 如需将这些能力通过 `lagi-core` 或 REST API 接入到业务系统，请继续阅读[开发集成指南](docs/guide_zh.md)。
+
+### 8. Worker 编排
+
+通过 Worker 统一组织已注册 Agent 的调用，支持指定目标 Agent，或结合路由策略选择合适的执行者。可复用本地业务 Agent 和已接入的云端 Agent 平台能力，适用于多业务助手统一接入、领域问答和任务分发等场景。
+
+在 `lagi.yml` 的 `skills.workers` 中配置 Worker 实现与路由，业务系统通过 `POST /chat/go` 发起调用。配置方式见 [Worker 配置指南](https://github.com/landingbj/LinkMind/blob/main/docs/config_zh.md#workers)，自定义扩展见[扩展开发文档](https://github.com/landingbj/LinkMind/blob/main/docs/extend_zh.md)。
+
+## 模型与运行时生态
+
+**模型与提供方**
+
+<table>
+  <tr>
+    <td><img src="docs/images/logo/model/img_3.jpeg" width="18" alt="Azure OpenAI"> Azure OpenAI</td>
+    <td><img src="docs/images/logo/model/img_9.jpeg" width="18" alt="Baichuan"> Baichuan</td>
+    <td><img src="docs/images/logo/model/img_7.jpg" width="18" alt="ChatGLM"> ChatGLM</td>
+    <td><img src="docs/images/logo/model/img_15.webp" width="18" alt="Claude"> Claude</td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/logo/model/img_14.jpeg" width="18" alt="DeepSeek"> DeepSeek</td>
+    <td><img src="docs/images/logo/model/img_13.png" width="18" alt="Doubao"> Doubao</td>
+    <td><img src="docs/images/logo/model/img_6.png" width="18" alt="ERNIE"> ERNIE</td>
+    <td><img src="docs/images/logo/model/img_2.jpeg" width="18" alt="FastChat / Vicuna"> FastChat / Vicuna</td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/logo/model/img_12.webp" width="18" alt="Gemini"> Gemini</td>
+    <td><img src="docs/images/logo/model/img_17.png" width="18" alt="Grok"> Grok</td>
+    <td><img src="docs/images/logo/img_4.jpeg" width="18" alt="Hunyuan"> Hunyuan</td>
+    <td><img src="docs/images/logo/model/img_10.jpeg" width="18" alt="iFLYTEK Spark"> iFLYTEK Spark</td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/logo/model/img_16.jpg" width="18" alt="MiniMax"> MiniMax</td>
+    <td><img src="docs/images/logo/model/img_8.png" width="18" alt="Moonshot / Kimi"> Moonshot / Kimi</td>
+    <td><img src="docs/images/logo/model/img_4.jpeg" width="18" alt="OpenAI"> OpenAI</td>
+    <td><img src="docs/images/logo/model/img_18.webp" width="18" alt="OpenRouter"> OpenRouter</td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/logo/model/img_5.png" width="18" alt="Qwen"> Qwen</td>
+    <td><img src="docs/images/logo/model/img_11.png" width="18" alt="SenseChat"> SenseChat</td>
+    <td><img src="docs/images/logo/model/img_19.png" width="18" alt="StepFun"> StepFun</td>
+    <td><img src="docs/images/logo/model/img_20.png" width="18" alt="Xiaomi"> Xiaomi</td>
+  </tr>
+</table>
+
+**本地 Agent 框架**
+
+<table>
+  <tr>
+    <td><img src="docs/images/logo/img_23.jpg" width="18" alt="DeerFlow"> DeerFlow</td>
+    <td><img src="docs/images/logo/img_22.png" width="18" alt="Hermes Agent"> Hermes Agent</td>
+    <td><img src="docs/images/logo/OpenHuman_logo.png" width="18" alt="Hermes Agent">OpenHuman</td>
+    <td><img src="docs/images/logo/img_21.jpg" width="18" alt="OpenClaw"> OpenClaw</td>
+  </tr>
+</table>
+
+**云端 Agent 平台**
+
+<table>
+  <tr>
+    <td><img src="docs/images/logo/img_1.png" width="18" alt="Coze"> Coze</td>
+    <td><img src="docs/images/logo/img_4.jpeg" width="18" alt="Hunyuan Agents"> Hunyuan Agents（混元智能体）</td>
+    <td><img src="docs/images/logo/img_2.png" width="18" alt="Wenxin Agents"> Wenxin Agents（文心智能体）</td>
+    <td><img src="docs/images/logo/img_3.png" width="18" alt="Zhipu Agents"> Zhipu Agents（智谱智能体）</td>
+  </tr>
+</table>
+
+**Data & Retrieval（数据与检索）**
+
+<table>
+  <tr>
+    <td><img src="docs/images/logo/img_4.png" width="18" alt="Chroma"> Chroma</td>
+    <td><img src="docs/images/logo/img_5.png" width="18" alt="Elasticsearch"> Elasticsearch</td>
+    <td><img src="docs/images/logo/img_26.png" width="18" alt="Milvus"> Milvus</td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/logo/img_6.png" width="18" alt="MySQL"> MySQL</td>
+    <td><img src="docs/images/logo/img_27.png" width="18" alt="Pinecone"> Pinecone</td>
+    <td><img src="docs/images/logo/img_28.png" width="18" alt="SQLite"> SQLite</td>
+  </tr>
+</table>
+
+以上条目按类型分组，并按英文名称字母顺序排列。新增模型、向量库、适配器或二次开发接口的方式见[扩展开发文档](docs/extend_zh.md)。Chroma 的具体安装与补充说明见[附件](docs/annex_zh.md)。
 
 ## Agentic Social（智能体社交）
 

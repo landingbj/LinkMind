@@ -1,0 +1,16 @@
+.git
+.idea
+.codex-*
+_rendered_harness
+artifacts
+data
+dist
+docx_review
+one_pager_render
+one_pager_render_v2
+outputs
+tools
+lagi-core/target
+lagi-extension/target
+lagi-web/target/*
+!lagi-web/target/LinkMind.jar

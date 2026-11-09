@@ -13,11 +13,13 @@ import okhttp3.OkHttpClient;
 import org.junit.jupiter.api.Test;
 
 import java.io.OutputStream;
+import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -214,6 +216,57 @@ class OpenAiApiUtilTest {
                     .timeout(2, TimeUnit.SECONDS)
                     .blockingFirst()
                     .getId());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void completesWhenOnlySseKeepAliveTrafficRemains() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            exchange.getRequestBody().close();
+            exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+            exchange.sendResponseHeaders(200, 0);
+            try (OutputStream output = exchange.getResponseBody()) {
+                output.write("data: {\"id\":\"first-model-event\"}\n\n".getBytes("UTF-8"));
+                output.flush();
+                for (int i = 0; i < 6; i++) {
+                    Thread.sleep(250);
+                    output.write(": keepalive\n\n".getBytes("UTF-8"));
+                    output.flush();
+                }
+            } catch (IOException ignored) {
+                // The client is expected to cancel after the model-event idle timeout.
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        server.start();
+
+        try {
+            int port = server.getAddress().getPort();
+            ChatCompletionResult expected = new ChatCompletionResult();
+            expected.setId("first-model-event");
+            ai.llm.pojo.LlmApiResponse response = OpenAiApiUtil.streamCompletions(
+                    "test-key",
+                    "http://127.0.0.1:" + port + "/v1/chat/completions",
+                    10,
+                    "{\"model\":\"test\",\"stream\":true}",
+                    data -> data.contains("first-model-event") ? expected : null,
+                    ignored -> LLMErrorConstants.OTHER_ERROR,
+                    new HashMap<>(),
+                    null,
+                    1);
+
+            List<ChatCompletionResult> chunks = response.getStreamData()
+                    .timeout(4, TimeUnit.SECONDS)
+                    .toList()
+                    .blockingGet();
+
+            assertEquals(1, chunks.size());
+            assertEquals("first-model-event", chunks.get(0).getId());
+            assertEquals(LLMErrorConstants.TIME_OUT, response.getCode());
         } finally {
             server.stop(0);
         }

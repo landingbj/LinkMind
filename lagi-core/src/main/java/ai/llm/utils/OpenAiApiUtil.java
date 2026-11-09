@@ -27,7 +27,13 @@ import java.net.SocketTimeoutException;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
 public class OpenAiApiUtil {
@@ -37,6 +43,12 @@ public class OpenAiApiUtil {
      * Bound the interval between events without limiting the overall generation time.
      */
     static final int MAX_STREAM_IDLE_TIMEOUT_SECONDS = 60;
+    private static final ScheduledExecutorService STREAM_IDLE_WATCHDOG =
+            Executors.newScheduledThreadPool(1, runnable -> {
+                Thread thread = new Thread(runnable, "linkmind-stream-idle-watchdog");
+                thread.setDaemon(true);
+                return thread;
+            });
 
     private static final Gson gson = new Gson();
     private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
@@ -230,6 +242,19 @@ public class OpenAiApiUtil {
                                                    Function<String, ChatCompletionResult> convertResponseFunc,
                                                    Function<Response, Integer> convertErrorFunc, Map<String, String> headers,
                                                    Proxy proxy) {
+        return streamCompletions(apikey, apiUrl, timeout, json, convertResponseFunc, convertErrorFunc, headers,
+                proxy, MAX_STREAM_IDLE_TIMEOUT_SECONDS);
+    }
+
+    static LlmApiResponse streamCompletions(String apikey, String apiUrl,
+                                            Integer timeout,
+                                            String json,
+                                            Function<String, ChatCompletionResult> convertResponseFunc,
+                                            Function<Response, Integer> convertErrorFunc, Map<String, String> headers,
+                                            Proxy proxy, int modelEventIdleTimeoutSeconds) {
+        if (modelEventIdleTimeoutSeconds <= 0) {
+            throw new IllegalArgumentException("modelEventIdleTimeoutSeconds must be positive");
+        }
 //        java.net.Authenticator.setDefault(new java.net.Authenticator() {
 //            @Override
 //            protected java.net.PasswordAuthentication getPasswordAuthentication() {
@@ -253,7 +278,12 @@ public class OpenAiApiUtil {
         LlmApiResponse result = LlmApiResponse.builder().build();
         EventSource.Factory factory = EventSources.createFactory(client);
         ObservableList<ChatCompletionResult> res = new ObservableList<>();
-        factory.newEventSource(request, new EventSourceListener() {
+        AtomicLong lastModelEventAt = new AtomicLong(System.nanoTime());
+        AtomicBoolean closed = new AtomicBoolean(false);
+        AtomicReference<EventSource> eventSourceRef = new AtomicReference<>();
+        AtomicReference<ScheduledFuture<?>> watchdogRef = new AtomicReference<>();
+        long idleTimeoutNanos = TimeUnit.SECONDS.toNanos(modelEventIdleTimeoutSeconds);
+        EventSource eventSource = factory.newEventSource(request, new EventSourceListener() {
             @Override
             public void onOpen(@NotNull EventSource eventSource, @NotNull Response response) {
 //                log.info("ServerSentEventUtil streamCompletions onOpen: response = {}", response);
@@ -273,11 +303,17 @@ public class OpenAiApiUtil {
 //                log.info("ServerSentEventUtil streamCompletions onEvent: data = {}" , data);
                 ChatCompletionResult chatCompletionResult = convertResponseFunc.apply(data);
                 if (chatCompletionResult != null) {
+                    lastModelEventAt.set(System.nanoTime());
                     res.add(chatCompletionResult);
                 }
             }
             @Override
             public void onFailure(@NotNull EventSource eventSource, @Nullable Throwable t, @Nullable Response response) {
+                // A locally-triggered idle watchdog cancellation is expected to surface as
+                // "Socket Closed". It has already completed the downstream observable.
+                if (closed.get()) {
+                    return;
+                }
                 if (hasSocketTimeout(t)) {
                     result.setCode(LLMErrorConstants.TIME_OUT);
                     result.setMsg(errorMessage(t));
@@ -300,11 +336,39 @@ public class OpenAiApiUtil {
             }
 
             private void closeConnection(EventSource eventSource) {
+                if (!closed.compareAndSet(false, true)) {
+                    return;
+                }
+                ScheduledFuture<?> watchdog = watchdogRef.getAndSet(null);
+                if (watchdog != null) {
+                    watchdog.cancel(false);
+                }
                 res.onComplete();
                 eventSource.cancel();
                 client.dispatcher().executorService().shutdown();
             }
         });
+        eventSourceRef.set(eventSource);
+        ScheduledFuture<?> watchdog = STREAM_IDLE_WATCHDOG.scheduleAtFixedRate(() -> {
+            if (closed.get() || System.nanoTime() - lastModelEventAt.get() < idleTimeoutNanos) {
+                return;
+            }
+            if (closed.compareAndSet(false, true)) {
+                result.setCode(LLMErrorConstants.TIME_OUT);
+                result.setMsg("upstream stream produced no model event for " + modelEventIdleTimeoutSeconds + " seconds");
+                res.onComplete();
+                EventSource activeEventSource = eventSourceRef.get();
+                if (activeEventSource != null) {
+                    activeEventSource.cancel();
+                }
+                client.dispatcher().executorService().shutdown();
+            }
+        }, modelEventIdleTimeoutSeconds, 1, TimeUnit.SECONDS);
+        watchdogRef.set(watchdog);
+        if (closed.get()) {
+            watchdogRef.compareAndSet(watchdog, null);
+            watchdog.cancel(false);
+        }
         Iterable<ChatCompletionResult> iterable = res.getObservable().blockingIterable();
         iterable.iterator().hasNext();
         result.setStreamData(Observable.fromIterable(iterable));

@@ -18,22 +18,46 @@ public class LandingAdapter extends OpenAIStandardAdapter {
 
     @Override
     public ChatCompletionResult completions(ChatCompletionRequest chatCompletionRequest) {
+        String callerModel = isFinalServer() ? callerModelName(chatCompletionRequest) : null;
         ILlmAdapter finalAdapter = resolveFinalAdapter(chatCompletionRequest);
+        ChatCompletionResult result;
         if (finalAdapter != null) {
-            return finalAdapter.completions(chatCompletionRequest);
+            result = finalAdapter.completions(chatCompletionRequest);
+        } else {
+            MultimodalTraceUtil.logRequest("landing-dispatch", chatCompletionRequest, getApiAddress());
+            result = super.completions(chatCompletionRequest);
         }
-        MultimodalTraceUtil.logRequest("landing-dispatch", chatCompletionRequest, getApiAddress());
-        return super.completions(chatCompletionRequest);
+        return restoreCallerModel(result, callerModel);
     }
 
     @Override
     public Observable<ChatCompletionResult> streamCompletions(ChatCompletionRequest chatCompletionRequest) {
+        String callerModel = isFinalServer() ? callerModelName(chatCompletionRequest) : null;
         ILlmAdapter finalAdapter = resolveFinalAdapter(chatCompletionRequest);
+        Observable<ChatCompletionResult> result;
         if (finalAdapter != null) {
-            return finalAdapter.streamCompletions(chatCompletionRequest);
+            result = finalAdapter.streamCompletions(chatCompletionRequest);
+        } else {
+            MultimodalTraceUtil.logRequest("landing-dispatch", chatCompletionRequest, getApiAddress());
+            result = super.streamCompletions(chatCompletionRequest);
         }
-        MultimodalTraceUtil.logRequest("landing-dispatch", chatCompletionRequest, getApiAddress());
-        return super.streamCompletions(chatCompletionRequest);
+        final String responseModel = callerModel;
+        return result.map(chunk -> restoreCallerModel(chunk, responseModel));
+    }
+
+    private static String callerModelName(ChatCompletionRequest request) {
+        if (request == null || request.getModel() == null) {
+            return null;
+        }
+        String model = request.getModel().trim();
+        return model.isEmpty() ? null : model;
+    }
+
+    private static ChatCompletionResult restoreCallerModel(ChatCompletionResult result, String callerModel) {
+        if (result != null && callerModel != null) {
+            result.setModel(callerModel);
+        }
+        return result;
     }
 
     /**

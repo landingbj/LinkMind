@@ -32,11 +32,12 @@ class LandingAdapterTest {
         ChatCompletionRequest request = request("anthropic/claude-opus-4-8");
         request.setSelectedBackendApiKey("box-key");
 
-        landing.completions(request);
+        ChatCompletionResult result = landing.completions(request);
 
         assertEquals(1, claude.completionCalls);
         assertEquals("claude-opus-4-8", claude.lastModel);
         assertEquals("nexrouter-key", claude.lastApiKey);
+        assertEquals("anthropic/claude-opus-4-8", result.getModel());
     }
 
     @Test
@@ -46,11 +47,12 @@ class LandingAdapterTest {
         LlmManager.getInstance().register("gemini-3.8-flash", gemini);
 
         LandingAdapter landing = finalServerAdapter();
-        landing.streamCompletions(request("google/gemini-3.8-flash")).blockingFirst();
+        ChatCompletionResult result = landing.streamCompletions(request("google/gemini-3.8-flash")).blockingFirst();
 
         assertEquals(1, gemini.streamCalls);
         assertEquals("gemini-3.8-flash", gemini.lastModel);
         assertEquals("nexrouter-key", gemini.lastApiKey);
+        assertEquals("google/gemini-3.8-flash", result.getModel());
     }
 
     private LandingAdapter finalServerAdapter() {
@@ -78,7 +80,9 @@ class LandingAdapterTest {
             completionCalls++;
             lastModel = request.getModel();
             lastApiKey = getApiKey(request);
-            return new ChatCompletionResult();
+            ChatCompletionResult result = new ChatCompletionResult();
+            result.setModel("upstream-" + request.getModel());
+            return result;
         }
 
         @Override
@@ -86,7 +90,9 @@ class LandingAdapterTest {
             streamCalls++;
             lastModel = request.getModel();
             lastApiKey = getApiKey(request);
-            return Observable.just(new ChatCompletionResult());
+            ChatCompletionResult result = new ChatCompletionResult();
+            result.setModel("upstream-" + request.getModel());
+            return Observable.just(result);
         }
     }
 }

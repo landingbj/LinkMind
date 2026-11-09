@@ -22,7 +22,9 @@ public class LandingAdapter extends OpenAIStandardAdapter {
 
     @Override
     public ChatCompletionResult completions(ChatCompletionRequest chatCompletionRequest) {
+        String callerModel = null;
         if (isFinalServer()) {
+            callerModel = callerModelName(chatCompletionRequest);
             normalizeModelNameIfSlashSeparated(chatCompletionRequest);
             if (chatCompletionRequest.getAccountUserId() != null
                     || ApikeyUtil.isLandingKey(chatCompletionRequest.getApiKey())) {
@@ -30,12 +32,14 @@ public class LandingAdapter extends OpenAIStandardAdapter {
             }
         }
         MultimodalTraceUtil.logRequest("landing-dispatch", chatCompletionRequest, getApiAddress());
-        return super.completions(chatCompletionRequest);
+        return restoreCallerModel(super.completions(chatCompletionRequest), callerModel);
     }
 
     @Override
     public Observable<ChatCompletionResult> streamCompletions(ChatCompletionRequest chatCompletionRequest) {
+        String callerModel = null;
         if (isFinalServer()) {
+            callerModel = callerModelName(chatCompletionRequest);
             normalizeModelNameIfSlashSeparated(chatCompletionRequest);
             if (chatCompletionRequest.getAccountUserId() != null
                     || ApikeyUtil.isLandingKey(chatCompletionRequest.getApiKey())) {
@@ -43,7 +47,24 @@ public class LandingAdapter extends OpenAIStandardAdapter {
             }
         }
         MultimodalTraceUtil.logRequest("landing-dispatch", chatCompletionRequest, getApiAddress());
-        return super.streamCompletions(chatCompletionRequest);
+        final String responseModel = callerModel;
+        return super.streamCompletions(chatCompletionRequest)
+                .map(result -> restoreCallerModel(result, responseModel));
+    }
+
+    private static String callerModelName(ChatCompletionRequest request) {
+        if (request == null || request.getModel() == null) {
+            return null;
+        }
+        String model = request.getModel().trim();
+        return model.isEmpty() ? null : model;
+    }
+
+    private static ChatCompletionResult restoreCallerModel(ChatCompletionResult result, String callerModel) {
+        if (result != null && callerModel != null) {
+            result.setModel(callerModel);
+        }
+        return result;
     }
 
     /**

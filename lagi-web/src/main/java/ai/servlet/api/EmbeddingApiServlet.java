@@ -15,6 +15,9 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
 public class EmbeddingApiServlet extends BaseServlet {
     private static final Configuration config = MigrateGlobal.config;
 
@@ -30,22 +33,34 @@ public class EmbeddingApiServlet extends BaseServlet {
     }
 
     private void embeddings(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        long startedAt = System.nanoTime();
         OpenAIEmbeddingRequest request = gson.fromJson(requestToJson(req), OpenAIEmbeddingRequest.class);
-        Embeddings embeddings = EmbeddingFactory.getEmbedding(config.getLLM().getEmbedding());
-        List<List<Float>> embeddingDataList = embeddings.createEmbedding(request.getInput());
-        OpenAIEmbeddingResponse response = new OpenAIEmbeddingResponse();
-        response.setObject("list");
-        response.setModel(request.getModel());
+        int inputCount = request.getInput() == null ? 0 : request.getInput().size();
+        String model = request.getModel();
+        log.info("embedding.request.start model={} input_count={}", model, inputCount);
+        try {
+            Embeddings embeddings = EmbeddingFactory.getEmbedding(config.getLLM().getEmbedding());
+            List<List<Float>> embeddingDataList = embeddings.createEmbedding(request.getInput());
+            OpenAIEmbeddingResponse response = new OpenAIEmbeddingResponse();
+            response.setObject("list");
+            response.setModel(model);
 
-        List<OpenAIEmbeddingResponse.EmbeddingData> dataList = new ArrayList<>();
-        for (int i = 0; i < embeddingDataList.size(); i++) {
-            OpenAIEmbeddingResponse.EmbeddingData embeddingData = new OpenAIEmbeddingResponse.EmbeddingData();
-            embeddingData.setObject("embedding");
-            embeddingData.setEmbedding(embeddingDataList.get(i));
-            embeddingData.setIndex(i);
-            dataList.add(embeddingData);
+            List<OpenAIEmbeddingResponse.EmbeddingData> dataList = new ArrayList<>();
+            for (int i = 0; i < embeddingDataList.size(); i++) {
+                OpenAIEmbeddingResponse.EmbeddingData embeddingData = new OpenAIEmbeddingResponse.EmbeddingData();
+                embeddingData.setObject("embedding");
+                embeddingData.setEmbedding(embeddingDataList.get(i));
+                embeddingData.setIndex(i);
+                dataList.add(embeddingData);
+            }
+            response.setData(dataList);
+            responsePrint(resp, toJson(response));
+            log.info("embedding.request.complete model={} input_count={} output_count={} duration_ms={}",
+                    model, inputCount, embeddingDataList.size(), (System.nanoTime() - startedAt) / 1_000_000L);
+        } catch (RuntimeException e) {
+            log.error("embedding.request.failed model={} input_count={} duration_ms={}",
+                    model, inputCount, (System.nanoTime() - startedAt) / 1_000_000L, e);
+            throw e;
         }
-        response.setData(dataList);
-        responsePrint(resp, toJson(response));
     }
 }

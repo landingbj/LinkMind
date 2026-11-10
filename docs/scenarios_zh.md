@@ -21,7 +21,7 @@ LinkMind 中间件层
 LLM / VLM / MLLM / ASR / TTS / Embedding / 向量库 / 私有数据库 / Tools
 ```
 
-这层中间件的核心价值是把复杂性留在 LinkMind：模型替换、路由故障切换、安全策略、RAG 检索、Token 节流、成本统计和能力复用都在统一位置治理，业务侧只面向稳定 API 或 OpenAI 兼容接口开发。
+这层中间件的核心价值是把复杂性留在 LinkMind：模型替换、路由故障切换、安全策略、RAG 检索、Token 节流、成本统计和能力复用都在统一位置治理，业务侧可面向稳定的 LinkMind API，或兼容 OpenAI Chat Completions / Responses 和 Anthropic Messages 的接口开发。
 
 ## 二、先选落地形态
 
@@ -45,7 +45,7 @@ LLM / VLM / MLLM / ASR / TTS / Embedding / 向量库 / 私有数据库 / Tools
 2. 明确数据边界：梳理哪些请求可以出网，哪些知识必须私有化，哪些字段需要脱敏、过滤或审计。
 3. 选择部署方式：试点可从官方安装脚本、JAR 或 Docker 开始；生产可按单节点、集群、网关或 GEO/Cascade 拓扑扩展。
 4. 配置模型与路由：在 `lagi.yml` 中启用模型提供方、路由规则、故障切换、过滤器、RAG 和需要的 Skills。
-5. 接入业务调用：业务系统优先调用 LinkMind 原生路由或 OpenAI 兼容的 `/v1/...` 路由，不直接绑定具体模型厂商。
+5. 接入业务调用：按客户端协议选择 LinkMind 原生路由、OpenAI Chat Completions `/v1/chat/completions`、OpenAI Responses `/v1/responses`，或 Anthropic Messages `/v1/messages`，不直接绑定具体模型厂商。
 6. 加上治理：启用 API Key、用户体系、过滤器、黑白名单、Token 统计和调用链路观测。
 7. 小范围试点：选择一条业务线验证响应质量、检索命中率、Token 消耗、延迟、错误率和安全策略效果。
 8. 压力测试：用 `tools/benchmark` 下的 Benchmark 脚本固定并发、轮次、模型和测试数据，保存运行日志并形成可复跑基线。
@@ -94,7 +94,7 @@ Knowledge Base Server 适合企业已经拥有制度文档、产品资料、FAQ�
 
 ### 场景 3：已有 Agent 前端接入
 
-该场景适合已有 OpenClaw、Hermes Agent、DeerFlow 或其他 Agent 工作台的团队。LinkMind 不替代现有系统，而是作为 OpenAI 兼容 Provider 或旁路中间层接入，透明增强现有 Agent。
+该场景适合已有 OpenClaw、Hermes Agent、DeerFlow 或其他 Agent 工作台的团队。LinkMind 不替代现有系统，而是作为兼容 Provider 或旁路中间层接入：支持 OpenAI Chat Completions / Responses 的客户端可使用对应入口，支持 Anthropic Messages 的客户端可使用 `/v1/messages`，由 LinkMind 统一增强模型调用。
 
 业务怎么用：
 
@@ -106,8 +106,8 @@ Knowledge Base Server 适合企业已经拥有制度文档、产品资料、FAQ�
 怎么架设：
 
 1. 安装时按需选择接入 Agent 前端，或按 [配置参考](config_zh.md) 同步 OpenClaw、Hermes Agent、DeerFlow 的模型配置。
-2. 把现有 Agent 的模型 Provider 地址改为 LinkMind 的 OpenAI 兼容地址。
-3. 保持原有 Agent 代码不变，只替换 base URL、模型名和 Key。
+2. 按现有 Agent 支持的协议选择 LinkMind 的 Chat Completions、Responses 或 Messages 入口；客户端的协议设置必须与入口一致。
+3. 按客户端要求配置 base URL、模型名和鉴权：OpenAI 客户端通常使用带 `/v1` 的 base URL；Claude Code 的 `ANTHROPIC_BASE_URL` 使用服务根地址，由客户端追加 `/v1/messages`。具体步骤见[配置参考](config_zh.md#将盒子作为-cli-模型网关)。
 4. 开启过滤器、Token 统计和路由故障切换。
 5. 对比接入前后的 Token 消耗、延迟、失败率和安全拦截结果。
 

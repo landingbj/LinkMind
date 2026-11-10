@@ -28,6 +28,54 @@ Base URLs:
 
 # Text
 
+LinkMind provides text APIs compatible with OpenAI Chat Completions / Responses and Anthropic Messages. Select the endpoint and request format that match the client protocol:
+
+| Protocol | HTTP Endpoint | Main Request Fields |
+| --- | --- | --- |
+| OpenAI Chat Completions | `POST /v1/chat/completions` | `model`, `messages` |
+| OpenAI Responses | `POST /v1/responses` | `model`, `input`; optional `instructions` |
+| Anthropic Messages | `POST /v1/messages` | `model`, `max_tokens`, `messages`; optional `system` |
+
+Responses and Messages are also available at `/responses` and `/messages`, respectively. Use a currently enabled chat model name; `GET /v1/models` lists the available models. See the [Configuration Reference](config_en.md#using-the-box-as-a-cli-model-gateway) for CLI client setup.
+
+## POST Anthropic Messages
+
+POST /v1/messages
+
+An Anthropic Messages-compatible endpoint for calling chat models configured in LinkMind. Requests and responses are translated between the Messages format and the internal chat pipeline, with support for regular JSON responses and SSE streaming.
+
+### Request
+
+Use `Content-Type: application/json`. When authentication is required, send `x-api-key: <your-linkmind-api-key>` or `Authorization: Bearer <your-linkmind-api-key>`. If both are supplied, `x-api-key` takes precedence.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `model` | string | Yes | A currently enabled chat model name |
+| `max_tokens` | integer | Yes | Maximum number of output tokens |
+| `messages` | array | Yes | A non-empty message list; each message has `role` and `content`, typically with the `user` or `assistant` role |
+| `system` | string / array | No | System instructions as text or text content blocks |
+| `stream` | boolean | No | Defaults to `false`; set to `true` for SSE streaming |
+
+Minimal text request:
+
+```json
+{
+  "model": "qwen-plus",
+  "max_tokens": 256,
+  "messages": [
+    {"role": "user", "content": "Introduce LinkMind in one sentence."}
+  ]
+}
+```
+
+### Response
+
+- Non-streaming responses use the Messages format, with `id`, `type: "message"`, `role: "assistant"`, `model`, `content`, `stop_reason`, and `usage`. Text is returned in text blocks within `content`.
+- Streaming responses use `text/event-stream`, with events such as `message_start`, `content_block_start`, `content_block_delta`, `content_block_stop`, `message_delta`, and `message_stop`.
+- Parse responses using Messages content blocks and events; Chat Completions `choices` parsing does not apply to this endpoint.
+
+See the [Tutorial](tutor_en.md#anthropic-messages-compatible-route) for a runnable cURL example.
+
 ## POST Chat Completions
 
 POST /v1/chat/completions

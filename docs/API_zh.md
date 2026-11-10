@@ -28,6 +28,54 @@ Base URLs:
 
 # 文本
 
+LinkMind 提供兼容 OpenAI Chat Completions / Responses 和 Anthropic Messages 的文本接口。请按客户端协议选择入口和请求格式：
+
+| 协议 | HTTP 入口 | 主要请求字段 |
+| --- | --- | --- |
+| OpenAI Chat Completions | `POST /v1/chat/completions` | `model`、`messages` |
+| OpenAI Responses | `POST /v1/responses` | `model`、`input`；可选 `instructions` |
+| Anthropic Messages | `POST /v1/messages` | `model`、`max_tokens`、`messages`；可选 `system` |
+
+Responses 和 Messages 分别也可通过 `/responses`、`/messages` 访问。模型名应使用当前已启用的聊天模型，可通过 `GET /v1/models` 查询。CLI 客户端接入步骤见[配置参考](config_zh.md#将盒子作为-cli-模型网关)。
+
+## POST Anthropic Messages
+
+POST /v1/messages
+
+Anthropic Messages 兼容接口，可调用 LinkMind 中配置的聊天模型。请求和响应在 Messages 格式与内部聊天链路之间转换，支持普通 JSON 响应及 SSE 流式响应。
+
+### 请求
+
+使用 `Content-Type: application/json`。需要鉴权时，传入 `x-api-key: <你的-linkmind-api-key>`，也可使用 `Authorization: Bearer <你的-linkmind-api-key>`；两者同时提供时优先使用 `x-api-key`。
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `model` | string | 是 | 当前已启用的聊天模型名 |
+| `max_tokens` | integer | 是 | 最大输出 Token 数 |
+| `messages` | array | 是 | 非空消息列表；每条消息包含 `role` 和 `content`，常用角色为 `user`、`assistant` |
+| `system` | string / array | 否 | 系统提示词，可用文本或文本内容块 |
+| `stream` | boolean | 否 | 默认 `false`；设为 `true` 返回 SSE 流式事件 |
+
+最小文本请求示例：
+
+```json
+{
+  "model": "qwen-plus",
+  "max_tokens": 256,
+  "messages": [
+    {"role": "user", "content": "请用一句话介绍 LinkMind。"}
+  ]
+}
+```
+
+### 返回
+
+- 非流式响应采用 Messages 格式，包含 `id`、`type: "message"`、`role: "assistant"`、`model`、`content`、`stop_reason` 和 `usage`；文本位于 `content` 的文本块中。
+- 流式响应使用 `text/event-stream`，包含 `message_start`、`content_block_start`、`content_block_delta`、`content_block_stop`、`message_delta` 和 `message_stop` 等事件。
+- 解析客户端响应时应使用 Messages 的内容块和事件格式；Chat Completions 的 `choices` 解析方式不适用于此接口。
+
+可直接执行的 cURL 示例见[教学演示](tutor_zh.md#anthropic-messages-兼容路由)。
+
 ## POST 推理接口
 
 POST /v1/chat/completions

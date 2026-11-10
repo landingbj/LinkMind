@@ -6,7 +6,7 @@ LinkMind 是面向企业场景的多模态 AI 中间件，用来把业务系统�
 
 ## 项目简介
 
-当前代码已经覆盖统一聊天入口、RAG、OCR、ASR/TTS、图片与视频能力、文档处理、Text-to-SQL、Embedding、Rerank、MCP、Skills、Worker 编排，以及 OpenAI 兼容接口。同时，项目还内置了 OpenClaw、Hermes Agent、DeerFlow、OpenHuman 的配置同步能力，便于接入现有 Agent 工作流。
+当前代码已经覆盖统一聊天入口、RAG、OCR、ASR/TTS、图片与视频能力、文档处理、Text-to-SQL、Embedding、Rerank、MCP、Skills、Worker 编排，以及兼容 OpenAI Chat Completions / Responses 和 Anthropic Messages 的接口。同时，项目还内置了 OpenClaw、Hermes Agent、DeerFlow、OpenHuman 的配置同步能力，便于接入现有 Agent 工作流。
 
 
 
@@ -87,10 +87,11 @@ mvn clean package -pl lagi-web -am -DskipTests -U
 
 ## 接口风格
 
-LinkMind 当前同时暴露两套路由风格：
+LinkMind 提供原生路由和协议兼容路由：
 
 - LinkMind 原生路由，例如 `/chat/completions`、`/audio/speech2text`、`/audio/text2speech`、`/image/text2image`、`/sql/text2sql`、`/instruction/generate`、`/doc/doc2ext`、`/ocr/doc2ocr`
-- OpenAI 兼容路由，例如 `/v1/chat/completions`、`/v1/models`、`/v1/embeddings`、`/v1/images/generations`、`/v1/rerank`
+- OpenAI 兼容路由，包括 Chat Completions `/v1/chat/completions`、Responses `/v1/responses`，以及 `/v1/models`、`/v1/embeddings`、`/v1/images/generations`、`/v1/rerank`
+- Anthropic Messages 兼容路由：`/v1/messages`
 
 当前有一个仍按代码映射保留在 `/v1` 命名空间下的例外：向量管理接口 `/v1/vector/*`。完整的接口文档见 [API 参考](docs/API_zh.md)。
 

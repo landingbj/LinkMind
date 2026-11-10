@@ -83,7 +83,7 @@ curl http://localhost:8080/chat/completions \
   }'
 ```
 
-#### OpenAI 兼容路由
+#### OpenAI Chat Completions 兼容路由
 
 ```bash
 curl http://localhost:8080/v1/chat/completions \
@@ -97,7 +97,26 @@ curl http://localhost:8080/v1/chat/completions \
   }'
 ```
 
-如果系统开启了鉴权，请加上：
+#### Anthropic Messages 兼容路由
+
+支持 Anthropic Messages 协议的客户端可调用 `/v1/messages`。该接口需要 `max_tokens`；模型名应替换为当前已启用的聊天模型。
+
+```bash
+curl http://localhost:8080/v1/messages \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen-plus",
+    "max_tokens": 256,
+    "stream": false,
+    "messages": [
+      {"role": "user", "content": "列出 LinkMind 的三个核心能力。"}
+    ]
+  }'
+```
+
+将 `stream` 改为 `true` 可接收 Messages 格式的 SSE 流式事件。请求字段与返回格式见 [API 参考](API_zh.md#post-anthropic-messages)；Claude Code 接入步骤见[配置参考](config_zh.md#claude-code-和-gemini-cli)。OpenAI Responses 客户端也可使用 `/v1/responses`，配置方法见[配置参考中的 Codex 部分](config_zh.md#codex)。
+
+如果系统开启了鉴权，上述请求可加上以下请求头；Messages 接口也接受 `x-api-key: <你的-linkmind-api-key>`：
 
 ```http
 Authorization: Bearer <你的-linkmind-api-key>

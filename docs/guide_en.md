@@ -179,7 +179,8 @@ If your application is not Java, the cleanest path is to run LinkMind as a servi
 ### Common Routes
 
 - Native routes such as `/chat/completions`, `/audio/speech2text`, `/audio/text2speech`, `/image/text2image`, `/sql/text2sql`, `/instruction/generate`, `/doc/doc2ext`, and `/ocr/doc2ocr`
-- OpenAI-compatible routes such as `/v1/chat/completions`, `/v1/models`, `/v1/embeddings`, `/v1/images/generations`, and `/v1/rerank`
+- OpenAI-compatible routes, including Chat Completions at `/v1/chat/completions`, Responses at `/v1/responses`, plus `/v1/models`, `/v1/embeddings`, `/v1/images/generations`, and `/v1/rerank`
+- Anthropic Messages-compatible route: `/v1/messages`
 
 Service root example:
 
@@ -289,7 +290,7 @@ docker run -d --name linkmind -p 8080:8080 landingbj/linkmind
 
 1. Run LinkMind in Docker as the shared AI middleware service.
 2. Point your Python, Go, Java, Node.js, or other application to `http://localhost:8080`.
-3. Call either the native LinkMind routes or the OpenAI-compatible `/v1/...` routes.
+3. Choose native LinkMind routes, OpenAI Chat Completions / Responses-compatible routes, or the Anthropic Messages-compatible `/v1/messages` route to match the client protocol.
 4. Keep your business application logic separate from model-provider details.
 
 This pattern is especially useful for local development, internal demos, CI smoke tests, and multi-language teams.

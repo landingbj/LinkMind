@@ -899,11 +899,13 @@ OpenHuman 同步会在 `[[cloud_providers]]` 中写入 `linkmind` provider，`en
 
 ## 将盒子作为 CLI 模型网关
 
-LinkMind 盒子可作为局域网内的统一模型出口。当前对外提供的是 OpenAI Chat Completions 兼容接口：
+LinkMind 盒子可作为局域网内的统一模型出口，提供兼容 OpenAI Chat Completions / Responses 和 Anthropic Messages 的接口：
 
 ```text
 GET  http://<LINKMIND_BOX_IP>:8080/v1/models
 POST http://<LINKMIND_BOX_IP>:8080/v1/chat/completions
+POST http://<LINKMIND_BOX_IP>:8080/v1/responses
+POST http://<LINKMIND_BOX_IP>:8080/v1/messages
 ```
 
 下文的 `LINKMIND_BASE_URL` 固定表示 `http://<LINKMIND_BOX_IP>:8080/v1`。将 `<LINKMIND_BOX_IP>` 替换为盒子的局域网 IP，例如 `192.168.1.50`；不要保留参考教程里的 `BASE_URL` 或第三方站点地址。

@@ -179,7 +179,8 @@ ImageGenerationResult result = service.generations(request);
 ### 常见路由
 
 - LinkMind 原生路由，例如 `/chat/completions`、`/audio/speech2text`、`/audio/text2speech`、`/image/text2image`、`/sql/text2sql`、`/instruction/generate`、`/doc/doc2ext`、`/ocr/doc2ocr`
-- OpenAI 兼容路由，例如 `/v1/chat/completions`、`/v1/models`、`/v1/embeddings`、`/v1/images/generations`、`/v1/rerank`
+- OpenAI 兼容路由，包括 Chat Completions `/v1/chat/completions`、Responses `/v1/responses`，以及 `/v1/models`、`/v1/embeddings`、`/v1/images/generations`、`/v1/rerank`
+- Anthropic Messages 兼容路由：`/v1/messages`
 
 服务根地址示例：
 
@@ -289,7 +290,7 @@ docker run -d --name linkmind -p 8080:8080 landingbj/linkmind
 
 1. 用 Docker 启动 LinkMind，作为统一的 AI 中间件服务。
 2. 让业务应用统一访问 `http://localhost:8080`。
-3. 按需要调用 LinkMind 原生路由或 OpenAI 兼容的 `/v1/...` 路由。
+3. 按客户端协议选择 LinkMind 原生路由、OpenAI Chat Completions / Responses 兼容路由，或 Anthropic Messages 兼容路由 `/v1/messages`。
 4. 让业务系统保持和具体模型厂商解耦。
 
 这种方式特别适合本地开发、内部演示、CI 冒烟测试，以及多语言团队共用一套服务。

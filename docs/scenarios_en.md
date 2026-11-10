@@ -21,7 +21,7 @@ Models, data, and tools
 LLM / VLM / MLLM / ASR / TTS / Embedding / Vector stores / Private databases / Tools
 ```
 
-The core idea is to keep model switching, failover, safety policies, RAG retrieval, token reduction, cost accounting, and capability reuse inside LinkMind. Business applications can call a stable LinkMind API or its OpenAI-compatible endpoints instead of binding themselves to each provider.
+The core idea is to keep model switching, failover, safety policies, RAG retrieval, token reduction, cost accounting, and capability reuse inside LinkMind. Business applications can call a stable LinkMind API or endpoints compatible with OpenAI Chat Completions / Responses and Anthropic Messages instead of binding themselves to each provider.
 
 ## 2. Choose a Deployment Shape First
 
@@ -45,7 +45,7 @@ These capabilities can be combined. A common path is to start with single-node L
 2. Define the data boundary: which requests may leave the network, which knowledge must stay private, and which fields require masking, filtering, or audit.
 3. Choose deployment: use the installer, packaged JAR, or Docker for pilot; expand to single-node, cluster, gateway, or GEO/Cascade topology for production.
 4. Configure models and routes: enable providers, routing rules, failover, filters, RAG, and required Skills in `lagi.yml`.
-5. Connect business calls: call native LinkMind routes or OpenAI-compatible `/v1/...` routes instead of model-provider APIs directly.
+5. Connect business calls: select native LinkMind routes, OpenAI Chat Completions at `/v1/chat/completions`, OpenAI Responses at `/v1/responses`, or Anthropic Messages at `/v1/messages` to match the client protocol instead of calling model-provider APIs directly.
 6. Add governance: enable API keys, user identity, filters, blacklists/whitelists, token statistics, and request tracing.
 7. Pilot narrowly: validate answer quality, retrieval hit rate, token consumption, latency, error rate, and safety behavior on one business line.
 8. Load test: use the Benchmark scripts under `tools/benchmark` with fixed concurrency, run count, model, and test data; keep logs as a repeatable baseline.
@@ -94,7 +94,7 @@ Setup:
 
 ### Scenario 3: Existing Agent Frontend Integration
 
-This scenario is for teams that already use OpenClaw, Hermes Agent, DeerFlow, or another agent workspace. LinkMind does not replace the current system; it joins as an OpenAI-compatible provider or sidecar middleware.
+This scenario is for teams that already use OpenClaw, Hermes Agent, DeerFlow, or another agent workspace. LinkMind does not replace the current system; it joins as a compatible provider or sidecar middleware. Clients that support OpenAI Chat Completions / Responses can use the corresponding endpoints, while clients that support Anthropic Messages can use `/v1/messages` to access the shared model-call capabilities.
 
 Business usage:
 
@@ -106,8 +106,8 @@ Business usage:
 Setup:
 
 1. Choose optional Agent frontend integration during installation, or synchronize OpenClaw, Hermes Agent, or DeerFlow model settings through the [Configuration Reference](config_en.md).
-2. Change the existing agent model provider endpoint to LinkMind's OpenAI-compatible endpoint.
-3. Keep agent code unchanged and only replace base URL, model name, and key.
+2. Select the LinkMind Chat Completions, Responses, or Messages endpoint supported by the existing agent; the client protocol setting must match the endpoint.
+3. Configure the base URL, model name, and authentication as required by the client. OpenAI clients typically use a base URL ending in `/v1`; Claude Code uses the service root for `ANTHROPIC_BASE_URL` and appends `/v1/messages`. See the [Configuration Reference](config_en.md#using-the-box-as-a-cli-model-gateway) for setup steps.
 4. Enable filters, token statistics, and routing failover.
 5. Compare token consumption, latency, failure rate, and safety interceptions before and after the change.
 

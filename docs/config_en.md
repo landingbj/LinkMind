@@ -899,11 +899,13 @@ OpenHuman sync writes a `linkmind` entry into `[[cloud_providers]]` with `endpoi
 
 ## Using the Box as a CLI Model Gateway
 
-A LinkMind box can be the shared model egress point for a trusted LAN. Its currently exposed compatibility surface is OpenAI Chat Completions:
+A LinkMind box can be the shared model egress point for a trusted LAN, with APIs compatible with OpenAI Chat Completions / Responses and Anthropic Messages:
 
 ```text
 GET  http://<LINKMIND_BOX_IP>:8080/v1/models
 POST http://<LINKMIND_BOX_IP>:8080/v1/chat/completions
+POST http://<LINKMIND_BOX_IP>:8080/v1/responses
+POST http://<LINKMIND_BOX_IP>:8080/v1/messages
 ```
 
 In this section, `LINKMIND_BASE_URL` means `http://<LINKMIND_BOX_IP>:8080/v1`. Replace `<LINKMIND_BOX_IP>` with the box LAN address, for example `192.168.1.50`; do not keep `BASE_URL` or a third-party host from a reference tutorial.

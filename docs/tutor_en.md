@@ -83,7 +83,7 @@ curl http://localhost:8080/chat/completions \
   }'
 ```
 
-#### OpenAI-Compatible Route
+#### OpenAI Chat Completions-Compatible Route
 
 ```bash
 curl http://localhost:8080/v1/chat/completions \
@@ -97,7 +97,26 @@ curl http://localhost:8080/v1/chat/completions \
   }'
 ```
 
-If auth is enabled, add:
+#### Anthropic Messages-Compatible Route
+
+Clients that support Anthropic Messages can call `/v1/messages`. This endpoint requires `max_tokens`; replace the model name with a currently enabled chat model.
+
+```bash
+curl http://localhost:8080/v1/messages \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen-plus",
+    "max_tokens": 256,
+    "stream": false,
+    "messages": [
+      {"role": "user", "content": "List three core LinkMind capabilities."}
+    ]
+  }'
+```
+
+Set `stream` to `true` to receive Messages-format SSE events. See the [API Reference](API_en.md#post-anthropic-messages) for request fields and response formats, and the [Configuration Reference](config_en.md#claude-code-and-gemini-cli) for Claude Code setup. OpenAI Responses clients can also use `/v1/responses`; see the [Codex configuration](config_en.md#codex).
+
+If auth is enabled, add the following header to these requests. The Messages endpoint also accepts `x-api-key: <your-linkmind-api-key>`:
 
 ```http
 Authorization: Bearer <your-linkmind-api-key>

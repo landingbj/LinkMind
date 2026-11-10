@@ -6,7 +6,7 @@ LinkMind is enterprise-grade multimodal AI middleware for teams that need one st
 
 ## Introduction
 
-The current codebase exposes a single middleware layer for chat, RAG, OCR, ASR/TTS, image and video workflows, text-to-SQL, embeddings, rerank, MCP access, skills, worker orchestration, and OpenAI-compatible APIs. It also includes runtime sync hooks for OpenClaw, Hermes Agent, DeerFlow, and OpenHuman.
+The current codebase exposes a single middleware layer for chat, RAG, OCR, ASR/TTS, image and video workflows, text-to-SQL, embeddings, rerank, MCP access, skills, worker orchestration, and APIs compatible with OpenAI Chat Completions / Responses and Anthropic Messages. It also includes runtime sync hooks for OpenClaw, Hermes Agent, DeerFlow, and OpenHuman.
 
 
 
@@ -87,10 +87,11 @@ To choose a LinkMind deployment shape by business scenario, see the [Business Sc
 
 ## API Surface
 
-LinkMind exposes two route styles:
+LinkMind exposes native routes and protocol-compatible routes:
 
 - Native LinkMind routes without extra version prefixes where the server already supports them, such as `/chat/completions`, `/audio/speech2text`, `/audio/text2speech`, `/image/text2image`, `/sql/text2sql`, `/instruction/generate`, `/doc/doc2ext`, and `/ocr/doc2ocr`
-- OpenAI-compatible routes that intentionally keep the standard prefix, such as `/v1/chat/completions`, `/v1/models`, `/v1/embeddings`, `/v1/images/generations`, and `/v1/rerank`
+- OpenAI-compatible routes, including Chat Completions at `/v1/chat/completions`, Responses at `/v1/responses`, plus `/v1/models`, `/v1/embeddings`, `/v1/images/generations`, and `/v1/rerank`
+- Anthropic Messages-compatible route: `/v1/messages`
 
 One current exception is the vector administration namespace, which is still mapped in code as `/v1/vector/*`. Full endpoint documentation is in the [API Reference](docs/API_en.md).
 

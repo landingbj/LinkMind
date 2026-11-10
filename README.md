@@ -249,3 +249,46 @@ Agentic Social gives agents a structured way to exchange context, user intent, c
     </td>
   </tr>
 </table>
+
+## Documentation
+
+Start with the Installation Guide, then follow the Web UI guide to complete your first conversation. Use the references below for application integration and runtime configuration.
+
+### Getting Started, Configuration, and Development
+
+| Document | Contents |
+| --- | --- |
+| [Installation Guide](docs/install_en.md) | Installation, startup, deployment options, and first use |
+| [Business Scenarios Guide](docs/scenarios_en.md) | Typical use cases and deployment choices |
+| [Tutorial](docs/tutor_en.md) | First calls, RAG, model routing, and external agent client integration checks |
+| [Configuration Guide](docs/config_en.md) | Models, storage, RAG, agents, MCP, skills, workers, routes, and filters |
+| [API Reference](docs/API_en.md) | HTTP endpoints, request parameters, and response examples |
+| [Integration Guide](docs/guide_en.md) | Connect applications through the Java SDK or REST APIs |
+| [Extension Guide](docs/extend_en.md) | Extend model adapters, storage, agents, skills, workers, and MCP |
+| [Security & Safety](docs/security_en.md) | Access control, data handling, tool permissions, and deployment responsibilities |
+| [Annex](docs/annex_en.md) | Additional setup for Chroma, vector retrieval, and knowledge ingestion |
+
+### Web UI Guides
+
+| Topic | Contents |
+| --- | --- |
+| [Using the Web UI](docs/webui/index_en.md) | First conversation, menu navigation, and version scope |
+| [Models and API Keys](docs/webui/models_en.md) | Add and manage keys, select models, and verify configuration |
+| [Chat and Multimodal Features](docs/webui/chat_en.md) | Text, speech, images, video, and attachment formats and size limits |
+| [Agents](docs/webui/agents_en.md) | Select agents, import earlier conversations, and continue tasks |
+| [Knowledge and Documents](docs/webui/knowledge_en.md) | Upload learning files, generate instruction sets, and inspect answer sources |
+| [Usage and Logs](docs/webui/monitoring_en.md) | Token usage, generation logs, filtering records, and cost estimates |
+| [Interactions and Cascading](docs/webui/interaction_en.md) | Channel subscriptions, message monitoring, channel management, and cascade settings |
+| [Settings and Credits](docs/webui/settings_en.md) | Security rules, credit balance and top-ups, sign-in, sign-out, and interface language |
+| [Troubleshooting](docs/webui/troubleshooting_en.md) | Diagnose login, model calls, uploads, knowledge retrieval, and statistics issues |
+
+### Best Practices for AI Agent Projects (English PDFs)
+
+| Document | Topic |
+| --- | --- |
+| [Part 01](docs/BestPractice/Best-Practice-for-AI-Agents-Project_Part-01_From-Model-Call-to-Reliable-Single-Agent.pdf) | From Model Call to Reliable Single Agent |
+| [Part 02](docs/BestPractice/Best-Practice-for-AI-Agents-Project_Part-02_Injecting-Private-Knowledge-without-Retraining.pdf) | Injecting Private Knowledge without Retraining |
+| [Part 03](docs/BestPractice/Best-Practice-for-AI-Agents-Project_Part-03_Injecting-Private-Capabilities-with-Skills-Tools-and-MCP.pdf) | Injecting Private Capabilities with Skills, Tools, and MCP |
+| [Part 04](docs/BestPractice/Best-Practice-for-AI-Agents-Project_Part-04_Safety-by-Design-Guardrails-Permissions-and-Audit.pdf) | Safety by Design: Guardrails, Permissions, and Audit |
+| [Part 05](docs/BestPractice/Best-Practice-for-AI-Agents-Project_Part-05_Routing-Orchestration-and-Multi-Agent-Teamwork.pdf) | Routing, Orchestration, and Multi-Agent Teamwork |
+| [Part 06](docs/BestPractice/Best-Practice-for-AI-Agents-Project_Part-06_Agentic-Social-Agents-in-Shared-Human-Contexts.pdf) | Agentic Social: Agents in Shared Human Contexts |

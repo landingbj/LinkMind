@@ -247,3 +247,46 @@ Agentic Social 为智能体提供结构化的上下文交换、用户意图传�
     </td>
   </tr>
 </table>
+
+## 详细文档导航
+
+首次使用建议先阅读安装指南，再按 Web UI 指南完成第一次对话；开发接入和运行配置可按下表查阅。
+
+### 入门、配置与开发
+
+| 文档 | 内容 |
+| --- | --- |
+| [安装指南](docs/install_zh.md) | 安装、启动、部署方式与首次使用 |
+| [业务场景指南](docs/scenarios_zh.md) | 典型业务场景与部署选择 |
+| [教学演示](docs/tutor_zh.md) | 从首次调用到 RAG、模型路由及外部 Agent 客户端接入验证 |
+| [配置指南](docs/config_zh.md) | 模型、存储、RAG、Agent、MCP、Skills、Workers、路由与过滤器 |
+| [API 参考](docs/API_zh.md) | HTTP 接口、请求参数与响应示例 |
+| [开发集成指南](docs/guide_zh.md) | 通过 Java SDK 或 REST API 接入业务系统 |
+| [扩展开发文档](docs/extend_zh.md) | 扩展模型适配器、存储、Agent、Skills、Workers 与 MCP |
+| [安全与合规](docs/security_zh.md) | 访问控制、数据处理、工具权限与部署责任边界 |
+| [附件与补充说明](docs/annex_zh.md) | Chroma、向量检索与知识入库的补充配置 |
+
+### Web UI 使用指南
+
+| 专题 | 内容 |
+| --- | --- |
+| [使用 Web UI](docs/webui/index_zh.md) | 首次对话、菜单导航与适用版本 |
+| [模型与 API 密钥](docs/webui/models_zh.md) | 添加和管理密钥、选择模型与确认配置生效 |
+| [聊天与多模态](docs/webui/chat_zh.md) | 文本、语音、图片、视频及附件格式和大小限制 |
+| [智能体](docs/webui/agents_zh.md) | 选择智能体、导入历史对话与继续任务 |
+| [知识与文档](docs/webui/knowledge_zh.md) | 上传学习文件、生成指令集与核对回答来源 |
+| [用量与日志](docs/webui/monitoring_zh.md) | Token 用量、调用日志、过滤记录与费用估算 |
+| [互动与级联](docs/webui/interaction_zh.md) | 频道订阅、消息监控、频道管理与级联设置 |
+| [设置与额度](docs/webui/settings_zh.md) | 安全规则、余额充值、登录退出与界面语言 |
+| [常见问题](docs/webui/troubleshooting_zh.md) | 登录、模型调用、上传、知识检索与统计问题排查 |
+
+### Agent 项目最佳实践（英文 PDF）
+
+| 文档 | 主题 |
+| --- | --- |
+| [Part 01](docs/BestPractice/Best-Practice-for-AI-Agents-Project_Part-01_From-Model-Call-to-Reliable-Single-Agent.pdf) | 从模型调用到可靠的单 Agent |
+| [Part 02](docs/BestPractice/Best-Practice-for-AI-Agents-Project_Part-02_Injecting-Private-Knowledge-without-Retraining.pdf) | 无需重新训练的私有知识接入 |
+| [Part 03](docs/BestPractice/Best-Practice-for-AI-Agents-Project_Part-03_Injecting-Private-Capabilities-with-Skills-Tools-and-MCP.pdf) | 通过 Skills、Tools 与 MCP 接入私有能力 |
+| [Part 04](docs/BestPractice/Best-Practice-for-AI-Agents-Project_Part-04_Safety-by-Design-Guardrails-Permissions-and-Audit.pdf) | 安全围栏、权限与审计 |
+| [Part 05](docs/BestPractice/Best-Practice-for-AI-Agents-Project_Part-05_Routing-Orchestration-and-Multi-Agent-Teamwork.pdf) | 路由、编排与多 Agent 协作 |
+| [Part 06](docs/BestPractice/Best-Practice-for-AI-Agents-Project_Part-06_Agentic-Social-Agents-in-Shared-Human-Contexts.pdf) | 共享人类上下文中的智能体社交 |

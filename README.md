@@ -144,9 +144,13 @@ Token Grid connects many LinkMind nodes into a national-power-grid-like intellig
   <img src="docs/images/token_grid_en.png" alt="Token Grid cascade network concept">
 </a>
 
-### 7. OpenClaw Plugin
+### 7. Agent Framework Support
 
-Connect LinkMind to the OpenClaw ecosystem as a plugin-friendly, OpenAI-compatible context and provider layer instead of wiring each model separately.
+Use LinkMind as the shared model, context, and governance layer for agent frameworks rather than configuring each model separately in every agent application. The runtime exposes OpenAI Chat Completions / Responses and Anthropic Messages-compatible APIs, so frameworks that use these protocols can connect through a common provider endpoint.
+
+- **Built-in configuration synchronization**: OpenClaw, Hermes Agent, DeerFlow, and OpenHuman can import or export supported model and provider settings.
+- **Framework-neutral integration**: Other agent frameworks can use the compatible APIs, `lagi.yml` model routing, MCP, Skills, RAG, and policy controls without requiring a framework-specific plugin.
+- **Unified execution**: Workers register and route local business agents and integrated external agent capabilities through one invocation surface.
 
 To integrate these capabilities into your application via `lagi-core` or REST APIs, see the [Integration Guide](docs/guide_en.md).
 
@@ -269,19 +273,12 @@ Start with the Installation Guide, then follow the Web UI guide to complete your
 | [Security & Safety](docs/security_en.md) | Access control, data handling, tool permissions, and deployment responsibilities |
 | [Annex](docs/annex_en.md) | Additional setup for Chroma, vector retrieval, and knowledge ingestion |
 
-### Web UI Guides
+### Web UI Reference
 
 | Topic | Contents |
 | --- | --- |
-| [Using the Web UI](docs/webui/index_en.md) | First conversation, menu navigation, and version scope |
-| [Models and API Keys](docs/webui/models_en.md) | Add and manage keys, select models, and verify configuration |
-| [Chat and Multimodal Features](docs/webui/chat_en.md) | Text, speech, images, video, and attachment formats and size limits |
-| [Agents](docs/webui/agents_en.md) | Select agents, import earlier conversations, and continue tasks |
-| [Knowledge and Documents](docs/webui/knowledge_en.md) | Upload learning files, generate instruction sets, and inspect answer sources |
-| [Usage and Logs](docs/webui/monitoring_en.md) | Token usage, generation logs, filtering records, and cost estimates |
-| [Interactions and Cascading](docs/webui/interaction_en.md) | Channel subscriptions, message monitoring, channel management, and cascade settings |
-| [Settings and Credits](docs/webui/settings_en.md) | Security rules, credit balance and top-ups, sign-in, sign-out, and interface language |
-| [Troubleshooting](docs/webui/troubleshooting_en.md) | Diagnose login, model calls, uploads, knowledge retrieval, and statistics issues |
+| [Web UI Overview](docs/webui/index_en.md) | First-run verification, feature entry points, and the boundary between console use and runtime configuration |
+| [Web UI Troubleshooting](docs/webui/troubleshooting_en.md) | Diagnose login, model calls, uploads, knowledge retrieval, and statistics issues |
 
 ### Best Practices for AI Agent Projects (English PDFs)
 

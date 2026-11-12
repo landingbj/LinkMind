@@ -1,49 +1,26 @@
-# Using the Web UI
+# Web UI overview
 
 English | [中文](index_zh.md)
 
-Use the web console to try models and agents, upload knowledge, inspect usage, and manage runtime settings. Start the service using the [Installation Guide](../install_en.md), then open `http://localhost:8080`. For a remote deployment, use the address provided by your administrator.
+The Web UI is a lightweight console for validating a LinkMind deployment: try an enabled model or agent, upload material, and inspect basic runtime information. It is not the primary way to define system behavior. Configure providers, routing, RAG, agents, MCP, Skills, Workers, and security policies in the [Configuration Guide](../config_en.md).
 
-## Complete your first conversation
+## First-run check
 
-1. Open the user entry at the bottom left and register or sign in. Enter the requested account details and captcha; click the captcha image to refresh it.
-2. Open **Settings → API Keys** and follow [Models and API keys](models_en.md) to add a working configuration. For Landing, check the balance in **Settings → Credits** first.
-3. Expand **Chat → LLM → Smart Q&A** and choose an available model in the selector.
-4. Enter “Introduce LinkMind in one paragraph,” then click Send or press Enter.
-5. Wait for the answer to finish, then check **Control → Usage Overview** for a corresponding record. Verify the answer and the record separately; see [Usage and logs](monitoring_en.md).
+1. Start the service following the [Installation Guide](../install_en.md), then open `http://localhost:8080` or the address supplied by the administrator.
+2. Sign in when the deployment requires it. Under **Settings → API Keys**, confirm that a provider key and model are configured; key management and account services depend on the deployment.
+3. Select **Chat → LLM → Smart Q&A**, choose an available model, and send a short text request.
+4. Confirm both the response and the related entry under **Control**. A visible model name or saved key alone does not prove that the upstream service is reachable.
 
-If a page opens but its model list is empty, check [model configuration](models_en.md) before repeatedly submitting the same message.
+## Main entry points
 
-## Find a feature
-
-| Task | Console entry | Guide |
+| Need | Console entry | Source of truth |
 | --- | --- | --- |
-| Add keys or switch models | Settings → API Keys; the chat model selector | [Models and API keys](models_en.md) |
-| Work with text, speech, images, or video | Chat → LLM | [Chat and multimodal features](chat_en.md) |
-| Select an agent or import earlier conversations | Chat → Agents | [Agents](agents_en.md) |
-| Upload knowledge, generate instructions, or inspect sources | Chat → Orchestration | [Knowledge and documents](knowledge_en.md) |
-| Inspect usage, calls, and filtering | Control | [Usage and logs](monitoring_en.md) |
-| Join or manage channels and connect an upstream server | Interactions | [Interactions and cascading](interaction_en.md) |
-| Edit filtering rules, top up, or understand login and language | Settings; the user entry | [Settings and credits](settings_en.md) |
-| Resolve login, request, upload, and other problems | Find the matching symptom | [Troubleshooting](troubleshooting_en.md) |
+| Test a model, agent, or multimodal request | **Chat** | Provider, route, agent, and tool configuration: [Configuration Guide](../config_en.md) |
+| Upload material or verify an answer source | **Chat → Orchestration** | RAG and storage configuration: [Configuration Guide](../config_en.md) |
+| Inspect usage, calls, and filter records | **Control** | Runtime records are operational evidence, not a replacement for billing or audit systems |
+| Configure an interaction server or subscriptions | **Interactions** | Deployment mode and server configuration |
+| Manage UI login, keys, filters, or credits | **Settings** | [Security & Safety](../security_en.md) and the configured account service |
 
-![Example LinkMind console navigation in Chinese](../images/linkmind_client_quickstart_05.png)
+Available menus, models, balances, and permissions are deployment-specific. In Agent Server mode, **Interactions → Publish** is available; in Agent Mate mode, configure an upstream server and subscribe to channels instead. The Web UI uses a browser session and does not by itself grant administrator access to backend APIs.
 
-Screenshots show the Chinese interface and example data. Model names, accounts, balances, and statistics depend on your deployment.
-
-## Understand menu states
-
-- **Agent Server**: create and manage channels under Interactions → Publish. The Cascade settings entry is disabled.
-- **Agent Mate**: configure an upstream interaction server and subscribe to channels. Publish is disabled and carries a Mate badge; use the corresponding Server console to create channels.
-- Subscribe, Publish, Security Config Management, Credits, and API Keys require a signed-in UI session. An administrator can also require login for other menus.
-- Available models and features depend on deployment configuration. A name or description does not establish that its backend is configured, reachable, or funded.
-
-See [Settings and credits](settings_en.md) for login and menu behavior.
-
-## Continue reading
-
-This guide set is the home for page-level instructions. Use the [Installation Guide](../install_en.md) for startup commands, [Configuration Guide](../config_en.md) for configuration fields, [API Reference](../API_en.md) for HTTP parameters, and [Tutorial](../tutor_en.md) for external agent client integration and verification.
-
-Version scope: these guides describe the Web UI at `main` commit `b696a7c7730a2899eb60b73376bb6a42af62da00`. Other branches and later versions may expose different menus. The document organization follows the [DeepSeek Harness Web UI guide](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/guide/index.zh.md); the instructions and capability boundaries describe LinkMind.
-
-<!-- Maintenance: main@b696a7c; chat.jsp; js/nav.js promptNavs/loadNavBar/refreshInteractionPublishNavState; js/login.js. -->
+For endpoint parameters, use the [API Reference](../API_en.md). For application integration or Agent framework integration, use the [Integration Guide](../guide_en.md) and [Extension Guide](../extend_en.md). See [Web UI troubleshooting](troubleshooting_en.md) when the console does not behave as expected.

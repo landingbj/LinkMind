@@ -144,9 +144,13 @@ Token Grid 把多个 LinkMind 节点连接成类似“国家电网”的智能�
   <img src="docs/images/token_grid_zh.png" alt="Token Grid 级联网络概念图">
 </a>
 
-### 7. OpenClaw 插件
+### 7. Agent 框架支持
 
-把 LinkMind 作为 OpenClaw 生态里可插拔、兼容 OpenAI 的上下文层与 Provider 层来接入，而不是逐个模型分散配置。
+将 LinkMind 作为各类 Agent 框架共享的模型、上下文与治理层接入，而不是在每个 Agent 应用中分别配置模型。运行时提供兼容 OpenAI Chat Completions / Responses 和 Anthropic Messages 的接口，采用这些协议的框架可通过统一 Provider 地址接入。
+
+- **内置配置同步**：OpenClaw、Hermes Agent、DeerFlow、OpenHuman 可导入或导出已支持的模型与 Provider 配置。
+- **框架无关接入**：其他 Agent 框架可通过兼容接口使用 `lagi.yml` 的模型路由、MCP、Skills、RAG 与策略控制，无需依赖专用插件。
+- **统一执行入口**：Worker 将本地业务 Agent 和已集成的外部 Agent 能力注册、路由到同一个调用入口。
 
 如需将这些能力通过 `lagi-core` 或 REST API 接入到业务系统，请继续阅读[开发集成指南](docs/guide_zh.md)。
 
@@ -267,19 +271,12 @@ Agentic Social 为智能体提供结构化的上下文交换、用户意图传�
 | [安全与合规](docs/security_zh.md) | 访问控制、数据处理、工具权限与部署责任边界 |
 | [附件与补充说明](docs/annex_zh.md) | Chroma、向量检索与知识入库的补充配置 |
 
-### Web UI 使用指南
+### Web UI 参考
 
 | 专题 | 内容 |
 | --- | --- |
-| [使用 Web UI](docs/webui/index_zh.md) | 首次对话、菜单导航与适用版本 |
-| [模型与 API 密钥](docs/webui/models_zh.md) | 添加和管理密钥、选择模型与确认配置生效 |
-| [聊天与多模态](docs/webui/chat_zh.md) | 文本、语音、图片、视频及附件格式和大小限制 |
-| [智能体](docs/webui/agents_zh.md) | 选择智能体、导入历史对话与继续任务 |
-| [知识与文档](docs/webui/knowledge_zh.md) | 上传学习文件、生成指令集与核对回答来源 |
-| [用量与日志](docs/webui/monitoring_zh.md) | Token 用量、调用日志、过滤记录与费用估算 |
-| [互动与级联](docs/webui/interaction_zh.md) | 频道订阅、消息监控、频道管理与级联设置 |
-| [设置与额度](docs/webui/settings_zh.md) | 安全规则、余额充值、登录退出与界面语言 |
-| [常见问题](docs/webui/troubleshooting_zh.md) | 登录、模型调用、上传、知识检索与统计问题排查 |
+| [Web UI 概览](docs/webui/index_zh.md) | 首轮验证、功能入口，以及页面操作与运行配置的边界 |
+| [Web UI 常见问题](docs/webui/troubleshooting_zh.md) | 登录、模型调用、上传、知识检索与统计问题排查 |
 
 ### Agent 项目最佳实践（英文 PDF）
 

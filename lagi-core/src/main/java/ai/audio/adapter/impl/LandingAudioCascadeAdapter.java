@@ -24,7 +24,7 @@ public class LandingAudioCascadeAdapter extends ModelService implements IAudioAd
 
     private Gson gson = new Gson();
 
-    private final String BASE_URL = "https://lagi.saasai.top";
+    private final String BASE_URL = "https://ai.linkmind.top";
 
     private final String ASR_URL =  BASE_URL + "/search/uploadVoice";
     private final String TTS_URL =  BASE_URL + "/audio/text2Voice";

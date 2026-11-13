@@ -14,7 +14,7 @@ import ai.openai.pojo.ExtraBody;
 import io.reactivex.Observable;
 
 public class LandingAdapter extends OpenAIStandardAdapter {
-    private final String DEFAULT_BASE_URL = "https://lagi.saasai.top";
+    private final String DEFAULT_BASE_URL = "https://ai.linkmind.top";
 
     @Override
     public ChatCompletionResult completions(ChatCompletionRequest chatCompletionRequest) {

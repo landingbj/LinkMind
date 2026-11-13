@@ -159,6 +159,11 @@
         <load-on-startup>1</load-on-startup>
     </servlet>
     <servlet>
+        <servlet-name>health</servlet-name>
+        <servlet-class>ai.servlet.api.HealthApiServlet</servlet-class>
+        <load-on-startup>1</load-on-startup>
+    </servlet>
+    <servlet>
         <servlet-name>protocolCompatibility</servlet-name>
         <servlet-class>ai.servlet.api.ProtocolCompatibilityServlet</servlet-class>
         <load-on-startup>1</load-on-startup>
@@ -170,6 +175,10 @@
     <servlet-mapping>
         <servlet-name>llm</servlet-name>
         <url-pattern>/v1/models</url-pattern>
+    </servlet-mapping>
+    <servlet-mapping>
+        <servlet-name>health</servlet-name>
+        <url-pattern>/health</url-pattern>
     </servlet-mapping>
     <servlet-mapping>
         <servlet-name>llm</servlet-name>

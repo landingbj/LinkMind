@@ -1,6 +1,12 @@
 FROM eclipse-temurin:8-jre-jammy
 
-LABEL org.opencontainers.image.source="https://github.com/landingbj/LinkMind"
+ARG IMAGE_VERSION=dev
+ARG VCS_REF=unknown
+
+LABEL org.opencontainers.image.source="https://github.com/landingbj/LinkMind" \
+      org.opencontainers.image.version="${IMAGE_VERSION}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.linkmind.updater.protocol="1"
 
 ENV SERVER_ADDRESS=0.0.0.0 \
     SERVER_PORT=8080 \
@@ -10,10 +16,13 @@ ENV SERVER_ADDRESS=0.0.0.0 \
 
 WORKDIR /opt/linkmind
 
-RUN groupadd --system linkmind \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system linkmind \
     && useradd --system --gid linkmind --home-dir /opt/linkmind linkmind \
     && mkdir -p /opt/linkmind/config /var/lib/linkmind/data \
-    && chown -R linkmind:linkmind /opt/linkmind /var/lib/linkmind
+    && chown -R linkmind:linkmind /opt/linkmind /var/lib/linkmind/data
 
 COPY --chown=linkmind:linkmind lagi-web/target/LinkMind.jar /opt/linkmind/LinkMind.jar
 COPY --chown=linkmind:linkmind lagi-web/src/main/resources/lagi.yml /opt/linkmind/config/lagi.yml
@@ -22,5 +31,8 @@ USER linkmind
 
 VOLUME ["/opt/linkmind/config", "/var/lib/linkmind/data"]
 EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
+    CMD curl --fail --silent --show-error --max-time 8 "http://127.0.0.1:${SERVER_PORT}/health" || exit 1
 
 ENTRYPOINT ["sh", "-c", "exec java ${JAVA_OPTS:-} -jar /opt/linkmind/LinkMind.jar \"$@\"", "--"]

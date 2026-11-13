@@ -22,7 +22,7 @@ import java.io.File;
 @ImgGen(modelNames = "cascade-image")
 public class LandingImageCascadeAdapter extends ModelService implements IImageGenerationAdapter, ImageEnhanceAdapter, IImage2TextAdapter {
 
-    private final String base_url = "https://lagi.saasai.top/v1/image";
+    private final String base_url = "https://ai.linkmind.top/v1/image";
 
     private final String generate_url = base_url + "/generations";
 

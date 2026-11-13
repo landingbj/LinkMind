@@ -13,7 +13,7 @@ import java.nio.file.Paths;
 import java.util.*;
 
 public class GetModelConfigUtil {
-    private static final String URL = "https://saas.landingbj.com/saas/api/apikey/listModelInfo";
+    private static final String URL = "https://saas.linkmind.top/saas/api/apikey/listModelInfo";
     private static final String[] DEFAULT_YML_PATH = {
             "lagi-examples/config/OpenClaw/116/lagi.yml",
             "lagi-examples/config/OpenClaw/release/lagi.yml"

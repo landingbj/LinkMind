@@ -25,7 +25,7 @@ import java.util.Map;
 @Img2Video(modelNames = "cascade-video")
 public class LandingVideoCascadeAdapter extends ModelService implements Image2VideoAdapter, Video2EnhanceAdapter, Video2trackAdapter {
     private final Gson gson = new Gson();
-    private static final String base_url = "https://lagi.saasai.top";
+    private static final String base_url = "https://ai.linkmind.top";
     private static final String image2videoUrl = base_url + "/image/image2video";
     private static final String enhanceUrl = base_url + "/video/video2enhance";
     private static final String videoTrackingUrl = base_url + "/video/video2tracking";

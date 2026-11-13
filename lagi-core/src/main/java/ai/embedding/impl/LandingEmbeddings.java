@@ -20,7 +20,7 @@ public class LandingEmbeddings implements Embeddings {
     private final Gson gson = new Gson();
     private static final Cache<List<String>, List<List<Float>>> cache = EmbeddingConstant.getEmbeddingCache();
     private final String apiKey;
-    private static final String apiEndpoint = "https://lagi.saasai.top/v1/embeddings";
+    private static final String apiEndpoint = "https://ai.linkmind.top/v1/embeddings";
 
     public LandingEmbeddings(EmbeddingConfig config) {
         this.apiKey = config.getApi_key();

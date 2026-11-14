@@ -104,6 +104,12 @@ class BringYourOwnKeyRouterTest {
     }
 
     @Test
+    void vendorPrefixedModelNeverTreatsCallerKeyAsByok() {
+        assertFalse(BringYourOwnKeyRouter.resolve(
+                "Alibaba/qwen-plus", "sk-unknown", new QwenCompatibleAdapter()).isDirect());
+    }
+
+    @Test
     void localKeyRoutingUsesConfiguredDirectBackendBeforeCloudFallback() {
         LlmManager manager = LlmManager.getInstance();
         manager.clear();

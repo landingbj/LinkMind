@@ -34,9 +34,6 @@ public final class BringYourOwnKeyRouter {
     }
 
     public static Decision resolve(String model, String apiKey) {
-        if (isConfiguredCloudModel(model)) {
-            return Decision.notApplicable();
-        }
         ILlmAdapter adapter = model == null ? null : LlmManager.getInstance().getAdapter(model);
         return resolve(model, apiKey, adapter);
     }
@@ -191,7 +188,8 @@ public final class BringYourOwnKeyRouter {
      * LinkMind routing table, not an adapter selected from the API-key format.
      */
     public static Decision resolve(String model, String apiKey, ILlmAdapter adapter) {
-        if (StrUtil.isBlank(model) || StrUtil.isBlank(apiKey) || adapter == null) {
+        if (StrUtil.isBlank(model) || StrUtil.isBlank(apiKey) || adapter == null
+                || isConfiguredCloudModel(model) || model.indexOf('/') >= 0) {
             return Decision.notApplicable();
         }
 

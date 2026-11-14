@@ -304,6 +304,7 @@ public class LlmApiServlet extends BaseServlet {
             chatCompletionRequest.setSelectedBackendApiKey(apiKey);
             chatCompletionRequest.setUseCallerProvidedApiKey(true);
         } else if (localKey == null && !landingKey && !ApikeyUtil.validateModelApiKey(apiKey)) {
+            resp.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             ChatCompletionResult chatCompletionResult = LLMErrorConstants.errorResponse(chatCompletionRequest);
             outPrintChatCompletion(resp, chatCompletionRequest, chatCompletionResult);
             ApikeyUtil.saveInvalidApiKey(apiKey);

@@ -34,8 +34,19 @@ public final class BringYourOwnKeyRouter {
     }
 
     public static Decision resolve(String model, String apiKey) {
+        if (isConfiguredCloudModel(model)) {
+            return Decision.notApplicable();
+        }
         ILlmAdapter adapter = model == null ? null : LlmManager.getInstance().getAdapter(model);
         return resolve(model, apiKey, adapter);
+    }
+
+    /**
+     * A configured cloud model belongs to LinkMind SaaS and must never treat
+     * the caller's credential as an upstream provider credential.
+     */
+    public static boolean isConfiguredCloudModel(String model) {
+        return !StrUtil.isBlank(model) && configuredCloudModels(null).contains(model);
     }
 
     /**

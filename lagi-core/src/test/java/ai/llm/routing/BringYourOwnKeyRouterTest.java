@@ -88,6 +88,22 @@ class BringYourOwnKeyRouterTest {
     }
 
     @Test
+    void configuredCloudModelNeverTreatsCallerKeyAsByok() {
+        LlmManager manager = LlmManager.getInstance();
+        manager.clear();
+        LandingAdapter landing = new LandingAdapter();
+        landing.setModel("Alibaba/qwen-plus");
+        manager.register("Alibaba/qwen-plus", landing);
+
+        try {
+            assertTrue(BringYourOwnKeyRouter.isConfiguredCloudModel("Alibaba/qwen-plus"));
+            assertFalse(BringYourOwnKeyRouter.resolve("Alibaba/qwen-plus", "sk-unknown").isDirect());
+        } finally {
+            manager.clear();
+        }
+    }
+
+    @Test
     void localKeyRoutingUsesConfiguredDirectBackendBeforeCloudFallback() {
         LlmManager manager = LlmManager.getInstance();
         manager.clear();

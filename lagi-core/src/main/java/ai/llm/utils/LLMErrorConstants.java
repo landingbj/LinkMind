@@ -66,6 +66,7 @@ public class LLMErrorConstants {
     public static final Integer UNAUTHORIZED_CODE = 401;
 
     public static final String UNAUTHORIZED_MESSAGE = "Your API key has insufficient balance. Please recharge before continuing.";
+    public static final String INVALID_API_KEY_MESSAGE = "The API key is invalid or inactive.";
 
     public static boolean isContentSafetyBlocked(Integer errorCode) {
         return CONTENT_SAFETY_BLOCKED.equals(errorCode);

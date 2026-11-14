@@ -103,10 +103,10 @@ public class ApikeyUtil {
         try {
             String json = OkHttpUtil.post(AiGlobal.SAAS_URL + SAAS_API_KEY_VALIDATE_PATH, new HashMap<>(), new HashMap<>(), jsonBody, DEFAULT_TIMEOUT_SECONDS);
             Response response = gson.fromJson(json, Response.class);
-            if (response != null && !"not_found".equalsIgnoreCase(response.getStatus())) {
+            if (ApiKeyValidationResponse.isSuccessfulLandingValidation(response)) {
                 landingKeyCache.put(apiKey, true);
             }
-            return !(response != null && "failed".equalsIgnoreCase(response.getStatus()));
+            return ApiKeyValidationResponse.isSuccessfulLandingValidation(response);
         } catch (Exception e) {
             logger.error("ApiKey validate api check error", e);
             return false;

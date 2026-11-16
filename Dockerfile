@@ -27,7 +27,10 @@ RUN apt-get update \
 COPY --chown=linkmind:linkmind lagi-web/target/LinkMind.jar /opt/linkmind/LinkMind.jar
 COPY --chown=linkmind:linkmind lagi-web/src/main/resources/lagi.yml /opt/linkmind/config/lagi.yml
 
-USER linkmind
+# Existing box installations bind their live configuration below /root/LinkMind.
+# Keep the runtime user compatible with those persisted host paths; the container
+# only needs this access to read configuration and model assets supplied by the box.
+USER root
 
 VOLUME ["/opt/linkmind/config", "/var/lib/linkmind/data"]
 EXPOSE 8080

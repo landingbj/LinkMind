@@ -5,6 +5,7 @@ import ai.config.ContextLoader;
 import ai.openai.pojo.ChatCompletionRequest;
 import ai.openai.pojo.ChatCompletionResult;
 import ai.openai.pojo.Usage;
+import ai.openai.pojo.PromptTokensDetails;
 import ai.utils.AiGlobal;
 import ai.utils.ApikeyUtil;
 import ai.utils.ModelNameUtil;
@@ -158,8 +159,18 @@ public class TokenUsageService {
         payload.put("modelName", record.getModelName());
         Usage u = record.getUsage();
         payload.put("inputTokens", u == null ? 0L : u.getPrompt_tokens());
+        payload.put("cachedInputTokens", cachedInputTokens(u));
         payload.put("outputTokens", u == null ? 0L : u.getCompletion_tokens());
         return gson.toJson(payload);
+    }
+
+    private long cachedInputTokens(Usage usage) {
+        if (usage == null) {
+            return 0L;
+        }
+        PromptTokensDetails details = usage.getPrompt_tokens_details();
+        long cached = details == null ? usage.getPrompt_cache_hit_tokens() : details.getCached_tokens();
+        return Math.min(Math.max(0L, cached), Math.max(0L, usage.getPrompt_tokens()));
     }
 
     private static boolean isBlank(String s) {

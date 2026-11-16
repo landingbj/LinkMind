@@ -28,7 +28,6 @@
 		{"rule":"(?i)\\b(uuid|guid)\\s*[=:：]\\s*[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}\\b", "level": 2, "mask": "*", "type": "uuid"},
 		{"rule":"(?i)\\b(ip|ipaddress)\\s*[=:：]\\s*(\\d{1,3}\\.){3}\\d{1,3}\\b", "level": 2, "mask": "*", "type": "ip_address_v4"},
 		{"rule":"(?i)\\b(ipv6)\\s*[=:：]\\s*([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}\\b", "level": 2, "mask": "*", "type": "ip_address_v6"},
-		{"rule":"(?<!\\d)\\d{10}(?!\\d)", "level": 2, "mask": "*", "type": "passport"},
 		{"rule":"(?<!\\d)\\d{18}(?!\\d)|(?<!\\d)\\d{15}(?!\\d)", "level": 2, "mask": "*", "type": "idcard_15_18"},
 		{"rule":"[京津沪渝冀豫云辽黑湘皖鲁新苏浙赣鄂桂甘晋蒙陕吉闽贵粤青藏川宁琼][A-Z][A-Z0-9]{5}", "level": 2, "mask": "*", "type": "car_plate"},
 		{"rule":"(性别|sex|gender)\\s*[=:：]\\s*(男|女|male|female)", "level": 2, "mask": "*", "type": "gender"},

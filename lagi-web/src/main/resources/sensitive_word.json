@@ -207,12 +207,6 @@
 			"type": "session_id"
 		},
 		{
-			"rule": "(?<!\\d)\\d{10}(?!\\d)",
-			"level": 2,
-			"mask": "*",
-			"type": "passport"
-		},
-		{
 			"rule": "(?<!\\d)\\d{18}(?!\\d)|(?<!\\d)\\d{15}(?!\\d)",
 			"level": 2,
 			"mask": "*",

@@ -79,6 +79,14 @@ class SensitiveWordUtilTest {
         assertEquals("*** text", result.getChoices().get(0).getMessage().getContent());
     }
 
+    @Test
+    void hexadecimalFingerprintIsNotTreatedAsPassportNumber() {
+        String fingerprint = "4b0e80a362c693291ccc1188115a246f0835479725c83ba9f748224ecfa56c2a";
+
+        assertEquals(fingerprint, SensitiveWordUtil.filter(fingerprint, SensitiveWordUtil.OUTPUT_RULE_TYPE));
+        assertEquals(fingerprint, SensitiveWordUtil.filter(fingerprint, SensitiveWordUtil.INPUT_RULE_TYPE));
+    }
+
     private WordRules rules(WordRule... rules) {
         return WordRules.builder().rules(Arrays.asList(rules)).build();
     }

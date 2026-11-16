@@ -9,6 +9,7 @@ import ai.llm.pojo.ModelContext;
 import ai.utils.ModelNameUtil;
 import ai.openai.pojo.ChatCompletionResult;
 import ai.openai.pojo.Usage;
+import ai.openai.pojo.PromptTokensDetails;
 import io.reactivex.Observable;
 
 import java.util.concurrent.ExecutorService;
@@ -68,6 +69,7 @@ public class TokenStatisticsImpl implements AfterModel {
         long saved = TokenStatisticsDao.computeSavedTokens(total);
         usage.setSaved_tokens(saved);
         long prompt = usage.getPrompt_tokens();
+        long cachedInput = cachedInputTokens(usage, prompt);
         long completion = usage.getCompletion_tokens();
         String provider = resolveProvider(context);
         String model = resolveModel(context);
@@ -75,7 +77,16 @@ public class TokenStatisticsImpl implements AfterModel {
         String userId = resolveAccountUserId(context);
         Long userApiKeyId = resolveAccountUserApiKeyId(context);
         ASYNC_SAVE.execute(() -> tokenStatisticsDao.insert(
-                prompt, completion, total, saved, provider, model, sessionId, userId, userApiKeyId));
+                prompt, cachedInput, completion, total, saved, provider, model, sessionId, userId, userApiKeyId));
+    }
+
+    private long cachedInputTokens(Usage usage, long promptTokens) {
+        if (usage == null) {
+            return 0L;
+        }
+        PromptTokensDetails details = usage.getPrompt_tokens_details();
+        long cached = details == null ? usage.getPrompt_cache_hit_tokens() : details.getCached_tokens();
+        return Math.min(Math.max(0L, cached), Math.max(0L, promptTokens));
     }
 
     private String resolveModel(ModelContext context) {

@@ -11,6 +11,8 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.Calendar;
+import java.util.TimeZone;
 
 /** Local model-price catalogue used for LinkMind usage estimates. */
 public class ModelPriceDao {
@@ -26,6 +28,15 @@ public class ModelPriceDao {
     }
 
     public TokenUsageCost calculate(String provider, String model, long inputTokens, long outputTokens) {
+        return calculate(provider, model, inputTokens, 0L, outputTokens);
+    }
+
+    /**
+     * Calculates a local cost estimate. {@code cachedInputTokens} must be a subset
+     * of {@code inputTokens}; callers that do not receive cache usage may pass zero.
+     */
+    public TokenUsageCost calculate(String provider, String model, long inputTokens, long cachedInputTokens,
+                                    long outputTokens) {
         try {
             ensureSchema();
             String normalizedProvider = trimToEmpty(provider);
@@ -37,9 +48,20 @@ public class ModelPriceDao {
                 price = similarModelEstimate(normalizedModel);
                 priceSource = "similar_model_estimate";
             }
-            BigDecimal inputCost = BigDecimal.valueOf(Math.max(0L, inputTokens))
+            long normalizedInputTokens = Math.max(0L, inputTokens);
+            price = resolveVendorTier(normalizedProvider, normalizedModel, normalizedInputTokens, price);
+            long normalizedCachedInputTokens = Math.min(normalizedInputTokens, Math.max(0L, cachedInputTokens));
+            long regularInputTokens = normalizedInputTokens - normalizedCachedInputTokens;
+            BigDecimal inputCost = BigDecimal.valueOf(regularInputTokens)
                     .multiply(price.inputPricePerMillion)
                     .divide(MILLION, 8, RoundingMode.HALF_UP);
+            if (normalizedCachedInputTokens > 0) {
+                BigDecimal cachedInputPrice = price.cachedInputPricePerMillion == null
+                        ? price.inputPricePerMillion : price.cachedInputPricePerMillion;
+                inputCost = inputCost.add(BigDecimal.valueOf(normalizedCachedInputTokens)
+                        .multiply(cachedInputPrice)
+                        .divide(MILLION, 8, RoundingMode.HALF_UP));
+            }
             BigDecimal outputCost = BigDecimal.valueOf(Math.max(0L, outputTokens))
                     .multiply(price.outputPricePerMillion == null ? BigDecimal.ZERO : price.outputPricePerMillion)
                     .divide(MILLION, 8, RoundingMode.HALF_UP);
@@ -63,9 +85,11 @@ public class ModelPriceDao {
         }
         ensureSchema();
         String sql = "INSERT INTO linkmind_model_prices(provider, model, input_price_per_million, "
-                + "output_price_per_million, currency, effective_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) "
+                + "cached_input_price_per_million, output_price_per_million, currency, effective_at, updated_at) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
                 + "ON CONFLICT(provider, model, effective_at) DO UPDATE SET "
                 + "input_price_per_million=excluded.input_price_per_million, "
+                + "cached_input_price_per_million=excluded.cached_input_price_per_million, "
                 + "output_price_per_million=excluded.output_price_per_million, currency=excluded.currency, "
                 + "updated_at=excluded.updated_at";
         long now = System.currentTimeMillis();
@@ -74,14 +98,15 @@ public class ModelPriceDao {
             ps.setString(1, provider.trim());
             ps.setString(2, model.trim());
             ps.setBigDecimal(3, toCny(inputPricePerMillion, currency));
+            ps.setNull(4, java.sql.Types.DECIMAL);
             if (outputPricePerMillion == null) {
-                ps.setNull(4, java.sql.Types.DECIMAL);
+                ps.setNull(5, java.sql.Types.DECIMAL);
             } else {
-                ps.setBigDecimal(4, toCny(outputPricePerMillion, currency));
+                ps.setBigDecimal(5, toCny(outputPricePerMillion, currency));
             }
-            ps.setString(5, CNY);
-            ps.setLong(6, effectiveAt);
-            ps.setLong(7, now);
+            ps.setString(6, CNY);
+            ps.setLong(7, effectiveAt);
+            ps.setLong(8, now);
             ps.executeUpdate();
         }
     }
@@ -105,12 +130,12 @@ public class ModelPriceDao {
     }
 
     private ModelPrice findEffectivePrice(String provider, String model, boolean exactProvider) throws SQLException {
-        String sql = "SELECT input_price_per_million, output_price_per_million, currency "
+        String sql = "SELECT input_price_per_million, cached_input_price_per_million, output_price_per_million, currency "
                 + "FROM linkmind_model_prices WHERE provider = ? COLLATE NOCASE "
                 + "AND model = ? COLLATE NOCASE AND effective_at <= ? "
                 + "ORDER BY effective_at DESC LIMIT 1";
         if (!exactProvider) {
-            sql = "SELECT input_price_per_million, output_price_per_million, currency "
+            sql = "SELECT input_price_per_million, cached_input_price_per_million, output_price_per_million, currency "
                     + "FROM linkmind_model_prices p WHERE model = ? COLLATE NOCASE AND effective_at <= ? "
                     + "AND effective_at = (SELECT MAX(p2.effective_at) FROM linkmind_model_prices p2 "
                     + "WHERE p2.provider = p.provider COLLATE NOCASE AND p2.model = p.model COLLATE NOCASE "
@@ -133,6 +158,7 @@ public class ModelPriceDao {
                     return null;
                 }
                 ModelPrice price = new ModelPrice(rs.getBigDecimal("input_price_per_million"),
+                        rs.getBigDecimal("cached_input_price_per_million"),
                         rs.getBigDecimal("output_price_per_million"), rs.getString("currency"));
                 // A fallback is valid only when the model is catalogued by one
                 // provider.  Otherwise an operator must configure the exact route.
@@ -153,11 +179,14 @@ public class ModelPriceDao {
                  Statement statement = conn.createStatement()) {
                 statement.executeUpdate("CREATE TABLE IF NOT EXISTS linkmind_model_prices ("
                         + "id INTEGER PRIMARY KEY AUTOINCREMENT, provider TEXT NOT NULL, model TEXT NOT NULL, "
-                        + "input_price_per_million DECIMAL(20,8), output_price_per_million DECIMAL(20,8), "
+                        + "input_price_per_million DECIMAL(20,8), cached_input_price_per_million DECIMAL(20,8), "
+                        + "output_price_per_million DECIMAL(20,8), "
                         + "currency TEXT NOT NULL DEFAULT 'CNY', effective_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, "
                         + "UNIQUE(provider, model, effective_at))");
                 statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_linkmind_model_prices_lookup "
                         + "ON linkmind_model_prices(provider, model, effective_at)");
+                ensureColumnExists(conn, "cached_input_price_per_million",
+                        "ALTER TABLE linkmind_model_prices ADD COLUMN cached_input_price_per_million DECIMAL(20,8)");
                 ModelPriceCatalog.seedDefaults(conn);
                 normalizeStoredPricesToCny(conn);
                 schemaReady = true;
@@ -183,15 +212,28 @@ public class ModelPriceDao {
         throw new IllegalArgumentException("only CNY and USD prices are supported by the local price catalogue");
     }
 
+    private static void ensureColumnExists(Connection connection, String column, String alterSql) throws SQLException {
+        try (ResultSet columns = connection.getMetaData().getColumns(null, null, "linkmind_model_prices", column)) {
+            if (!columns.next()) {
+                try (Statement statement = connection.createStatement()) {
+                    statement.executeUpdate(alterSql);
+                }
+            }
+        }
+    }
+
     private static void normalizeStoredPricesToCny(Connection connection) throws SQLException {
         try (PreparedStatement ps = connection.prepareStatement(
                 "UPDATE linkmind_model_prices SET input_price_per_million=input_price_per_million * ?, "
+                        + "cached_input_price_per_million=CASE WHEN cached_input_price_per_million IS NULL THEN NULL "
+                        + "ELSE cached_input_price_per_million * ? END, "
                         + "output_price_per_million=CASE WHEN output_price_per_million IS NULL THEN NULL "
                         + "ELSE output_price_per_million * ? END, currency=? "
                         + "WHERE currency IS NOT NULL AND UPPER(currency)='USD'")) {
             ps.setBigDecimal(1, CNY_PER_USD);
             ps.setBigDecimal(2, CNY_PER_USD);
-            ps.setString(3, CNY);
+            ps.setBigDecimal(3, CNY_PER_USD);
+            ps.setString(4, CNY);
             ps.executeUpdate();
         }
     }
@@ -199,20 +241,42 @@ public class ModelPriceDao {
     private static ModelPrice similarModelEstimate(String model) {
         String normalized = trimToEmpty(model).toLowerCase();
         if (normalized.contains("embedding") || normalized.contains("embed") || normalized.contains("bge")) {
-            return new ModelPrice(new BigDecimal("0.5"), BigDecimal.ZERO, CNY);
+            return new ModelPrice(new BigDecimal("0.5"), null, BigDecimal.ZERO, CNY);
         }
         if (normalized.contains("nano") || normalized.contains("mini") || normalized.contains("lite")
                 || normalized.contains("flash") || normalized.contains("air")) {
-            return new ModelPrice(new BigDecimal("0.5"), new BigDecimal("2"), CNY);
+            return new ModelPrice(new BigDecimal("0.5"), null, new BigDecimal("2"), CNY);
         }
         if (normalized.contains("coder") || normalized.contains("code")) {
-            return new ModelPrice(new BigDecimal("1.5"), new BigDecimal("6"), CNY);
+            return new ModelPrice(new BigDecimal("1.5"), null, new BigDecimal("6"), CNY);
         }
         if (normalized.contains("opus") || normalized.contains("max") || normalized.contains("pro")
                 || normalized.contains("ultra")) {
-            return new ModelPrice(new BigDecimal("2.5"), new BigDecimal("10"), CNY);
+            return new ModelPrice(new BigDecimal("2.5"), null, new BigDecimal("10"), CNY);
         }
-        return new ModelPrice(new BigDecimal("0.8"), new BigDecimal("3.2"), CNY);
+        return new ModelPrice(new BigDecimal("0.8"), null, new BigDecimal("3.2"), CNY);
+    }
+
+    private static ModelPrice resolveVendorTier(String provider, String model, long inputTokens, ModelPrice fallback) {
+        if ("alibaba".equalsIgnoreCase(provider) && "qwen3.7-plus".equalsIgnoreCase(model)
+                && inputTokens > 256_000L) {
+            return new ModelPrice(new BigDecimal("6"), new BigDecimal("1.2"), new BigDecimal("24"), CNY);
+        }
+        if ("deepseek".equalsIgnoreCase(provider) && "deepseek-v4-flash".equalsIgnoreCase(model)
+                && isDeepSeekPeakTime()) {
+            return new ModelPrice(new BigDecimal("2.16"), new BigDecimal("0.0432"), new BigDecimal("8.64"), CNY);
+        }
+        return fallback;
+    }
+
+    private static boolean isDeepSeekPeakTime() {
+        Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
+        int day = calendar.get(Calendar.DAY_OF_WEEK);
+        if (day == Calendar.SATURDAY || day == Calendar.SUNDAY) {
+            return false;
+        }
+        int hour = calendar.get(Calendar.HOUR_OF_DAY);
+        return (hour >= 1 && hour < 4) || (hour >= 6 && hour < 10);
     }
 
     private static String trimToEmpty(String value) {
@@ -221,11 +285,14 @@ public class ModelPriceDao {
 
     private static final class ModelPrice {
         private final BigDecimal inputPricePerMillion;
+        private final BigDecimal cachedInputPricePerMillion;
         private final BigDecimal outputPricePerMillion;
         private final String currency;
 
-        private ModelPrice(BigDecimal inputPricePerMillion, BigDecimal outputPricePerMillion, String currency) {
+        private ModelPrice(BigDecimal inputPricePerMillion, BigDecimal cachedInputPricePerMillion,
+                           BigDecimal outputPricePerMillion, String currency) {
             this.inputPricePerMillion = inputPricePerMillion;
+            this.cachedInputPricePerMillion = cachedInputPricePerMillion;
             this.outputPricePerMillion = outputPricePerMillion;
             this.currency = currency;
         }

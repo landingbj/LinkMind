@@ -15,9 +15,10 @@ import java.util.List;
  * million tokens, checked on 2026-08-25. All amounts are persisted in CNY.
  * USD source prices are converted at the fixed reference rate maintained by
  * {@link ModelPriceDao#CNY_PER_USD}. The current price table deliberately
- * only has input and output columns.  It therefore does not represent cache
- * hits, long-context tiers, batch discounts, peak/off-peak rates, or
- * audio/image/video pricing.  The corresponding source URLs are maintained in
+ * supports a separate cache-hit input price. Long-context tiers, batch
+ * discounts, peak/off-peak rates, and audio/image/video pricing are resolved
+ * by the billing service when the upstream response exposes the required
+ * token details. The corresponding source URLs are maintained in
  * {@code docs/tokenlink_local_user_key_plan_and_api_zh.md}.</p>
  *
  * <p>Rows use {@code effective_at = 0} so a later operator-maintained row for
@@ -35,9 +36,11 @@ final class ModelPriceCatalog {
 
     static void seedDefaults(Connection connection) throws SQLException {
         String sql = "INSERT INTO linkmind_model_prices(provider, model, input_price_per_million, "
-                + "output_price_per_million, currency, effective_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) "
+                + "cached_input_price_per_million, output_price_per_million, currency, effective_at, updated_at) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
                 + "ON CONFLICT(provider, model, effective_at) DO UPDATE SET "
                 + "input_price_per_million=excluded.input_price_per_million, "
+                + "cached_input_price_per_million=excluded.cached_input_price_per_million, "
                 + "output_price_per_million=excluded.output_price_per_million, "
                 + "currency=excluded.currency, updated_at=excluded.updated_at";
         long now = System.currentTimeMillis();
@@ -46,10 +49,15 @@ final class ModelPriceCatalog {
                 ps.setString(1, price.provider);
                 ps.setString(2, price.model);
                 ps.setBigDecimal(3, price.inputPricePerMillion);
-                ps.setBigDecimal(4, price.outputPricePerMillion);
-                ps.setString(5, price.currency);
-                ps.setLong(6, BUILT_IN_EFFECTIVE_AT);
-                ps.setLong(7, now);
+                if (price.cachedInputPricePerMillion == null) {
+                    ps.setNull(4, java.sql.Types.DECIMAL);
+                } else {
+                    ps.setBigDecimal(4, price.cachedInputPricePerMillion);
+                }
+                ps.setBigDecimal(5, price.outputPricePerMillion);
+                ps.setString(6, price.currency);
+                ps.setLong(7, BUILT_IN_EFFECTIVE_AT);
+                ps.setLong(8, now);
                 ps.addBatch();
             }
             ps.executeBatch();
@@ -96,7 +104,9 @@ final class ModelPriceCatalog {
         add(prices, "Alibaba", "CNY", "7", "40", "qwen3.5-omni-plus", "qwen3.5-omni-plus-2026-03-15");
         add(prices, "Alibaba", "CNY", "2", "12", "qwen3.6-plus", "qwen3.6-plus-2026-04-02");
         add(prices, "Alibaba", "CNY", "12", "36", "qwen3.7-max");
-        add(prices, "Alibaba", "CNY", "2", "8", "qwen3.7-plus");
+        // Alibaba qwen3.7-plus, input <= 256K: input 2, cache hit 0.4, output 8 CNY/M.
+        // The billing endpoint switches the regular/cache prices to 6/1.2 for >256K input.
+        addWithCachedInput(prices, "Alibaba", "CNY", "2", "0.4", "8", "qwen3.7-plus");
 
         add(prices, "anthropic", "USD", "1", "5", "claude-haiku-4.5");
         add(prices, "anthropic", "USD", "3", "15", "claude-sonnet-4.5", "claude-sonnet-4.6");
@@ -106,8 +116,9 @@ final class ModelPriceCatalog {
         add(prices, "google", "USD", "0.25", "1.5", "gemini-3.1-flash-lite");
         add(prices, "google", "USD", "2", "12", "gemini-3.1-pro-preview");
 
-        // Keep box estimates aligned with the active SaaS price catalogue.
-        add(prices, "DeepSeek", "CNY", "1", "2", "deepseek-v4-flash");
+        // DeepSeek flash off-peak prices: USD 0.15 / 0.003 / 0.6 per M (input miss / hit / output).
+        // CNY conversion is centralized in ModelPriceDao; peak pricing is selected by the SaaS billing service.
+        addWithCachedInput(prices, "DeepSeek", "USD", "0.15", "0.003", "0.6", "deepseek-v4-flash");
         add(prices, "DeepSeek", "CNY", "3", "6", "deepseek-v4-pro");
 
         add(prices, "moonshot", "CNY", "4", "21", "kimi-k2.5");
@@ -155,7 +166,14 @@ final class ModelPriceCatalog {
     private static void add(List<Price> prices, String provider, String currency, String input, String output,
                             String... models) {
         for (String model : models) {
-            prices.add(new Price(provider, model, input, output, currency));
+            prices.add(new Price(provider, model, input, null, output, currency));
+        }
+    }
+
+    private static void addWithCachedInput(List<Price> prices, String provider, String currency, String input,
+                                           String cachedInput, String output, String... models) {
+        for (String model : models) {
+            prices.add(new Price(provider, model, input, cachedInput, output, currency));
         }
     }
 
@@ -163,13 +181,16 @@ final class ModelPriceCatalog {
         private final String provider;
         private final String model;
         private final BigDecimal inputPricePerMillion;
+        private final BigDecimal cachedInputPricePerMillion;
         private final BigDecimal outputPricePerMillion;
         private final String currency;
 
-        private Price(String provider, String model, String input, String output, String currency) {
+        private Price(String provider, String model, String input, String cachedInput, String output, String currency) {
             this.provider = provider;
             this.model = model;
             this.inputPricePerMillion = ModelPriceDao.toCny(new BigDecimal(input), currency);
+            this.cachedInputPricePerMillion = cachedInput == null ? null
+                    : ModelPriceDao.toCny(new BigDecimal(cachedInput), currency);
             this.outputPricePerMillion = ModelPriceDao.toCny(new BigDecimal(output), currency);
             this.currency = ModelPriceDao.CNY;
         }

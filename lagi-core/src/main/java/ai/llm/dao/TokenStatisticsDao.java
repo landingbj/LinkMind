@@ -41,6 +41,7 @@ public class TokenStatisticsDao {
             + " id INTEGER PRIMARY KEY AUTOINCREMENT,"
             + " created_at INTEGER NOT NULL,"
             + " prompt_tokens INTEGER NOT NULL,"
+            + " cached_input_tokens INTEGER NOT NULL DEFAULT 0,"
             + " completion_tokens INTEGER NOT NULL,"
             + " total_tokens INTEGER NOT NULL,"
             + " saved_tokens INTEGER NOT NULL,"
@@ -74,6 +75,8 @@ public class TokenStatisticsDao {
                         "ALTER TABLE llm_token_statistics ADD COLUMN provider TEXT");
                 ensureColumnExists(conn, "llm_token_statistics", "model",
                         "ALTER TABLE llm_token_statistics ADD COLUMN model TEXT");
+                ensureColumnExists(conn, "llm_token_statistics", "cached_input_tokens",
+                        "ALTER TABLE llm_token_statistics ADD COLUMN cached_input_tokens INTEGER NOT NULL DEFAULT 0");
                 ensureColumnExists(conn, "llm_token_statistics", "session_id",
                         "ALTER TABLE llm_token_statistics ADD COLUMN session_id TEXT");
                 ensureColumnExists(conn, "llm_token_statistics", "user_id",
@@ -195,33 +198,41 @@ public class TokenStatisticsDao {
 
     public void insert(long promptTokens, long completionTokens, long totalTokens, long savedTokens,
                        String provider, String model, String sessionId, String userId, Long userApiKeyId) {
-        TokenUsageCost cost = new ModelPriceDao().calculate(provider, model, promptTokens, completionTokens);
-        String sql = "INSERT INTO llm_token_statistics (created_at, prompt_tokens, completion_tokens, total_tokens, "
-                + "saved_tokens, provider, model, session_id, user_id, user_api_key_id, input_cost, output_cost, "
-                + "total_cost, currency, price_source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        insert(promptTokens, 0L, completionTokens, totalTokens, savedTokens,
+                provider, model, sessionId, userId, userApiKeyId);
+    }
+
+    public void insert(long promptTokens, long cachedInputTokens, long completionTokens, long totalTokens, long savedTokens,
+                       String provider, String model, String sessionId, String userId, Long userApiKeyId) {
+        TokenUsageCost cost = new ModelPriceDao().calculate(provider, model, promptTokens, cachedInputTokens,
+                completionTokens);
+        String sql = "INSERT INTO llm_token_statistics (created_at, prompt_tokens, cached_input_tokens, completion_tokens, "
+                + "total_tokens, saved_tokens, provider, model, session_id, user_id, user_api_key_id, input_cost, output_cost, "
+                + "total_cost, currency, price_source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         int retry = 0;
         while (retry <= MAX_INSERT_RETRY) {
             try (Connection conn = HikariDS.getConnection(AiGlobal.DEFAULT_DB);
                  PreparedStatement ps = conn.prepareStatement(sql)) {
                 ps.setLong(1, System.currentTimeMillis());
                 ps.setLong(2, promptTokens);
-                ps.setLong(3, completionTokens);
-                ps.setLong(4, totalTokens);
-                ps.setLong(5, savedTokens);
-                ps.setString(6, provider);
-                ps.setString(7, model);
-                ps.setString(8, sessionId);
-                ps.setString(9, userId);
+                ps.setLong(3, Math.min(Math.max(0L, cachedInputTokens), Math.max(0L, promptTokens)));
+                ps.setLong(4, completionTokens);
+                ps.setLong(5, totalTokens);
+                ps.setLong(6, savedTokens);
+                ps.setString(7, provider);
+                ps.setString(8, model);
+                ps.setString(9, sessionId);
+                ps.setString(10, userId);
                 if (userApiKeyId == null) {
-                    ps.setNull(10, java.sql.Types.INTEGER);
+                    ps.setNull(11, java.sql.Types.INTEGER);
                 } else {
-                    ps.setLong(10, userApiKeyId);
+                    ps.setLong(11, userApiKeyId);
                 }
-                setNullableDecimal(ps, 11, cost == null ? null : cost.getInputCost());
-                setNullableDecimal(ps, 12, cost == null ? null : cost.getOutputCost());
-                setNullableDecimal(ps, 13, cost == null ? null : cost.getTotalCost());
-                ps.setString(14, cost == null ? null : cost.getCurrency());
-                ps.setString(15, cost == null ? null : cost.getPriceSource());
+                setNullableDecimal(ps, 12, cost == null ? null : cost.getInputCost());
+                setNullableDecimal(ps, 13, cost == null ? null : cost.getOutputCost());
+                setNullableDecimal(ps, 14, cost == null ? null : cost.getTotalCost());
+                ps.setString(15, cost == null ? null : cost.getCurrency());
+                ps.setString(16, cost == null ? null : cost.getPriceSource());
                 ps.executeUpdate();
                 return;
             } catch (SQLException e) {

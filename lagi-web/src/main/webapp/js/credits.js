@@ -71,7 +71,7 @@
 
     function pollCreditsChargeDetail(seq) {
         clearCreditsPrepayPoll();
-        creditsPrepayPollTimer = setInterval(function () {
+        var checkPayment = function () {
             $.ajax({
                 type: "GET",
                 contentType: "application/json;charset=utf-8",
@@ -91,7 +91,12 @@
                     }
                 }
             });
-        }, 1000);
+        };
+        // The SaaS endpoint reconciles a pending order against WeChat. Polling
+        // more often only repeats an external order query without making the
+        // payment visible sooner.
+        checkPayment();
+        creditsPrepayPollTimer = setInterval(checkPayment, 3000);
     }
 
     function requestCreditsPrepay() {

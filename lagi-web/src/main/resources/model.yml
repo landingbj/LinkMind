@@ -25,7 +25,7 @@ models:
   - name: chatgpt
     type: OpenAI
     enable: false
-    model: gpt-3.5-turbo,gpt-4-1106-preview
+    model: gpt-3.5-turbo,gpt-4-1106-preview,gpt-5.4,gpt-5.4-mini,gpt-5.4-nano,gpt-5.5,gpt-5.5-pro,gpt-5.6-sol,gpt-5.6-terra,gpt-5.6-luna,gpt-6.2-sol
     driver: ai.llm.adapter.impl.GPTAdapter
     api_key: your-api-key # https://platform.openai.com/
     # Multi-key pool: uncomment below and remove api_key above to enable
@@ -112,7 +112,7 @@ models:
   - name: gemini
     type: Google
     enable: true
-    model: gemini-1.5-flash-latest,gemini-1.5-flash-latest,gemini-1.0-pro,gemini-1.5-pro-latest
+    model: gemini-1.5-flash-latest,gemini-1.5-flash-latest,gemini-1.0-pro,gemini-1.5-pro-latest,gemini-3.1-pro-preview,gemini-3-flash-preview,gemini-3.1-flash-lite,gemini-3.1-flash-lite-preview,gemini-3.8-flash,gemini-4-hydrogen
     driver: ai.llm.adapter.impl.GeminiAdapter
     api_key: your-api-key
 
@@ -134,6 +134,6 @@ models:
   - name: claude
     type: Anthropic
     enable: true
-    model: claude-3-5-haiku-20241022,claude-3-5-sonnet-20241022,claude-3-5-sonnet-20240620,claude-3-opus-20240229,claude-3-sonnet-20240229,claude-3-haiku-20240307
+    model: claude-3-5-haiku-20241022,claude-3-5-sonnet-20241022,claude-3-5-sonnet-20240620,claude-3-opus-20240229,claude-3-sonnet-20240229,claude-3-haiku-20240307,claude-fable-5,claude-haiku-4-5-20251001,claude-opus-4-5-20251101,claude-opus-4-6,claude-opus-4-7,claude-opus-4-8,claude-opus-5,claude-opus-5-5,claude-sonnet-4-5-20250929,claude-sonnet-4-6,claude-sonnet-5,claude-sonnet-5-5
     driver: ai.llm.adapter.impl.ClaudeAdapter
     api_key: your-api-key # url address https://console.anthropic.com/

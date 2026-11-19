@@ -240,7 +240,7 @@ Token Grid 把多个 LinkMind 节点连接成类似“国家电网”的智能�
 
 Agentic Social 为智能体提供结构化的上下文交换、用户意图传递、协作信号和社交交互数据通道，而不是把这些逻辑硬塞进主聊天链路。社交数据封装在 Skill 与 Service 内部，并通过 `/socialChannel/*` 对外暴露，团队可以按需启用智能体之间、用户与智能体之间的协作能力。
 
-<table width="100%">
+<table>
   <tr>
     <td valign="top" width="50%">
       <h2>License</h2>

@@ -242,7 +242,7 @@ Entries are grouped by type and listed alphabetically. These ecosystems are exte
 
 Agentic Social gives agents a structured way to exchange context, user intent, collaboration signals, and social interaction data without forcing that logic into the main chat pipeline. Social data is encapsulated in skills and service classes, then exposed through `/socialChannel/*`, so teams can add agent-to-agent and user-to-agent collaboration features only when their deployment needs them.
 
-<table width="100%">
+<table>
   <tr>
     <td valign="top" width="50%">
       <h2>License</h2>

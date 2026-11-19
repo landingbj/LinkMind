@@ -108,13 +108,27 @@ final class ModelPriceCatalog {
         // The billing endpoint switches the regular/cache prices to 6/1.2 for >256K input.
         addWithCachedInput(prices, "Alibaba", "CNY", "2", "0.4", "8", "qwen3.7-plus");
 
-        add(prices, "anthropic", "USD", "1", "5", "claude-haiku-4.5");
-        add(prices, "anthropic", "USD", "3", "15", "claude-sonnet-4.5", "claude-sonnet-4.6");
-        add(prices, "anthropic", "USD", "5", "25", "claude-opus-4.5", "claude-opus-4.6");
+        // Anthropic published Standard API rates, including the cache-read rate.
+        addWithCachedInput(prices, "anthropic", "USD", "10", "1", "50", "claude-fable-5");
+        addWithCachedInput(prices, "anthropic", "USD", "1", "0.1", "5",
+                "claude-haiku-4.5", "claude-haiku-4-5", "claude-haiku-4-5-20251001");
+        addWithCachedInput(prices, "anthropic", "USD", "3", "0.3", "15",
+                "claude-sonnet-4.5", "claude-sonnet-4.6", "claude-sonnet-4-5-20250929", "claude-sonnet-4-6");
+        addWithCachedInput(prices, "anthropic", "USD", "2", "0.2", "10", "claude-sonnet-5");
+        addWithCachedInput(prices, "anthropic", "USD", "2", "0.1", "10", "claude-sonnet-5-5");
+        addWithCachedInput(prices, "anthropic", "USD", "5", "0.5", "25",
+                "claude-opus-4.5", "claude-opus-4.6", "claude-opus-4-5-20251101", "claude-opus-4-6",
+                "claude-opus-4-7", "claude-opus-4-8", "claude-opus-5");
+        addWithCachedInput(prices, "anthropic", "USD", "4", "0.2", "20", "claude-opus-5-5");
 
-        add(prices, "google", "USD", "0.5", "3", "gemini-3-flash-preview");
-        add(prices, "google", "USD", "0.25", "1.5", "gemini-3.1-flash-lite");
-        add(prices, "google", "USD", "2", "12", "gemini-3.1-pro-preview");
+        // Google Standard paid-tier text rates. Audio/image/tool storage charges are not token usage fields.
+        addWithCachedInput(prices, "google", "USD", "0.5", "0.05", "3", "gemini-3-flash-preview");
+        addWithCachedInput(prices, "google", "USD", "0.25", "0.025", "1.5",
+                "gemini-3.1-flash-lite", "gemini-3.1-flash-lite-preview");
+        addWithCachedInput(prices, "google", "USD", "2", "0.2", "12", "gemini-3.1-pro-preview");
+        // Gemini 3.8 Flash introductory Standard rates, effective through 2026-12-31.
+        addWithCachedInput(prices, "google", "USD", "0.75", "0.075", "3.75", "gemini-3.8-flash");
+        addWithCachedInput(prices, "google", "USD", "1.5", "0.075", "7.5", "gemini-4-hydrogen");
 
         // DeepSeek flash off-peak prices: USD 0.15 / 0.003 / 0.6 per M (input miss / hit / output).
         // CNY conversion is centralized in ModelPriceDao; peak pricing is selected by the SaaS billing service.
@@ -155,10 +169,16 @@ final class ModelPriceCatalog {
 
         add(prices, "StepFun", "CNY", "0.7", "2.1", "step-3.5-flash");
 
-        add(prices, "openai", "USD", "2.5", "15", "gpt-5.4");
-        add(prices, "openai", "USD", "0.75", "4.5", "gpt-5.4-mini");
-        add(prices, "openai", "USD", "0.2", "1.25", "gpt-5.4-nano");
-        add(prices, "openai", "USD", "5", "30", "gpt-5.5");
+        // OpenAI Standard rates. Long-context tiers are resolved in ModelPriceDao.
+        addWithCachedInput(prices, "openai", "USD", "2.5", "0.25", "15", "gpt-5.4");
+        addWithCachedInput(prices, "openai", "USD", "0.75", "0.075", "4.5", "gpt-5.4-mini");
+        addWithCachedInput(prices, "openai", "USD", "0.2", "0.02", "1.25", "gpt-5.4-nano");
+        addWithCachedInput(prices, "openai", "USD", "5", "0.5", "30", "gpt-5.5");
+        add(prices, "openai", "USD", "30", "180", "gpt-5.5-pro");
+        addWithCachedInput(prices, "openai", "USD", "4", "0.4", "20", "gpt-5.6-sol");
+        addWithCachedInput(prices, "openai", "USD", "2", "0.2", "12", "gpt-5.6-terra");
+        addWithCachedInput(prices, "openai", "USD", "0.2", "0.02", "1.2", "gpt-5.6-luna");
+        addWithCachedInput(prices, "openai", "USD", "2", "0.1", "10", "gpt-6.2-sol");
 
         return Collections.unmodifiableList(prices);
     }

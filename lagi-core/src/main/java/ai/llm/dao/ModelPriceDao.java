@@ -262,11 +262,32 @@ public class ModelPriceDao {
                 && inputTokens > 256_000L) {
             return new ModelPrice(new BigDecimal("6"), new BigDecimal("1.2"), new BigDecimal("24"), CNY);
         }
+        if ("google".equalsIgnoreCase(provider) && "gemini-3.1-pro-preview".equalsIgnoreCase(model)
+                && inputTokens > 200_000L) {
+            return usdPrice("4", "0.4", "18");
+        }
+        if ("openai".equalsIgnoreCase(provider) && inputTokens > 272_000L) {
+            if ("gpt-5.4".equalsIgnoreCase(model)) {
+                return usdPrice("5", "0.5", "22.5");
+            }
+            if ("gpt-5.5".equalsIgnoreCase(model)) {
+                return usdPrice("10", "1", "45");
+            }
+            if ("gpt-5.5-pro".equalsIgnoreCase(model)) {
+                return usdPrice("60", null, "270");
+            }
+        }
         if ("deepseek".equalsIgnoreCase(provider) && "deepseek-v4-flash".equalsIgnoreCase(model)
                 && isDeepSeekPeakTime()) {
             return new ModelPrice(new BigDecimal("2.16"), new BigDecimal("0.0432"), new BigDecimal("8.64"), CNY);
         }
         return fallback;
+    }
+
+    private static ModelPrice usdPrice(String input, String cachedInput, String output) {
+        return new ModelPrice(toCny(new BigDecimal(input), "USD"),
+                cachedInput == null ? null : toCny(new BigDecimal(cachedInput), "USD"),
+                toCny(new BigDecimal(output), "USD"), CNY);
     }
 
     private static boolean isDeepSeekPeakTime() {

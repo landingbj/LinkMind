@@ -57,7 +57,7 @@ class CuihuaAccountIntegrationTest {
         TokenLinkConfig config = new TokenLinkConfig();
         config.setDatabasePath(dataDir.resolve("tokenlink.db").toAbsolutePath().toString());
         CuihuaAccountService.initialize(config);
-        assertDefaultCatalogPriceCount(104L);
+        assertDefaultCatalogPriceCount(123L);
         createLinkMindDatabase();
         createCuihuaUsers();
     }
@@ -229,8 +229,16 @@ class CuihuaAccountIntegrationTest {
         assertEquals("CNY", priceDao.calculate("Landing", "model-without-official-price", 1L, 1L).getCurrency());
         assertEquals("similar_model_estimate", priceDao
                 .calculate("Landing", "model-without-official-price", 1L, 1L).getPriceSource());
-        assertEquals(0, new BigDecimal("18.00000000").compareTo(priceDao
+        assertEquals(0, new BigDecimal("36.00000000").compareTo(priceDao
                 .calculate("openai", "gpt-5.4", 1_000_000L, 0L).getTotalCost()));
+        assertEquals(0, new BigDecimal("14.40000000").compareTo(priceDao
+                .calculate("openai", "gpt-6.2-sol", 1_000_000L, 0L).getTotalCost()));
+        assertEquals(0, new BigDecimal("0.72000000").compareTo(priceDao
+                .calculate("openai", "gpt-6.2-sol", 1_000_000L, 1_000_000L, 0L).getTotalCost()));
+        assertEquals(0, new BigDecimal("54.54000000").compareTo(priceDao
+                .calculate("google", "gemini-4-hydrogen", 1_000_000L, 1_000_000L, 1_000_000L).getTotalCost()));
+        assertEquals(0, new BigDecimal("145.44000000").compareTo(priceDao
+                .calculate("anthropic", "claude-opus-5-5", 1_000_000L, 1_000_000L, 1_000_000L).getTotalCost()));
 
         priceDao.upsert("Alibaba", "qwen-flash", new BigDecimal("9"), new BigDecimal("18"),
                 "CNY", System.currentTimeMillis() - 1L);

@@ -11,7 +11,7 @@ models:
       video
     # Options for default, llm, image, voice and vision, line by line above.
     driver: ai.wrapper.impl.LandingAdapter
-    api_key: your-api-key # https://saas.linkmind.top/
+    api_key: your-api-key # http://saas.landingbj.com/
 
   # FastChat is an open platform designed for training, deploying, and evaluating chatbots based on large language models.
   - name: fastchat
@@ -38,7 +38,7 @@ models:
   # ChatGPT-Azure is a version of the ChatGPT model integrated into Microsoft Azure's suite of AI services.
   - name: chatgpt-azure
     type: Microsoft
-    model: gpt-3.5-turbo,gpt-4-1106-preview,gpt-4o-20240513
+    model: gpt-3.5-turbo,gpt-4-1106-preview,gpt-5.4,gpt-5.4-mini,gpt-5.4-nano,gpt-5.5,gpt-5.5-pro,gpt-5.6-sol,gpt-5.6-terra,gpt-5.6-luna,gpt-6.2-sol,gpt-4o-20240513
     enable: true
     driver: ai.llm.adapter.impl.GPTAzureAdapter
     endpoint: your-endpoint
@@ -112,19 +112,9 @@ models:
   - name: gemini
     type: Google
     enable: true
-    model: gemini-3.1-pro-preview,gemini-3.1-flash-image,gemini-3-pro-preview,gemini-2.5-flash-lite,gemini-3.1-flash-image-preview,gemini-2.5-pro,gemini-3.1-flash-lite-preview,gemini-pro-latest,gemini-3.1-pro-preview-customtools,gemini-3.5-flash,gemini-3-pro-image-preview,gemini-embedding-001,gemini-2.5-flash,gemini-flash-latest,gemini-flash-lite-latest,gemini-2.5-flash-image,gemini-3-flash-preview,gemini-3.1-flash-lite,gemini-3.8-flash,gemini-4-hydrogen
-    driver: ai.llm.adapter.impl.OpenAIStandardAdapter
+    model: gemini-1.5-flash-latest,gemini-1.5-flash-latest,gemini-1.0-pro,gemini-1.5-pro-latest,gemini-3.1-pro-preview,gemini-3-flash-preview,gemini-3.1-flash-lite,gemini-3.1-flash-lite-preview,gemini-3.8-flash,gemini-4-hydrogen
+    driver: ai.llm.adapter.impl.GeminiAdapter
     api_key: your-api-key
-    api_address: https://api.nexrouter.ai/v1/chat/completions
-
-  # Meta Model API exposes Muse Spark through OpenAI-compatible endpoints.
-  - name: meta
-    type: Meta
-    enable: false
-    model: muse-spark-1.3,muse-spark-1.2,muse-spark-1.1,muse-spark-1.3-contributor,muse-spark-1.2-contributor
-    driver: ai.llm.adapter.impl.MetaModelAdapter
-    api_key: your-api-key
-    api_address: https://api.meta.ai/v1/chat/completions
 
   # Doubao(Doubao) is a AI tool developed by ByteDance based on the lark model
   - name: doubao
@@ -140,25 +130,11 @@ models:
     access_token: your-access-token
     alias: doubao-pro-4k=your_endpoint_id,doubao-pro-32k=your_endpoint_id
 
-  # Seedance is ByteDance's asynchronous video-generation model family on Volcengine Ark.
-  - name: seedance
-    type: ByteDance
-    enable: false
-    # Use the exact model IDs enabled for the Ark account. The names below are
-    # the current LinkMind aliases for the five supported Seedance offerings.
-    model: doubao-seedance-2-5,doubao-seedance-2-0,doubao-seedance-1-5-pro,doubao-seedance-1-0-pro,doubao-seedance-1-0-pro-fast
-    driver: ai.video.adapter.impl.SeedanceVideoAdapter
-    api_key: your-api-key
-    # Override only when your Ark region or API version has a different endpoint.
-    api_address: https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks
-    # Required only when image-to-video receives local files rather than public URLs.
-    # oss: landing
-
   # Claude is a next generation AI assistant built by Anthropic and trained to be safe, accurate, and secure to help you do your best work.
   - name: claude
     type: Anthropic
     enable: true
-    model: claude-fable-5,claude-haiku-4-5-20251001,claude-opus-4-5-20251101,claude-opus-4-6,claude-opus-4-7,claude-opus-4-8,claude-opus-5,claude-opus-5-5,claude-sonnet-4-5-20250929,claude-sonnet-4-6,claude-sonnet-5,claude-sonnet-5-5
-    driver: ai.llm.adapter.impl.OpenAIStandardAdapter
-    api_key: your-api-key
-    api_address: https://api.nexrouter.ai/v1/chat/completions
+    model: claude-3-5-haiku-20241022,claude-3-5-sonnet-20241022,claude-3-5-sonnet-20240620,claude-3-opus-20240229,claude-3-sonnet-20240229,claude-3-haiku-20240307,claude-fable-5,claude-haiku-4-5-20251001,claude-opus-4-5-20251101,claude-opus-4-6,claude-opus-4-7,claude-opus-4-8,claude-opus-5,claude-opus-5-5,claude-sonnet-4-5-20250929,claude-sonnet-4-6,claude-sonnet-5,claude-sonnet-5-5
+    driver: ai.llm.adapter.impl.ClaudeAdapter
+    api_key: your-api-key # url address https://console.anthropic.com/
+

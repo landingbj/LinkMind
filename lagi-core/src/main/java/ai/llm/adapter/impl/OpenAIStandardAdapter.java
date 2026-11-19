@@ -20,14 +20,17 @@ import ai.openai.pojo.ChatMessage;
 import ai.openai.utils.MultimodalTraceUtil;
 import ai.utils.AiGlobal;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.crypto.digest.DigestUtil;
 import io.reactivex.Observable;
 import io.reactivex.disposables.Disposable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -43,19 +46,22 @@ public class OpenAIStandardAdapter extends ModelService implements ILlmAdapter {
     @Override
     public ChatCompletionResult completions(ChatCompletionRequest chatCompletionRequest) {
         String reqApiKey = getApiKey(chatCompletionRequest);
+        boolean responses = ResponseProtocolUtil.isResponseProtocol(this);
+        String responseAddress = responses ? getResponsesApiAddress() : null;
+        List<String> toolScope = responses ? toolScope(chatCompletionRequest, reqApiKey, responseAddress) : null;
         setDefaultField(chatCompletionRequest);
-        if (ResponseProtocolUtil.isResponseProtocol(this)) {
-            ResponseSessionContext sessionContext = SESSION_MANAGER.prepare(chatCompletionRequest, this);
-            LlmApiResponse response = OpenAiResponsesApiUtil.createResponse(reqApiKey, getResponsesApiAddress(), HTTP_TIMEOUT,
+        if (responses) {
+            ResponseSessionContext sessionContext = SESSION_MANAGER.prepare(chatCompletionRequest, this, toolScope);
+            LlmApiResponse response = OpenAiResponsesApiUtil.createResponse(reqApiKey, responseAddress, HTTP_TIMEOUT,
                     ResponsesChatCompletionConverter.toRequest(chatCompletionRequest, sessionContext, chatCompletionRequest.getModel()),
                     GptConvert::convertByResponse, defaultHeaders(reqApiKey));
             if(response.getCode() != 200) {
                 logger.error("openai responses api : code{}  error  {}", response.getCode(), response.getMsg());
-                throw new RRException(response.getCode(), response.getMsg());
+                throw responseFailure(response, sessionContext);
             }
             SESSION_MANAGER.onSuccess(sessionContext,
                     response.getData() == null ? null : response.getData().getId(),
-                    extractAssistantMessage(response.getData()));
+                    extractAssistantMessage(response.getData()), toolScope);
             return response.getData();
         }
         MultimodalTraceUtil.logRequest("http-dispatch", chatCompletionRequest, getApiAddress());
@@ -74,15 +80,18 @@ public class OpenAIStandardAdapter extends ModelService implements ILlmAdapter {
     @Override
     public Observable<ChatCompletionResult> streamCompletions(ChatCompletionRequest chatCompletionRequest) {
         String reqApiKey = getApiKey(chatCompletionRequest);
+        boolean responses = ResponseProtocolUtil.isResponseProtocol(this);
+        String responseAddress = responses ? getResponsesApiAddress() : null;
+        List<String> toolScope = responses ? toolScope(chatCompletionRequest, reqApiKey, responseAddress) : null;
         setDefaultField(chatCompletionRequest);
-        if (ResponseProtocolUtil.isResponseProtocol(this)) {
-            ResponseSessionContext sessionContext = SESSION_MANAGER.prepare(chatCompletionRequest, this);
-            LlmApiResponse response = OpenAiResponsesApiUtil.streamResponse(reqApiKey, getResponsesApiAddress(), HTTP_TIMEOUT,
+        if (responses) {
+            ResponseSessionContext sessionContext = SESSION_MANAGER.prepare(chatCompletionRequest, this, toolScope);
+            LlmApiResponse response = OpenAiResponsesApiUtil.streamResponse(reqApiKey, responseAddress, HTTP_TIMEOUT,
                     ResponsesChatCompletionConverter.toRequest(chatCompletionRequest, sessionContext, chatCompletionRequest.getModel()),
                     GptConvert::convertByResponse, defaultHeaders(reqApiKey));
             if(response.getCode() != 200) {
                 logger.error("openai responses stream api : code{}  error  {}", response.getCode(), response.getMsg());
-                throw new RRException(response.getCode(), response.getMsg());
+                throw responseFailure(response, sessionContext);
             }
             AtomicReference<String> responseId = new AtomicReference<>();
             AtomicReference<ChatMessage> assistantMessage = new AtomicReference<>(ChatMessage.builder().role("assistant").content("").build());
@@ -93,7 +102,8 @@ public class OpenAIStandardAdapter extends ModelService implements ILlmAdapter {
                         }
                         mergeAssistantMessage(assistantMessage.get(), chunk);
                     })
-                    .doOnComplete(() -> SESSION_MANAGER.onSuccess(sessionContext, responseId.get(), assistantMessage.get()));
+                    .doOnComplete(() -> SESSION_MANAGER.onSuccess(
+                            sessionContext, responseId.get(), assistantMessage.get(), toolScope));
         }
         Observable<ChatCompletionResult> firstAttempt = bufferUntilMeaningfulOutput(
                 openStandardStream(reqApiKey, chatCompletionRequest));
@@ -203,6 +213,29 @@ public class OpenAIStandardAdapter extends ModelService implements ILlmAdapter {
         return headers;
     }
 
+    private List<String> toolScope(ChatCompletionRequest request, String upstreamKey, String responseAddress) {
+        String callerKey = StrUtil.blankToDefault(request.getApiKey(), request.getUserApiKey());
+        return Arrays.asList(responseAddress, request.getAccountUserId(),
+                StrUtil.isBlank(callerKey) ? null : DigestUtil.sha256Hex(callerKey),
+                StrUtil.isBlank(upstreamKey) ? null : DigestUtil.sha256Hex(upstreamKey));
+    }
+
+    private RRException responseFailure(LlmApiResponse response, ResponseSessionContext context) {
+        String error = response.getMsg();
+        if (error != null && !context.isStateful()
+                && context.getNormalizedMessages().stream().anyMatch(message -> "tool".equals(message.getRole()))) {
+            String description = error.toLowerCase(Locale.ROOT);
+            if (description.contains("no tool output found for function call")
+                    || description.contains("no tool call found for function call output")
+                    || description.contains("required 'reasoning' item")
+                    || description.contains("required reasoning item")) {
+                return ResponseProtocolUtil.invalidRequest(
+                        "The upstream could not restore the tool-call history. Please repeat the previous turn.");
+            }
+        }
+        return new RRException(response.getCode(), error);
+    }
+
     private ChatMessage extractAssistantMessage(ChatCompletionResult result) {
         if (result == null || result.getChoices() == null || result.getChoices().isEmpty()) {
             return null;
@@ -214,7 +247,8 @@ public class OpenAIStandardAdapter extends ModelService implements ILlmAdapter {
         if (aggregate == null || chunk == null || chunk.getChoices() == null || chunk.getChoices().isEmpty()) {
             return;
         }
-        ChatMessage message = chunk.getChoices().get(0).getMessage();
+        ChatCompletionChoice choice = chunk.getChoices().get(0);
+        ChatMessage message = choice.getDelta() != null ? choice.getDelta() : choice.getMessage();
         if (message == null) {
             return;
         }
@@ -227,7 +261,7 @@ public class OpenAIStandardAdapter extends ModelService implements ILlmAdapter {
         if (message.getReasoning_content() != null) {
             aggregate.setReasoning_content(message.getReasoning_content());
         }
-        if (message.getTool_calls() != null && !message.getTool_calls().isEmpty()) {
+        if ("tool_calls".equals(choice.getFinish_reason()) && message.getTool_calls() != null) {
             aggregate.setTool_calls(message.getTool_calls());
         }
     }

@@ -1,10 +1,12 @@
 package ai.llm.responses;
 
 import ai.common.ModelService;
+import ai.common.exception.RRException;
 import ai.common.utils.LRUCache;
 import ai.intent.impl.SampleIntentServiceImpl;
 import ai.medusa.pojo.PromptInput;
 import ai.medusa.pojo.PromptParameter;
+import ai.openai.pojo.ChatCompletionRequest;
 import ai.openai.pojo.ChatMessage;
 import ai.openai.pojo.ToolCall;
 import ai.openai.pojo.ToolCallFunction;
@@ -15,8 +17,11 @@ import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -27,7 +32,7 @@ public class ResponseSessionManager {
     private static ResponseSessionState responseSessionState = null;
 
     private static final ResponseSessionManager INSTANCE = new ResponseSessionManager();
-    private final LRUCache<String, ResponseSessionState> sessionCache =
+    private final LRUCache<List<String>, String> toolResponseCache =
             new LRUCache<>(CACHE_SIZE, TTL_DAYS, TimeUnit.DAYS);
 
     private final LRUCache<List<PromptInput>, ResponseSessionState> splitSessionCache =
@@ -38,7 +43,11 @@ public class ResponseSessionManager {
     }
 
 
-    public ResponseSessionContext prepare(ai.openai.pojo.ChatCompletionRequest request, ModelService modelService) {
+    public ResponseSessionContext prepare(ChatCompletionRequest request, ModelService modelService) {
+        return prepare(request, modelService, null);
+    }
+
+    public ResponseSessionContext prepare(ChatCompletionRequest request, ModelService modelService, List<String> toolScope) {
         List<ChatMessage> chatMessages = request.getMessages();
         List<ChatMessage> historyMessages = ChatCompletionUtil.getHistoryMessages(chatMessages);
         List<ChatMessage> incrementMessages = ChatCompletionUtil.getIncrementMessages(chatMessages);
@@ -49,6 +58,10 @@ public class ResponseSessionManager {
         context.setModel(request.getModel() == null ? modelService.getModel() : request.getModel());
         context.setProtocol(ResponseProtocolUtil.normalize(modelService.getProtocol()));
         context.setAllHistoryChatMessage(chatMessages);
+
+        if (toolScope != null && incrementMessages.stream().anyMatch(message -> "tool".equals(message.getRole()))) {
+            return prepareToolResults(context, incrementMessages, toolScope);
+        }
 
         // first message return context without previous response id
         if(historyMessages.isEmpty()) {
@@ -115,6 +128,77 @@ public class ResponseSessionManager {
         return newConversationContext(newChatMessages, incrementMessages, context);
     }
 
+    private ResponseSessionContext prepareToolResults(ResponseSessionContext context,
+                                                      List<ChatMessage> incrementMessages,
+                                                      List<String> toolScope) {
+        Set<String> outputIds = new HashSet<>();
+        for (ChatMessage message : incrementMessages) {
+            if ("tool".equals(message.getRole())
+                    && (StrUtil.isBlank(message.getTool_call_id()) || !outputIds.add(message.getTool_call_id()))) {
+                throw incompleteToolHistory();
+            }
+        }
+
+        List<ChatMessage> history = context.getAllHistoryChatMessage();
+        context.setSplitStartIndex(ChatCompletionUtil.getFirstUserIndex(history));
+        String previousResponseId = toolResponseCache.get(toolResponseKey(context, toolScope, outputIds));
+        if (previousResponseId == null) {
+            requireCompleteToolHistory(history);
+            return newConversationContext(history, incrementMessages, context);
+        }
+
+        List<ChatMessage> inputMessages = new ArrayList<>(ChatCompletionUtil.getSystemMessages(history));
+        inputMessages.addAll(incrementMessages);
+        context.setInputMessages(inputMessages);
+        context.setNormalizedMessages(incrementMessages);
+        context.setPreviousResponseId(previousResponseId);
+        context.setStateful(true);
+        return context;
+    }
+
+    private void requireCompleteToolHistory(List<ChatMessage> history) {
+        Set<String> calls = new HashSet<>();
+        Set<String> outputs = new HashSet<>();
+        for (ChatMessage message : history) {
+            if ("assistant".equals(message.getRole())) {
+                calls.addAll(toolCallIds(message));
+            } else if ("tool".equals(message.getRole())) {
+                String id = message.getTool_call_id();
+                if (!calls.contains(id) || !outputs.add(id)) {
+                    throw incompleteToolHistory();
+                }
+            }
+        }
+        if (!calls.equals(outputs)) {
+            throw incompleteToolHistory();
+        }
+    }
+
+    private Set<String> toolCallIds(ChatMessage message) {
+        List<ToolCall> toolCalls = message.getTool_calls();
+        if (toolCalls == null) {
+            return Collections.emptySet();
+        }
+        return toolCalls.stream()
+                .filter(Objects::nonNull)
+                .map(ToolCall::getId)
+                .filter(StrUtil::isNotBlank)
+                .collect(Collectors.toSet());
+    }
+
+    private List<String> toolResponseKey(ResponseSessionContext context, List<String> toolScope, Set<String> callIds) {
+        List<String> key = new ArrayList<>(toolScope);
+        key.add(context.getBackend());
+        key.add(context.getModel());
+        key.add(context.getProtocol());
+        key.addAll(new TreeSet<>(callIds));
+        return key;
+    }
+
+    private RRException incompleteToolHistory() {
+        return ResponseProtocolUtil.invalidRequest("Tool-call history is incomplete. Please repeat the previous turn.");
+    }
+
     private ResponseSessionState getCachedSession(List<ChatMessage> historyMessages) {
 //        return splitSessionCache.get(convert2PromptInputs(historyMessages));
         return responseSessionState;
@@ -160,9 +244,20 @@ public class ResponseSessionManager {
     }
 
     public void onSuccess(ResponseSessionContext context, String responseId, ChatMessage responseMessage) {
-        if (context == null  || StrUtil.isBlank(responseId)) {
+        onSuccess(context, responseId, responseMessage, null);
+    }
+
+    public void onSuccess(ResponseSessionContext context, String responseId, ChatMessage responseMessage,
+                          List<String> toolScope) {
+        if (context == null || StrUtil.isBlank(responseId)) {
             return;
-        };
+        }
+        if (toolScope != null && responseMessage != null) {
+            Set<String> callIds = toolCallIds(responseMessage);
+            if (!callIds.isEmpty() && callIds.size() == responseMessage.getTool_calls().size()) {
+                toolResponseCache.put(toolResponseKey(context, toolScope, callIds), responseId);
+            }
+        }
         List<ChatMessage> currentSystemMessages = ChatCompletionUtil.getSystemMessages(context.getAllHistoryChatMessage());
         ResponseSessionState responseSessionState = getCachedSession(context.getAllHistoryChatMessage());
         if(responseSessionState != null && context.getPreviousResponseId() != null) {

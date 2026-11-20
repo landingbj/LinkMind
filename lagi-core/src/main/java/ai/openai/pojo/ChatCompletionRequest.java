@@ -1,5 +1,6 @@
 package ai.openai.pojo;
 
+import ai.llm.adapter.ILlmAdapter;
 import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
@@ -10,7 +11,24 @@ import java.util.Map;
 import java.util.Set;
 
 @Data
-public class ChatCompletionRequest {
+public class ChatCompletionRequest implements Cloneable {
+    @JsonIgnore
+    @lombok.ToString.Exclude
+    @lombok.EqualsAndHashCode.Exclude
+    private transient ILlmAdapter selectedChatAdapter;
+
+    /** Keep the public model on the caller's request while dispatching the native ID upstream. */
+    public ChatCompletionRequest forUpstreamModel(String upstreamModel) {
+        try {
+            ChatCompletionRequest copy = (ChatCompletionRequest) super.clone();
+            copy.model = upstreamModel;
+            copy.selectedChatAdapter = null;
+            return copy;
+        } catch (CloneNotSupportedException e) {
+            throw new AssertionError(e);
+        }
+    }
+
     @JsonAlias({"session_id"})
     private String sessionId;
     @JsonAlias({"extra_body"})

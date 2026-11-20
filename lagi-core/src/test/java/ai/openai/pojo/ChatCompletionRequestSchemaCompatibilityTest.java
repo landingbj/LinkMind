@@ -67,5 +67,15 @@ class ChatCompletionRequestSchemaCompatibilityTest {
 
         assertEquals("cuihua-user-1", target.getAccountUserId());
         assertEquals(Long.valueOf(42L), target.getAccountUserApiKeyId());
+
+        target.setModel("Alibaba/shared");
+        target.setKeyPoolSessionId("box-session");
+        ChatCompletionRequest upstream = target.forUpstreamModel("shared");
+
+        assertEquals("Alibaba/shared", target.getModel());
+        assertEquals("shared", upstream.getModel());
+        assertEquals("box-session", upstream.getKeyPoolSessionId());
+        assertEquals("cuihua-user-1", upstream.getAccountUserId());
+        assertEquals(Long.valueOf(42L), upstream.getAccountUserApiKeyId());
     }
 }

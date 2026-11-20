@@ -3,7 +3,7 @@ package ai.wrapper;
 import ai.common.pojo.Driver;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -29,14 +29,17 @@ public class CommonAdapter implements IWrapper {
     }
 
     private Map<String, String> splitModels(String model) {
-        String[] models = model.replace(" ", "").split(",");
+        String[] models = (model == null ? "" : model).replace(" ", "").split(",");
         Map<String, String> driverMap = getModelDriverMap();
-        Map<String, List<String>> groupedItems = new HashMap<>();
+        String chatDriver = driverMap.values().stream()
+                .filter(driver -> driver.startsWith("ai.llm.adapter.")).findFirst().orElse(null);
+        Map<String, List<String>> groupedItems = new LinkedHashMap<>();
         for (String m : models) {
-            String driver = driverMap.get(m);
+            String driver = driverMap.getOrDefault(m, chatDriver);
             groupedItems.computeIfAbsent(driver, k -> new ArrayList<>()).add(m);
         }
-        Map<String, String> result = new HashMap<>();
+        if (chatDriver != null) groupedItems.putIfAbsent(chatDriver, new ArrayList<>());
+        Map<String, String> result = new LinkedHashMap<>();
         for (Map.Entry<String, List<String>> entry : groupedItems.entrySet()) {
             result.put(entry.getKey(), String.join(",", entry.getValue()));
         }

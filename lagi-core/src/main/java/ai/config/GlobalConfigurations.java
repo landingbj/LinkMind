@@ -1,6 +1,8 @@
 package ai.config;
 
+import ai.common.ModelService;
 import ai.common.pojo.*;
+import ai.llm.routing.BringYourOwnKeyRouter;
 import ai.config.pojo.*;
 import ai.llm.adapter.impl.GPTAzureAdapter;
 import ai.llm.adapter.impl.MetaModelAdapter;
@@ -60,14 +62,21 @@ public class GlobalConfigurations extends AbstractConfiguration {
 
     @Override
     public void init() {
+        init(true);
+    }
+
+    void init(boolean discoverUpstream) {
         loadFromPropertiesFromYaml();
         initCascadeApiAddress();
+        if (general != null && general.getContainerUrl() != null) {
+            ConfigUtil.APP_CONTAINER_URL = general.getContainerUrl();
+        }
 //        validateChatBackends();
         EmbeddingManager.getInstance().register(functions.getEmbedding());
         BigdataManager.getInstance().register(stores.getBigdata());
         OSSManager.getInstance().register(stores.getOss());
         VectorStoreManager.getInstance().register(stores.getVectors(), stores.getRag(), functions.getEmbedding());
-        MultimodalAIManager.register(models, functions);
+        MultimodalAIManager.register(models, functions, discoverUpstream);
         PromptCacheConfig.init(stores.getVectors(), stores.getMedusa());
         OcrConfig.init(functions.getImage2ocr());
         if(Boolean.TRUE.equals(agents.getEnable())) {
@@ -324,22 +333,27 @@ public class GlobalConfigurations extends AbstractConfiguration {
 
     @Override
     public Configuration transformToConfiguration() {
+        List<ModelService> registered = LlmManager.getInstance().getAllAdapters().stream()
+                .map(ModelService.class::cast).collect(Collectors.toList());
         List<Backend> chatBackends = functions.getChat().getBackends().stream().map(backendMatch -> {
+            List<String> allowed = registered.stream()
+                    .filter(service -> Objects.equals(backendMatch.getBackend(), service.getBackend()))
+                    .filter(service -> backendMatch.allowsChatModel(service.getModel(),
+                            BringYourOwnKeyRouter.publicId(service, service.getModel())))
+                    .map(ModelService::getModel).distinct().collect(Collectors.toList());
+            if (allowed.isEmpty()) return null;
             Backend backend = Optional.ofNullable(models).orElse(Collections.emptyList()).stream()
                     .filter(model -> Boolean.TRUE.equals(model.getEnable()) && Boolean.TRUE.equals(backendMatch.getEnable()))
                     .filter(model -> backendMatch.getBackend().equals(model.getName()))
-                    .filter(model -> StrUtil.isBlank(backendMatch.getModel()) || backendMatchesChatModel(model, backendMatch.getModel()))
                     .findFirst()
                     .map(model -> {
                         Backend copy = new Backend();
                         BeanUtil.copyProperties(model, copy, CopyOptions.create(null, true));
                         BeanUtil.copyProperties(backendMatch, copy, CopyOptions.create(null, true));
-                        if (StrUtil.isNotBlank(backendMatch.getModel())) {
-                            copy.setModel(backendMatch.getModel());
-                        }
+                        copy.setModel(String.join(",", allowed));
                         // When backend uses drivers and has no top-level driver, merge matching driver's driver and api_address
                         if (StrUtil.isBlank(copy.getDriver()) && model.getDrivers() != null) {
-                            Driver matchingDriver = findMatchingDriver(model, backendMatch.getModel());
+                            Driver matchingDriver = allowed.size() == 1 ? findMatchingDriver(model, allowed.get(0)) : null;
                             if (matchingDriver != null) {
                                 if (StrUtil.isNotBlank(matchingDriver.getDriver())) {
                                     copy.setDriver(matchingDriver.getDriver());

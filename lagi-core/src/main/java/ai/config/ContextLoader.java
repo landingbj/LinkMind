@@ -132,6 +132,10 @@ public class ContextLoader {
     }
 
     public static void loadContextByFilePath(String filePath, String extensionJarFolder) {
+        loadContextByFilePath(filePath, extensionJarFolder, true);
+    }
+
+    private static void loadContextByFilePath(String filePath, String extensionJarFolder, boolean discoverUpstream) {
         try {
             loadProperties(Files.newInputStream(Paths.get(filePath)));
 
@@ -148,7 +152,7 @@ public class ContextLoader {
             try {
                 GlobalConfigurations loadedConfiguration = mapper.readValue(reader, GlobalConfigurations.class);
                 ContextLoader.extensionJarFolder = extensionJarFolder;
-                loadedConfiguration.init();
+                loadedConfiguration.init(discoverUpstream);
                 configuration = loadedConfiguration;
                 BeanManageUtil.initBeans();
                 reader.close();
@@ -177,10 +181,9 @@ public class ContextLoader {
         if (extensionJarFolder == null) {
             extensionJarFolder = "extension";
         }
-        LlmManager.getInstance().clear();
         Html2ContentManager.getInstance().clear();
         LlmInstructionManager.getInstance().clear();
-        loadContextByFilePath(filePath.trim(), extensionJarFolder);
+        loadContextByFilePath(filePath.trim(), extensionJarFolder, false);
         log.info("reload config file success for {}", filePath);
     }
 

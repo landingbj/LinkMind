@@ -14,6 +14,9 @@ import ai.dto.ModelPreferenceDto;
 import ai.embedding.EmbeddingFactory;
 import ai.embedding.Embeddings;
 import ai.embedding.pojo.OpenAIEmbeddingRequest;
+import ai.llm.adapter.ILlmAdapter;
+import ai.llm.routing.BringYourOwnKeyRouter;
+import ai.llm.routing.BringYourOwnKeyRouter.Scope;
 import ai.llm.pojo.EnhanceChatCompletionRequest;
 import ai.llm.pojo.GetRagContext;
 import ai.llm.schedule.QueueSchedule;
@@ -21,7 +24,6 @@ import ai.llm.service.CompletionsService;
 import ai.llm.service.LlmRouterDispatcher;
 import ai.llm.utils.CompletionUtil;
 import ai.llm.utils.LLMErrorConstants;
-import ai.manager.LlmManager;
 import ai.medusa.MedusaMonitor;
 import ai.medusa.MedusaService;
 import ai.medusa.pojo.CacheItem;
@@ -114,16 +116,7 @@ public class LlmApiServlet extends BaseServlet {
             Map<String, Object> models = new LinkedHashMap<>();
             models.put("object", "list");
             List<Map<String, Object>> data = new ArrayList<>();
-            Set<String> modelIds = new LinkedHashSet<>();
-            LlmManager.getInstance().getAllAdapters().stream()
-                    .map(adapter -> (ModelService) adapter)
-                    .filter(adapter -> Boolean.TRUE.equals(adapter.getEnable()))
-                    .map(ModelService::getModel)
-                    .filter(Objects::nonNull)
-                    .forEach(configuredModels -> Arrays.stream(configuredModels.split(","))
-                            .map(String::trim)
-                            .filter(model -> !model.isEmpty())
-                            .forEach(modelIds::add));
+            Set<String> modelIds = BringYourOwnKeyRouter.configuredLocalKeyModels(null);
             for (String modelId : modelIds) {
                 Map<String, Object> model = new LinkedHashMap<>();
                 model.put("id", modelId);
@@ -287,6 +280,20 @@ public class LlmApiServlet extends BaseServlet {
             return;
         }
 
+        if (chatCompletionRequest.getModel() != null) {
+            ILlmAdapter selected = BringYourOwnKeyRouter.find(BringYourOwnKeyRouter.routes(Scope.LOCAL, null),
+                    chatCompletionRequest.getModel());
+            if (selected == null) {
+                resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
+                outPrintChatCompletion(resp, chatCompletionRequest, LLMErrorConstants.errorResponse(chatCompletionRequest,
+                        LLMErrorConstants.NO_AVAILABLE_MODEL, "The requested model is unavailable for this key."));
+                return;
+            }
+            ModelService service = (ModelService) selected;
+            chatCompletionRequest.setSelectedChatAdapter(selected);
+            chatCompletionRequest.setModel(BringYourOwnKeyRouter.publicId(service, service.getModel()));
+        }
+
         boolean isMultiModal = CompletionUtil.isMultiModal(chatCompletionRequest);
         ChatCompletionResult chatCompletionResult;
         List<IndexSearchData> indexSearchDataList = null;
@@ -360,6 +367,7 @@ public class LlmApiServlet extends BaseServlet {
                 .build();
         BeanUtil.copyProperties(chatCompletionRequest, enhance);
         enhance.setTraceId(chatCompletionRequest.getTraceId());
+        enhance.setSelectedChatAdapter(chatCompletionRequest.getSelectedChatAdapter());
         chatCompletionRequest.copyAccountAttributionTo(enhance);
         enhance.setKeyPoolSessionId(chatCompletionRequest.getKeyPoolSessionId());
         chatCompletionRequest = enhance;

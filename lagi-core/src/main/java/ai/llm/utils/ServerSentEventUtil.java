@@ -1,6 +1,7 @@
 package ai.llm.utils;
 
 import ai.common.ModelService;
+import ai.llm.routing.BringYourOwnKeyRouter;
 import ai.common.exception.RRException;
 import ai.common.utils.ObservableList;
 import ai.openai.pojo.ChatCompletionResult;
@@ -73,10 +74,10 @@ public class ServerSentEventUtil {
                 if(Objects.equals(exception.getCode(), LLMErrorConstants.PERMISSION_DENIED_ERROR)
                         || Objects.equals(exception.getCode(), LLMErrorConstants.RESOURCE_NOT_FOUND_ERROR)
                         || Objects.equals(exception.getCode(), LLMErrorConstants.INVALID_AUTHENTICATION_ERROR)) {
-                    String model = modelService.getModel();
+                    String model = BringYourOwnKeyRouter.publicId(modelService, modelService.getModel());
                     if(CacheManager.getInstance().get(model)) {
-                        CacheManager.getInstance().put(modelService.getModel(), false);
-                        log.error("The  model {} has been blocked : {}",modelService.getModel(), exception.getMsg());
+                        CacheManager.getInstance().put(model, false);
+                        log.error("The model {} has been blocked: {}", model, exception.getMsg());
                     }
                 }
                 if(t != null) {

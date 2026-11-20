@@ -11,6 +11,10 @@ import ai.image.adapter.IImage2TextAdapter;
 import ai.image.adapter.IImageGenerationAdapter;
 import ai.image.adapter.ImageEnhanceAdapter;
 import ai.llm.adapter.ILlmAdapter;
+import ai.llm.routing.BringYourOwnKeyRouter;
+import ai.llm.routing.UpstreamModels;
+import ai.llm.adapter.impl.LandingAdapter;
+import ai.llm.adapter.impl.GPTAzureAdapter;
 import ai.llm.responses.ResponseProtocolUtil;
 import ai.wrapper.IWrapper;
 import ai.ocr.IOcr;
@@ -30,7 +34,6 @@ import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Field;
 import java.util.*;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -39,17 +42,21 @@ public class MultimodalAIManager {
     private static final Logger log = LoggerFactory.getLogger(MultimodalAIManager.class);
 
     public static void register(List<Backend> models, ModelFunctions modelFunctions) {
+        register(models, modelFunctions, true);
+    }
+
+    public static void register(List<Backend> models, ModelFunctions modelFunctions, boolean discoverUpstream) {
         if(models == null || models.isEmpty()) {
+            LlmManager.getInstance().clear();
             return;
         }
         List<ModelService> modelServices = convertModels2Services(models);
+        registerChatModels(modelServices, modelFunctions.getChat().getBackends(), discoverUpstream);
         modelServices.forEach(modelService -> {
-            String modelListStr = modelService.getModel();
-            List<String> modelNameList = Arrays.stream(modelListStr.split(",")).map(String::trim).collect(Collectors.toList());
+            if (!modelService.verify()) return;
+            List<String> modelNameList = configuredNames(modelService.getModel());
             if(modelService instanceof ILlmAdapter) {
-                registerChatModels(modelNameList, LlmManager.getInstance(), (ILlmAdapter) modelService, modelFunctions.getChat().getBackends());
                 register(modelNameList, LlmInstructionManager.getInstance(), (ILlmAdapter) modelService, modelFunctions.getDoc2instruct());
-                registerChatModels(modelNameList, Html2ContentManager.getInstance(), (ILlmAdapter) modelService, modelFunctions.getChat().getBackends());
             }
             if(modelService instanceof IAudioAdapter) {
                 register(modelNameList, TTSManager.getInstance(), (IAudioAdapter) modelService, modelFunctions.getText2speech());
@@ -90,37 +97,92 @@ public class MultimodalAIManager {
         });
     }
 
-    @SuppressWarnings("unchecked")
-    private static <T> void registerChatModels(List<String> modelNames, AIManager<T> aiManager, T adapter, List<Backend> functions) {
-        try {
-            if (functions == null) {
-                return;
+    private static List<String> configuredNames(String csv) {
+        if (StrUtil.isBlank(csv)) return Collections.emptyList();
+        return Arrays.stream(csv.split(",")).map(String::trim).filter(StrUtil::isNotBlank).collect(Collectors.toList());
+    }
+
+    private static class ChatBackend {
+        final ModelService adapter;
+        final Backend rule;
+        final Set<String> names;
+        final boolean terminal;
+        final List<String> configuredModels;
+
+        ChatBackend(ModelService source, Backend rule) {
+            this.rule = rule;
+            this.adapter = cloneModelService(source);
+            BeanUtil.copyProperties(rule, adapter, CopyOptions.create(null, true));
+            if (!BringYourOwnKeyRouter.hasUsableKey(adapter.getApiKey())) adapter.setApiKey(null);
+            if (adapter.getApiKeys() != null) {
+                adapter.setApiKeys(adapter.getApiKeys().stream().filter(BringYourOwnKeyRouter::hasUsableKey)
+                        .map(String::trim).collect(Collectors.toList()));
             }
-            ModelService original = (ModelService) adapter;
-            for (String modelName : modelNames) {
-                Backend functionConfig = functions.stream()
-                        .filter(Objects::nonNull)
-                        .filter(func -> Boolean.TRUE.equals(func.getEnable()))
-                        .filter(func -> StrUtil.equals(func.getBackend(), original.getBackend()))
-                        .filter(func -> StrUtil.isBlank(func.getModel()) || StrUtil.equals(func.getModel(), modelName))
-                        .findFirst()
-                        .orElse(null);
-                if (functionConfig == null) {
-                    continue;
-                }
-                ModelService cloned = cloneModelService(original);
-                if (cloned == null) {
-                    continue;
-                }
-                cloned.setModel(modelName);
-                BeanUtil.copyProperties(functionConfig, cloned, CopyOptions.create(null, true));
-                cloned.setModel(modelName);
-                cloned.setProtocol(ResponseProtocolUtil.normalize(cloned.getProtocol()));
-                aiManager.register(modelName, (T) cloned);
-            }
-        } catch (Exception e) {
-            log.error("MultimodalAIManager register chat model error", e);
+            adapter.setType(source.getType());
+            adapter.setProtocol(ResponseProtocolUtil.normalize(rule.getProtocol()));
+            configuredModels = configuredNames(source.getModel());
+            names = new LinkedHashSet<>(configuredModels);
+            terminal = adapter instanceof LandingAdapter && ((LandingAdapter) adapter).isFinalServer();
         }
+
+        boolean allows(String model) {
+            return rule.allowsChatModel(model, BringYourOwnKeyRouter.publicId(adapter, model));
+        }
+    }
+
+    private static void registerChatModels(List<ModelService> services, List<Backend> functions, boolean discoverUpstream) {
+        if (functions == null) {
+            LlmManager.getInstance().clear();
+            return;
+        }
+        List<ChatBackend> backends = new ArrayList<>();
+        Set<String> terminalModels = new LinkedHashSet<>();
+        Map<String, Set<String>> configured = new HashMap<>();
+        for (ModelService service : services) {
+            configured.computeIfAbsent(service.getBackend(), k -> new HashSet<>()).addAll(configuredNames(service.getModel()));
+        }
+        for (ModelService service : services) {
+            if (!(service instanceof ILlmAdapter)) continue;
+            boolean hasChatRule = false;
+            for (Backend rule : functions) {
+                if (rule == null || !Boolean.TRUE.equals(rule.getEnable()) || !Objects.equals(service.getBackend(), rule.getBackend())) continue;
+                hasChatRule = true;
+                ChatBackend backend = new ChatBackend(service, rule);
+                if (!backend.adapter.verify()) continue;
+                backends.add(backend);
+                if (backend.terminal) continue;
+                for (String id : UpstreamModels.models(backend.adapter, discoverUpstream)) {
+                    // Static driver assignments (including non-chat drivers) take precedence.
+                    if (!configured.get(service.getBackend()).contains(id)) backend.names.add(id);
+                }
+                if (!(service instanceof LandingAdapter)) {
+                    for (String id : backend.names) {
+                        if (backend.allows(id)) terminalModels.add(BringYourOwnKeyRouter.publicId(backend.adapter, id));
+                    }
+                }
+            }
+            if (!hasChatRule && discoverUpstream) UpstreamModels.models(service, true);
+        }
+        // Defer publication until all direct platforms are known, keeping the original YAML order.
+        List<ModelService> registered = new ArrayList<>();
+        for (ChatBackend backend : backends) {
+            Set<String> candidates = backend.terminal ? terminalModels : backend.names;
+            for (String name : candidates) {
+                if (!backend.allows(name)) continue;
+                ModelService adapter = cloneModelService(backend.adapter);
+                if (adapter == null) continue;
+                adapter.setModel(name);
+                if (adapter instanceof GPTAzureAdapter
+                        && (StrUtil.isBlank(adapter.getDeployment()) || !backend.configuredModels.contains(name))) {
+                    adapter.setDeployment(name);
+                }
+                registered.add(adapter);
+                if (Html2ContentManager.getInstance().getAdapter(name) == null) {
+                    Html2ContentManager.getInstance().register(name, (ILlmAdapter) adapter);
+                }
+            }
+        }
+        LlmManager.getInstance().replaceModels(registered);
     }
 
     private static  <T> void register(List<String> modelNames, AIManager<T> aiManager, T adapter, List<Backend> functions) {
@@ -204,7 +266,7 @@ public class MultimodalAIManager {
                         return Stream.empty();
                     }
                     //Single drive to multiple drive
-                    if (model.getModel() != null && model.getDriver() != null) {
+                    if (model.getDriver() != null && (model.getModel() != null || model.getDrivers() == null)) {
                         if (doesImplementInterface(model.getDriver(), "ai.wrapper.IWrapper")) {
                             IWrapper wrapper = createWrapper(model.getDriver());
                             model.setDrivers(wrapper.getDrivers(model.getModel()));
@@ -256,7 +318,8 @@ public class MultimodalAIManager {
                     if(modelService == null) {
                         return false;
                     }
-                    return modelService.verify();
+                    // A chat rule can supply its own credentials after the platform has been loaded.
+                    return modelService instanceof ILlmAdapter || modelService.verify();
                 }).collect(Collectors.toList());
     }
 

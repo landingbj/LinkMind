@@ -79,13 +79,15 @@ public class CompletionsService implements ChatCompletion {
         // The execution model is specified
         RRException r = new RRException(LLMErrorConstants.OTHER_ERROR, "{\"error\":\"backend is not enabled.\"}");
         if (chatCompletionRequest.getModel() != null) {
-            ILlmAdapter appointAdapter = llmAdapterAIManager.getAdapter(chatCompletionRequest.getModel());
+            ILlmAdapter selected = chatCompletionRequest.getSelectedChatAdapter();
+            ILlmAdapter appointAdapter = selected != null ? selected : llmAdapterAIManager.getAdapter(chatCompletionRequest.getModel());
             if (appointAdapter == null) {
                 throw new RRException(LLMErrorConstants.NO_AVAILABLE_MODEL, "{\"error\":\"No available model.\"}");
             }
             if (notFreezingAdapter(appointAdapter)) {
                 try {
-                    ChatCompletionResult result = appointAdapter.completions(chatCompletionRequest);
+                    ChatCompletionResult result = appointAdapter.completions(selected == null ? chatCompletionRequest
+                            : chatCompletionRequest.forUpstreamModel(((ModelService) selected).getModel()));
                     unfreezeAdapter(appointAdapter);
                     return result;
                 } catch (RRException e) {
@@ -98,6 +100,7 @@ public class CompletionsService implements ChatCompletion {
                     r = e;
                 }
             }
+            if (selected != null) throw r;
         }
         String routeRule = getRoute();
         Route route = Routers.getInstance().getRoute(routeRule);
@@ -129,13 +132,15 @@ public class CompletionsService implements ChatCompletion {
         RRException r = new RRException(LLMErrorConstants.NO_AVAILABLE_MODEL, "{\"error\":\"Stream backend is not enabled.\"}");
         String failedModel = null;
         if (chatCompletionRequest.getModel() != null) {
-            ILlmAdapter adapter = llmAdapterAIManager.getAdapter(chatCompletionRequest.getModel());
+            ILlmAdapter selected = chatCompletionRequest.getSelectedChatAdapter();
+            ILlmAdapter adapter = selected != null ? selected : llmAdapterAIManager.getAdapter(chatCompletionRequest.getModel());
             if (adapter == null) {
                 throw new RRException(LLMErrorConstants.NO_AVAILABLE_MODEL, "{\"error\":\"No available model.\"}");
             }
             if (notFreezingAdapter(adapter)) {
                 try {
-                    Observable<ChatCompletionResult> result = adapter.streamCompletions(chatCompletionRequest);
+                    Observable<ChatCompletionResult> result = adapter.streamCompletions(selected == null ? chatCompletionRequest
+                            : chatCompletionRequest.forUpstreamModel(((ModelService) selected).getModel()));
                     unfreezeAdapter(adapter);
                     return result;
                 } catch (RRException e) {
@@ -151,6 +156,7 @@ public class CompletionsService implements ChatCompletion {
                     r = e;
                 }
             }
+            if (selected != null) throw r;
         }
 
         chatCompletionRequest.setModel(null);

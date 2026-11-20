@@ -1,55 +1,53 @@
 package ai.llm.adapter.impl;
 
 
-import ai.common.db.HikariDS;
+import ai.common.exception.RRException;
 import ai.config.ConfigUtil;
+import ai.llm.adapter.ILlmAdapter;
+import ai.llm.utils.LLMErrorConstants;
 import ai.llm.utils.ExtraBodyUtil;
+import ai.llm.routing.BringYourOwnKeyRouter;
+import ai.common.ModelService;
 import ai.openai.pojo.ChatCompletionRequest;
 import ai.openai.pojo.ChatCompletionResult;
-import ai.openai.pojo.ExtraBody;
 import ai.openai.utils.MultimodalTraceUtil;
-import ai.utils.ApikeyUtil;
+import ai.openai.pojo.ExtraBody;
 import io.reactivex.Observable;
+import okhttp3.HttpUrl;
 
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 
 public class LandingAdapter extends OpenAIStandardAdapter {
     private final String DEFAULT_BASE_URL = "https://ai.linkmind.top";
 
     @Override
     public ChatCompletionResult completions(ChatCompletionRequest chatCompletionRequest) {
-        String callerModel = null;
-        if (isFinalServer()) {
-            callerModel = callerModelName(chatCompletionRequest);
-            normalizeModelNameIfSlashSeparated(chatCompletionRequest);
-            if (chatCompletionRequest.getAccountUserId() != null
-                    || ApikeyUtil.isLandingKey(chatCompletionRequest.getApiKey())) {
-                chatCompletionRequest.setApiKey(ApikeyUtil.getModelKey(chatCompletionRequest.getModel()));
-            }
+        String callerModel = isFinalServer() ? callerModelName(chatCompletionRequest) : null;
+        ILlmAdapter finalAdapter = resolveFinalAdapter(chatCompletionRequest);
+        ChatCompletionResult result;
+        if (finalAdapter != null) {
+            result = finalAdapter.completions(chatCompletionRequest);
+        } else {
+            MultimodalTraceUtil.logRequest("landing-dispatch", chatCompletionRequest, getApiAddress());
+            result = super.completions(chatCompletionRequest);
         }
-        MultimodalTraceUtil.logRequest("landing-dispatch", chatCompletionRequest, getApiAddress());
-        return restoreCallerModel(super.completions(chatCompletionRequest), callerModel);
+        return restoreCallerModel(result, callerModel);
     }
 
     @Override
     public Observable<ChatCompletionResult> streamCompletions(ChatCompletionRequest chatCompletionRequest) {
-        String callerModel = null;
-        if (isFinalServer()) {
-            callerModel = callerModelName(chatCompletionRequest);
-            normalizeModelNameIfSlashSeparated(chatCompletionRequest);
-            if (chatCompletionRequest.getAccountUserId() != null
-                    || ApikeyUtil.isLandingKey(chatCompletionRequest.getApiKey())) {
-                chatCompletionRequest.setApiKey(ApikeyUtil.getModelKey(chatCompletionRequest.getModel()));
-            }
+        String callerModel = isFinalServer() ? callerModelName(chatCompletionRequest) : null;
+        ILlmAdapter finalAdapter = resolveFinalAdapter(chatCompletionRequest);
+        Observable<ChatCompletionResult> result;
+        if (finalAdapter != null) {
+            result = finalAdapter.streamCompletions(chatCompletionRequest);
+        } else {
+            MultimodalTraceUtil.logRequest("landing-dispatch", chatCompletionRequest, getApiAddress());
+            result = super.streamCompletions(chatCompletionRequest);
         }
-        MultimodalTraceUtil.logRequest("landing-dispatch", chatCompletionRequest, getApiAddress());
         final String responseModel = callerModel;
-        return super.streamCompletions(chatCompletionRequest)
-                .map(result -> restoreCallerModel(result, responseModel));
+        return result.map(chunk -> restoreCallerModel(chunk, responseModel));
     }
 
     private static String callerModelName(ChatCompletionRequest request) {
@@ -68,25 +66,42 @@ public class LandingAdapter extends OpenAIStandardAdapter {
     }
 
     /**
-     * If model is like {@code Alibaba/qwen3-max}, keep only the part after the slash ({@code qwen3-max}).
+     * A box sends provider-prefixed cloud aliases back to the final LinkMind
+     * server. At that point the request must leave through the configured
+     * provider adapter, not call this server's HTTP endpoint again.
      */
-    private void normalizeModelNameIfSlashSeparated(ChatCompletionRequest chatCompletionRequest) {
-        if (chatCompletionRequest == null || chatCompletionRequest.getModel() == null) {
-            return;
+    private ILlmAdapter resolveFinalAdapter(ChatCompletionRequest request) {
+        if (!isFinalServer() || request == null) {
+            return null;
         }
-        String model = chatCompletionRequest.getModel().trim();
-        int slash = model.indexOf('/');
-        if (slash >= 0 && slash < model.length() - 1) {
-            String after = model.substring(slash + 1).trim();
-            if (!after.isEmpty()) {
-                chatCompletionRequest.setModel(after);
-            }
+        ILlmAdapter target = BringYourOwnKeyRouter.upstream(request.getModel());
+        if (target == null) {
+            throw new RRException(LLMErrorConstants.NO_AVAILABLE_MODEL,
+                    "{\"error\":\"No configured upstream for model: " + request.getModel() + ".\"}");
         }
+
+        // A first-hop key must not override the target provider's configured key.
+        request.setSelectedBackendApiKey(null);
+        request.setModel(((ModelService) target).getModel());
+        return target;
     }
 
-    private boolean isFinalServer() {
-        boolean flag = getApiAddress().startsWith(ConfigUtil.getBaseUrl());
-        return flag;
+    public boolean isFinalServer() {
+        HttpUrl destination = HttpUrl.parse(ConfigUtil.normalizeCascadeApiAddress(getApiAddress()));
+        return destination != null && (sameService(destination, ConfigUtil.getBaseUrl())
+                || sameService(destination, ConfigUtil.APP_CONTAINER_URL));
+    }
+
+    private static boolean sameService(HttpUrl destination, String address) {
+        if (address == null || address.trim().isEmpty()) return false;
+        HttpUrl local = HttpUrl.parse(ConfigUtil.normalizeCascadeApiAddress(address));
+        if (local == null || !destination.scheme().equals(local.scheme()) || destination.port() != local.port()
+                || !destination.encodedPath().equals(local.encodedPath())) return false;
+        return destination.host().equals(local.host()) || (loopback(destination.host()) && loopback(local.host()));
+    }
+
+    private static boolean loopback(String host) {
+        return "localhost".equals(host) || "127.0.0.1".equals(host) || "::1".equals(host);
     }
 
     @Override

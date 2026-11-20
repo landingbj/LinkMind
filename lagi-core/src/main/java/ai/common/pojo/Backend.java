@@ -5,7 +5,7 @@ import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import lombok.*;
 
-import java.util.ArrayList;
+import java.util.Objects;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -23,6 +23,17 @@ public class Backend {
     private Boolean enable;
     private Integer priority;
     private String model;
+    @JsonFormat(with = JsonFormat.Feature.ACCEPT_SINGLE_VALUE_AS_ARRAY)
+    private List<String> models;
+
+    public boolean allowsChatModel(String upstreamId, String publicId) {
+        if (models != null) {
+            return models.stream().filter(Objects::nonNull).flatMap(value -> Arrays.stream(value.split(","))).map(String::trim)
+                    .anyMatch(id -> id.equals(upstreamId) || id.equals(publicId));
+        }
+        return model == null || model.trim().isEmpty()
+                || model.trim().equals(upstreamId) || model.trim().equals(publicId);
+    }
     private String deployment;
     private String apiVersion;
     private String driver;

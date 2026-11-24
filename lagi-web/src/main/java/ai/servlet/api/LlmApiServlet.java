@@ -312,6 +312,8 @@ public class LlmApiServlet extends BaseServlet {
             return;
         }
 
+        MultimodalTraceUtil.logEvent("pre-model-routing-complete", chatCompletionRequest);
+
         boolean isMultiModal = CompletionUtil.isMultiModal(chatCompletionRequest);
         ChatCompletionResult chatCompletionResult;
         List<IndexSearchData> indexSearchDataList = null;
@@ -690,6 +692,7 @@ public class LlmApiServlet extends BaseServlet {
         final ChatCompletionResult[] lastResult = {null};
         final Map<Integer, ThinkTagContentFilter> thinkFilters = new HashMap<>();
         final StreamCompletionTerminator terminator = new StreamCompletionTerminator();
+        final boolean[] clientFirstChunk = {true};
         String key = UUID.randomUUID().toString();
         observable.subscribe(
                 data -> {
@@ -699,6 +702,10 @@ public class LlmApiServlet extends BaseServlet {
                     ChatCompletionResult filter = data;
                     if (filter == null) {
                         return;
+                    }
+                    if (clientFirstChunk[0]) {
+                        clientFirstChunk[0] = false;
+                        MultimodalTraceUtil.logFirstEvent("client-first-sse", chatCompletionRequest);
                     }
                     stripThinkBlocks(filter, thinkFilters);
                     terminator.observe(filter);
@@ -722,6 +729,8 @@ public class LlmApiServlet extends BaseServlet {
                     }
                 },
                 e -> {
+                    MultimodalTraceUtil.logEvent("stream-error", chatCompletionRequest);
+                    MultimodalTraceUtil.clearCurrentTrace();
                     logger.error("Error in stream completion", e);
                     try {
                         if (medusaMonitor != null) {
@@ -739,6 +748,8 @@ public class LlmApiServlet extends BaseServlet {
                     }
                 },
                 () -> {
+                    MultimodalTraceUtil.logEvent("stream-complete", chatCompletionRequest);
+                    MultimodalTraceUtil.clearCurrentTrace();
                     if (lastResult[0] == null) {
                         return;
                     }

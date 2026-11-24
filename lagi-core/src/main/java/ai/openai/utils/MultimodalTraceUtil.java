@@ -12,6 +12,8 @@ import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.UUID;
 
 /**
@@ -23,6 +25,9 @@ import java.util.UUID;
 public final class MultimodalTraceUtil {
     private static final Logger log = LoggerFactory.getLogger(MultimodalTraceUtil.class);
     private static final String TRACE_PROPERTY = "linkmind.trace.multimodal";
+    private static final ConcurrentHashMap<String, Long> START_TIMES = new ConcurrentHashMap<>();
+    private static final Set<String> ONCE_STAGES = ConcurrentHashMap.newKeySet();
+    private static final ThreadLocal<String> CURRENT_TRACE_ID = new ThreadLocal<>();
 
     private MultimodalTraceUtil() {
     }
@@ -32,11 +37,19 @@ public final class MultimodalTraceUtil {
             return;
         }
         String traceId = ensureTraceId(request);
+        if ("api-received".equals(stage)) {
+            START_TIMES.put(traceId, System.nanoTime());
+            CURRENT_TRACE_ID.set(traceId);
+            ONCE_STAGES.remove(traceId + ":upstream-first-sse");
+            ONCE_STAGES.remove(traceId + ":upstream-first-meaningful");
+            ONCE_STAGES.remove(traceId + ":client-first-sse");
+        }
         TraceSummary summary = summarize(request);
-        log.info("LM_MULTIMODAL_TRACE stage={} traceId={} model={} endpoint={} stream={} messages={} "
+        log.info("LM_MULTIMODAL_TRACE stage={} traceId={} elapsedMs={} model={} endpoint={} stream={} messages={} "
                         + "streamOptions={} textParts={} imageParts={} images={}",
                 stage,
                 traceId,
+                elapsedMillis(traceId),
                 safe(request.getModel()),
                 endpoint == null ? "-" : endpoint,
                 Boolean.TRUE.equals(request.getStream()),
@@ -51,12 +64,52 @@ public final class MultimodalTraceUtil {
         if (!enabled() || request == null) {
             return;
         }
-        log.info("LM_MULTIMODAL_TRACE stage={} traceId={} model={} endpoint={} status={}",
+        log.info("LM_MULTIMODAL_TRACE stage={} traceId={} elapsedMs={} model={} endpoint={} status={}",
                 stage,
                 ensureTraceId(request),
+                elapsedMillis(ensureTraceId(request)),
                 safe(request.getModel()),
                 endpoint == null ? "-" : endpoint,
                 statusCode == null ? "-" : statusCode);
+    }
+
+    /** Logs a timing marker once per request without exposing request or response content. */
+    public static void logFirstEvent(String stage, ChatCompletionRequest request) {
+        if (!enabled() || request == null) {
+            return;
+        }
+        String traceId = ensureTraceId(request);
+        if (ONCE_STAGES.add(traceId + ":" + stage)) {
+            log.info("LM_MULTIMODAL_TRACE stage={} traceId={} elapsedMs={} model={}",
+                    stage, traceId, elapsedMillis(traceId), safe(request.getModel()));
+        }
+    }
+
+    public static void logEvent(String stage, ChatCompletionRequest request) {
+        if (!enabled() || request == null) {
+            return;
+        }
+        String traceId = ensureTraceId(request);
+        log.info("LM_MULTIMODAL_TRACE stage={} traceId={} elapsedMs={} model={}",
+                stage, traceId, elapsedMillis(traceId), safe(request.getModel()));
+    }
+
+    /** Logs a servlet-thread event for helpers that do not receive the request object. */
+    public static void logCurrentEvent(String stage, String endpoint, String outcome) {
+        if (!enabled()) {
+            return;
+        }
+        String traceId = CURRENT_TRACE_ID.get();
+        if (traceId == null) {
+            return;
+        }
+        log.info("LM_MULTIMODAL_TRACE stage={} traceId={} elapsedMs={} endpoint={} outcome={}",
+                stage, traceId, elapsedMillis(traceId), endpoint == null ? "-" : endpoint,
+                outcome == null ? "-" : outcome);
+    }
+
+    public static void clearCurrentTrace() {
+        CURRENT_TRACE_ID.remove();
     }
 
     private static boolean enabled() {
@@ -68,6 +121,11 @@ public final class MultimodalTraceUtil {
             request.setTraceId(UUID.randomUUID().toString().replace("-", "").substring(0, 12));
         }
         return request.getTraceId();
+    }
+
+    private static long elapsedMillis(String traceId) {
+        Long startedAt = START_TIMES.get(traceId);
+        return startedAt == null ? -1L : (System.nanoTime() - startedAt) / 1_000_000L;
     }
 
     private static TraceSummary summarize(ChatCompletionRequest request) {

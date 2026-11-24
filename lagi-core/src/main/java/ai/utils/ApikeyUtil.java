@@ -7,6 +7,7 @@ import ai.llm.adapter.ILlmAdapter;
 import ai.llm.adapter.impl.ProxyLlmAdapter;
 import ai.manager.AIManager;
 import ai.manager.LlmManager;
+import ai.openai.utils.MultimodalTraceUtil;
 import com.google.gson.Gson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -101,13 +102,19 @@ public class ApikeyUtil {
         requestBody.put("apiKey", apiKey.trim());
         String jsonBody = gson.toJson(requestBody);
         try {
+            MultimodalTraceUtil.logCurrentEvent("saas-key-validation-dispatch", AiGlobal.SAAS_URL + SAAS_API_KEY_VALIDATE_PATH, null);
             String json = OkHttpUtil.post(AiGlobal.SAAS_URL + SAAS_API_KEY_VALIDATE_PATH, new HashMap<>(), new HashMap<>(), jsonBody, DEFAULT_TIMEOUT_SECONDS);
             Response response = gson.fromJson(json, Response.class);
-            if (ApiKeyValidationResponse.isSuccessfulLandingValidation(response)) {
+            boolean valid = ApiKeyValidationResponse.isSuccessfulLandingValidation(response);
+            MultimodalTraceUtil.logCurrentEvent("saas-key-validation-result", AiGlobal.SAAS_URL + SAAS_API_KEY_VALIDATE_PATH,
+                    valid ? "valid" : "invalid");
+            if (valid) {
                 landingKeyCache.put(apiKey, true);
             }
-            return ApiKeyValidationResponse.isSuccessfulLandingValidation(response);
+            return valid;
         } catch (Exception e) {
+            MultimodalTraceUtil.logCurrentEvent("saas-key-validation-error", AiGlobal.SAAS_URL + SAAS_API_KEY_VALIDATE_PATH,
+                    e.getClass().getSimpleName());
             logger.error("ApiKey validate api check error", e);
             return false;
         }

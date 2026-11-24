@@ -106,12 +106,12 @@ public class OpenAIStandardAdapter extends ModelService implements ILlmAdapter {
                             sessionContext, responseId.get(), assistantMessage.get(), toolScope));
         }
         Observable<ChatCompletionResult> firstAttempt = bufferUntilMeaningfulOutput(
-                openStandardStream(reqApiKey, chatCompletionRequest));
+                openStandardStream(reqApiKey, chatCompletionRequest), chatCompletionRequest);
         return firstAttempt.switchIfEmpty(Observable.defer(() -> {
             logger.warn("OpenAI-compatible model returned an empty stream; retrying once. model={}",
                     chatCompletionRequest.getModel());
             try {
-                return bufferUntilMeaningfulOutput(openStandardStream(reqApiKey, chatCompletionRequest))
+                return bufferUntilMeaningfulOutput(openStandardStream(reqApiKey, chatCompletionRequest), chatCompletionRequest)
                         .switchIfEmpty(Observable.just(LLMErrorConstants.errorResponse(chatCompletionRequest,
                                 LLMErrorConstants.OTHER_ERROR, EMPTY_STREAM_RESPONSE_MESSAGE)));
             } catch (RRException e) {
@@ -125,12 +125,13 @@ public class OpenAIStandardAdapter extends ModelService implements ILlmAdapter {
         MultimodalTraceUtil.logRequest("http-dispatch", request, getApiAddress());
         LlmApiResponse completions = OpenAiApiUtil.streamCompletions(apiKey, getApiAddress(), HTTP_TIMEOUT, request,
                 GptConvert::convertSteamLine2ChatCompletionResult, GptConvert::convertByResponse);
-        MultimodalTraceUtil.logResult("http-result", request, getApiAddress(), completions.getCode());
+        MultimodalTraceUtil.logResult("upstream-headers", request, getApiAddress(), completions.getCode());
         if(completions.getCode() != 200) {
             logger.error("openai stream api : code{} error {}", completions.getCode(), completions.getMsg());
             throw new RRException(completions.getCode(), completions.getMsg());
         }
-        return completions.getStreamData();
+        return completions.getStreamData()
+                .doOnNext(chunk -> MultimodalTraceUtil.logFirstEvent("upstream-first-sse", request));
     }
 
     /**
@@ -138,7 +139,8 @@ public class OpenAIStandardAdapter extends ModelService implements ILlmAdapter {
      * empty deltas and usage. Delay forwarding until a real model output is
      * seen, so that a completely empty attempt can be safely retried.
      */
-    private Observable<ChatCompletionResult> bufferUntilMeaningfulOutput(Observable<ChatCompletionResult> source) {
+    private Observable<ChatCompletionResult> bufferUntilMeaningfulOutput(Observable<ChatCompletionResult> source,
+                                                                          ChatCompletionRequest request) {
         return Observable.create(emitter -> {
             List<ChatCompletionResult> buffered = new ArrayList<>();
             AtomicReference<Boolean> hasMeaningfulOutput = new AtomicReference<>(false);
@@ -156,6 +158,7 @@ public class OpenAIStandardAdapter extends ModelService implements ILlmAdapter {
                 }
 
                 hasMeaningfulOutput.set(true);
+                MultimodalTraceUtil.logFirstEvent("upstream-first-meaningful", request);
                 if (!emitter.isDisposed()) {
                     for (ChatCompletionResult bufferedChunk : buffered) {
                         emitter.onNext(bufferedChunk);

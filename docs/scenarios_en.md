@@ -8,18 +8,9 @@ If the service is not running yet, start with the [Installation Guide](install_e
 
 LinkMind is not another standalone model. It is a unified middleware layer between business systems, private data, private capabilities, agent runtimes, and model providers.
 
-```text
-Business and interaction layer
-Web / App / API / OA / CRM / ERP / Agent / OpenClaw
-        |
-        v
-LinkMind middleware layer
-Routing / RAG / Skills / Safety filters / Cache acceleration / Token governance / Observability
-        |
-        v
-Models, data, and tools
-LLM / VLM / MLLM / ASR / TTS / Embedding / Vector stores / Private databases / Tools
-```
+<a href="images/img_25.png">
+  <img src="images/img_25.png" alt="LinkMind ecosystem and scenario access architecture" width="100%">
+</a>
 
 The core idea is to keep model switching, failover, safety policies, RAG retrieval, token reduction, cost accounting, and capability reuse inside LinkMind. Business applications can call a stable LinkMind API or endpoints compatible with OpenAI Chat Completions / Responses and Anthropic Messages instead of binding themselves to each provider.
 
@@ -105,7 +96,7 @@ Business usage:
 
 Setup:
 
-1. Choose optional Agent frontend integration during installation, or synchronize OpenClaw, Hermes Agent, or DeerFlow model settings through the [Configuration Reference](config_en.md).
+1. Choose optional Agent frontend integration during installation, then follow the [Agent Runtime Integration Cookbook](BestPractice/agent-runtime-setup_en.md) for OpenClaw, Hermes Agent, DeerFlow, or OpenHuman setup and verification.
 2. Select the LinkMind Chat Completions, Responses, or Messages endpoint supported by the existing agent; the client protocol setting must match the endpoint.
 3. Configure the base URL, model name, and authentication as required by the client. OpenAI clients typically use a base URL ending in `/v1`; Claude Code uses the service root for `ANTHROPIC_BASE_URL` and appends `/v1/messages`. See the [Configuration Reference](config_en.md#using-the-box-as-a-cli-model-gateway) for setup steps.
 4. Enable filters, token statistics, and routing failover.

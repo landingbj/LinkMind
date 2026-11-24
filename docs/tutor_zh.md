@@ -176,7 +176,7 @@ stores:
 
 ### 1.7 可选：接入 Agent 运行时
 
-如果你的本地工作流已经有 OpenClaw、Hermes Agent、DeerFlow 或 OpenHuman：
+如果你的本地工作流已经有 OpenClaw、Hermes Agent、DeerFlow 或 OpenHuman，请直接查看独立的[Agent 客户端接入实操](BestPractice/agent-runtime-setup_zh.md)。
 
 1. 重新安装或重启统一的 LinkMind，并在安装器中按需选择 Agent 前端接入。
 2. 检查运行时配置路径是否正确。
@@ -320,6 +320,10 @@ functions:
 8. 纯图片文件：通过 OCR 或图像理解转成可检索内容。
 
 ## 第三部分：智能体客户端接入实操
+
+OpenClaw、Hermes Agent、DeerFlow、OpenHuman 的安装、配置与验证步骤已迁移到独立的[Agent 客户端接入实操](BestPractice/agent-runtime-setup_zh.md)。教学演示保留 LinkMind 基础能力与接口上手内容，客户端操作教程在 BestPractice 中独立维护。
+
+<!-- 以下为已迁移的旧版实操原文，不在在线文档中渲染。
 
 本部分用于指导你把 LinkMind 接入 OpenClaw、Hermes Agent、DeerFlow、OpenHuman 四类智能体客户端，并完成从客户端对话到 LinkMind 用量记录的闭环验证。
 
@@ -674,6 +678,8 @@ corepack pnpm run dev
 #### OpenHuman
 
 先启动 LinkMind，再打开 OpenHuman 桌面应用。如果安装器修改 `config.toml` 时 OpenHuman 已经在运行，请重启 OpenHuman 以重新加载 `linkmind` provider。
+
+旧版智能体客户端接入实操结束。 -->
 
 ## 第四部分：AI Agents Project Best Practice 延伸阅读
 

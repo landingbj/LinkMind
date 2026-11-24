@@ -8,18 +8,9 @@
 
 LinkMind 不是另一个单独的大模型，而是业务系统、私有数据、私有能力、Agent 运行时和多模型提供方之间的统一中间层。
 
-```text
-业务与交互层
-Web / App / API / OA / CRM / ERP / Agent / OpenClaw
-        |
-        v
-LinkMind 中间件层
-路由调度 / RAG / Skills / 安全过滤 / 缓存加速 / Token 管控 / 观测
-        |
-        v
-模型、数据与工具层
-LLM / VLM / MLLM / ASR / TTS / Embedding / 向量库 / 私有数据库 / Tools
-```
+<a href="images/img_24.png">
+  <img src="images/img_24.png" alt="LinkMind 生态兼容与场景接入架构图" width="100%">
+</a>
 
 这层中间件的核心价值是把复杂性留在 LinkMind：模型替换、路由故障切换、安全策略、RAG 检索、Token 节流、成本统计和能力复用都在统一位置治理，业务侧可面向稳定的 LinkMind API，或兼容 OpenAI Chat Completions / Responses 和 Anthropic Messages 的接口开发。
 
@@ -105,7 +96,7 @@ Knowledge Base Server 适合企业已经拥有制度文档、产品资料、FAQ�
 
 怎么架设：
 
-1. 安装时按需选择接入 Agent 前端，或按 [配置参考](config_zh.md) 同步 OpenClaw、Hermes Agent、DeerFlow 的模型配置。
+1. 安装时按需选择接入 Agent 前端；OpenClaw、Hermes Agent、DeerFlow、OpenHuman 的安装、配置和验证请按[Agent 客户端接入实操](BestPractice/agent-runtime-setup_zh.md)执行。
 2. 按现有 Agent 支持的协议选择 LinkMind 的 Chat Completions、Responses 或 Messages 入口；客户端的协议设置必须与入口一致。
 3. 按客户端要求配置 base URL、模型名和鉴权：OpenAI 客户端通常使用带 `/v1` 的 base URL；Claude Code 的 `ANTHROPIC_BASE_URL` 使用服务根地址，由客户端追加 `/v1/messages`。具体步骤见[配置参考](config_zh.md#将盒子作为-cli-模型网关)。
 4. 开启过滤器、Token 统计和路由故障切换。

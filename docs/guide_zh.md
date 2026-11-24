@@ -300,5 +300,6 @@ docker run -d --name linkmind -p 8080:8080 landingbj/linkmind
 - [配置参考](config_zh.md)
 - [API 参考](API_zh.md)
 - [教学演示](tutor_zh.md)
+- [Agent 客户端接入实操](BestPractice/agent-runtime-setup_zh.md)
 - [业务场景指南](scenarios_zh.md)
 - [扩展开发文档](extend_zh.md)

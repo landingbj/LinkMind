@@ -125,3 +125,4 @@ The current server supports these related capabilities:
 - [Configuration Reference](config_en.md)
 - [API Reference](API_en.md)
 - [Tutorial](tutor_en.md)
+- [Agent Runtime Integration Cookbook](BestPractice/agent-runtime-setup_en.md)

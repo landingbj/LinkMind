@@ -176,7 +176,7 @@ Use the [API Reference](API_en.md) for request examples.
 
 ### 1.7 Optional: Connect An Agent Runtime
 
-If your local workflow already uses OpenClaw, Hermes Agent, DeerFlow, or OpenHuman:
+If your local workflow already uses OpenClaw, Hermes Agent, DeerFlow, or OpenHuman, use the dedicated [Agent Runtime Integration Cookbook](BestPractice/agent-runtime-setup_en.md).
 
 1. Reinstall or restart unified LinkMind, then choose Agent frontend integration in the installer when needed.
 2. Verify that the runtime config path is correct.
@@ -320,6 +320,10 @@ Different file categories are still handled differently:
 8. Pure image files: use OCR or image understanding to turn them into retrievable content.
 
 ## Part 3. Agent Client Hands-On Setup
+
+Installation, client configuration, and verification walkthroughs for OpenClaw, Hermes Agent, DeerFlow, and OpenHuman now live in the dedicated [Agent Runtime Integration Cookbook](BestPractice/agent-runtime-setup_en.md). Keeping operational recipes there lets this tutorial stay focused on LinkMind fundamentals and keeps client-specific instructions independently maintainable.
+
+<!-- Archived below while the cookbook is adopted; do not render this duplicate walkthrough.
 
 This section shows how to connect LinkMind to OpenClaw, Hermes Agent, DeerFlow, and OpenHuman, then verify the full loop from client-side conversation to LinkMind usage records.
 
@@ -674,6 +678,8 @@ corepack pnpm run dev
 #### OpenHuman
 
 Start LinkMind first, then open the OpenHuman desktop app. If OpenHuman was running while the installer changed `config.toml`, restart it so the new `linkmind` provider is loaded.
+
+End archived Agent Client Hands-On Setup. -->
 
 ## Part 4. AI Agents Project Best Practice Reading Materials
 

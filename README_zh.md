@@ -28,7 +28,7 @@ LinkMind 是面向企业场景的多模态 AI 中间件，用来把业务系统�
 
 ### 选项1：官方安装脚本快速安装
 
-前置要求：先安装 **JDK 8 或以上版本**。如果还没装 Java，可直接跳到[安装指南](docs/install_zh.md#附录安装-jdk-8)中的附录。
+前置要求：先安装 **JDK 8 或以上版本**。部署方式与 Java 安装说明见[部署、安全与级联组网](docs/deployment-and-security_zh.md)。
 
 - Windows PowerShell
 
@@ -79,9 +79,9 @@ mvn clean package -pl lagi-web -am -DskipTests -U
 - `lagi-web/target/LinkMind.jar`
 - `lagi-web/target/ROOT.war`
 
-更完整的安装说明见 [安装指南](docs/install_zh.md)。如需跟着示例一步步跑通，请参考[教学演示](docs/tutor_zh.md)。
+首次控制台核验与 API 调用请继续阅读[快速开始](docs/guide_zh.md)；详细部署方式见[部署、安全与级联组网](docs/deployment-and-security_zh.md)。
 
-启动 LinkMind 后，可继续查看 [配置指南](docs/config_zh.md)，启用 `lagi.yml` 中的模型、路由、过滤器、RAG 等运行配置。
+启动 LinkMind 后，可按功能查看[模型接入、路由与多模态](docs/models-and-multimodal_zh.md)、[知识库](docs/knowledge-base_zh.md)、[智能体接入、工具与任务编排](docs/agents-and-tools_zh.md)，在 `lagi.yml` 中启用相应运行配置。
 
 如果需要按业务场景选择 LinkMind 形态，请查看 [业务场景指南](docs/scenarios_zh.md)。
 
@@ -152,13 +152,13 @@ Token Grid 把多个 LinkMind 节点连接成类似“国家电网”的智能�
 - **框架无关接入**：其他 Agent 框架可通过兼容接口使用 `lagi.yml` 的模型路由、MCP、Skills、RAG 与策略控制，无需依赖专用插件。
 - **统一执行入口**：Worker 将本地业务 Agent 和已集成的外部 Agent 能力注册、路由到同一个调用入口。
 
-如需将这些能力通过 `lagi-core` 或 REST API 接入到业务系统，请继续阅读[开发集成指南](docs/guide_zh.md)。
+如需将这些能力通过 `lagi-core` 或 REST API 接入到业务系统，请继续阅读[系统集成与二次开发](docs/integration_zh.md)。
 
 ### 8. Worker 编排
 
 通过 Worker 统一组织已注册 Agent 的调用，支持指定目标 Agent，或结合路由策略选择合适的执行者。可复用本地业务 Agent 和已接入的云端 Agent 平台能力，适用于多业务助手统一接入、领域问答和任务分发等场景。
 
-在 `lagi.yml` 的 `skills.workers` 中配置 Worker 实现与路由，业务系统通过 `POST /chat/go` 发起调用。配置方式见 [Worker 配置指南](https://github.com/landingbj/LinkMind/blob/main/docs/config_zh.md#workers)，自定义扩展见[扩展开发文档](https://github.com/landingbj/LinkMind/blob/main/docs/extend_zh.md)。
+在 `lagi.yml` 的 `skills.workers` 中配置 Worker 实现与路由，业务系统通过 `POST /chat/go` 发起调用。配置方式见[智能体接入、工具与任务编排](docs/agents-and-tools_zh.md)，自定义扩展见[更多功能接入与自定义扩展](docs/extensions_zh.md)。
 
 ## 模型与运行时生态
 
@@ -234,7 +234,7 @@ Token Grid 把多个 LinkMind 节点连接成类似“国家电网”的智能�
   </tr>
 </table>
 
-以上条目按类型分组，并按英文名称字母顺序排列。新增模型、向量库、适配器或二次开发接口的方式见[扩展开发文档](docs/extend_zh.md)。Chroma 的具体安装与补充说明见[附件](docs/annex_zh.md)。
+以上条目按类型分组，并按英文名称字母顺序排列。新增模型、向量库、适配器或二次开发接口的方式见[更多功能接入与自定义扩展](docs/extensions_zh.md)。Chroma 的具体安装与补充说明见[知识库](docs/knowledge-base_zh.md)。
 
 ## Agentic Social（智能体社交）
 
@@ -255,36 +255,27 @@ Agentic Social 为智能体提供结构化的上下文交换、用户意图传�
 
 ## 详细文档导航
 
-首次使用建议先阅读安装指南，再按 Web UI 指南完成第一次对话；开发接入和运行配置可按下表查阅。
-
-### 入门、配置与开发
+文档已按功能组织：每个功能页汇总所需配置、接口入口和验证步骤。
 
 | 文档 | 内容 |
 | --- | --- |
-| [安装指南](docs/install_zh.md) | 安装、启动、部署方式与首次使用 |
-| [业务场景指南](docs/scenarios_zh.md) | 典型业务场景与部署选择 |
-| [教学演示](docs/tutor_zh.md) | 从首次调用到 RAG、模型路由及外部 Agent 客户端接入验证 |
-| [配置指南](docs/config_zh.md) | 模型、存储、RAG、Agent、MCP、Skills、Workers、路由与过滤器 |
-| [API 参考](docs/API_zh.md) | HTTP 接口、请求参数与响应示例 |
-| [开发集成指南](docs/guide_zh.md) | 通过 Java SDK 或 REST API 接入业务系统 |
-| [扩展开发文档](docs/extend_zh.md) | 扩展模型适配器、存储、Agent、Skills、Workers 与 MCP |
-| [安全与合规](docs/security_zh.md) | 访问控制、数据处理、工具权限与部署责任边界 |
-| [附件与补充说明](docs/annex_zh.md) | Chroma、向量检索与知识入库的补充配置 |
+| [快速开始](docs/guide_zh.md) | 首次安装、控制台核验与第一条 API 调用 |
+| [Web 控制台](docs/index_zh.md) | 页面入口、运行记录与常见检查项 |
+| [模型接入、路由与多模态](docs/models-and-multimodal_zh.md) | Provider、路由、聊天、Embedding、音频、图片、视频与文档接口 |
+| [知识库](docs/knowledge-base_zh.md) | 向量存储、RAG 配置、入库与检索验证 |
+| [智能体接入、工具与任务编排](docs/agents-and-tools_zh.md) | Agent、MCP、Skill、Worker 与运行时客户端 |
+| [系统集成与二次开发](docs/integration_zh.md) | REST、Java `lagi-core`、兼容协议与扩展边界 |
+| [部署、安全与级联组网](docs/deployment-and-security_zh.md) | 安装器、JAR、Docker、WAR、加固与级联配置 |
+| [更多功能接入与自定义扩展](docs/extensions_zh.md) | 兼容 Provider、适配器、存储与运行时扩展 |
 
-### Web UI 参考
+### 最佳实践
 
-| 专题 | 内容 |
+| 分类 | 实操 |
 | --- | --- |
-| [Web UI 概览](docs/webui/index_zh.md) | 首轮验证、功能入口，以及页面操作与运行配置的边界 |
-| [Web UI 常见问题](docs/webui/troubleshooting_zh.md) | 登录、模型调用、上传、知识检索与统计问题排查 |
+| 第三方智能体客户端 | [OpenClaw](docs/best-practices/agents/openclaw.md)、[Hermes Agent](docs/best-practices/agents/hermes-agent.md)、[DeerFlow](docs/best-practices/agents/deerflow.md)、[OpenHuman](docs/best-practices/agents/openhuman.md) |
+| 第三方命令行工具 | [Codex](docs/best-practices/cli/codex.md)、[Claude Code](docs/best-practices/cli/claude-code.md)、[客户端兼容性](docs/best-practices/cli/client-compatibility.md) |
+| 第三方服务与开发环境 | [Chroma 知识库](docs/best-practices/integrations/chroma-knowledge-base.md)、[兼容模型 Provider](docs/best-practices/integrations/compatible-model-provider.md)、[MCP 服务](docs/best-practices/integrations/connect-mcp-server.md)、[Java IDE](docs/best-practices/integrations/java-ide.md)、[Tomcat WAR](docs/best-practices/integrations/deploy-war-to-tomcat.md) |
 
-### Agent 项目最佳实践（英文 PDF）
+### Agent 项目延伸阅读（英文 PDF）
 
-| 文档 | 主题 |
-| --- | --- |
-| [Part 01](docs/BestPractice/Best-Practice-for-AI-Agents-Project_Part-01_From-Model-Call-to-Reliable-Single-Agent.pdf) | 从模型调用到可靠的单 Agent |
-| [Part 02](docs/BestPractice/Best-Practice-for-AI-Agents-Project_Part-02_Injecting-Private-Knowledge-without-Retraining.pdf) | 无需重新训练的私有知识接入 |
-| [Part 03](docs/BestPractice/Best-Practice-for-AI-Agents-Project_Part-03_Injecting-Private-Capabilities-with-Skills-Tools-and-MCP.pdf) | 通过 Skills、Tools 与 MCP 接入私有能力 |
-| [Part 04](docs/BestPractice/Best-Practice-for-AI-Agents-Project_Part-04_Safety-by-Design-Guardrails-Permissions-and-Audit.pdf) | 安全围栏、权限与审计 |
-| [Part 05](docs/BestPractice/Best-Practice-for-AI-Agents-Project_Part-05_Routing-Orchestration-and-Multi-Agent-Teamwork.pdf) | 路由、编排与多 Agent 协作 |
-| [Part 06](docs/BestPractice/Best-Practice-for-AI-Agents-Project_Part-06_Agentic-Social-Agents-in-Shared-Human-Contexts.pdf) | 共享人类上下文中的智能体社交 |
+[Part 01](docs/best-practices/01-reliable-single-agent.pdf) · [Part 02](docs/best-practices/02-private-knowledge-and-rag.pdf) · [Part 03](docs/best-practices/03-skills-tools-and-mcp.pdf) · [Part 04](docs/best-practices/04-agent-security-and-audit.pdf) · [Part 05](docs/best-practices/05-routing-and-multi-agent-orchestration.pdf) · [Part 06](docs/best-practices/06-agentic-social.pdf)

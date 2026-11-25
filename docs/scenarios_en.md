@@ -2,7 +2,7 @@
 
 This guide is for product, architecture, and delivery teams that want to put LinkMind into real business systems. It explains how LinkMind is used in enterprise scenarios, which deployment shape to choose, and how to start a practical pilot.
 
-If the service is not running yet, start with the [Installation Guide](install_en.md). If you are already integrating business systems, use this document together with the [Integration Guide](guide_en.md), [Configuration Reference](config_en.md), and [API Reference](API_en.md).
+If the service is not running yet, start with [Getting Started](guide_en.md). If you are already integrating business systems, use this document together with [System Integration](integration_en.md), [Models and Multimodal](models-and-multimodal_en.md), and [API Reference](API_en.md).
 
 ## 1. Where LinkMind Fits
 
@@ -58,8 +58,8 @@ Business usage:
 
 Setup:
 
-1. Start LinkMind with the [Installation Guide](install_en.md); a single node is enough for an initial pilot.
-2. Enable at least one chat model, routing rules, and required Skills in the [Configuration Reference](config_en.md).
+1. Start LinkMind with [Getting Started](guide_en.md); a single node is enough for an initial pilot.
+2. Enable at least one chat model, routing rules, and required Skills in [Models and Multimodal](models-and-multimodal_en.md) and [Agents and Tools](agents-and-tools_en.md).
 3. Assign the LinkMind endpoint and API key to each agent.
 4. Let agents call `/chat/completions` or `/v1/chat/completions`.
 5. For production, add a gateway, load balancing, and multiple nodes to avoid single-node bottlenecks.
@@ -78,7 +78,7 @@ Business usage:
 Setup:
 
 1. Prepare knowledge sources such as PDF, Word, HTML, FAQ, MySQL, Elasticsearch, Chroma, Milvus, or another vector store.
-2. Configure vector storage, embedding models, and retrieval flow with the [Annex](annex_en.md) and [Configuration Reference](config_en.md).
+2. Configure vector storage, embedding models, and retrieval flow with [Knowledge Base](knowledge-base_en.md).
 3. Use document processing, OCR, and embedding capabilities to chunk, vectorize, and index content.
 4. Let business systems call the chat API while LinkMind handles retrieval augmentation.
 5. Add review, update, and rollback workflows for high-value knowledge bases before production use.
@@ -96,9 +96,9 @@ Business usage:
 
 Setup:
 
-1. Choose optional Agent frontend integration during installation, then follow the [Agent Runtime Integration Cookbook](BestPractice/agent-runtime-setup_en.md) for OpenClaw, Hermes Agent, DeerFlow, or OpenHuman setup and verification.
+1. Choose optional Agent frontend integration during installation, then follow [Agents and Tools](agents-and-tools_en.md) for OpenClaw, Hermes Agent, DeerFlow, or OpenHuman setup and verification.
 2. Select the LinkMind Chat Completions, Responses, or Messages endpoint supported by the existing agent; the client protocol setting must match the endpoint.
-3. Configure the base URL, model name, and authentication as required by the client. OpenAI clients typically use a base URL ending in `/v1`; Claude Code uses the service root for `ANTHROPIC_BASE_URL` and appends `/v1/messages`. See the [Configuration Reference](config_en.md#using-the-box-as-a-cli-model-gateway) for setup steps.
+3. Configure the base URL, model name, and authentication as required by the client. OpenAI clients typically use a base URL ending in `/v1`; Claude Code uses the service root for `ANTHROPIC_BASE_URL` and appends `/v1/messages`. See [Client Compatibility](best-practices/cli/client-compatibility.md) for setup steps.
 4. Enable filters, token statistics, and routing failover.
 5. Compare token consumption, latency, failure rate, and safety interceptions before and after the change.
 
@@ -224,9 +224,8 @@ Setup:
 
 ## 6. What to Read Next
 
-- [Installation Guide](install_en.md)
-- [Integration Guide](guide_en.md)
-- [Configuration Reference](config_en.md)
-- [API Reference](API_en.md)
-- [Security & Safety](security_en.md)
-- [Annex](annex_en.md)
+- [Getting Started](guide_en.md)
+- [System Integration](integration_en.md)
+- [Models and Multimodal](models-and-multimodal_en.md)
+- [Knowledge Base](knowledge-base_en.md)
+- [Deployment and Security](deployment-and-security_en.md)

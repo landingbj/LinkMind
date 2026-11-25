@@ -1,305 +1,57 @@
-# Integration Development Guide
+# Getting Started
 
-This guide is for developers who want to integrate LinkMind into their own applications. If you only need to run the web console or call the HTTP APIs manually, read the [Installation Guide](install_en.md) and [API Reference](API_en.md) first.
+Use this guide for a first installation and a complete first request. It is the entry point for LinkMind; feature pages contain the configuration, API, and verification details for each capability.
 
-## 1. Choose an Integration Mode
+## 1. Prerequisites
 
-LinkMind supports three practical integration styles:
+- JDK 8 or later for JAR or source deployments.
+- A model-provider API key and model ID.
+- Docker only when you choose the container image.
 
-| Mode | Use when |
-| --- | --- |
-| REST API | Your application can call an external service and you want the lowest integration cost |
-| Docker service | You want a clean shared runtime for local teams, CI, or mixed-language projects |
-| `lagi-core` | Your project is Java-based and you want to call LinkMind services directly inside your own code |
+Install LinkMind with the official installer, packaged JAR, Docker image, or source build. The installer is the shortest path:
 
-If you are evaluating quickly, start with REST or Docker. Move to `lagi-core` only when you specifically need in-process Java integration.
-
-## 2. Prepare `lagi-core`
-
-### Option A: Install Locally from This Repository
-
-From the repository root, run:
+```powershell
+iwr -useb https://cdn.linkmind.top/install.ps1 | iex
+```
 
 ```bash
-mvn clean install -pl lagi-core -am -DskipTests
+curl -fsSL https://cdn.linkmind.top/install.sh | bash
 ```
 
-This installs `lagi-core` and the internal supporting artifacts that the project expects into your local Maven repository.
+For every installation mode, ports, custom config directories, and platform-specific Java setup, see [Deployment and Security](deployment-and-security_en.md).
 
-### Option B: Publish to Your Own Artifact Repository
+## 2. Start and open the console
 
-If your team already uses Nexus, Artifactory, or another internal Maven registry, publish `lagi-core` there after the same build.
+Start the JAR when you use the packaged application:
 
-## 3. Add the Java Dependency
-
-After `mvn install` or an internal publish, add the current module version:
-
-```xml
-<dependency>
-  <groupId>com.landingbj</groupId>
-  <artifactId>lagi-core</artifactId>
-  <version>1.2.4</version>
-</dependency>
+```powershell
+java -jar LinkMind.jar
 ```
 
-## 4. Provide a Configuration File
+Open `http://localhost:8080`. In **Settings -> API Keys**, add a provider key or confirm that one is already configured. Then select **Chat -> LLM -> Smart Q&A**, choose an enabled model, and send a short request.
 
-LinkMind loads `lagi.yml` from one of these locations:
+The [Console Guide](index_en.md) explains the UI entries and how to distinguish console settings from runtime YAML.
 
-- a classpath resource named `lagi.yml`
-- an explicit system property: `-Dlinkmind.config=/path/to/lagi.yml`
-- the repository resource defaults when you run directly inside the source tree
+## 3. Make the first API call
 
-For application integration, the simplest choices are:
-
-- put `lagi.yml` on your runtime classpath
-- or set `-Dlinkmind.config` and keep the file outside your package
-
-Use the [Configuration Reference](config_en.md) to enable at least one model and one chat backend before calling services.
-
-## 5. Common Java Service Calls
-
-Before you call service classes, initialize the context once:
-
-```java
-import ai.config.ContextLoader;
-
-ContextLoader.loadContext();
-```
-
-Complete runnable samples are already in:
-
-- [`lagi-core/src/test/java/ai/example/Demo.java`](../lagi-core/src/test/java/ai/example/Demo.java)
-
-### Text Chat
-
-```java
-import ai.llm.service.CompletionsService;
-import ai.openai.pojo.ChatCompletionRequest;
-import ai.openai.pojo.ChatCompletionResult;
-import ai.openai.pojo.ChatMessage;
-
-import java.util.Collections;
-
-ContextLoader.loadContext();
-
-CompletionsService service = new CompletionsService();
-
-ChatMessage message = new ChatMessage();
-message.setRole("user");
-message.setContent("Summarize LinkMind in one sentence.");
-
-ChatCompletionRequest request = new ChatCompletionRequest();
-request.setModel("qwen-plus");
-request.setStream(false);
-request.setMessages(Collections.singletonList(message));
-
-ChatCompletionResult result = service.completions(request);
-String answer = result.getChoices().get(0).getMessage().getContent();
-```
-
-### Carry Secondary-Development Context Only When You Need It
-
-Secondary-development metadata is intentionally isolated from the standard chat surface. When your business flow needs caller identity or other out-of-band data, attach it through `extra_body` instead of changing the message schema:
-
-```java
-import ai.openai.pojo.ExtraBody;
-
-ExtraBody extraBody = new ExtraBody();
-extraBody.setUserId("u_1001");
-request.setExtraBody(extraBody);
-```
-
-This keeps the request object OpenAI-compatible while giving skills, social features, and other server-side extensions a typed place to read business context. When `general.cascade_api_address` is explicitly configured and a request has no user context, `LandingAdapter` can populate the current local login user without invasive rewrites at existing call sites.
-
-### Speech Recognition
-
-```java
-import ai.audio.service.AudioService;
-import ai.common.pojo.AsrResult;
-import ai.common.pojo.AudioRequestParam;
-
-ContextLoader.loadContext();
-
-AudioService service = new AudioService();
-AudioRequestParam param = new AudioRequestParam();
-param.setFormat("wav");
-
-AsrResult result = service.asr("D:/audio/demo.wav", param);
-```
-
-### Text to Speech
-
-```java
-import ai.audio.service.AudioService;
-import ai.common.pojo.TTSRequestParam;
-import ai.common.pojo.TTSResult;
-
-ContextLoader.loadContext();
-
-AudioService service = new AudioService();
-TTSRequestParam request = new TTSRequestParam();
-request.setText("Hello from LinkMind.");
-
-TTSResult result = service.tts(request);
-```
-
-### Image Generation
-
-```java
-import ai.common.pojo.ImageGenerationRequest;
-import ai.common.pojo.ImageGenerationResult;
-import ai.image.service.ImageGenerationService;
-
-ContextLoader.loadContext();
-
-ImageGenerationService service = new ImageGenerationService();
-ImageGenerationRequest request = new ImageGenerationRequest();
-request.setPrompt("A futuristic airport assistant robot");
-
-ImageGenerationResult result = service.generations(request);
-```
-
-### More Java Examples Still Available
-
-The current codebase also includes Java samples for:
-
-- image-to-text
-- image enhancement
-- image-to-video
-- video tracking
-- video enhancement
-
-See [`lagi-core/src/test/java/ai/example/Demo.java`](../lagi-core/src/test/java/ai/example/Demo.java) for the latest runnable shapes.
-
-## 6. Integrate Through HTTP / REST
-
-If your application is not Java, the cleanest path is to run LinkMind as a service and call its HTTP endpoints.
-
-### Common Routes
-
-- Native routes such as `/chat/completions`, `/audio/speech2text`, `/audio/text2speech`, `/image/text2image`, `/sql/text2sql`, `/instruction/generate`, `/doc/doc2ext`, and `/ocr/doc2ocr`
-- OpenAI-compatible routes, including Chat Completions at `/v1/chat/completions`, Responses at `/v1/responses`, plus `/v1/models`, `/v1/embeddings`, `/v1/images/generations`, and `/v1/rerank`
-- Anthropic Messages-compatible route: `/v1/messages`
-
-Service root example:
-
-- `http://localhost:8080`
-
-### cURL Example
+After enabling a chat backend, call the OpenAI-compatible route:
 
 ```bash
 curl http://localhost:8080/v1/chat/completions \
+  -H "Authorization: Bearer <linkmind-api-key>" \
   -H "Content-Type: application/json" \
-  -d '{
-    "model": "qwen-plus",
-    "stream": false,
-    "messages": [
-      {"role": "user", "content": "Summarize LinkMind in one sentence."}
-    ]
-  }'
+  -d '{"model":"Alibaba/qwen-plus","messages":[{"role":"user","content":"Hello"}]}'
 ```
 
-### Python Example
+The request is successful only when it returns a model response and the corresponding runtime record appears in LinkMind. For model configuration, route selection, streaming, and multimodal APIs, continue with [Models and Multimodal](models-and-multimodal_en.md).
 
-```python
-import requests
+## 4. Choose the next feature
 
-resp = requests.post(
-    "http://localhost:8080/v1/chat/completions",
-    headers={"Content-Type": "application/json"},
-    json={
-        "model": "qwen-plus",
-        "stream": False,
-        "messages": [
-            {"role": "user", "content": "Summarize LinkMind in one sentence."}
-        ],
-    },
-    timeout=60,
-)
-
-resp.raise_for_status()
-print(resp.json())
-```
-
-### Go Example
-
-```go
-package main
-
-import (
-	"bytes"
-	"fmt"
-	"io"
-	"net/http"
-)
-
-func main() {
-	body := []byte(`{
-	  "model": "qwen-plus",
-	  "stream": false,
-	  "messages": [
-	    {"role": "user", "content": "Summarize LinkMind in one sentence."}
-	  ]
-	}`)
-
-	req, _ := http.NewRequest("POST", "http://localhost:8080/v1/chat/completions", bytes.NewBuffer(body))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		panic(err)
-	}
-	defer resp.Body.Close()
-
-	data, _ := io.ReadAll(resp.Body)
-	fmt.Println(string(data))
-}
-```
-
-If LinkMind auth is enabled, send:
-
-```http
-Authorization: Bearer <your-linkmind-api-key>
-```
-
-For route-by-route request details, use the [API Reference](API_en.md).
-
-### Secondary-Development Interface Groups
-
-LinkMind exposes secondary-development contracts as separate interface groups, so you can adopt only the layers your project actually needs:
-
-- `Out-of-band request context`: `POST /chat/completions` and `POST /v1/chat/completions` accept `extra_body`, which is the preferred contract for user identity and other business-side metadata.
-- `Social skill and channel APIs`: `/socialChannel/*` provides channel registration, subscription, message listing, and message publishing. Skill-side social features consume these routes instead of writing directly into the chat adapter path.
-- `User, API-key, and billing APIs`: `/user/*`, `/apiKey/*`, and `/credit/*` separate account, credential-pool, and charging workflows from model routing. This is the safest replacement point when you need to plug LinkMind into an existing SSO, user center, or charging platform.
-
-Because these interfaces are separated by responsibility, most teams can keep the current chat and multimodal flows unchanged and only swap the business module they actually own.
-
-## 7. Integrate Through Docker
-
-Docker is useful when multiple applications in different languages all need the same LinkMind runtime.
-
-### Start the Official Image
-
-```bash
-docker pull landingbj/linkmind
-docker run -d --name linkmind -p 8080:8080 landingbj/linkmind
-```
-
-### Typical Integration Pattern
-
-1. Run LinkMind in Docker as the shared AI middleware service.
-2. Point your Python, Go, Java, Node.js, or other application to `http://localhost:8080`.
-3. Choose native LinkMind routes, OpenAI Chat Completions / Responses-compatible routes, or the Anthropic Messages-compatible `/v1/messages` route to match the client protocol.
-4. Keep your business application logic separate from model-provider details.
-
-This pattern is especially useful for local development, internal demos, CI smoke tests, and multi-language teams.
-
-## 8. What to Read Next
-
-- [Configuration Reference](config_en.md)
-- [API Reference](API_en.md)
-- [Tutorial](tutor_en.md)
-- [Agent Runtime Integration Cookbook](BestPractice/agent-runtime-setup_en.md)
-- [Business Scenarios Guide](scenarios_en.md)
-- [Extension Guide](extend_en.md)
+| Goal | Read next |
+| --- | --- |
+| Connect models, routes, image, audio, or video | [Models and Multimodal](models-and-multimodal_en.md) |
+| Upload documents and build retrieval | [Knowledge Base](knowledge-base_en.md) |
+| Connect an Agent, MCP server, Skill, or Worker | [Agents and Tools](agents-and-tools_en.md) |
+| Integrate an application with REST or `lagi-core` | [Integration](integration_en.md) |
+| Deploy, harden, or cascade nodes | [Deployment and Security](deployment-and-security_en.md) |
+| Add a provider, adapter, store, or runtime extension | [Extensions](extensions_en.md) |

@@ -2,7 +2,7 @@
 
 本文面向准备把 LinkMind 放进真实业务系统中的产品、架构和交付团队。它重点说明 LinkMind 在企业场景里怎么用、应该架设成什么形态，以及不同场景从哪里开始试点。
 
-如果你还没有启动服务，请先阅读 [安装指南](install_zh.md)。如果你已经准备接入业务系统，请结合 [开发集成指南](guide_zh.md)、[配置参考](config_zh.md) 和 [API 参考](API_zh.md) 一起使用。
+如果你还没有启动服务，请先阅读[快速开始](guide_zh.md)。如果你已经准备接入业务系统，请结合[系统集成与二次开发](integration_zh.md)、[模型接入、路由与多模态](models-and-multimodal_zh.md)和[API 参考](API_zh.md)一起使用。
 
 ## 一、LinkMind 在企业架构中的定位
 
@@ -58,8 +58,8 @@ LinkMind 适合多个 Agent、多个业务线或多个团队共用一套 AI 能�
 
 怎么架设：
 
-1. 用 [安装指南](install_zh.md) 启动 LinkMind，试点阶段可以先跑单节点。
-2. 在 [配置参考](config_zh.md) 中启用至少一个聊天模型、路由规则和需要的 Skills。
+1. 用[快速开始](guide_zh.md)启动 LinkMind，试点阶段可以先跑单节点。
+2. 在[模型接入、路由与多模态](models-and-multimodal_zh.md)和[智能体、工具与任务编排](agents-and-tools_zh.md)中启用至少一个聊天模型、路由规则和需要的 Skills。
 3. 给各 Agent 分配 LinkMind 入口地址和 API Key。
 4. 让 Agent 统一调用 `/chat/completions` 或 `/v1/chat/completions`。
 5. 生产环境再接入网关、负载均衡和多节点部署，避免单点瓶颈。
@@ -78,7 +78,7 @@ Knowledge Base Server 适合企业已经拥有制度文档、产品资料、FAQ�
 怎么架设：
 
 1. 准备知识来源，例如 PDF、Word、HTML、FAQ、MySQL、Elasticsearch、Chroma、Milvus 或其他向量库。
-2. 按 [附件](annex_zh.md) 和 [配置参考](config_zh.md) 配置向量存储、Embedding 模型和检索链路。
+2. 按[知识库](knowledge-base_zh.md)配置向量存储、Embedding 模型和检索链路。
 3. 通过文档处理、OCR、Embedding 等能力把资料切分、向量化并写入检索组件。
 4. 让业务系统调用聊天接口，由 LinkMind 自动完成检索增强。
 5. 对高价值知识库设置更新、审核和回滚流程，避免未确认内容直接进入生产问答。
@@ -96,9 +96,9 @@ Knowledge Base Server 适合企业已经拥有制度文档、产品资料、FAQ�
 
 怎么架设：
 
-1. 安装时按需选择接入 Agent 前端；OpenClaw、Hermes Agent、DeerFlow、OpenHuman 的安装、配置和验证请按[Agent 客户端接入实操](BestPractice/agent-runtime-setup_zh.md)执行。
+1. 安装时按需选择接入 Agent 前端；OpenClaw、Hermes Agent、DeerFlow、OpenHuman 的安装、配置和验证请按[智能体、工具与任务编排](agents-and-tools_zh.md)执行。
 2. 按现有 Agent 支持的协议选择 LinkMind 的 Chat Completions、Responses 或 Messages 入口；客户端的协议设置必须与入口一致。
-3. 按客户端要求配置 base URL、模型名和鉴权：OpenAI 客户端通常使用带 `/v1` 的 base URL；Claude Code 的 `ANTHROPIC_BASE_URL` 使用服务根地址，由客户端追加 `/v1/messages`。具体步骤见[配置参考](config_zh.md#将盒子作为-cli-模型网关)。
+3. 按客户端要求配置 base URL、模型名和鉴权：OpenAI 客户端通常使用带 `/v1` 的 base URL；Claude Code 的 `ANTHROPIC_BASE_URL` 使用服务根地址，由客户端追加 `/v1/messages`。具体步骤见[客户端兼容性](best-practices/cli/client-compatibility.md)。
 4. 开启过滤器、Token 统计和路由故障切换。
 5. 对比接入前后的 Token 消耗、延迟、失败率和安全拦截结果。
 
@@ -224,9 +224,8 @@ Benchmark 压力测试适合 POC 验收、上线前容量验证、版本升级�
 
 ## 六、接下来建议继续看
 
-- [安装指南](install_zh.md)
-- [开发集成指南](guide_zh.md)
-- [配置参考](config_zh.md)
-- [API 参考](API_zh.md)
-- [安全与合规](security_zh.md)
-- [附件](annex_zh.md)
+- [快速开始](guide_zh.md)
+- [系统集成与二次开发](integration_zh.md)
+- [模型接入、路由与多模态](models-and-multimodal_zh.md)
+- [知识库](knowledge-base_zh.md)
+- [部署、安全与级联组网](deployment-and-security_zh.md)

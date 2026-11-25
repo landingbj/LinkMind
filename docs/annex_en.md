@@ -121,8 +121,7 @@ The current server supports these related capabilities:
 
 ## 6. Related Docs
 
-- [Installation Guide](install_en.md)
-- [Configuration Reference](config_en.md)
+- [Getting Started](guide_en.md)
+- [Knowledge Base](knowledge-base_en.md)
 - [API Reference](API_en.md)
-- [Tutorial](tutor_en.md)
-- [Agent Runtime Integration Cookbook](BestPractice/agent-runtime-setup_en.md)
+- [Agents and Tools](agents-and-tools_en.md)

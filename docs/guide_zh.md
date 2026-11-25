@@ -1,305 +1,57 @@
-# 开发集成指南
+# 快速开始
 
-本文面向准备把 LinkMind 接入到自己业务系统中的开发者。如果你只是想先把控制台或 HTTP API 跑起来，请优先阅读 [安装指南](install_zh.md) 和 [API 参考](API_zh.md)。
+本页用于完成首次安装与第一条完整调用，是 LinkMind 的统一入口；各功能页会把该功能的配置、接口和验证方式放在一起。
 
-## 一、先选集成方式
+## 一、前置条件
 
-LinkMind 常见的接入方式有三种：
+- 运行 JAR 或从源码构建时需要 JDK 8 或更高版本。
+- 准备模型厂商的 API Key 和模型 ID。
+- 只有选择容器镜像时才需要 Docker。
 
-| 方式 | 适用场景 |
-| --- | --- |
-| REST API | 你的系统可以调用外部服务，希望接入成本最低 |
-| Docker 服务 | 你希望给本地团队、测试环境或多语言项目提供一个统一运行时 |
-| `lagi-core` | 你的项目是 Java 项目，希望在自己代码里直接调用 LinkMind 服务类 |
+可使用官方安装器、预打包 JAR、Docker 镜像或源码构建。最快方式是官方安装器：
 
-如果只是快速验证，建议先用 REST API 或 Docker；只有在你明确需要 Java 进程内调用时，再接 `lagi-core`。
-
-## 二、准备 `lagi-core`
-
-### 方式 A：从当前仓库安装到本地 Maven
-
-在仓库根目录执行：
+```powershell
+iwr -useb https://cdn.linkmind.top/install.ps1 | iex
+```
 
 ```bash
-mvn clean install -pl lagi-core -am -DskipTests
+curl -fsSL https://cdn.linkmind.top/install.sh | bash
 ```
 
-这一步会把 `lagi-core` 以及项目依赖的内部制品一起安装到本地 Maven 仓库中。
+所有安装方式、端口、自定义配置目录和各平台 Java 安装说明见[部署、安全与级联组网](deployment-and-security_zh.md)。
 
-### 方式 B：发布到团队内部制品库
+## 二、启动并打开控制台
 
-如果团队已经在使用 Nexus、Artifactory 等内部 Maven 仓库，也可以基于同样的构建结果自行发布。
+使用预打包应用时执行：
 
-## 三、添加 Java 依赖
-
-本地 `mvn install` 完成后，或你已经发布到内部仓库后，可以按当前版本添加依赖：
-
-```xml
-<dependency>
-  <groupId>com.landingbj</groupId>
-  <artifactId>lagi-core</artifactId>
-  <version>1.2.4</version>
-</dependency>
+```powershell
+java -jar LinkMind.jar
 ```
 
-## 四、提供配置文件
+打开 `http://localhost:8080`。在 **设置 -> API 密钥** 中新增或确认已有可用 Provider Key；再进入 **聊天 -> 大模型 -> 智能问答**，选择已启用模型并发送一条短消息。
 
-LinkMind 会按以下方式查找 `lagi.yml`：
+[Web 控制台](index_zh.md)说明各页面入口，以及页面设置与运行时 YAML 的边界。
 
-- 运行时 classpath 中名为 `lagi.yml` 的资源
-- 显式系统属性：`-Dlinkmind.config=/path/to/lagi.yml`
-- 在源码仓库内运行时，会回退到仓库自带资源路径
+## 三、完成第一条 API 调用
 
-对业务集成来说，最简单的两种做法是：
-
-- 直接把 `lagi.yml` 放进你的运行时 classpath
-- 或者通过 `-Dlinkmind.config` 指向外部配置文件
-
-在真正调用服务前，请先按 [配置参考](config_zh.md) 至少启用一个模型和一个聊天后端。
-
-## 五、常见 Java 调用方式
-
-在调用服务类之前，先初始化一次上下文：
-
-```java
-import ai.config.ContextLoader;
-
-ContextLoader.loadContext();
-```
-
-完整可运行示例已经在这里：
-
-- [`lagi-core/src/test/java/ai/example/Demo.java`](../lagi-core/src/test/java/ai/example/Demo.java)
-
-### 文本对话
-
-```java
-import ai.llm.service.CompletionsService;
-import ai.openai.pojo.ChatCompletionRequest;
-import ai.openai.pojo.ChatCompletionResult;
-import ai.openai.pojo.ChatMessage;
-
-import java.util.Collections;
-
-ContextLoader.loadContext();
-
-CompletionsService service = new CompletionsService();
-
-ChatMessage message = new ChatMessage();
-message.setRole("user");
-message.setContent("请用一句话介绍 LinkMind。");
-
-ChatCompletionRequest request = new ChatCompletionRequest();
-request.setModel("qwen-plus");
-request.setStream(false);
-request.setMessages(Collections.singletonList(message));
-
-ChatCompletionResult result = service.completions(request);
-String answer = result.getChoices().get(0).getMessage().getContent();
-```
-
-### 按需附加二次开发上下文
-
-二次开发元数据被刻意隔离在标准聊天参数之外。只有当业务流程确实需要传递调用方身份或其他带外信息时，才建议通过 `extra_body` 挂载，而不是改写消息结构：
-
-```java
-import ai.openai.pojo.ExtraBody;
-
-ExtraBody extraBody = new ExtraBody();
-extraBody.setUserId("u_1001");
-request.setExtraBody(extraBody);
-```
-
-这种写法既保留了 OpenAI 兼容请求形态，也为 Skill、社交能力和其他服务端扩展提供了明确的业务上下文边界。当明确配置 `general.cascade_api_address` 且请求未携带用户上下文时，`LandingAdapter` 可以补齐当前本地登录用户，已有调用点不需要做侵入式改造。
-
-### 语音识别
-
-```java
-import ai.audio.service.AudioService;
-import ai.common.pojo.AsrResult;
-import ai.common.pojo.AudioRequestParam;
-
-ContextLoader.loadContext();
-
-AudioService service = new AudioService();
-AudioRequestParam param = new AudioRequestParam();
-param.setFormat("wav");
-
-AsrResult result = service.asr("D:/audio/demo.wav", param);
-```
-
-### 文字转语音
-
-```java
-import ai.audio.service.AudioService;
-import ai.common.pojo.TTSRequestParam;
-import ai.common.pojo.TTSResult;
-
-ContextLoader.loadContext();
-
-AudioService service = new AudioService();
-TTSRequestParam request = new TTSRequestParam();
-request.setText("Hello from LinkMind.");
-
-TTSResult result = service.tts(request);
-```
-
-### 文生图
-
-```java
-import ai.common.pojo.ImageGenerationRequest;
-import ai.common.pojo.ImageGenerationResult;
-import ai.image.service.ImageGenerationService;
-
-ContextLoader.loadContext();
-
-ImageGenerationService service = new ImageGenerationService();
-ImageGenerationRequest request = new ImageGenerationRequest();
-request.setPrompt("一个未来机场里的智能服务机器人");
-
-ImageGenerationResult result = service.generations(request);
-```
-
-### 其他仍可直接复用的 Java 示例
-
-当前代码里还保留了这些 Java 示例：
-
-- 看图理解
-- 图片增强
-- 图生视频
-- 视频追踪
-- 视频增强
-
-可直接参考 [`lagi-core/src/test/java/ai/example/Demo.java`](../lagi-core/src/test/java/ai/example/Demo.java) 中的现成写法。
-
-## 六、如果改走 HTTP / REST 集成
-
-如果你的应用不是 Java 项目，最直接的方式就是把 LinkMind 当成服务来调用。
-
-### 常见路由
-
-- LinkMind 原生路由，例如 `/chat/completions`、`/audio/speech2text`、`/audio/text2speech`、`/image/text2image`、`/sql/text2sql`、`/instruction/generate`、`/doc/doc2ext`、`/ocr/doc2ocr`
-- OpenAI 兼容路由，包括 Chat Completions `/v1/chat/completions`、Responses `/v1/responses`，以及 `/v1/models`、`/v1/embeddings`、`/v1/images/generations`、`/v1/rerank`
-- Anthropic Messages 兼容路由：`/v1/messages`
-
-服务根地址示例：
-
-- `http://localhost:8080`
-
-### cURL 示例
+启用聊天后端后，可调用 OpenAI 兼容接口：
 
 ```bash
 curl http://localhost:8080/v1/chat/completions \
+  -H "Authorization: Bearer <linkmind-api-key>" \
   -H "Content-Type: application/json" \
-  -d '{
-    "model": "qwen-plus",
-    "stream": false,
-    "messages": [
-      {"role": "user", "content": "请用一句话介绍 LinkMind。"}
-    ]
-  }'
+  -d '{"model":"Alibaba/qwen-plus","messages":[{"role":"user","content":"你好"}]}'
 ```
 
-### Python 示例
+只有同时收到模型回复、并在 LinkMind 中看到对应运行记录，才算调用成功。模型配置、路由、流式输出和多模态接口请继续查看[模型接入、路由与多模态](models-and-multimodal_zh.md)。
 
-```python
-import requests
+## 四、按功能继续查阅
 
-resp = requests.post(
-    "http://localhost:8080/v1/chat/completions",
-    headers={"Content-Type": "application/json"},
-    json={
-        "model": "qwen-plus",
-        "stream": False,
-        "messages": [
-            {"role": "user", "content": "请用一句话介绍 LinkMind。"}
-        ],
-    },
-    timeout=60,
-)
-
-resp.raise_for_status()
-print(resp.json())
-```
-
-### Go 示例
-
-```go
-package main
-
-import (
-	"bytes"
-	"fmt"
-	"io"
-	"net/http"
-)
-
-func main() {
-	body := []byte(`{
-	  "model": "qwen-plus",
-	  "stream": false,
-	  "messages": [
-	    {"role": "user", "content": "请用一句话介绍 LinkMind。"}
-	  ]
-	}`)
-
-	req, _ := http.NewRequest("POST", "http://localhost:8080/v1/chat/completions", bytes.NewBuffer(body))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		panic(err)
-	}
-	defer resp.Body.Close()
-
-	data, _ := io.ReadAll(resp.Body)
-	fmt.Println(string(data))
-}
-```
-
-如果 LinkMind 开启了鉴权，请在请求头中带上：
-
-```http
-Authorization: Bearer <你的-linkmind-api-key>
-```
-
-每个接口的参数与返回体细节，请继续查看 [API 参考](API_zh.md)。
-
-### 二次开发接口分组
-
-LinkMind 将二次开发能力拆成独立的接口分组，便于按职责接入：
-
-- `带外上下文接口`：`POST /chat/completions` 和 `POST /v1/chat/completions` 支持 `extra_body`，用于承载用户身份等业务侧上下文。
-- `社交 Skill 与频道接口`：`/socialChannel/*` 提供用户登记、频道订阅、消息查询和消息发送能力，Skill 层通过这些接口复用现有流程，而不是直接侵入聊天 Adapter。
-- `用户、API Key 与计费接口`：`/user/*`、`/apiKey/*`、`/credit/*` 将账号体系、凭证池和收费流程从模型路由中解耦出来，最适合对接既有的 SSO、用户中心或计费平台。
-
-这种接口拆分方式意味着多数场景下你可以保持现有聊天与多模态链路不变，只替换自己真正需要接管的业务模块。
-
-## 七、如果改走 Docker 集成
-
-当你的 Python、Go、Java、Node.js 等多个系统都要共用同一套 AI 中间件运行时，Docker 是很合适的接法。
-
-### 启动官方镜像
-
-```bash
-docker pull landingbj/linkmind
-docker run -d --name linkmind -p 8080:8080 landingbj/linkmind
-```
-
-### 典型接入方式
-
-1. 用 Docker 启动 LinkMind，作为统一的 AI 中间件服务。
-2. 让业务应用统一访问 `http://localhost:8080`。
-3. 按客户端协议选择 LinkMind 原生路由、OpenAI Chat Completions / Responses 兼容路由，或 Anthropic Messages 兼容路由 `/v1/messages`。
-4. 让业务系统保持和具体模型厂商解耦。
-
-这种方式特别适合本地开发、内部演示、CI 冒烟测试，以及多语言团队共用一套服务。
-
-## 八、接下来建议继续看
-
-- [配置参考](config_zh.md)
-- [API 参考](API_zh.md)
-- [教学演示](tutor_zh.md)
-- [Agent 客户端接入实操](BestPractice/agent-runtime-setup_zh.md)
-- [业务场景指南](scenarios_zh.md)
-- [扩展开发文档](extend_zh.md)
+| 目标 | 下一篇 |
+| --- | --- |
+| 接入模型、路由、图片、音频或视频 | [模型接入、路由与多模态](models-and-multimodal_zh.md) |
+| 上传资料并搭建知识库 | [知识库](knowledge-base_zh.md) |
+| 接入 Agent、MCP、Skill 或 Worker | [智能体、工具与任务编排](agents-and-tools_zh.md) |
+| 用 REST 或 `lagi-core` 集成业务系统 | [系统集成与二次开发](integration_zh.md) |
+| 部署、加固或级联节点 | [部署、安全与级联组网](deployment-and-security_zh.md) |
+| 新增 Provider、适配器、存储或运行时扩展 | [更多功能接入与自定义扩展](extensions_zh.md) |

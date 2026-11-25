@@ -121,8 +121,7 @@ functions:
 
 ## 六、相关文档
 
-- [安装指南](install_zh.md)
-- [配置参考](config_zh.md)
+- [快速开始](guide_zh.md)
+- [知识库](knowledge-base_zh.md)
 - [API 参考](API_zh.md)
-- [教学演示](tutor_zh.md)
-- [Agent 客户端接入实操](BestPractice/agent-runtime-setup_zh.md)
+- [智能体、工具与任务编排](agents-and-tools_zh.md)

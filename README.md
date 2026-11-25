@@ -28,7 +28,7 @@ The following four methods are parallel options. Choose any one of them.
 
 ### Option 1. Official Installer
 
-Prerequisite: install **JDK 8 or later** first. If you still need Java setup steps, jump to the [Installation Guide](docs/install_en.md#appendix-install-jdk-8).
+Prerequisite: install **JDK 8 or later** first. Deployment choices and Java setup details are in [Deployment, Security, and Cascade Networking](docs/deployment-and-security_en.md).
 
 - Windows PowerShell
 
@@ -79,9 +79,9 @@ Current packaging generates:
 - `lagi-web/target/LinkMind.jar`
 - `lagi-web/target/ROOT.war`
 
-More setup details are in the [Installation Guide](docs/install_en.md). For a guided first-run walkthrough, use the [Tutorial](docs/tutor_en.md).
+Continue with [Getting Started](docs/guide_en.md) for the first console check and API call. Detailed deployment options are in [Deployment, Security, and Cascade Networking](docs/deployment-and-security_en.md).
 
-After LinkMind is running, use the [Configuration Guide](docs/config_en.md) to enable providers, routes, filters, RAG, and other runtime settings in `lagi.yml`.
+After LinkMind is running, use [Models, Routing, and Multimodal](docs/models-and-multimodal_en.md), [Knowledge Base](docs/knowledge-base_en.md), and [Agents, Tools, and Task Orchestration](docs/agents-and-tools_en.md) to enable runtime settings in `lagi.yml` by capability.
 
 To choose a LinkMind deployment shape by business scenario, see the [Business Scenarios Guide](docs/scenarios_en.md).
 
@@ -152,13 +152,13 @@ Use LinkMind as the shared model, context, and governance layer for agent framew
 - **Framework-neutral integration**: Other agent frameworks can use the compatible APIs, `lagi.yml` model routing, MCP, Skills, RAG, and policy controls without requiring a framework-specific plugin.
 - **Unified execution**: Workers register and route local business agents and integrated external agent capabilities through one invocation surface.
 
-To integrate these capabilities into your application via `lagi-core` or REST APIs, see the [Integration Guide](docs/guide_en.md).
+To integrate these capabilities into your application via `lagi-core` or REST APIs, see [System Integration and Secondary Development](docs/integration_en.md).
 
 ### 8. Worker Orchestration
 
 Workers provide a unified way to invoke registered agents, supporting explicit agent selection or routing policies that choose a suitable executor. Reuse local business agents and integrated cloud agent platform capabilities for specialized assistants, domain question answering, and task dispatch.
 
-Configure worker implementations and routes under `skills.workers` in `lagi.yml`, then invoke them through `POST /chat/go`. See the [Worker Configuration Guide](https://github.com/landingbj/LinkMind/blob/main/docs/config_en.md#workers) for setup and the [Extension Guide](https://github.com/landingbj/LinkMind/blob/main/docs/extend_en.md) for custom implementations.
+Configure worker implementations and routes under `skills.workers` in `lagi.yml`, then invoke them through `POST /chat/go`. See [Agents, Tools, and Task Orchestration](docs/agents-and-tools_en.md) for setup and [More Integrations and Custom Extensions](docs/extensions_en.md) for custom implementations.
 
 
 ## Model And Runtime Ecosystem
@@ -235,7 +235,7 @@ Configure worker implementations and routes under `skills.workers` in `lagi.yml`
   </tr>
 </table>
 
-Entries are grouped by type and listed alphabetically. These ecosystems are extensible; the [Extension Guide](docs/extend_en.md) covers writing new model, vector-store, adapter, and secondary-development integrations. For Chroma setup specifics, see the [Annex](docs/annex_en.md).
+Entries are grouped by type and listed alphabetically. These ecosystems are extensible; [More Integrations and Custom Extensions](docs/extensions_en.md) covers new model, vector-store, adapter, and secondary-development integrations. For Chroma setup specifics, see [Knowledge Base](docs/knowledge-base_en.md).
 
 
 ## Agentic Social
@@ -257,36 +257,27 @@ Agentic Social gives agents a structured way to exchange context, user intent, c
 
 ## Documentation
 
-Start with the Installation Guide, then follow the Web UI guide to complete your first conversation. Use the references below for application integration and runtime configuration.
-
-### Getting Started, Configuration, and Development
+The documentation is organized by capability. Each feature page brings together the required configuration, API entry points, and verification steps.
 
 | Document | Contents |
 | --- | --- |
-| [Installation Guide](docs/install_en.md) | Installation, startup, deployment options, and first use |
-| [Business Scenarios Guide](docs/scenarios_en.md) | Typical use cases and deployment choices |
-| [Tutorial](docs/tutor_en.md) | First calls, RAG, model routing, and external agent client integration checks |
-| [Configuration Guide](docs/config_en.md) | Models, storage, RAG, agents, MCP, skills, workers, routes, and filters |
-| [API Reference](docs/API_en.md) | HTTP endpoints, request parameters, and response examples |
-| [Integration Guide](docs/guide_en.md) | Connect applications through the Java SDK or REST APIs |
-| [Extension Guide](docs/extend_en.md) | Extend model adapters, storage, agents, skills, workers, and MCP |
-| [Security & Safety](docs/security_en.md) | Access control, data handling, tool permissions, and deployment responsibilities |
-| [Annex](docs/annex_en.md) | Additional setup for Chroma, vector retrieval, and knowledge ingestion |
+| [Getting Started](docs/guide_en.md) | First installation, console check, and first API call |
+| [LinkMind Console](docs/index_en.md) | Console entries, usage records, and troubleshooting checks |
+| [Models, Routing, and Multimodal](docs/models-and-multimodal_en.md) | Providers, routes, chat, embeddings, audio, image, video, and document APIs |
+| [Knowledge Base](docs/knowledge-base_en.md) | Vector storage, RAG configuration, ingestion, and retrieval verification |
+| [Agents, Tools, and Task Orchestration](docs/agents-and-tools_en.md) | Agents, MCP, Skills, Workers, and runtime clients |
+| [System Integration and Secondary Development](docs/integration_en.md) | REST, Java `lagi-core`, compatible protocols, and extension boundaries |
+| [Deployment, Security, and Cascade Networking](docs/deployment-and-security_en.md) | Installer, JAR, Docker, WAR, hardening, and cascade configuration |
+| [More Integrations and Custom Extensions](docs/extensions_en.md) | Compatible providers, adapters, stores, and runtime extensions |
 
-### Web UI Reference
+### Best Practices
 
-| Topic | Contents |
+| Topic | Recipe |
 | --- | --- |
-| [Web UI Overview](docs/webui/index_en.md) | First-run verification, feature entry points, and the boundary between console use and runtime configuration |
-| [Web UI Troubleshooting](docs/webui/troubleshooting_en.md) | Diagnose login, model calls, uploads, knowledge retrieval, and statistics issues |
+| Agent clients | [OpenClaw](docs/best-practices/agents/openclaw.md), [Hermes Agent](docs/best-practices/agents/hermes-agent.md), [DeerFlow](docs/best-practices/agents/deerflow.md), [OpenHuman](docs/best-practices/agents/openhuman.md) |
+| CLI clients | [Codex](docs/best-practices/cli/codex.md), [Claude Code](docs/best-practices/cli/claude-code.md), [Client compatibility](docs/best-practices/cli/client-compatibility.md) |
+| Service and development integrations | [Chroma knowledge base](docs/best-practices/integrations/chroma-knowledge-base.md), [Compatible model provider](docs/best-practices/integrations/compatible-model-provider.md), [MCP server](docs/best-practices/integrations/connect-mcp-server.md), [Java IDE](docs/best-practices/integrations/java-ide.md), [Tomcat WAR](docs/best-practices/integrations/deploy-war-to-tomcat.md) |
 
-### Best Practices for AI Agent Projects (English PDFs)
+### AI Agent Project Reading (English PDFs)
 
-| Document | Topic |
-| --- | --- |
-| [Part 01](docs/BestPractice/Best-Practice-for-AI-Agents-Project_Part-01_From-Model-Call-to-Reliable-Single-Agent.pdf) | From Model Call to Reliable Single Agent |
-| [Part 02](docs/BestPractice/Best-Practice-for-AI-Agents-Project_Part-02_Injecting-Private-Knowledge-without-Retraining.pdf) | Injecting Private Knowledge without Retraining |
-| [Part 03](docs/BestPractice/Best-Practice-for-AI-Agents-Project_Part-03_Injecting-Private-Capabilities-with-Skills-Tools-and-MCP.pdf) | Injecting Private Capabilities with Skills, Tools, and MCP |
-| [Part 04](docs/BestPractice/Best-Practice-for-AI-Agents-Project_Part-04_Safety-by-Design-Guardrails-Permissions-and-Audit.pdf) | Safety by Design: Guardrails, Permissions, and Audit |
-| [Part 05](docs/BestPractice/Best-Practice-for-AI-Agents-Project_Part-05_Routing-Orchestration-and-Multi-Agent-Teamwork.pdf) | Routing, Orchestration, and Multi-Agent Teamwork |
-| [Part 06](docs/BestPractice/Best-Practice-for-AI-Agents-Project_Part-06_Agentic-Social-Agents-in-Shared-Human-Contexts.pdf) | Agentic Social: Agents in Shared Human Contexts |
+[Part 01](docs/best-practices/01-reliable-single-agent.pdf) · [Part 02](docs/best-practices/02-private-knowledge-and-rag.pdf) · [Part 03](docs/best-practices/03-skills-tools-and-mcp.pdf) · [Part 04](docs/best-practices/04-agent-security-and-audit.pdf) · [Part 05](docs/best-practices/05-routing-and-multi-agent-orchestration.pdf) · [Part 06](docs/best-practices/06-agentic-social.pdf)

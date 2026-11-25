@@ -127,4 +127,4 @@ func main() {
 3. 流式、工具、文件和自定义元数据逐项增加验证。
 4. 生产客户端还应验证异常处理、超时、鉴权与计费行为。
 
-完整数据结构见[API 参考](API_zh.md)；标准 API 或兼容适配器不足时，参见[更多功能接入与自定义扩展](extensions_zh.md)。
+聊天、Responses、Messages、Embedding 与多模态请求字段见[模型接入、路由与多模态](models-and-multimodal_zh.md)；向量与资料入库字段见[知识库](knowledge-base_zh.md)。标准 API 或兼容适配器不足时，参见[更多功能接入与自定义扩展](extensions_zh.md)。

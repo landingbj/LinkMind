@@ -127,4 +127,4 @@ func main() {
 3. Add streaming, tools, files, or custom metadata one capability at a time.
 4. For a production client, verify error handling, timeouts, authentication, and billing behavior.
 
-See [API Reference](API_en.md) for all schemas and [Extensions](extensions_en.md) when the standard API or compatibility adapter is insufficient.
+See [Models, Routing, and Multimodal](models-and-multimodal_en.md) for chat, Responses, Messages, embedding, and multimodal request fields; see [Knowledge Base](knowledge-base_en.md) for vectors and ingestion. Use [Extensions](extensions_en.md) when a standard API or compatible adapter is insufficient.

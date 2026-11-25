@@ -83,7 +83,7 @@ Continue with [Getting Started](docs/guide_en.md) for the first console check an
 
 After LinkMind is running, use [Models, Routing, and Multimodal](docs/models-and-multimodal_en.md), [Knowledge Base](docs/knowledge-base_en.md), and [Agents, Tools, and Task Orchestration](docs/agents-and-tools_en.md) to enable runtime settings in `lagi.yml` by capability.
 
-To choose a LinkMind deployment shape by business scenario, see the [Business Scenarios Guide](docs/scenarios_en.md).
+For deployment shape, containerization, reverse proxy, or cascade networking, see [Deployment, Security, and Cascade Networking](docs/deployment-and-security_en.md).
 
 ## API Surface
 
@@ -93,7 +93,7 @@ LinkMind exposes native routes and protocol-compatible routes:
 - OpenAI-compatible routes, including Chat Completions at `/v1/chat/completions`, Responses at `/v1/responses`, plus `/v1/models`, `/v1/embeddings`, `/v1/images/generations`, and `/v1/rerank`
 - Anthropic Messages-compatible route: `/v1/messages`
 
-One current exception is the vector administration namespace, which is still mapped in code as `/v1/vector/*`. Full endpoint documentation is in the [API Reference](docs/API_en.md).
+One current exception is the vector administration namespace, which is still mapped in code as `/v1/vector/*`. Model and multimodal APIs are documented in [Models, Routing, and Multimodal](docs/models-and-multimodal_en.md); vector, upload, and retrieval APIs are in [Knowledge Base](docs/knowledge-base_en.md).
 
 ## Customization API
 
@@ -130,7 +130,7 @@ Route, rank, fail over, and orchestrate multiple models centrally through router
 
 ### 4. Security & Safety
 
-Centralize guardrails, policy checks, data handling, access control, provider governance, and deployment responsibilities through the [Security & Safety document](docs/security_en.md).
+Guardrails, policy checks, data handling, access control, provider governance, and deployment responsibilities are documented in [Deployment, Security, and Cascade Networking](docs/deployment-and-security_en.md).
 
 ### 5. Graph
 

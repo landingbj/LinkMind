@@ -1,11 +1,37 @@
-# Claude Code with LinkMind
+# Claude Code 通过 LinkMind 调用模型
 
-## 配置 / Setup
+Claude Code 使用 Anthropic Messages 协议，LinkMind 将该请求和流式事件转入内部聊天链路。本页只需配置 Claude Code 与 LinkMind 的连接，无需转换为 OpenAI 请求。
 
-Claude Code connects through LinkMind's Anthropic-compatible Messages route. Set `ANTHROPIC_BASE_URL` to the LinkMind service root, not a URL ending in `/v1`; Claude Code appends `/v1/messages` itself. Provide the LinkMind API key through the client authentication setting.
+## 一、准备 LinkMind
+
+先确认 LinkMind 中已有可用聊天模型、路由和客户端 API Key。客户端访问地址必须是服务根地址，不带 `/v1`；Claude Code 会自行追加 `/v1/messages`。
+
+局域网地址示例：`http://<LINKMIND_BOX_IP>:8080`。先从客户端机器验证 LinkMind 可访问，再进行 Claude Code 配置。
+
+## 二、设置环境变量
+
+macOS / Linux：
 
 ```bash
-ANTHROPIC_BASE_URL=http://localhost:8080
+export ANTHROPIC_AUTH_TOKEN=<LINKMIND_CLIENT_TOKEN>
+export ANTHROPIC_BASE_URL=http://<LINKMIND_BOX_IP>:8080
+export ANTHROPIC_MODEL=<ENABLED_LINKMIND_MODEL>
 ```
 
-Use a short request to verify the response and LinkMind record. When LinkMind is remote, replace `localhost` with its reachable address. Model, route, and authentication configuration remains on the LinkMind side; see [Models and Multimodal](../../models-and-multimodal_en.md) / [模型接入、路由与多模态](../../models-and-multimodal_zh.md).
+PowerShell：
+
+```powershell
+$env:ANTHROPIC_AUTH_TOKEN = "<LINKMIND_CLIENT_TOKEN>"
+$env:ANTHROPIC_BASE_URL = "http://<LINKMIND_BOX_IP>:8080"
+$env:ANTHROPIC_MODEL = "<ENABLED_LINKMIND_MODEL>"
+```
+
+不要把 `ANTHROPIC_BASE_URL` 写成带 `/v1` 的地址，否则客户端会拼出错误路径。Messages 接口可接受 `x-api-key` 或 Bearer 鉴权；实际客户端 Key 与模型名应替换为部署中的值。
+
+## 三、验证与排查
+
+启动 Claude Code 后发送一条短消息。成功时，LinkMind 收到 `POST /v1/messages`，并在 **控制** 中显示对应调用、模型和 Token 记录。
+
+失败时依次检查：服务根地址是否可达；模型是否已启用；Key 是否有效；LinkMind 路由是否支持流式；以及客户端是否误将 `/v1` 重复拼接。
+
+需要公开给外部使用时，先按[部署、安全与级联组网](../../deployment-and-security_zh.md)配置 TLS、网络隔离和网关鉴权。

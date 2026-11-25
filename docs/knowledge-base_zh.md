@@ -2,7 +2,26 @@
 
 本页将文档检索和 RAG 所需的配置、入库接口、验证步骤放在一起。
 
-## 一、启动向量库
+## 一、选择并启动向量库
+
+新部署优先使用 SQLite：它与 LinkMind 同机运行时不需要额外服务，适合盒子、单机和小规模资料库。已有 Chroma、Milvus 等服务时再选择对应存储。
+
+SQLite 最小配置：
+
+```yaml
+stores:
+  vector:
+    - name: sqlite
+      driver: ai.vector.impl.SqliteVectorStore
+      default_category: default
+      similarity_top_k: 10
+      similarity_cutoff: 0.5
+      parent_depth: 1
+      child_depth: 1
+      path: data/vector.db
+```
+
+`path` 使用 LinkMind 进程可写的目录；升级和迁移前应备份该数据库文件。下面的 Chroma 是可选的独立向量库方案：
 
 Chroma 是最小的本地方案，可用 Python 或 Docker 启动：
 
@@ -56,7 +75,56 @@ functions:
 | 抽取、OCR 或结构化文档 | `POST /doc/doc2ext`、`/ocr/doc2ocr`、`/doc/doc2struct` |
 | 上传私训资料或问答对 | `POST /training/upload`、`POST /uploadFile/pairing` |
 
-每个知识域使用明确的 collection/category，并保存来源元数据和文档 ID，便于重复更新和删除。完整请求结构见[API 参考](API_zh.md#rag)。
+每个知识域使用明确的 collection/category，并保存来源元数据和接口返回的文档 ID，便于重复更新和删除。
+
+### 1. 写入或更新向量
+
+`POST /v1/vector/add` 将文本写入指定 collection；`/update`、`/get`、`/delete` 分别用于更新、读取、删除。新增时提供 collection/category、文本和元数据；更新或删除时使用接口返回或读取到的稳定 ID：
+
+```json
+{
+  "category": "property-manual",
+  "data": [
+    {
+      "document": "物业报修应在两个工作日内完成首次响应。",
+      "metadata": {"source": "manual.pdf", "page": "3"}
+    }
+  ]
+}
+```
+
+### 2. 查询检索结果
+
+`POST /v1/vector/query`：
+
+```json
+{
+  "category": "property-manual",
+  "text": "报修后多久响应？",
+  "n": 5
+}
+```
+
+`category` 对应知识分类或 collection，`text` 是检索问题，`n` 是期望返回的近邻数量。实际召回还受 `similarity_top_k`、`similarity_cutoff` 和元数据过滤条件影响。
+
+### 3. 上传文件或问答对
+
+`POST /training/upload?category=property-manual` 使用 `multipart/form-data`，文件字段为 `fileToUpload`。问答对使用 `POST /uploadFile/pairing`：
+
+```json
+{
+  "category": "property-manual",
+  "level": "user",
+  "data": [
+    {
+      "instruction": ["物业报修多久响应？"],
+      "output": "应在两个工作日内完成首次响应。"
+    }
+  ]
+}
+```
+
+使用 `GET /uploadFile/getUploadFileList` 查看已上传文件，使用 `POST /uploadFile/deleteFile` 按文件 ID 删除，并同步清理相关向量。
 
 ## 四、验证问答链路
 
@@ -72,4 +140,3 @@ functions:
 
 - [模型接入、路由与多模态](models-and-multimodal_zh.md)：配置 Embedding 与文档处理后端。
 - [更多功能接入与自定义扩展](extensions_zh.md)：实现自定义向量库。
-- [旧版 Chroma 补充说明](annex_zh.md)：额外的 Java 与 Chroma 集成细节。

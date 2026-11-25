@@ -1,29 +1,36 @@
 # LinkMind Console
 
-The Web console validates a deployment and manages deployment-scoped items. It does not replace the runtime configuration in `lagi.yml`.
+The web console verifies a deployment, creates LinkMind API keys, observes calls, and manages accounts, credits, and filters for the current deployment. It does not replace the Provider, route, RAG, or Agent runtime configuration in `lagi.yml`.
 
-## First-run checklist
+## 1. First sign-in and configuration boundary
 
-1. Open `http://localhost:8080` after starting LinkMind.
-2. Sign in if this deployment requires an account service.
-3. Under **Settings -> API Keys**, confirm a provider key and model are available.
-4. Under **Chat -> LLM -> Smart Q&A**, make a short request.
-5. Check **Control** for the corresponding call record.
+1. Start LinkMind and open `http://localhost:8080`; register or sign in when account service is enabled.
+2. In **Settings -> API Keys**, create or confirm a LinkMind API key for clients.
+3. In **Chat**, select an enabled model and send a short message.
+4. Open **Control** and confirm the model, time, route, and usage record.
 
-Seeing a model name or a saved key does not prove that its upstream is reachable.
+Keys, balances, and model lists in the console are current control-plane data, not proof of a successful upstream call. Provider keys, model routes, and multimodal switches remain configured in [Models, Routing, and Multimodal](models-and-multimodal_en.md).
 
-## Console entries and their source of truth
+## 2. Console entries and what to verify
 
-| Need | Console entry | Configure or verify in |
+| Page | Purpose | Verify together with |
 | --- | --- | --- |
-| Test chat, Agent, or multimodal calls | **Chat** | [Models and Multimodal](models-and-multimodal_en.md), [Agents and Tools](agents-and-tools_en.md) |
-| Upload data and verify citations | **Chat -> Orchestration** | [Knowledge Base](knowledge-base_en.md) |
-| Inspect calls, usage, and filters | **Control** | Operational evidence; billing is controlled by the configured credit service |
-| Manage UI login, keys, filters, or credits | **Settings** | [Deployment and Security](deployment-and-security_en.md) |
-| Publish or subscribe interaction channels | **Interactions** | Cascade configuration in [Deployment and Security](deployment-and-security_en.md) |
+| **Chat** | Interactive model, Agent, and multimodal verification | Model response, selected route, and backend logs |
+| **Chat -> Orchestration** | Document, knowledge-base, or workflow verification | Upload status, category, retrieval results, and citations |
+| **Control** | Calls, tokens, usage, filters, and error records | Request time, model, request ID, first/last event |
+| **Settings** | Sign-in, LinkMind API keys, providers, filters, and credits | Permission scope, expiry, balance, and save result |
+| **Interactions** | Publish, subscribe, or inspect cascade channels | `general.cascade_api_address` and target reachability |
 
-## Common checks
+## 3. API keys, usage, and credits
 
-When a page action fails, record its time, model, console entry, and the full redacted error. Then confirm the enabled backend, provider balance or permission, upstream address, and route. For uploads, additionally verify document processing, embedding, vector storage, and the knowledge category.
+A LinkMind API key authorizes calls to LinkMind. A provider's original API key lets LinkMind call its upstream model; they have different purposes. Put the client key in `Authorization: Bearer <linkmind-api-key>` and keep provider keys only in controlled deployment configuration or a secret manager.
 
-The detailed legacy console notes remain available under [Web UI troubleshooting](webui/troubleshooting_en.md).
+Confirm usage, balance, or charge changes against the same request's model, time, token record, and billing-service response. If a page does not refresh after payment, refetch the relevant balance/billing endpoint and inspect browser network requests, service logs, and billing-service health. Do not infer a credit from a successful payment page or frontend cache.
+
+## 4. Common checks
+
+- **Sign-in fails:** check account service, database connection, reverse-proxy cookie/HTTPS settings, and service logs.
+- **The model list is empty or chat fails:** inspect `models.enable`, chat backend, route, provider key/balance, and upstream network; follow [Models, Routing, and Multimodal](models-and-multimodal_en.md).
+- **An upload is not used in Q&A:** check document processing, embedding, vector store, `category`, and RAG enablement; verify each stage in [Knowledge Base](knowledge-base_en.md).
+- **An Agent or tool behaves unexpectedly:** check Worker/Agent/MCP enablement, route, tool permission, and `/chat/go` record; see [Agents, Tools, and Task Orchestration](agents-and-tools_en.md).
+- **A page request fails:** preserve time, request ID, path, and a redacted error. Correlate control records with server logs and never submit real keys or customer data.

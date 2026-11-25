@@ -83,7 +83,7 @@ mvn clean package -pl lagi-web -am -DskipTests -U
 
 启动 LinkMind 后，可按功能查看[模型接入、路由与多模态](docs/models-and-multimodal_zh.md)、[知识库](docs/knowledge-base_zh.md)、[智能体接入、工具与任务编排](docs/agents-and-tools_zh.md)，在 `lagi.yml` 中启用相应运行配置。
 
-如果需要按业务场景选择 LinkMind 形态，请查看 [业务场景指南](docs/scenarios_zh.md)。
+按部署形态选择安装、容器化、反向代理或级联方式，请查看[部署、安全与级联组网](docs/deployment-and-security_zh.md)。
 
 ## 接口风格
 
@@ -93,7 +93,7 @@ LinkMind 提供原生路由和协议兼容路由：
 - OpenAI 兼容路由，包括 Chat Completions `/v1/chat/completions`、Responses `/v1/responses`，以及 `/v1/models`、`/v1/embeddings`、`/v1/images/generations`、`/v1/rerank`
 - Anthropic Messages 兼容路由：`/v1/messages`
 
-当前有一个仍按代码映射保留在 `/v1` 命名空间下的例外：向量管理接口 `/v1/vector/*`。完整的接口文档见 [API 参考](docs/API_zh.md)。
+当前有一个仍按代码映射保留在 `/v1` 命名空间下的例外：向量管理接口 `/v1/vector/*`。模型与多模态接口见[模型接入、路由与多模态](docs/models-and-multimodal_zh.md)，向量、上传与检索接口见[知识库](docs/knowledge-base_zh.md)。
 
 ## 二次开发接口
 
@@ -130,7 +130,7 @@ LinkMind 将二次开发能力放在清晰的面向对象边界之后，便于�
 
 ### 4. 安全与合规
 
-通过[安全与合规文档](docs/security_zh.md)集中说明安全围栏、策略检查、数据处理、访问控制、模型提供方治理与部署责任边界。
+安全围栏、策略检查、数据处理、访问控制、模型提供方治理与部署责任边界见[部署、安全与级联组网](docs/deployment-and-security_zh.md)。
 
 ### 5. Graph
 

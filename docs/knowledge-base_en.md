@@ -2,7 +2,26 @@
 
 This page combines the configuration, ingestion API, and verification path for document retrieval and RAG.
 
-## 1. Start a vector store
+## 1. Choose and start a vector store
+
+SQLite is the preferred option for a new local deployment: it runs with LinkMind and needs no extra service, which suits appliances, single hosts, and small knowledge bases. Choose Chroma, Milvus, or another store when it already exists in the environment.
+
+Minimal SQLite configuration:
+
+```yaml
+stores:
+  vector:
+    - name: sqlite
+      driver: ai.vector.impl.SqliteVectorStore
+      default_category: default
+      similarity_top_k: 10
+      similarity_cutoff: 0.5
+      parent_depth: 1
+      child_depth: 1
+      path: data/vector.db
+```
+
+The `path` must be writable by the LinkMind process; back up this database file before upgrades or migration. Chroma below is an optional independent vector-store option:
 
 Chroma is the smallest local setup. Start it with Python or Docker:
 
@@ -56,7 +75,56 @@ functions:
 | Extract, OCR, or structure a document | `POST /doc/doc2ext`, `/ocr/doc2ocr`, `/doc/doc2struct` |
 | Upload private-training material or Q&A | `POST /training/upload`, `POST /uploadFile/pairing` |
 
-Use one deliberate collection/category per knowledge domain. Preserve source metadata and document identifiers so that updates and deletes are repeatable. Complete request schemas are in [API Reference](API_en.md#rag).
+Use one deliberate collection/category per knowledge domain. Preserve source metadata and document IDs returned by the API so that updates and deletes are repeatable.
+
+### 1. Add or update vectors
+
+`POST /v1/vector/add` writes text to a collection; `/update`, `/get`, and `/delete` update, fetch, and remove records. Add a collection/category, document text, and metadata; use stable IDs returned or retrieved by the API for updates and deletes:
+
+```json
+{
+  "category": "property-manual",
+  "data": [
+    {
+      "document": "A maintenance request must receive its first response within two working days.",
+      "metadata": {"source": "manual.pdf", "page": "3"}
+    }
+  ]
+}
+```
+
+### 2. Query retrieval results
+
+`POST /v1/vector/query`:
+
+```json
+{
+  "category": "property-manual",
+  "text": "How soon should a maintenance request receive a response?",
+  "n": 5
+}
+```
+
+`category` identifies the collection, `text` is the retrieval query, and `n` is the desired nearest-result count. Actual recall is also controlled by `similarity_top_k`, `similarity_cutoff`, and metadata filters.
+
+### 3. Upload a file or Q&A pairs
+
+Use `POST /training/upload?category=property-manual` with `multipart/form-data` and a `fileToUpload` field. Use `POST /uploadFile/pairing` for Q&A pairs:
+
+```json
+{
+  "category": "property-manual",
+  "level": "user",
+  "data": [
+    {
+      "instruction": ["How soon does maintenance respond?"],
+      "output": "The first response is due within two working days."
+    }
+  ]
+}
+```
+
+Use `GET /uploadFile/getUploadFileList` to review uploaded files and `POST /uploadFile/deleteFile` with file IDs to remove files and their related vectors.
 
 ## 4. Verify the answer path
 
@@ -72,4 +140,3 @@ If the upload succeeds but chat misses the material, check the collection/catego
 
 - [Models and Multimodal](models-and-multimodal_en.md): configure the embedding and document-processing backends.
 - [Extensions](extensions_en.md): implement a custom vector store.
-- [Legacy Chroma notes](annex_en.md): additional Java and Chroma integration details.

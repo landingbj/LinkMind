@@ -1,5 +1,9 @@
 # DeerFlow 接入 LinkMind
 
+[中文](#zh-cn) · [English](#english)
+
+<a id="zh-cn"></a>
+
 本页按“安装 -> 配置 -> 启动 -> 对话验证”的顺序完成 DeerFlow 接入。完成后 DeerFlow Gateway 将通过 LinkMind 调用模型。
 
 ## 一、准备 DeerFlow 运行环境
@@ -96,3 +100,68 @@ corepack pnpm run dev
 ![DeerFlow 请求后的用量概览记录](../../images/linkmind_client_quickstart_20.png)
 
 没有回复时，依次检查 DeerFlow `config.yaml` 中的 `use`、模型 ID、`base_url`、`.env` 的 Key 是否被实际加载，接着在 LinkMind 控制台直接验证该模型，再检查 Gateway 日志和 LinkMind 调用日志。
+
+<a id="english"></a>
+
+## English
+
+Start LinkMind, enable the model and route, and send a short chat in its console first. Use a LinkMind client key for the external runtime. Set the endpoint to a host reachable from that runtime.
+
+DeerFlow requires Python 3.12+, Node.js 22+, `uv`, `pnpm`, and its project dependencies. Use an absolute path without spaces where possible.
+
+```bash
+git clone https://github.com/bytedance/deer-flow.git
+cd deer-flow
+pip install uv
+make config
+make check
+make install
+make dev
+```
+
+Configure a LinkMind model in DeerFlow `config.yaml`:
+
+```yaml
+models:
+  - name: "linkmind-qwen-plus"
+    display_name: "LinkMind Qwen Plus"
+    use: "deerflow.models.linkmind_provider:LinkMindChatModel"
+    model: "Alibaba/qwen-plus"
+    api_key: "$LINKMIND_API_KEY"
+    base_url: "http://localhost:8080/v1"
+    request_timeout: 600.0
+    max_retries: 2
+    max_tokens: 4096
+    temperature: 0.7
+    supports_vision: false
+    supports_thinking: false
+    disable_streaming: true
+```
+
+Put the API key in `.env`, start the Gateway and frontend, then open `http://localhost:3000/workspace/chats/new`. Select the LinkMind model and verify a response.
+
+For a local gateway and frontend, set the following in the local `.env`. Supply the client key privately.
+
+```env
+LINKMIND_API_KEY=<your-linkmind-api-key>
+CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+GATEWAY_CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+DEER_FLOW_INTERNAL_GATEWAY_BASE_URL=http://127.0.0.1:8001
+```
+
+For the Windows source layout below run the backend and frontend commands in separate terminals. Adapt the checkout directory and verify that the installed DeerFlow integration provides `deerflow.models.linkmind_provider`.
+
+```powershell
+cd D:\workspace\deer-flow\backend
+$env:PYTHONPATH = "."
+uv run uvicorn app.gateway.app:app --host 0.0.0.0 --port 8001
+
+cd D:\workspace\deer-flow\frontend
+corepack pnpm run dev
+```
+
+Confirm the reply in DeerFlow and the same model and request in LinkMind **Control**.
+
+![DeerFlow model provider settings](../../images/linkmind_client_quickstart_14.png)
+
+![DeerFlow reply from LinkMind](../../images/linkmind_client_quickstart_17.png)

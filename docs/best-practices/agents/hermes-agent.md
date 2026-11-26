@@ -1,5 +1,9 @@
 # Hermes Agent 接入 LinkMind
 
+[中文](#zh-cn) · [English](#english)
+
+<a id="zh-cn"></a>
+
 本页说明如何把 Hermes Agent 的 custom provider 指向 LinkMind，并完成本机或 WSL 场景的验证。
 
 ## 一、前置条件与网络选择
@@ -80,3 +84,37 @@ hermes
 3. `api_mode` 是否为 `chat_completions`，模型名是否已在 LinkMind 启用。
 4. LinkMind 控制台中是否能先完成同模型的短对话。
 5. WSL 场景检查宿主机 IP 与防火墙，不要使用 WSL 自己的 `localhost` 指向 Windows 服务。
+
+<a id="english"></a>
+
+## English
+
+Start LinkMind, enable the model and route, and send a short chat in its console first. Use a LinkMind client key for the external runtime. Set the endpoint to a host reachable from that runtime.
+
+Verify that the command is available:
+
+```powershell
+where.exe hermes
+hermes --version
+hermes status
+```
+
+Configure Hermes with a custom provider in `config.yaml`:
+
+```yaml
+model:
+  default: Alibaba/qwen-plus
+  provider: custom
+  base_url: http://localhost:8080/v1
+  api_key: <your-linkmind-api-key>
+  api_mode: chat_completions
+  context_length: 64000
+```
+
+Restart the Hermes session and send a message. For WSL, replace `localhost` with the reachable Windows-host address.
+
+Start `hermes` in a fresh shell and send a short question. Visit the configured local management UI if available, then match the request time and usage in LinkMind **Control**. On WSL verify the address and firewall from inside WSL. If no record appears, check the URL, the client key, `api_mode`, and the exact model returned by `/v1/models`.
+
+![Hermes custom model provider](../../images/linkmind_client_quickstart_12.png)
+
+![Hermes conversation after configuring LinkMind](../../images/linkmind_client_quickstart_13.png)

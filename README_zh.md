@@ -28,7 +28,7 @@ LinkMind 是面向企业场景的多模态 AI 中间件，用来把业务系统�
 
 ### 选项1：官方安装脚本快速安装
 
-前置要求：先安装 **JDK 8 或以上版本**。部署方式与 Java 安装说明见[部署、安全与级联组网](docs/deployment-and-security_zh.md)。
+前置要求为 **JDK 8 或以上版本**。按操作系统查看 [JDK 安装与验证](docs/deployment-and-security_zh.md#install-jdk)。
 
 - Windows PowerShell
 
@@ -85,6 +85,8 @@ mvn clean package -pl lagi-web -am -DskipTests -U
 
 按部署形态选择安装、容器化、反向代理或级联方式，请查看[部署、安全与级联组网](docs/deployment-and-security_zh.md)。
 
+按业务目标比较团队 AI 枢纽、知识库、已有 Agent 前端、Medusa、安全网关、聚合中台、Embedding、跨区域级联和压测，见[九种业务场景的搭建与验收](docs/guide_zh.md#business-scenarios)。
+
 ## 接口风格
 
 LinkMind 提供原生路由和协议兼容路由：
@@ -101,7 +103,7 @@ LinkMind 将二次开发能力放在清晰的面向对象边界之后，便于�
 
 - `通讯层与带外数据`：OpenAI 兼容请求支持 `extra_body`，运行时通过专门的工具类完成编码、解码和当前用户注入，不把业务解析逻辑塞进 Adapter 主链路，因此不会影响既有补全、流式输出和级联调用。
 - `Skill 层社交数据`：社交交互数据封装在 Skill 与 Service 内部，并通过 `/socialChannel/*` 对外暴露。如果不启用社交 Skill，原有聊天流程和 Token 路径保持不变。
-- `认证、API Key 与计费`：`/user/*`、`/apiKey/*`、`/credit/*` 构成稳定的对外接口层，用于账号绑定、Key 池管理和计费流程接入，业务方可以替换后端实现而不改变接口协议。
+- 业务方可通过 `/apiKey/*` 管理 API Key 池，通过 `/credit/*` 接入计费流程。两组接口都支持在保留接口协议的前提下替换后端实现。
 
 这种分层方式让二开具备两个直接优势：对现有代码零侵入，以及按需启用。你可以只接入自己需要的接口，而不必重写整套运行时。
 
@@ -268,14 +270,21 @@ Agentic Social 为智能体提供结构化的上下文交换、用户意图传�
 | [部署、安全与级联组网](docs/deployment-and-security_zh.md) | 安装器、JAR、Docker、WAR、加固与级联配置 |
 | [更多功能接入与自定义扩展](docs/extensions_zh.md) | 兼容 Provider、适配器、存储与运行时扩展 |
 
+[九种场景的选型与上线检查](docs/guide_zh.md#business-scenarios) · [并发压测脚本与结果解读](tools/benchmark/README.md)
+
 ### 最佳实践
 
 | 分类 | 实操 |
 | --- | --- |
-| 第三方智能体客户端 | [OpenClaw](docs/best-practices/agents/openclaw.md)、[Hermes Agent](docs/best-practices/agents/hermes-agent.md)、[DeerFlow](docs/best-practices/agents/deerflow.md)、[OpenHuman](docs/best-practices/agents/openhuman.md) |
-| 第三方命令行工具 | [Codex](docs/best-practices/cli/codex.md)、[Claude Code](docs/best-practices/cli/claude-code.md)、[客户端兼容性](docs/best-practices/cli/client-compatibility.md) |
-| 第三方服务与开发环境 | [Chroma 知识库](docs/best-practices/integrations/chroma-knowledge-base.md)、[兼容模型 Provider](docs/best-practices/integrations/compatible-model-provider.md)、[MCP 服务](docs/best-practices/integrations/connect-mcp-server.md)、[Java IDE](docs/best-practices/integrations/java-ide.md)、[Tomcat WAR](docs/best-practices/integrations/deploy-war-to-tomcat.md) |
+| 第三方智能体客户端 | [OpenClaw](docs/best-practices/agents/openclaw.md#zh-cn)、[Hermes Agent](docs/best-practices/agents/hermes-agent.md#zh-cn)、[DeerFlow](docs/best-practices/agents/deerflow.md#zh-cn)、[OpenHuman](docs/best-practices/agents/openhuman.md#zh-cn) |
+| 第三方命令行工具 | [Codex](docs/best-practices/cli/codex.md#zh-cn)、[Claude Code](docs/best-practices/cli/claude-code.md#zh-cn)、[客户端兼容性](docs/best-practices/cli/client-compatibility.md#zh-cn) |
+| 第三方服务与开发环境 | [Chroma 知识库](docs/best-practices/integrations/chroma-knowledge-base.md#zh-cn)、[兼容模型 Provider](docs/best-practices/integrations/compatible-model-provider.md)、[MCP 服务](docs/best-practices/integrations/connect-mcp-server.md)、[Java IDE](docs/best-practices/integrations/java-ide.md#zh-cn)、[Tomcat WAR](docs/best-practices/integrations/deploy-war-to-tomcat.md#zh-cn) |
 
 ### Agent 项目延伸阅读（英文 PDF）
 
-[Part 01](docs/best-practices/01-reliable-single-agent.pdf) · [Part 02](docs/best-practices/02-private-knowledge-and-rag.pdf) · [Part 03](docs/best-practices/03-skills-tools-and-mcp.pdf) · [Part 04](docs/best-practices/04-agent-security-and-audit.pdf) · [Part 05](docs/best-practices/05-routing-and-multi-agent-orchestration.pdf) · [Part 06](docs/best-practices/06-agentic-social.pdf)
+1. [从模型调用到可靠的单 Agent](docs/best-practices/01-reliable-single-agent.pdf)
+2. [无需重新训练的私有知识接入](docs/best-practices/02-private-knowledge-and-rag.pdf)
+3. [通过 Skills、Tools 与 MCP 接入私有能力](docs/best-practices/03-skills-tools-and-mcp.pdf)
+4. [安全围栏、权限与审计](docs/best-practices/04-agent-security-and-audit.pdf)
+5. [路由、编排与多 Agent 协作](docs/best-practices/05-routing-and-multi-agent-orchestration.pdf)
+6. [共享人类上下文中的智能体社交](docs/best-practices/06-agentic-social.pdf)

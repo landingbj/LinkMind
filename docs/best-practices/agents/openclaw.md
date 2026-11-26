@@ -1,5 +1,9 @@
 # OpenClaw 接入 LinkMind
 
+[中文](#zh-cn) · [English](#english)
+
+<a id="zh-cn"></a>
+
 本页是可直接复刻的 OpenClaw 接入步骤。完成后，OpenClaw 的模型请求会进入 LinkMind，并可在 LinkMind 控制台核对调用记录和用量。
 
 ## 一、前置条件
@@ -83,3 +87,53 @@ openclaw gateway start
 ```
 
 如果 OpenClaw 无法连接，依次检查 LinkMind 服务是否监听、客户端填写的 base URL 是否包含 `/v1`、模型和 Key 是否启用，以及 Windows 防火墙是否阻断跨主机访问。
+
+<a id="english"></a>
+
+## English
+
+Start LinkMind, enable the model and route, and send a short chat in its console first. Use a LinkMind client key for the external runtime. Set the endpoint to a host reachable from that runtime.
+
+#### Install or verify
+
+Open PowerShell and verify the prerequisites:
+
+```powershell
+node -v
+git -v
+```
+
+If local policy blocks the installer, use the execution policy approved for your account. On Windows the documented per-user setting is `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`.
+
+Install OpenClaw when it is not already present, then start its gateway:
+
+```powershell
+iwr -useb https://openclaw.ai/install.ps1 | iex
+openclaw --version
+openclaw gateway start
+```
+
+Open `http://127.0.0.1:18789`. In the OpenClaw console, select LinkMind as the middleware, switch to `linkmind-Pro` or the model synchronized by the installer, and send a test message. Confirm that the response appears in OpenClaw and that LinkMind records the call.
+
+![OpenClaw version check](../../images/linkmind_client_quickstart_01.png)
+
+![OpenClaw gateway startup](../../images/linkmind_client_quickstart_02.png)
+
+Example LinkMind chat route (replace both model and backend with your enabled values):
+
+```yaml
+functions:
+  chat:
+    route: pass(landing)
+    backends:
+      - backend: landing
+        model: Alibaba/qwen-plus
+        enable: true
+        stream: true
+        protocol: completion
+        priority: 100
+```
+
+Use `http://localhost:8080/v1` for a client on the same host. In the OpenClaw gateway UI choose the synchronized model, then match the request time and model in **Control**. On a later start, run `openclaw gateway start` and reopen the gateway URL.
+
+![OpenClaw conversation routed through LinkMind](../../images/linkmind_client_quickstart_11.png)

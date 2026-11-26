@@ -28,7 +28,7 @@ The following four methods are parallel options. Choose any one of them.
 
 ### Option 1. Official Installer
 
-Prerequisite: install **JDK 8 or later** first. Deployment choices and Java setup details are in [Deployment, Security, and Cascade Networking](docs/deployment-and-security_en.md).
+Install **JDK 8 or later**. Follow the [JDK setup and verification steps for your OS](docs/deployment-and-security_en.md#install-jdk).
 
 - Windows PowerShell
 
@@ -85,6 +85,8 @@ After LinkMind is running, use [Models, Routing, and Multimodal](docs/models-and
 
 For deployment shape, containerization, reverse proxy, or cascade networking, see [Deployment, Security, and Cascade Networking](docs/deployment-and-security_en.md).
 
+For a team AI hub, knowledge base, existing agent frontend, Medusa, security gateway, aggregation platform, embeddings, regional cascade, or benchmark, see [setup and acceptance checks for nine scenarios](docs/guide_en.md#business-scenarios).
+
 ## API Surface
 
 LinkMind exposes native routes and protocol-compatible routes:
@@ -101,7 +103,7 @@ LinkMind keeps secondary-development entry points behind object-oriented boundar
 
 - `Communication and out-of-band data`: OpenAI-compatible chat requests accept `extra_body`, and runtime helpers handle encoding, decoding, and current-user injection without pushing business parsing into the adapter itself. Existing completion, streaming, and cascade flows remain unchanged.
 - `Skill-level social data`: social interaction data is encapsulated in skills and service classes, then exposed through `/socialChannel/*`. If you do not enable social skills, the original chat and token flow stays intact.
-- `Authentication, API-key, and billing`: `/user/*`, `/apiKey/*`, and `/credit/*` form the stable HTTP surface for account binding, key-pool management, and charging workflows. You can replace the backing service logic while preserving the external contract.
+- Use `/apiKey/*` to manage API key pools and `/credit/*` to integrate billing. You can replace the backing service while preserving the HTTP contract.
 
 This split gives two practical benefits for secondary development: zero-invasive integration with the current codebase, and opt-in adoption so you only enable the interfaces your deployment actually needs.
 
@@ -270,14 +272,21 @@ The documentation is organized by capability. Each feature page brings together 
 | [Deployment, Security, and Cascade Networking](docs/deployment-and-security_en.md) | Installer, JAR, Docker, WAR, hardening, and cascade configuration |
 | [More Integrations and Custom Extensions](docs/extensions_en.md) | Compatible providers, adapters, stores, and runtime extensions |
 
+[Nine business scenarios and launch checks](docs/guide_en.md#business-scenarios) · [Load-test scripts and result interpretation](tools/benchmark/README.md)
+
 ### Best Practices
 
 | Topic | Recipe |
 | --- | --- |
-| Agent clients | [OpenClaw](docs/best-practices/agents/openclaw.md), [Hermes Agent](docs/best-practices/agents/hermes-agent.md), [DeerFlow](docs/best-practices/agents/deerflow.md), [OpenHuman](docs/best-practices/agents/openhuman.md) |
-| CLI clients | [Codex](docs/best-practices/cli/codex.md), [Claude Code](docs/best-practices/cli/claude-code.md), [Client compatibility](docs/best-practices/cli/client-compatibility.md) |
-| Service and development integrations | [Chroma knowledge base](docs/best-practices/integrations/chroma-knowledge-base.md), [Compatible model provider](docs/best-practices/integrations/compatible-model-provider.md), [MCP server](docs/best-practices/integrations/connect-mcp-server.md), [Java IDE](docs/best-practices/integrations/java-ide.md), [Tomcat WAR](docs/best-practices/integrations/deploy-war-to-tomcat.md) |
+| Agent clients | [OpenClaw](docs/best-practices/agents/openclaw.md#english), [Hermes Agent](docs/best-practices/agents/hermes-agent.md#english), [DeerFlow](docs/best-practices/agents/deerflow.md#english), [OpenHuman](docs/best-practices/agents/openhuman.md#english) |
+| CLI clients | [Codex](docs/best-practices/cli/codex.md#english), [Claude Code](docs/best-practices/cli/claude-code.md#english), [Client compatibility](docs/best-practices/cli/client-compatibility.md#english) |
+| Service and development integrations | [Chroma knowledge base](docs/best-practices/integrations/chroma-knowledge-base.md#english), [Compatible model provider](docs/best-practices/integrations/compatible-model-provider.md), [MCP server](docs/best-practices/integrations/connect-mcp-server.md), [Java IDE](docs/best-practices/integrations/java-ide.md#english), [Tomcat WAR](docs/best-practices/integrations/deploy-war-to-tomcat.md#english) |
 
 ### AI Agent Project Reading (English PDFs)
 
-[Part 01](docs/best-practices/01-reliable-single-agent.pdf) · [Part 02](docs/best-practices/02-private-knowledge-and-rag.pdf) · [Part 03](docs/best-practices/03-skills-tools-and-mcp.pdf) · [Part 04](docs/best-practices/04-agent-security-and-audit.pdf) · [Part 05](docs/best-practices/05-routing-and-multi-agent-orchestration.pdf) · [Part 06](docs/best-practices/06-agentic-social.pdf)
+1. [From Model Call to Reliable Single Agent](docs/best-practices/01-reliable-single-agent.pdf)
+2. [Injecting Private Knowledge without Retraining](docs/best-practices/02-private-knowledge-and-rag.pdf)
+3. [Injecting Private Capabilities with Skills, Tools, and MCP](docs/best-practices/03-skills-tools-and-mcp.pdf)
+4. [Safety by Design: Guardrails, Permissions, and Audit](docs/best-practices/04-agent-security-and-audit.pdf)
+5. [Routing, Orchestration, and Multi-Agent Teamwork](docs/best-practices/05-routing-and-multi-agent-orchestration.pdf)
+6. [Agentic Social: Agents in Shared Human Contexts](docs/best-practices/06-agentic-social.pdf)
